@@ -30,4 +30,4 @@ python -m http.server 8000
 
 ## Hosting (free)
 
-Intended to be hosted on GitHub Pages: push to a public GitHub repo, then Settings → Pages → deploy from branch `main` / root. Every push to `main` updates the site. Because the site may be served from a subpath (`https://<user>.github.io/<repo>/`), always use relative links — never root-absolute paths like `/games/...`.
+Intended to be hosted on GitHub Pages: push to a public GitHub repo, then Settings → Pages → deploy from branch `main` / root. Every push to `main` updates the site. Because the site may be served from a subpath (`https://<user>.github.io/<repo>/`), always use relative links — never root-absolute paths like `/games/...`. The one exception is the share-card meta tags (`og:url`, `og:image`) in each game's `<head>`: crawlers like X need full `https://furukawakeigame.github.io/KeiFurukawaFunnyCh/...` URLs there.

@@ -44,6 +44,18 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
   - PCとスマホの両方で遊べる操作。タッチ操作中に画面がスクロールしないようにする。
   - 画面サイズに合わせて表示を調整すること
   - アイコン `games/<フォルダ名>/icon.png`（正方形のPNG、512×512 推奨）。トップページの一覧に表示する。ユーザーが用意していなければ、ゲームの絵を使って Canvas で描くなどして作り、見せてOKをもらう。ゲームのページにも `<link rel="icon" href="icon.png">` と `<link rel="apple-touch-icon" href="icon.png">` を入れる。
+  - X などにURLを貼ったときにアイコンとタイトルが出るよう、`<head>` にカード用の meta タグを入れる。`og:url` と `og:image` だけは相対パスでは読まれないので、公開URLを `https://` から書く。
+
+    ```html
+    <meta name="description" content="説明文">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="KeiFurukawaFunnyCh">
+    <meta property="og:title" content="タイトル">
+    <meta property="og:description" content="説明文">
+    <meta property="og:url" content="https://furukawakeigame.github.io/KeiFurukawaFunnyCh/games/<フォルダ名>/">
+    <meta property="og:image" content="https://furukawakeigame.github.io/KeiFurukawaFunnyCh/games/<フォルダ名>/icon.png">
+    <meta name="twitter:card" content="summary">
+    ```
 - 既存ゲームを持ち込む場合: 中身を `games/<フォルダ名>/` にコピーし、入口を `index.html` にする。上の「必ず入れるもの」が足りなければ追加し、`/` で始まるパスや `C:\...` のパスは相対パスに直す。ゲームの中身は、頼まれない限り変えない。
 
 ## 4. 確認
