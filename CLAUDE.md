@@ -15,6 +15,8 @@ Kei Furukawa's personal site for publishing self-made HTML games. Requirements f
 
 ## Adding a game
 
+The full flow (企画 → 仕様 → 実装 → 確認 → デプロイ) is the `/make-game` skill in `.claude/skills/make-game/`. In short:
+
 1. Put the game in `games/<game-name>/` with an `index.html` entry point (use relative paths for any assets).
 2. Copy an existing `<li>` in `index.html` and update the link (`games/<game-name>/`), title, and description.
 
