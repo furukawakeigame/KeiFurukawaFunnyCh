@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>しっぽふまないで！</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #fff5ec; }
+    body {
+      display: flex; flex-direction: column;
+      font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px;
+    }
+    header a { color: #b0607a; text-decoration: none; font-weight: bold; }
+    #sound {
+      font-size: 20px; background: #fff; border: 2px solid #f0c8d4; border-radius: 999px;
+      width: 44px; height: 36px; cursor: pointer;
+    }
+    #stage {
+      flex: 1; display: flex; justify-content: center; align-items: center;
+      touch-action: none; cursor: pointer; min-height: 0;
+    }
+    canvas { display: block; border-radius: 12px; box-shadow: 0 4px 16px rgba(176, 96, 122, 0.2); }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="音のオン/オフ">🔊</button>
+  </header>
+  <div id="stage"><canvas id="game"></canvas></div>
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const stage = document.getElementById('stage');
+    const soundBtn = document.getElementById('sound');
+
+    // 論理座標。スマホの縦画面が基本。幅は固定し、高さは画面の縦横比に合わせて 640〜920 の間で変える
+    const W = 420;
+    let H = 760;
+    // ねこ・なわ・ねずみは高さ 450 の「舞台」座標で描き、OY だけ下にずらして画面に置く
+    let OY = 0;
+    const LANE = 392;      // 床の高さ（ねずみの足もと）
+    const AY = 286;        // なわを回す軸の高さ
+    const R = 115;         // なわの半径（床に少し引きずる長さ）
+    const ROPE_HALF = 125; // 真ん中からなわの持ち手までの距離
+    const CAT_DIST = 160;  // 真ん中からねこまでの距離
+    const G = 2600;        // 重力
+    const JUMP_V = -620;   // ジャンプの初速
+    const HOLD_MAX = 0.26; // 長押しが効く時間
+    const SAFE_H = 10;     // なわが通るとき、足がこれより高ければセーフ
+    const TAU = Math.PI * 2;
+    const FONT = '"Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif';
+    const LINE = '#4a3628';
+    // 顔は写真、からだの色は写真に合わせる（左: キジトラ / 右: シャム）
+    const CATS = {
+      left:  { img: 'cat0.png', imgSurprised: 'cat0_suprised.png', body: '#a8865f', belly: '#e6d5bb', stripe: '#5e4630', paw: '#d9c4a4', tail: '#9a7652' },
+      right: { img: 'cat1.png', imgSurprised: 'cat1_suprised.png', body: '#ecdfcb', belly: '#f6eee2', stripe: null,      paw: '#4a3426', tail: '#4a3426' },
+    };
+    for (const c of Object.values(CATS)) {
+      c.image = new Image(); c.image.src = c.img;
+      c.imageSurprised = new Image(); c.imageSurprised.src = c.imgSurprised;
+    }
+    const LEFT_COLOR = CATS.left.tail, RIGHT_COLOR = CATS.right.tail;
+
+    // ---------- 保存 ----------
+    function load(key, def) {
+      try { const v = localStorage.getItem(key); return v === null ? def : v; } catch (e) { return def; }
+    }
+    function save(key, v) { try { localStorage.setItem(key, v); } catch (e) {} }
+    let best = Number(load('dont-step-tail-best-jumps', 0)) || 0;
+    let soundOn = load('dont-step-tail-sound', '1') === '1';
+
+    // ---------- 音 ----------
+    let actx = null;
+    function audio() {
+      if (!soundOn) return null;
+      if (!actx) {
+        try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+      }
+      if (actx.state === 'suspended') actx.resume();
+      return actx;
+    }
+    function tone(type, f0, f1, dur, vol, delay) {
+      const a = audio(); if (!a) return;
+      const t = a.currentTime + (delay || 0);
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(f0, t);
+      o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      g.gain.setValueAtTime(vol, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      o.connect(g).connect(a.destination);
+      o.start(t); o.stop(t + dur);
+    }
+    const sfx = {
+      jump() { tone('sine', 480, 980, 0.12, 0.22); },
+      pass() { tone('triangle', 1200, 1200, 0.06, 0.12); },
+      fugya() {
+        tone('sawtooth', 700, 1300, 0.12, 0.18);
+        tone('sawtooth', 1300, 380, 0.4, 0.18, 0.12);
+      },
+      record() { [660, 880, 1100].forEach((f, i) => tone('triangle', f, f, 0.15, 0.2, 0.5 + i * 0.12)); },
+      nya() { tone('triangle', 820, 560, 0.18, 0.15); },
+    };
+
+    // ---------- BGM: ねこふんじゃった（作曲者不明の古い曲。音はコードで鳴らす） ----------
+    // 8分音符ずつの並び。低い音 → 和音 → 和音 … をくり返す（F♯長調・黒鍵だけ）
+    const N = { Cs4: 277.18, Fs4: 369.99, Gs4: 415.30, As4: 466.16, B4: 493.88, Cs5: 554.37, Ds5: 622.25 };
+    const I_BASS = [N.Fs4], I_CHORD = [N.As4, N.Cs5];
+    const V_BASS = [N.Cs4], V_CHORD = [N.Gs4, N.B4];
+    const groove = (bass, chord) => [bass, chord, chord, bass, chord, chord, bass, chord]; // 2小節分
+    const BGM = [
+      ...groove(I_BASS, I_CHORD),                    // ねこふんじゃった
+      ...groove(V_BASS, V_CHORD),                    // ねこふんじゃった
+      ...groove(V_BASS, V_CHORD),                    // ねこふんずけちゃったら
+      ...groove(I_BASS, I_CHORD).slice(0, 6), [N.Ds5], [N.Cs5], // ひっかいた ＋ 次の「ねこ」
+    ];
+    const BGM_PICKUP = BGM.length - 2; // 最初は「ねこ」から入る
+    let bgmOn = false, bgmStep = 0, bgmNext = 0, bgmTimer = null;
+
+    function bgmNote(freqs, t, dur) {
+      for (const f of freqs) {
+        const o = actx.createOscillator(), g = actx.createGain();
+        o.type = 'triangle';
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.07, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(g).connect(actx.destination);
+        o.start(t); o.stop(t + dur + 0.02);
+      }
+    }
+    function scheduleBgm() {
+      if (!bgmOn || !actx) return;
+      // 回数が増えるほど少しずつテンポを上げる
+      const stepDur = 0.2 / (1 + Math.min(count, 40) * 0.008);
+      if (bgmNext < actx.currentTime - 0.1) bgmNext = actx.currentTime + 0.05; // タブが裏にいた後の追いつき防止
+      while (bgmNext < actx.currentTime + 0.15) {
+        bgmNote(BGM[bgmStep], bgmNext, stepDur * 0.8);
+        bgmNext += stepDur;
+        bgmStep = (bgmStep + 1) % BGM.length;
+      }
+    }
+    function startBgm() {
+      if (!audio()) return;
+      bgmOn = true;
+      bgmStep = BGM_PICKUP;
+      bgmNext = actx.currentTime + 0.05;
+      if (!bgmTimer) bgmTimer = setInterval(scheduleBgm, 25);
+    }
+    function stopBgm() {
+      bgmOn = false;
+      if (bgmTimer) { clearInterval(bgmTimer); bgmTimer = null; }
+    }
+    function updateSoundBtn() { soundBtn.textContent = soundOn ? '🔊' : '🔇'; }
+    updateSoundBtn();
+    soundBtn.addEventListener('click', () => {
+      soundOn = !soundOn;
+      save('dont-step-tail-sound', soundOn ? '1' : '0');
+      updateSoundBtn();
+      if (!soundOn) stopBgm();
+      else if (state === 'play') startBgm();
+      soundBtn.blur();
+    });
+
+    // ---------- 画面サイズ ----------
+    let scale = 1;
+    function resize() {
+      const cw = stage.clientWidth - 16, ch = stage.clientHeight - 16;
+      H = Math.round(Math.max(640, Math.min(920, ch / cw * W)));
+      OY = Math.max(0, Math.round(H * 0.6 - LANE));
+      scale = Math.min(cw / W, ch / H);
+      const dpr = window.devicePixelRatio || 1;
+      canvas.style.width = W * scale + 'px';
+      canvas.style.height = H * scale + 'px';
+      canvas.width = Math.round(W * scale * dpr);
+      canvas.height = Math.round(H * scale * dpr);
+      ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ---------- ゲームの状態 ----------
+    let state = 'ready'; // ready（タップ待ち） / play / over
+    let time = 0, count = 0;
+    let my = LANE, vy = 0, onGround = true, held = false, holdT = 0, lastPress = -1;
+    // theta = 0 でなわが真上、PI で足もと。sin(theta) > 0 のときは手前側
+    let theta = 0, omega = TAU * 0.5, pauseT = 0;
+    let yawnT = 0, fastT = 0, popT = 1;
+    let overT = 0, newRecord = false, zoomSide = 'left';
+
+    // ねこが話す（ねこと関係ない）うんちく。TALK_START 回とんだら話しはじめ、TALK_EVERY 回ごとに次を話す
+    const TALK_START = 10, TALK_EVERY = 8, TALK_TIME = 4;
+    const TRIVIA = [
+      { who: 'any', text: 'タコの心臓は、3つあるんだニャ。' },
+      { who: 'any', text: '金星では、1日が1年より長いんだニャ。' },
+      { who: 'any', text: 'バナナは、植物学ではベリーのなかまなんだニャ。' },
+      { who: 'any', text: 'イチゴのつぶつぶが、ほんとうの果実なんだニャ。' },
+      { who: 'any', text: 'エッフェル塔は、夏になると少し背がのびるんだニャ。' },
+      { who: 'any', text: 'シャチは、イルカのなかまなんだニャ。' },
+      { who: 'any', text: 'コアラの指紋は、人間の指紋にそっくりなんだニャ。' },
+      { who: 'any', text: 'カタツムリには、歯が何千本もあるんだニャ。' },
+      { who: 'any', text: '日本の国鳥は、キジなんだニャ。' },
+      { who: 'any', text: '富士山の山頂あたりは、県境が決まっていないんだニャ。' },
+      { who: 'any', text: 'カミナリは、太陽の表面より熱いんだニャ。' },
+      { who: 'any', text: 'キリンの首の骨は、人間と同じ7個なんだニャ。' },
+      { who: 'any', text: '1円玉は、そっと置くと水に浮くんだニャ。' },
+      { who: 'any', text: '牛には、胃が4つあるんだニャ。' },
+      { who: 'any', text: 'ペンギンのひざは、羽毛の中にかくれているんだニャ。' },
+      { who: 'any', text: 'ハチミツは、とてもくさりにくい食べ物なんだニャ。' },
+    ];
+    let talk = null, nextTalkAt = TALK_START, talkQueue = [], lastSpeaker = 'right';
+
+    function sayTrivia() {
+      if (talkQueue.length === 0) {
+        talkQueue = TRIVIA.slice().sort(() => Math.random() - 0.5);
+      }
+      const want = lastSpeaker === 'left' ? 'right' : 'left';
+      let i = talkQueue.findIndex(t => t.who === want || t.who === 'any');
+      if (i < 0) i = 0;
+      const item = talkQueue.splice(i, 1)[0];
+      const side = item.who === 'any' ? want : item.who;
+      lastSpeaker = side;
+      talk = { side, text: item.text, t: 0 };
+      sfx.nya();
+    }
+
+    const rand = (a, b) => a + Math.random() * (b - a);
+    const MX = () => W / 2;
+
+    // 最初のジャンプでちょうどなわがくぐるように、なわは足もとの少し手前で待たせておく
+    const START_OMEGA = TAU * 0.55;
+    const FIRST_PASS = 0.22; // ジャンプしてから、なわが足もとを通るまでの時間
+    const READY_THETA = Math.PI - START_OMEGA * FIRST_PASS;
+
+    // タップでジャンプと同時に、なわを回しはじめる
+    function startGame() {
+      state = 'play';
+      startBgm();
+      count = 0;
+      my = LANE; vy = 0; onGround = true; holdT = 0; lastPress = -1;
+      theta = READY_THETA; omega = START_OMEGA; pauseT = 0;
+      yawnT = 0; fastT = 0; popT = 1;
+      talk = null; nextTalkAt = TALK_START;
+      jump();
+    }
+
+    function showReady() {
+      state = 'ready';
+      theta = READY_THETA; omega = START_OMEGA; pauseT = 0;
+    }
+
+    // なわが真上を通るたびに、次の1周の速さを決める
+    function nextRev() {
+      const base = Math.min(1.35, 0.55 + count * 0.015);
+      let f = 1;
+      if (count >= 8) f = rand(0.88, 1.12);
+      if (count >= 25 && Math.random() < 0.15) {
+        f = 1.3; fastT = 0.9;
+      } else if (count >= 15 && Math.random() < 0.15) {
+        pauseT = rand(0.35, 0.8); yawnT = pauseT;
+        theta = Math.round(theta / TAU) * TAU;
+      }
+      omega = TAU * Math.min(1.75, base * f);
+    }
+
+    function jump() {
+      vy = JUMP_V; onGround = false; holdT = 0;
+      sfx.jump();
+    }
+
+    function gameOver() {
+      state = 'over';
+      stopBgm();
+      overT = 0;
+      zoomSide = Math.random() < 0.5 ? 'left' : 'right';
+      theta = Math.round((theta - Math.PI) / TAU) * TAU + Math.PI;
+      sfx.fugya();
+      newRecord = count > best;
+      if (newRecord) {
+        best = count;
+        save('dont-step-tail-best-jumps', best);
+        sfx.record();
+      }
+    }
+
+    // ---------- 入力 ----------
+    function press() {
+      audio();
+      held = true;
+      if (state === 'ready') { startGame(); return; }
+      if (state === 'over') {
+        if (overT > 1.0) startGame();
+        return;
+      }
+      if (onGround) jump(); else lastPress = time;
+    }
+    function release() { held = false; }
+
+    const JUMP_KEYS = ['Space', 'ArrowUp', 'KeyW'];
+    window.addEventListener('keydown', e => {
+      if (!JUMP_KEYS.includes(e.code)) return;
+      e.preventDefault();
+      if (!e.repeat) press();
+    });
+    window.addEventListener('keyup', e => {
+      if (!JUMP_KEYS.includes(e.code)) return;
+      e.preventDefault();
+      release();
+    });
+    stage.addEventListener('pointerdown', e => { e.preventDefault(); press(); });
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+    stage.addEventListener('contextmenu', e => e.preventDefault());
+    window.addEventListener('blur', release);
+
+    // ---------- 更新 ----------
+    function updateMouse(dt) {
+      if (onGround) return;
+      if (held && state === 'play') holdT += dt;
+      const holding = held && state === 'play' && holdT < HOLD_MAX && vy < 0;
+      vy += G * (holding ? 0.35 : 1) * dt;
+      my += vy * dt;
+      if (my >= LANE) {
+        my = LANE; vy = 0; onGround = true;
+        if (state === 'play' && time - lastPress < 0.12) jump();
+      }
+    }
+
+    function updateRope(dt) {
+      if (pauseT > 0) { pauseT -= dt; return; }
+      const prev = theta;
+      theta += omega * dt;
+      const passedBottom = Math.floor((prev - Math.PI) / TAU) < Math.floor((theta - Math.PI) / TAU);
+      const passedTop = Math.floor(prev / TAU) < Math.floor(theta / TAU);
+      if (passedBottom && state === 'play') {
+        if (my > LANE - SAFE_H) { gameOver(); return; }
+        count++; popT = 0;
+        if (count >= nextTalkAt) { sayTrivia(); nextTalkAt += TALK_EVERY; }
+        sfx.pass();
+      }
+      if (passedTop && state === 'play') nextRev();
+    }
+
+    function step(dt) {
+      time += dt;
+      popT += dt;
+      yawnT -= dt; fastT -= dt;
+      if (talk && (talk.t += dt) > TALK_TIME) talk = null;
+      if (state === 'over') overT += dt;
+
+      updateMouse(dt);
+      if (state === 'play') updateRope(dt);
+      // タップ待ちの間、なわは足もとの手前で小さくゆれている
+      else if (state === 'ready') theta = READY_THETA + 0.06 * Math.sin(time * 3);
+    }
+
+    // ---------- 描画 ----------
+    // 舞台座標で描く（呼ぶ前に OY だけずらしておく）。空と地面は画面の上下の端までのばす
+    function drawBackground() {
+      const sky = ctx.createLinearGradient(0, -OY, 0, 310);
+      sky.addColorStop(0, '#cfeaff');
+      sky.addColorStop(1, '#fff0f6');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, -OY, W, 310 + OY);
+
+      ctx.fillStyle = 'rgba(255, 240, 180, 0.8)';
+      ctx.beginPath(); ctx.arc(W - 70, 90 - OY * 0.6, 32, 0, Math.PI * 2); ctx.fill();
+
+      // 雲
+      ctx.fillStyle = '#ffffff';
+      [[40, 90, 1], [260, 150, 0.8], [180, 30, 1.1], [380, 200, 0.7], [320, -40, 0.9]].forEach(([bx, by, s]) => {
+        const span = W + 240;
+        const x = (((bx - time * 12) % span) + span) % span - 120;
+        ctx.beginPath();
+        ctx.arc(x, by, 22 * s, 0, Math.PI * 2);
+        ctx.arc(x + 26 * s, by - 10 * s, 26 * s, 0, Math.PI * 2);
+        ctx.arc(x + 54 * s, by, 20 * s, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 遠くの丘
+      ctx.fillStyle = '#d6f0d0';
+      ctx.beginPath();
+      ctx.moveTo(0, 310);
+      for (let x = 0; x <= W; x += 10) {
+        ctx.lineTo(x, 262 - 18 * Math.sin(x * 0.008) - 10 * Math.sin(x * 0.019));
+      }
+      ctx.lineTo(W, 310);
+      ctx.fill();
+
+      // 草と地面
+      ctx.fillStyle = '#bfe6b4';
+      ctx.fillRect(0, 296, W, 30);
+      ctx.fillStyle = '#fbe3bf';
+      ctx.fillRect(0, 322, W, H - OY - 322);
+      ctx.fillStyle = '#f6d6a8';
+      ctx.fillRect(0, 410, W, 6);
+      ctx.fillStyle = '#efcf9f';
+      for (let row = 0; 430 + row * 40 < H - OY; row++) {
+        for (let i = 0; i < 5; i++) {
+          const x = 30 + i * 97 + (row % 2) * 45;
+          ctx.beginPath(); ctx.ellipse(x, 430 + row * 40 + (i % 3) * 7, 5, 3, 0, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      ctx.strokeStyle = '#a8d89c'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+      for (let i = 0; i < 4; i++) {
+        const x = 40 + i * 113;
+        ctx.beginPath();
+        ctx.moveTo(x - 5, 326); ctx.lineTo(x - 7, 317);
+        ctx.moveTo(x, 326); ctx.lineTo(x, 314);
+        ctx.moveTo(x + 5, 326); ctx.lineTo(x + 7, 317);
+        ctx.stroke();
+      }
+
+      // ねずみの影
+      const h = LANE - my;
+      ctx.fillStyle = `rgba(150, 110, 80, ${0.25 - Math.min(0.15, h / 1000)})`;
+      ctx.beginPath(); ctx.ellipse(MX() + 4, LANE + 2, 22 - Math.min(10, h / 15), 5, 0, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // なわ（2匹のしっぽ）の形。left はおしり → 真ん中、right は真ん中 → おしり
+    function ropePaths() {
+      const cx = MX();
+      const wob = -8 * Math.cos(theta); // 持ち手も小さく円を描く
+      const lHip = { x: cx - CAT_DIST + 28, y: 372 }, rHip = { x: cx + CAT_DIST - 28, y: 372 };
+      const la = { x: cx - ROPE_HALF, y: AY + wob }, ra = { x: cx + ROPE_HALF, y: AY + wob };
+      const curve = (p0, c, p1, n) => {
+        const out = [];
+        for (let i = 0; i <= n; i++) {
+          const u = i / n;
+          out.push({ x: (1 - u) * (1 - u) * p0.x + 2 * u * (1 - u) * c.x + u * u * p1.x,
+                     y: (1 - u) * (1 - u) * p0.y + 2 * u * (1 - u) * c.y + u * u * p1.y });
+        }
+        return out;
+      };
+      const rope = [];
+      const N = 40;
+      for (let i = 0; i <= N; i++) {
+        const u = i / N;
+        const s = Math.sin(Math.PI * u);
+        const y3 = Math.min(LANE - 5, la.y - R * Math.cos(theta) * s);
+        const z = R * Math.sin(theta) * s;
+        rope.push({ x: la.x + (ra.x - la.x) * u, y: y3 - z * 0.12 });
+      }
+      const left = curve(lHip, { x: lHip.x + 20, y: 330 }, la, 6).concat(rope.slice(1, N / 2 + 1));
+      const right = rope.slice(N / 2, N).concat(curve(ra, { x: rHip.x - 20, y: 330 }, rHip, 6));
+      return { left, right, mid: rope[N / 2] };
+    }
+
+    function strokePath(pts) {
+      ctx.beginPath();
+      pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+      ctx.stroke();
+    }
+
+    function drawRope() {
+      const { left, right, mid } = ropePaths();
+      const front = Math.sin(theta);
+      const w = 8.5 + front * 1.5; // 手前に来るほど太く見せる
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.strokeStyle = LINE; ctx.lineWidth = w + 4.5;
+      strokePath(left); strokePath(right);
+      ctx.lineWidth = w;
+      ctx.strokeStyle = LEFT_COLOR; strokePath(left);
+      ctx.strokeStyle = RIGHT_COLOR; strokePath(right);
+
+      // 真ん中のリボン
+      ctx.fillStyle = '#ff8fb0'; ctx.strokeStyle = LINE; ctx.lineWidth = 2;
+      [-1, 1].forEach(d => {
+        ctx.beginPath();
+        ctx.moveTo(mid.x, mid.y);
+        ctx.lineTo(mid.x + d * 12, mid.y - 7);
+        ctx.lineTo(mid.x + d * 12, mid.y + 7);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      });
+      ctx.beginPath(); ctx.arc(mid.x, mid.y, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+
+    // 正面を向いて座るねこ。顔は写真。dir は真ん中の方向（-1 左 / 1 右）
+    const HEAD_W = 88;
+    function drawCat(cx, cat, dir) {
+      const surprised = state === 'over';
+      const yawning = yawnT > 0 && state === 'play';
+      const off = surprised ? -30 * Math.sin(Math.min(overT, 0.35) / 0.35 * Math.PI)
+                            : -Math.abs(Math.sin(theta)) * 2;
+      ctx.lineWidth = 2.5; ctx.strokeStyle = LINE; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+      // からだ
+      ctx.fillStyle = cat.body;
+      ctx.beginPath(); ctx.ellipse(cx, 360 + off, 38, 32, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.save();
+      ctx.beginPath(); ctx.ellipse(cx, 360 + off, 38, 32, 0, 0, Math.PI * 2); ctx.clip();
+      ctx.fillStyle = cat.belly;
+      ctx.beginPath(); ctx.ellipse(cx, 368 + off, 18, 24, 0, 0, Math.PI * 2); ctx.fill();
+      if (cat.stripe) {
+        ctx.strokeStyle = cat.stripe; ctx.lineWidth = 4;
+        [-1, 1].forEach(s => {
+          [0, 12, 24].forEach(dy => {
+            ctx.beginPath();
+            ctx.moveTo(cx + s * 38, 342 + dy + off);
+            ctx.quadraticCurveTo(cx + s * 28, 346 + dy + off, cx + s * 24, 354 + dy + off);
+            ctx.stroke();
+          });
+        });
+      }
+      ctx.restore();
+      ctx.lineWidth = 2.5; ctx.strokeStyle = LINE;
+      ctx.fillStyle = cat.paw;
+      [-12, 12].forEach(px => {
+        ctx.beginPath(); ctx.ellipse(cx + px, 389 + Math.min(0, off), 10, 6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      });
+
+      // 顔（写真）。びっくりで表情を切り替えて震え、あくびで首をかしげる
+      const img = surprised && cat.imageSurprised.complete && cat.imageSurprised.naturalWidth ? cat.imageSurprised : cat.image;
+      const hx = cx + dir * 2, hy = 336 + off; // 顔の下端（あご）の位置
+      if (img.complete && img.naturalWidth) {
+        const w = HEAD_W * (surprised ? 1.08 : 1);
+        const h = w * img.naturalHeight / img.naturalWidth;
+        let rot = dir * 0.06;
+        if (yawning) rot = -dir * 0.22;
+        if (surprised && overT < 0.6) rot += Math.sin(overT * 60) * 0.08;
+        ctx.save();
+        ctx.translate(hx, hy);
+        ctx.rotate(rot);
+        ctx.drawImage(img, -w / 2, -h * 0.94, w, h);
+        ctx.restore();
+      }
+
+      if (surprised) outlinedText('フギャー！', cx, 236 + off, 26, '#ff5c85', 'center');
+      else if (yawning) outlinedText('ふわぁ…', cx, 236, 18, '#7a5a8a', 'center');
+    }
+
+    function drawMouse() {
+      const dead = state === 'over';
+      const x = MX();
+      const breathe = onGround ? Math.sin(time * 6) * 0.8 : 0;
+      ctx.save();
+      ctx.translate(x, my);
+      if (!onGround) ctx.rotate(Math.max(-0.25, Math.min(0.25, vy / 2400)));
+      ctx.lineWidth = 2.5; ctx.strokeStyle = '#6d6280'; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+      // しっぽ
+      ctx.beginPath();
+      ctx.moveTo(-18, -10);
+      ctx.quadraticCurveTo(-32, -4 + Math.sin(time * 8) * 4, -42, -16);
+      ctx.strokeStyle = '#f2a7bb'; ctx.lineWidth = 3; ctx.stroke();
+
+      // 足（空中では縮める）
+      ctx.strokeStyle = '#6d6280'; ctx.lineWidth = 2.5;
+      ctx.fillStyle = '#f2a7bb';
+      const tuck = onGround ? 0 : -4;
+      [-7, 7].forEach(lx => {
+        ctx.beginPath(); ctx.ellipse(lx, -2 + tuck, 5, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      });
+
+      // からだ
+      ctx.fillStyle = '#c4bfd3';
+      ctx.beginPath(); ctx.ellipse(0, -13 + breathe, 20, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(14, -15 + breathe, 12, 10, -0.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      // 耳
+      ctx.beginPath(); ctx.arc(6, -27 + breathe, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#f7c4d2';
+      ctx.beginPath(); ctx.arc(6, -27 + breathe, 5, 0, Math.PI * 2); ctx.fill();
+      // 顔
+      ctx.fillStyle = '#ff8fa3';
+      ctx.beginPath(); ctx.arc(26, -15 + breathe, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#4a4058'; ctx.lineWidth = 2;
+      if (dead) {
+        ctx.beginPath();
+        ctx.moveTo(15, -21); ctx.lineTo(21, -15); ctx.moveTo(21, -21); ctx.lineTo(15, -15);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = '#4a4058';
+        ctx.beginPath(); ctx.arc(18, -18 + breathe, 2.5, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(24, -12); ctx.lineTo(34, -10);
+      ctx.moveTo(24, -14); ctx.lineTo(34, -16);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function outlinedText(text, x, y, size, color, align) {
+      ctx.font = `bold ${size}px ${FONT}`;
+      ctx.textAlign = align || 'left';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = size / 4; ctx.strokeStyle = '#fff'; ctx.strokeText(text, x, y);
+      ctx.fillStyle = color; ctx.fillText(text, x, y);
+      ctx.textAlign = 'left';
+    }
+
+    // フギャー！のとき、びっくり顔がねこの位置から画面いっぱいまで拡大する
+    const ZOOM_TIME = 0.3;
+    function drawZoom() {
+      const img = CATS[zoomSide].imageSurprised;
+      if (!img.complete || !img.naturalWidth) return;
+      const k = Math.min(1, overT / ZOOM_TIME);
+      const e = 1 - Math.pow(1 - k, 3);
+      const iw = img.naturalWidth, ih = img.naturalHeight;
+      // 縦画面なので、横ははみ出すくらい大きく。ただし目が画面の外に出ないところで止める
+      const full = Math.max(W * 1.15 / iw, Math.min(H * 0.75 / ih, W * 1.6 / iw));
+      const startS = HEAD_W / iw;
+      const pulse = 1 + 0.06 * Math.sin(overT * 22) * Math.exp(-overT * 5);
+      const s = (startS + (full - startS) * e) * pulse;
+      const catX = MX() + (zoomSide === 'left' ? -1 : 1) * CAT_DIST;
+      const fx = catX + (W / 2 - catX) * e;
+      const fy = OY + 300 + (H * 0.45 - OY - 300) * e;
+      const shake = overT < 0.7 ? 8 * (1 - overT / 0.7) : 0;
+
+      ctx.save();
+      ctx.translate(rand(-shake, shake), rand(-shake, shake));
+      // 背景の集中線
+      ctx.globalAlpha = e;
+      ctx.fillStyle = '#ffe3ec';
+      ctx.fillRect(-20, -20, W + 40, H + 40);
+      ctx.strokeStyle = 'rgba(255, 92, 133, 0.35)'; ctx.lineWidth = 4;
+      for (let i = 0; i < 36; i++) {
+        const a = i / 36 * TAU;
+        ctx.beginPath();
+        ctx.moveTo(W / 2 + Math.cos(a) * 120, H * 0.45 + Math.sin(a) * 160);
+        ctx.lineTo(W / 2 + Math.cos(a) * H, H * 0.45 + Math.sin(a) * H);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      const w = iw * s, h = ih * s;
+      ctx.drawImage(img, fx - w / 2, fy - h * 0.62, w, h);
+      if (k >= 1) outlinedText('フギャー！', W / 2, 96, 56, '#ff5c85', 'center');
+      ctx.restore();
+    }
+
+    // 文字幅に合わせて折り返す（日本語なので1文字ずつ測る）
+    function wrapText(text, maxW) {
+      const lines = [];
+      let line = '';
+      for (const ch of text) {
+        if (line && ctx.measureText(line + ch).width > maxW) { lines.push(line); line = ''; }
+        line += ch;
+      }
+      if (line) lines.push(line);
+      return lines;
+    }
+
+    function drawTalk() {
+      if (!talk || state !== 'play') return;
+      const dir = talk.side === 'left' ? -1 : 1;
+      const cx = MX() + dir * CAT_DIST;
+      const size = 15, lh = 21, pad = 10;
+      ctx.font = `bold ${size}px ${FONT}`;
+      const lines = wrapText(talk.text, W - 80);
+      const tw = Math.max(...lines.map(l => ctx.measureText(l).width));
+      const bw = tw + pad * 2, bh = lines.length * lh + pad * 2 - 4;
+      const bx = Math.max(8, Math.min(W - bw - 8, cx - dir * 40 - bw / 2));
+      const by = 222 - bh;
+      const s = Math.min(1, talk.t * 8);
+      const fade = Math.min(1, (TALK_TIME - talk.t) * 3);
+      ctx.save();
+      ctx.globalAlpha = fade;
+      ctx.translate(cx, 240);
+      ctx.scale(s, s);
+      ctx.translate(-cx, -240);
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = LINE; ctx.lineWidth = 2.5;
+      roundRect(bx, by, bw, bh, 12); ctx.fill(); ctx.stroke();
+      // 吹き出しのしっぽ
+      const tx = Math.max(bx + 16, Math.min(bx + bw - 16, cx));
+      ctx.beginPath();
+      ctx.moveTo(tx - 8, 222 - 1); ctx.lineTo(cx, 240); ctx.lineTo(tx + 8, 222 - 1);
+      ctx.fill(); ctx.stroke();
+      ctx.fillRect(tx - 7, 218, 14, 4);
+      ctx.fillStyle = '#5a4a6a';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      lines.forEach((l, i) => ctx.fillText(l, bx + pad, by + pad + i * lh));
+      ctx.textBaseline = 'alphabetic';
+      ctx.restore();
+    }
+
+    function roundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    function drawHUD() {
+      const pop = 1 + 0.3 * Math.max(0, 1 - popT * 5);
+      ctx.save();
+      ctx.translate(W / 2, 52);
+      ctx.scale(pop, pop);
+      outlinedText(`${count} 回`, 0, 0, 36, '#7a5a8a', 'center');
+      ctx.restore();
+      outlinedText(`BEST ${best}`, W - 16, 34, 18, '#b0607a', 'right');
+      if (fastT > 0 && state === 'play') outlinedText('はやい！', W / 2, OY + 120, 28, '#ff7fa8', 'center');
+    }
+
+    function drawResult() {
+      if (overT < 1.0) return; // 顔のアップをしっかり見せてから結果を出す
+      // 顔のアップの目が見えるよう、結果は画面の下に出す
+      const pw = 340, ph = 180, px = W / 2 - pw / 2, py = H - ph - 32;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+      roundRect(px, py, pw, ph, 20); ctx.fill();
+      ctx.strokeStyle = '#f0c8d4'; ctx.lineWidth = 3; ctx.stroke();
+      outlinedText('しっぽをふんじゃった…', W / 2, py + 38, 20, '#7a5a8a', 'center');
+      outlinedText(`${count} 回`, W / 2, py + 88, 44, '#ff7fa8', 'center');
+      if (newRecord) outlinedText('NEW RECORD!', W / 2, py + 122, 22, '#ffaa33', 'center');
+      else outlinedText(`BEST ${best} 回`, W / 2, py + 122, 18, '#b0607a', 'center');
+      if (Math.floor(time * 2) % 2 === 0) {
+        outlinedText('タップでもう一度', W / 2, py + 160, 20, '#b0607a', 'center');
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      ctx.save();
+      ctx.translate(0, OY);
+      drawBackground();
+      drawCat(MX() - CAT_DIST, CATS.left, 1);
+      drawCat(MX() + CAT_DIST, CATS.right, -1);
+      // なわが奥にあるときはねずみの後ろ、手前にあるときは前に描く
+      const ropeFront = state !== 'over' && Math.sin(theta) > 0;
+      if (!ropeFront) drawRope();
+      drawMouse();
+      if (ropeFront) drawRope();
+      drawTalk();
+      ctx.restore();
+      drawHUD();
+      if (state === 'over') { drawZoom(); drawResult(); }
+    }
+
+    // ---------- ループ ----------
+    let last = performance.now();
+    function loop(now) {
+      let dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      // 物理は細かく刻んで、フレームレートが違ってもジャンプの高さが変わらないようにする
+      while (dt > 0) {
+        const d = Math.min(dt, 1 / 120);
+        step(d);
+        dt -= d;
+      }
+      draw();
+      requestAnimationFrame(loop);
+    }
+    showReady();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
