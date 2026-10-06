@@ -52,8 +52,8 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
     <meta property="og:site_name" content="KeiFurukawaFunnyCh">
     <meta property="og:title" content="タイトル">
     <meta property="og:description" content="説明文">
-    <meta property="og:url" content="https://furukawakeigame.github.io/KeiFurukawaFunnyCh/games/<フォルダ名>/">
-    <meta property="og:image" content="https://furukawakeigame.github.io/KeiFurukawaFunnyCh/games/<フォルダ名>/icon.png">
+    <meta property="og:url" content="https://keifurukawafunnych.com/games/<フォルダ名>/">
+    <meta property="og:image" content="https://keifurukawafunnych.com/games/<フォルダ名>/icon.png">
     <meta name="twitter:card" content="summary">
     ```
 - 既存ゲームを持ち込む場合: 中身を `games/<フォルダ名>/` にコピーし、入口を `index.html` にする。上の「必ず入れるもの」が足りなければ追加し、`/` で始まるパスや `C:\...` のパスは相対パスに直す。ゲームの中身は、頼まれない限り変えない。
@@ -80,5 +80,5 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
 
 2. 追加・変更したファイルだけを `git add` し、`Add game: <タイトル>` というメッセージでコミットして `git push` する。
 3. 数分でサイトに反映されることを伝え、URLを案内する。
-   - ゲーム: `https://furukawakeigame.github.io/KeiFurukawaFunnyCh/games/<フォルダ名>/`
-   - トップ: `https://furukawakeigame.github.io/KeiFurukawaFunnyCh/`
+   - ゲーム: `https://keifurukawafunnych.com/games/<フォルダ名>/`
+   - トップ: `https://keifurukawafunnych.com/`
