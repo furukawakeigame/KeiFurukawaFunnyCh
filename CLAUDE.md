@@ -22,7 +22,7 @@ The full flow (企画 → 仕様 → 実装 → 確認 → デプロイ) is the 
 
 ## Running locally
 
-No build. Open `index.html` directly in a browser, or serve the folder so relative paths behave like production:
+No build. Open `index.html` directly in a browser, or serve the folder so relative paths behave like production. This PC has no Python, so use the PowerShell server `.claude/serve.ps1` (also launchable as `site` from `.claude/launch.json`); elsewhere:
 
 ```
 python -m http.server 8000
