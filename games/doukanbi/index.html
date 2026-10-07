@@ -267,11 +267,8 @@
     // 描画用
     const view = {
       mode: 'title',   // title | idle | drink | rest | dead | clear
-      meter: 0,        // 表示中の肝臓ダメージ g
-      ratio: 0,        // 表示中のダメージ ÷ 許容量（顔色に使う）
       drink: null,     // { d, x, y, s, a }
       label: '',
-      puff: 0,         // 飲んだ瞬間にほっぺがふくらむ
       fall: 0,         // 倒れる角度 0〜1
       t: 0,
     };
@@ -313,7 +310,7 @@
 
     function showTitle() {
       game = null;
-      view.mode = 'title'; view.meter = 0; view.ratio = 0; view.fall = 0; view.drink = null; view.label = '';
+      view.mode = 'title'; view.fall = 0; view.drink = null; view.label = '';
       $('mySeed').textContent = seed;
       $('gen').textContent = gen > 1 ? '第' + gen + '世代' : '';
       updateHud();
@@ -338,7 +335,7 @@
     function startGame() {
       sfx.click();
       game = { day: 1, damage: 0, total: 0, drinkDays: 0, history: [], over: false };
-      view.meter = 0; view.ratio = 0; view.fall = 0;
+      view.fall = 0;
       hidePanel();
       drinkDay();
     }
@@ -358,7 +355,6 @@
         view.drink = { d, x: 340, y: 90, s: d[5], a: 0 };
         await tween(260, p => { view.drink.a = p; view.drink.x = 340 - 40 * p; });
         await sleep(140);
-        const from = m;
         m += d[2];
         game.total += d[2];
         sfx.gulp();
@@ -366,20 +362,15 @@
           const e = p * p;
           view.drink.x = 300 - 100 * e; view.drink.y = 90 + 110 * e;
           view.drink.s = d[5] * (1 - 0.6 * e); view.drink.a = 1 - e;
-          view.meter = from + (m - from) * p; view.ratio = view.meter / tr.limit;
-          view.puff = Math.sin(p * Math.PI);
         });
-        view.drink = null; view.puff = 0;
+        view.drink = null;
         updateHud();
         if (m > tr.limit) return die();
         await sleep(160);
       }
       view.label = '';
       game.damage = m * tr.carry;
-      await sleep(300);
-      // 寝ているあいだに一部が分解される
-      const from = view.meter;
-      await tween(500, p => { view.meter = from + (game.damage - from) * p; view.ratio = view.meter / tr.limit; });
+      await sleep(800);
       nextDay();
     }
 
@@ -390,9 +381,8 @@
       updateHud();
       view.mode = 'rest';
       sfx.rest();
-      const from = game.damage;
       game.damage *= tr.recover;
-      await tween(1100, p => { view.meter = from + (game.damage - from) * p; view.ratio = view.meter / tr.limit; });
+      await sleep(1100);
       await sleep(250);
       nextDay();
     }
@@ -522,20 +512,13 @@
 
     const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
     const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
-    function liverColor(r, dead) {
-      if (dead) return [150, 145, 140];
-      const healthy = [196, 84, 70], pale = [190, 150, 120], sick = [150, 160, 105];
-      r = Math.max(0, Math.min(1, r));
-      return r < 0.6 ? mix(healthy, pale, r / 0.6) : mix(pale, sick, (r - 0.6) / 0.4);
-    }
-
     // 肝臓くん
     function drawLiver(c, x, y, s, opt) {
-      const { ratio = 0, dead = false, sleep = false, puff = 0, t = 0 } = opt;
+      const { dead = false } = opt;
       c.save();
       c.translate(x, y);
       c.scale(s, s);
-      const col = liverColor(ratio, dead);
+      const col = dead ? [150, 145, 140] : [196, 84, 70];
       // からだ（右葉が大きく、左葉が細い）
       c.beginPath();
       c.moveTo(-110, -18);
@@ -552,9 +535,11 @@
       c.beginPath(); c.ellipse(-55, -38, 26, 9, -0.2, 0, Math.PI * 2);
       c.fillStyle = 'rgba(255,255,255,0.28)'; c.fill();
       // ほっぺ
-      c.fillStyle = dead ? 'rgba(0,0,0,0)' : `rgba(255,120,120,${0.35 + puff * 0.3})`;
-      c.beginPath(); c.ellipse(-62, 12, 12 + puff * 4, 8 + puff * 3, 0, 0, Math.PI * 2); c.fill();
-      c.beginPath(); c.ellipse(28, 10, 12 + puff * 4, 8 + puff * 3, 0, 0, Math.PI * 2); c.fill();
+      if (!dead) {
+        c.fillStyle = 'rgba(255,120,120,0.35)';
+        c.beginPath(); c.ellipse(-62, 12, 12, 8, 0, 0, Math.PI * 2); c.fill();
+        c.beginPath(); c.ellipse(28, 10, 12, 8, 0, 0, Math.PI * 2); c.fill();
+      }
       // 顔
       c.strokeStyle = '#3a2016'; c.fillStyle = '#3a2016'; c.lineWidth = 5; c.lineCap = 'round';
       const ex1 = -42, ex2 = 8, ey = -10;
@@ -564,38 +549,9 @@
         }
         c.beginPath(); c.moveTo(-28, 26); c.quadraticCurveTo(-17, 18, -6, 26); c.stroke();
         c.beginPath(); c.ellipse(-12, 32, 5, 8, 0, 0, Math.PI * 2); c.fillStyle = '#e88'; c.fill();
-      } else if (sleep) {
-        for (const ex of [ex1, ex2]) { c.beginPath(); c.arc(ex, ey, 8, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke(); }
-        c.beginPath(); c.ellipse(-17, 22, 5, 4 + Math.sin(t * 3) * 1.5, 0, 0, Math.PI * 2); c.stroke();
-      } else if (ratio < 0.35) {
-        for (const ex of [ex1, ex2]) { c.beginPath(); c.arc(ex, ey + 4, 9, 1.15 * Math.PI, 1.85 * Math.PI); c.stroke(); }
-        c.beginPath(); c.arc(-17, 12, 14 - puff * 6, 0.1 * Math.PI, 0.9 * Math.PI); c.stroke();
-      } else if (ratio < 0.6) {
-        for (const ex of [ex1, ex2]) { c.beginPath(); c.arc(ex, ey, 6, 0, Math.PI * 2); c.fill(); }
-        c.beginPath(); c.moveTo(-28, 20); c.quadraticCurveTo(-17, 26 - puff * 6, -6, 20); c.stroke();
-      } else if (ratio < 0.85) {
-        for (const ex of [ex1, ex2]) { c.beginPath(); c.arc(ex, ey, 6, 0, Math.PI * 2); c.fill(); }
-        c.beginPath(); c.moveTo(-30, 24); c.lineTo(-24, 20); c.lineTo(-18, 24); c.lineTo(-12, 20); c.lineTo(-6, 24); c.stroke();
-        // 汗
-        c.fillStyle = '#7cc3ea';
-        c.beginPath(); c.moveTo(52, -36); c.quadraticCurveTo(44, -20, 52, -16); c.quadraticCurveTo(60, -20, 52, -36); c.fill();
       } else {
-        // ぐるぐる目
-        for (const ex of [ex1, ex2]) {
-          c.beginPath();
-          for (let a = 0; a < Math.PI * 5; a += 0.3) {
-            const r = a * 1.6, aa = a + t * 6;
-            const px = ex + Math.cos(aa) * r, py = ey + Math.sin(aa) * r;
-            a === 0 ? c.moveTo(px, py) : c.lineTo(px, py);
-          }
-          c.lineWidth = 3; c.stroke();
-        }
-        c.lineWidth = 5;
-        c.beginPath(); c.moveTo(-30, 24); c.quadraticCurveTo(-24, 16, -17, 24); c.quadraticCurveTo(-10, 32, -4, 24); c.stroke();
-        c.fillStyle = '#7cc3ea';
-        for (const [sx, sy] of [[52, -36], [-88, -30]]) {
-          c.beginPath(); c.moveTo(sx, sy); c.quadraticCurveTo(sx - 8, sy + 16, sx, sy + 20); c.quadraticCurveTo(sx + 8, sy + 16, sx, sy); c.fill();
-        }
+        for (const ex of [ex1, ex2]) { c.beginPath(); c.arc(ex, ey + 4, 9, 1.15 * Math.PI, 1.85 * Math.PI); c.stroke(); }
+        c.beginPath(); c.arc(-17, 12, 14, 0.1 * Math.PI, 0.9 * Math.PI); c.stroke();
       }
       c.restore();
     }
@@ -664,12 +620,12 @@
       const t = view.t;
 
       // 肝臓くん
-      const bob = dead ? 0 : Math.sin(t * (view.ratio > 0.85 ? 8 : 2)) * (view.ratio > 0.85 ? 3 : 2);
+      const bob = dead ? 0 : Math.sin(t * 2) * 2;
       c.save();
       c.translate(190, 205);
       c.rotate(-view.fall * 0.5);
       c.translate(0, view.fall * 30);
-      drawLiver(c, 0, bob, 1.25, { ratio: view.ratio, dead, sleep: sleeping, puff: view.puff, t });
+      drawLiver(c, 0, bob, 1.25, { dead });
       c.restore();
       if (dead) {
         // 魂
@@ -710,16 +666,6 @@
         c.textAlign = 'center'; c.fillText(view.label, 200, 30);
       }
 
-      // 肝臓メーター（限界の線は見せない。目盛りは 0〜300g 固定）
-      if (view.mode !== 'title') {
-        const mx = 30, my = 312, mw = 340, mh = 16;
-        c.fillStyle = '#f1e2cc'; c.beginPath(); c.roundRect(mx, my, mw, mh, 8); c.fill();
-        const w = Math.min(1, view.meter / 300) * mw;
-        if (w > 0) { c.fillStyle = rgb(liverColor(view.ratio, dead)); c.beginPath(); c.roundRect(mx, my, Math.max(w, 16), mh, 8); c.fill(); }
-        c.fillStyle = '#4a3020'; c.font = 'bold 15px sans-serif'; c.textAlign = 'right';
-        c.fillText(Math.round(view.meter) + 'g', mx + mw, my - 6);
-        c.textAlign = 'left'; c.fillText('🫀', mx, my - 5);
-      }
       requestAnimationFrame(draw);
     }
     function drawTea(c) {
@@ -738,7 +684,7 @@
       const cv = document.createElement('canvas'); cv.width = cv.height = size;
       const c = cv.getContext('2d'); c.scale(size / 512, size / 512);
       c.fillStyle = '#fdf3e4'; c.fillRect(0, 0, 512, 512);
-      drawLiver(c, 236, 256, 1.85, { ratio: 0.2 });
+      drawLiver(c, 236, 256, 1.85, {});
       c.save(); c.translate(410, 440); c.rotate(0.15); c.scale(2, 2); drawDrink(c, 'beer'); c.restore();
       return cv.toDataURL('image/png');
     };
