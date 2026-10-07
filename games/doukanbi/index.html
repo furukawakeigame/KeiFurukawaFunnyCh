@@ -80,7 +80,6 @@
     .msg { font-size: 20px; font-weight: bold; }
     .score { font-size: 40px; font-weight: bold; color: #b5651d; line-height: 1.1; }
     .stats { font-size: 16px; }
-    .note { font-size: 13px; color: #8a6a50; min-height: 1em; }
     button.x { background: #111; box-shadow: 0 4px 0 #555; }
     input#partner {
       font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 24px; text-align: center;
@@ -398,7 +397,6 @@
       const aldh = ['DD', 'ND', 'NN'][al] + '（' + ['下戸', '弱い', '強い'][al] + '）';
       const restDays = game.history.filter(h => h === 'rest').length;
       const result = { msg, restDays, total: game.total, drinkDays: game.drinkDays, aldh, limit: tr.limit, seed, dead: !survived };
-      prepareShare(result);
       const html = `
         <div class="msg">${msg}</div>
         <div class="score">${result.total.toLocaleString()}g</div>
@@ -406,7 +404,6 @@
         <div class="stats">ALDH2 ${aldh}・許容量 ${result.limit}g</div>
         <div class="row"><button class="big x" id="share">𝕏 で投稿</button></div>
         <div class="row"><button class="big sub" id="again">もう一度</button><button class="big" id="cross">子どもを作る</button></div>
-        <div class="note" id="note"></div>
       `;
       showResult = () => {
         openPanel(html);
@@ -417,44 +414,14 @@
       showResult();
     }
     // ===== X投稿 =====
-    const SHARE_URL = 'https://keifurukawafunnych.com/games/doukanbi/', SHARE_NAME = 'doukanbi.png';
-    let shareFile = null;
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/doukanbi/';
     const shareText = r => `動肝日\n${r.msg} ${r.total.toLocaleString()}g飲んだ\nシード値 ${r.seed}\n#動肝日`;
-    function resultImage(r) {
-      const cv = document.createElement('canvas'); cv.width = 1200; cv.height = 675;
-      const c = cv.getContext('2d');
-      const font = '"Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif';
-      c.fillStyle = '#fdf3e4'; c.fillRect(0, 0, 1200, 675);
-      drawLiver(c, 300, 360, 2.2, { dead: r.dead });
-      c.fillStyle = '#4a3020'; c.textAlign = 'left';
-      c.font = 'bold 64px ' + font; c.fillText('動肝日', 620, 130);
-      c.font = 'bold 48px ' + font; c.fillText(r.msg, 620, 230);
-      c.fillStyle = '#b5651d'; c.font = 'bold 120px ' + font; c.fillText(r.total.toLocaleString() + 'g', 610, 370);
-      c.fillStyle = '#4a3020'; c.font = 'bold 36px ' + font;
-      c.fillText(`動肝日 ${r.drinkDays}日・休肝日 ${r.restDays}日`, 620, 450);
-      c.fillText(`ALDH2 ${r.aldh}`, 620, 505);
-      c.fillStyle = '#8a6a50'; c.font = 'bold 30px ' + font;
-      c.fillText('シード値 ' + r.seed, 620, 580);
-      return cv;
-    }
-    function prepareShare(r) {
-      shareFile = null;
-      resultImage(r).toBlob(b => { if (b) shareFile = new File([b], SHARE_NAME, { type: 'image/png' }); }, 'image/png');
-    }
-    const mobileShare = () => matchMedia('(pointer:coarse)').matches && typeof navigator.share === 'function';
     function share(r) {
       sfx.click();
-      const text = shareText(r);
-      const intent = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SHARE_URL)}`;
-      // スマホは画像ごと共有シートへ。PCは画像を保存して投稿画面を開く（Webの投稿URLでは画像を添付できないため）
-      if (mobileShare() && shareFile && navigator.canShare && navigator.canShare({ files: [shareFile] })) {
-        navigator.share({ files: [shareFile], text: `${text}\n${SHARE_URL}` }).catch(e => { if (e.name !== 'AbortError') location.href = intent; });
-        return;
-      }
-      const w = window.open(intent, '_blank', 'noopener');
-      if (!w && mobileShare()) location.href = intent;
-      const a = document.createElement('a'); a.href = resultImage(r).toDataURL('image/png'); a.download = SHARE_NAME; a.click();
-      $('note').textContent = '結果画像を保存しました。投稿に添付してね！';
+      const intent = `https://x.com/intent/post?text=${encodeURIComponent(shareText(r))}&url=${encodeURIComponent(SHARE_URL)}`;
+      // noopener を付けると戻り値が null になり判定できないので、開いてから切り離す
+      const w = window.open(intent, '_blank');
+      if (w) w.opener = null; else location.href = intent;
     }
     let showResult = null;
 
