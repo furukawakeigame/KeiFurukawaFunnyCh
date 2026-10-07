@@ -1,0 +1,34 @@
+name: Publish ケーキ三等分
+on:
+  schedule:
+    - cron: '13 8 8 10 *'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Merge publish branch into main
+        id: merge
+        run: |
+          if ! git ls-remote --exit-code origin publish-cake-three >/dev/null; then
+            echo "already published"; exit 0
+          fi
+          git fetch origin publish-cake-three
+          git merge --ff-only origin/publish-cake-three
+          git push origin main
+          git push origin --delete publish-cake-three
+          echo "published=true" >> "$GITHUB_OUTPUT"
+      - name: Wait until the game page is live
+        if: steps.merge.outputs.published == 'true'
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsSL https://keifurukawafunnych.com/games/cake-three/ >/dev/null && exit 0
+            sleep 20
+          done
+          exit 1
