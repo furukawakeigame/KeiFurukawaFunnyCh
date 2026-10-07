@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>動肝日</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <!-- X などにURLを貼ったときのカード表示（ここだけは https:// から書く） -->
+  <meta name="description" content="遺伝子で決まる酒の強さ。30日間でどれだけ飲める？">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="KeiFurukawaFunnyCh">
+  <meta property="og:title" content="動肝日">
+  <meta property="og:description" content="遺伝子で決まる酒の強さ。30日間でどれだけ飲める？">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/doukanbi/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/doukanbi/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    html, body { margin: 0; height: 100%; background: #fdf3e4; color: #4a3020; }
+    body {
+      display: flex; flex-direction: column; height: 100dvh;
+      font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; width: 100%; max-width: 480px; margin: 0 auto; box-sizing: border-box;
+    }
+    header a { color: #a0523d; text-decoration: none; font-weight: bold; }
+    #sound {
+      font-size: 20px; background: #fff; border: 2px solid #ecc9a8; border-radius: 999px;
+      width: 44px; height: 36px; cursor: pointer;
+    }
+    main {
+      flex: 1; min-height: 0; width: 100%; max-width: 480px; margin: 0 auto;
+      display: flex; flex-direction: column; padding: 0 12px 12px; box-sizing: border-box; gap: 8px;
+    }
+    #hud { display: flex; justify-content: space-between; align-items: baseline; font-weight: bold; }
+    #day { font-size: 20px; }
+    #total { font-size: 24px; color: #b5651d; }
+    #cal { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+    #cal div {
+      aspect-ratio: 1; border-radius: 5px; background: #f1e2cc;
+      display: flex; align-items: center; justify-content: center; font-size: clamp(10px, 3.2vw, 16px);
+    }
+    #cal .drink { background: #f7cf7a; }
+    #cal .rest { background: #bfe3b4; }
+    #cal .dead { background: #555; }
+    #cal .now { outline: 2px solid #b5651d; }
+    #stage {
+      flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center;
+      touch-action: manipulation; cursor: pointer;
+    }
+    canvas { display: block; }
+    #ctrl { min-height: 128px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+    .row { display: flex; gap: 8px; }
+    .row > * { flex: 1; }
+    button.big {
+      font: inherit; font-size: 20px; font-weight: bold; padding: 14px 8px; border-radius: 16px;
+      border: none; cursor: pointer; color: #fff; background: #b5651d;
+      box-shadow: 0 4px 0 #7c4212; touch-action: manipulation;
+    }
+    button.big:active { transform: translateY(3px); box-shadow: 0 1px 0 #7c4212; }
+    button.rest { background: #4f9a5a; box-shadow: 0 4px 0 #2f6a38; }
+    button.sub { background: #fff; color: #7c4212; box-shadow: 0 4px 0 #ecc9a8; font-size: 16px; }
+    .seed {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      font-size: 14px; color: #8a6a50;
+    }
+    .seed b { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 22px; color: #4a3020; letter-spacing: 2px; }
+    .seed button {
+      font: inherit; font-size: 14px; border: 2px solid #ecc9a8; background: #fff; color: #7c4212;
+      border-radius: 999px; padding: 4px 10px; cursor: pointer;
+    }
+    .hidden { display: none !important; }
+    /* 結果・かけ合わせのパネル */
+    #panel {
+      position: fixed; inset: 0; background: rgba(60, 35, 20, 0.45);
+      display: flex; align-items: center; justify-content: center; padding: 12px; box-sizing: border-box;
+    }
+    #panel > div {
+      background: #fffaf2; border-radius: 20px; padding: 18px 16px; width: 100%; max-width: 420px;
+      max-height: 100%; overflow-y: auto; box-sizing: border-box; text-align: center;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    #panel button.big { font-size: 17px; }
+    .msg { font-size: 20px; font-weight: bold; }
+    .score { font-size: 44px; font-weight: bold; color: #b5651d; line-height: 1.1; }
+    .score small { font-size: 16px; color: #8a6a50; display: block; font-weight: normal; }
+    .stats { display: flex; justify-content: center; gap: 16px; font-size: 16px; }
+    table.genes { width: 100%; border-collapse: collapse; font-size: 14px; text-align: left; }
+    table.genes td { padding: 4px 6px; border-top: 1px solid #f1e2cc; }
+    table.genes td:nth-child(2) { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: bold; white-space: nowrap; }
+    table.genes td:nth-child(3) { color: #8a6a50; }
+    .pm { letter-spacing: -1px; word-break: break-all; }
+    .best { font-size: 14px; color: #8a6a50; }
+    input#partner {
+      font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 24px; text-align: center;
+      text-transform: uppercase; letter-spacing: 2px; padding: 10px; border-radius: 12px;
+      border: 2px solid #ecc9a8; width: 100%; box-sizing: border-box; background: #fff; color: #4a3020;
+    }
+    .cross { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 18px; line-height: 1.8; }
+    .cross b { font-size: 26px; color: #b5651d; letter-spacing: 2px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="音のオン/オフ">🔊</button>
+  </header>
+  <main>
+    <div id="hud"><span id="day"></span><span id="total"></span></div>
+    <div id="cal"></div>
+    <div id="stage"><canvas id="game"></canvas></div>
+    <div id="ctrl">
+      <div id="titleCtrl">
+        <div class="seed" style="margin-bottom:8px"><span id="gen"></span><b id="mySeed"></b><button id="copy">コピー</button></div>
+        <div class="row" style="margin-bottom:8px"><button class="big" id="start">はじめる</button></div>
+        <div class="row"><button class="big sub" id="toCross">👶 子どもを作る</button><button class="big sub" id="newSeed">🎲 別の人</button></div>
+      </div>
+      <div id="choiceCtrl" class="row hidden">
+        <button class="big rest" id="restBtn">🍵 休肝日</button>
+        <button class="big" id="drinkBtn">🍺 動肝日</button>
+      </div>
+    </div>
+  </main>
+  <div id="panel" class="hidden"><div id="panelBody"></div></div>
+
+  <script>
+    // ===== 遺伝子とシード値 =====
+    // 13個の遺伝子をそれぞれ2本ずつ持つ。1 が「強い」側のアレル
+    //   0: ALDH2 (1=N, 0=D)  1: ADH1B (1=F, 0=S)  2: 肝臓 (1=L, 0=S)  3〜12: 体質 (1=＋, 0=−)
+    const LOCI = 13;
+    const ALPHA = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'; // Crockford Base32（I L O U を使わない）
+    // 初めての人・ランダムな相手のアレル頻度（日本人の頻度を参考に）
+    const FREQ = [0.75, 0.7, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+
+    function randomGenes() {
+      const g = [];
+      for (let i = 0; i < LOCI; i++) g.push([+(Math.random() < FREQ[i]), +(Math.random() < FREQ[i])]);
+      return g;
+    }
+    // メンデルの法則：遺伝子ごとに、両親から1本ずつ 50% で受け継ぐ
+    function crossGenes(a, b) {
+      const g = [];
+      for (let i = 0; i < LOCI; i++) g.push([a[i][Math.random() < 0.5 ? 0 : 1], b[i][Math.random() < 0.5 ? 0 : 1]]);
+      return g;
+    }
+    // ソルトから遺伝子を隠すための鍵を作る
+    function mask(salt) {
+      let x = (salt * 2654435761 + 0x9e3779b9) >>> 0;
+      for (let i = 0; i < 3; i++) { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; }
+      return x & 0x3ffffff;
+    }
+    // 遺伝子26ビット＋ソルト14ビット＝40ビットを8文字にする
+    function encode(genes) {
+      let bits = 0;
+      for (let i = 0; i < LOCI; i++) bits |= (genes[i][0] << (2 * i)) | (genes[i][1] << (2 * i + 1));
+      const salt = Math.floor(Math.random() * 16384);
+      let v = salt * 67108864 + ((bits ^ mask(salt)) & 0x3ffffff);
+      let s = '';
+      for (let i = 0; i < 8; i++) { s = ALPHA[v % 32] + s; v = Math.floor(v / 32); }
+      return s;
+    }
+    function normalizeSeed(str) {
+      return str.toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+    }
+    function decode(str) {
+      const s = normalizeSeed(str);
+      if (s.length !== 8) return null;
+      let v = 0;
+      for (const c of s) {
+        const k = ALPHA.indexOf(c);
+        if (k < 0) return null;
+        v = v * 32 + k;
+      }
+      const salt = Math.floor(v / 67108864);
+      const bits = (v % 67108864) ^ mask(salt);
+      const g = [];
+      for (let i = 0; i < LOCI; i++) g.push([(bits >> (2 * i)) & 1, (bits >> (2 * i + 1)) & 1]);
+      return g;
+    }
+
+    // ===== 体質 =====
+    const BASE = [25, 90, 200];        // ALDH2 の強いアレルの数 0(DD) / 1(ND) / 2(NN) の基本許容量 g
+    const CARRY = [0.55, 0.4, 0.25];   // ADH1B：翌日に残るダメージの割合 SS / FS / FF
+    const RECOVER = [0.5, 0.3, 0.1];   // 肝臓：休肝日のあとに残るダメージの割合 SS / LS / LL
+    const count = (g, i) => g[i][0] + g[i][1];
+    function plusCount(g) { let n = 0; for (let i = 3; i < LOCI; i++) n += count(g, i); return n; }
+    function traits(g) {
+      const plus = plusCount(g);
+      return {
+        limit: Math.round(BASE[count(g, 0)] * (0.6 + 0.04 * plus)),
+        carry: CARRY[count(g, 1)],
+        recover: RECOVER[count(g, 2)],
+        plus,
+      };
+    }
+
+    // ===== お酒 =====
+    // [種類, 量の名前, 純アルコール g, 出やすさ, 絵, 大きさ]
+    const DRINKS = [
+      ['ビール', 'グラス', 14, 3, 'beer', 0.75],
+      ['ビール', '中ジョッキ', 20, 4, 'beer', 1],
+      ['ビール', '大ジョッキ', 32, 1, 'beer', 1.3],
+      ['日本酒', '1合', 22, 2, 'sake', 1],
+      ['日本酒', '2合', 44, 1, 'sake', 1.3],
+      ['ワイン', 'グラス', 12, 2, 'wine', 1],
+      ['ワイン', 'ボトル', 72, 0.3, 'bottle', 1.25],
+      ['ハイボール', '', 14, 3, 'highball', 1],
+      ['ハイボール', 'メガ', 28, 1, 'highball', 1.35],
+      ['焼酎ロック', '', 20, 2, 'rock', 1],
+      ['テキーラ', 'ショット', 10, 2, 'shot', 1],
+      ['ストロング缶', '500ml', 36, 1, 'can', 1],
+    ];
+    const DRINK_W = DRINKS.reduce((s, d) => s + d[3], 0);
+    function pickDrink() {
+      let r = Math.random() * DRINK_W;
+      for (const d of DRINKS) { r -= d[3]; if (r <= 0) return d; }
+      return DRINKS[0];
+    }
+
+    // ===== 保存 =====
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('doukanbi_' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+      set(k, v) { try { localStorage.setItem('doukanbi_' + k, JSON.stringify(v)); } catch (e) {} },
+    };
+
+    // ===== 音 =====
+    let soundOn = store.get('sound', true);
+    let actx = null;
+    const soundBtn = document.getElementById('sound');
+    function updateSoundBtn() { soundBtn.textContent = soundOn ? '🔊' : '🔇'; }
+    soundBtn.onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updateSoundBtn(); };
+    updateSoundBtn();
+    function tone(freq, dur, type = 'sine', vol = 0.2, delay = 0, slideTo = null) {
+      if (!soundOn) return;
+      try {
+        actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+        if (actx.state === 'suspended') actx.resume();
+        const t = actx.currentTime + delay;
+        const o = actx.createOscillator(), g = actx.createGain();
+        o.type = type; o.frequency.setValueAtTime(freq, t);
+        if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+        g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur);
+      } catch (e) {}
+    }
+    const sfx = {
+      gulp() { tone(260, 0.09, 'sine', 0.25, 0, 140); tone(220, 0.09, 'sine', 0.25, 0.11, 120); },
+      click() { tone(660, 0.06, 'triangle', 0.15); },
+      rest() { tone(523, 0.3, 'sine', 0.15); tone(784, 0.4, 'sine', 0.12, 0.15); },
+      dead() { tone(300, 0.9, 'sawtooth', 0.15, 0, 60); },
+      clear() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.25, 'triangle', 0.18, i * 0.12)); },
+      born() { [784, 988, 1175].forEach((f, i) => tone(f, 0.2, 'sine', 0.15, i * 0.1)); },
+    };
+
+    // ===== 状態 =====
+    const DAYS = 30;
+    let seed = store.get('seed', null);
+    if (!seed || !decode(seed)) { seed = encode(randomGenes()); store.set('seed', seed); }
+    let gen = store.get('gen', 1);
+    let genes, tr;
+    let game = null; // { day, damage, total, drinkDays, history[], over }
+
+    // 描画用
+    const view = {
+      mode: 'title',   // title | idle | drink | rest | dead | clear
+      meter: 0,        // 表示中の肝臓ダメージ g
+      ratio: 0,        // 表示中のダメージ ÷ 許容量（顔色に使う）
+      drink: null,     // { d, x, y, s, a }
+      label: '',
+      puff: 0,         // 飲んだ瞬間にほっぺがふくらむ
+      fall: 0,         // 倒れる角度 0〜1
+      t: 0,
+    };
+    let speed = 1;
+
+    // ===== DOM =====
+    const $ = id => document.getElementById(id);
+    const dayEl = $('day'), totalEl = $('total'), calEl = $('cal');
+    for (let i = 0; i < DAYS; i++) calEl.appendChild(document.createElement('div'));
+
+    function setSeed(s, g) {
+      seed = s; store.set('seed', s);
+      if (g !== undefined) { gen = g; store.set('gen', g); }
+      genes = decode(seed); tr = traits(genes);
+    }
+    setSeed(seed);
+
+    function updateHud() {
+      if (!game) {
+        dayEl.textContent = '';
+        totalEl.textContent = '';
+      } else {
+        dayEl.textContent = Math.min(game.day, DAYS) + '日目';
+        totalEl.textContent = game.total.toLocaleString() + 'g';
+      }
+      const cells = calEl.children;
+      for (let i = 0; i < DAYS; i++) {
+        const h = game ? game.history[i] : null;
+        cells[i].className = h || '';
+        cells[i].textContent = h === 'drink' ? '🍺' : h === 'rest' ? '🍵' : h === 'dead' ? '💀' : '';
+        if (game && !game.over && i === game.day - 1) cells[i].classList.add('now');
+      }
+    }
+
+    function showCtrl(which) {
+      $('titleCtrl').classList.toggle('hidden', which !== 'title');
+      $('choiceCtrl').classList.toggle('hidden', which !== 'choice');
+    }
+
+    function showTitle() {
+      game = null;
+      view.mode = 'title'; view.meter = 0; view.ratio = 0; view.fall = 0; view.drink = null; view.label = '';
+      $('mySeed').textContent = seed;
+      $('gen').textContent = gen > 1 ? '第' + gen + '世代' : '';
+      updateHud();
+      showCtrl('title');
+      hidePanel();
+    }
+
+    // ===== ゲームの進行 =====
+    const sleep = ms => new Promise(r => setTimeout(r, ms / speed));
+    function tween(ms, fn) {
+      return new Promise(res => {
+        const start = performance.now();
+        function step(now) {
+          const p = Math.min(1, (now - start) * speed / ms);
+          fn(p);
+          if (p < 1) requestAnimationFrame(step); else res();
+        }
+        requestAnimationFrame(step);
+      });
+    }
+
+    function startGame() {
+      sfx.click();
+      game = { day: 1, damage: 0, total: 0, drinkDays: 0, history: [], over: false };
+      view.meter = 0; view.ratio = 0; view.fall = 0;
+      hidePanel();
+      drinkDay();
+    }
+
+    async function drinkDay() {
+      showCtrl('none');
+      speed = 1;
+      game.history[game.day - 1] = 'drink';
+      game.drinkDays++;
+      updateHud();
+      view.mode = 'drink';
+      const n = 1 + Math.floor(Math.random() * 7);
+      let m = game.damage;
+      for (let i = 0; i < n; i++) {
+        const d = pickDrink();
+        view.label = d[0] + (d[1] ? ' ' + d[1] : '') + ' ' + d[2] + 'g';
+        view.drink = { d, x: 340, y: 90, s: d[5], a: 0 };
+        await tween(260, p => { view.drink.a = p; view.drink.x = 340 - 40 * p; });
+        await sleep(140);
+        const from = m;
+        m += d[2];
+        game.total += d[2];
+        sfx.gulp();
+        await tween(320, p => {
+          const e = p * p;
+          view.drink.x = 300 - 100 * e; view.drink.y = 90 + 110 * e;
+          view.drink.s = d[5] * (1 - 0.6 * e); view.drink.a = 1 - e;
+          view.meter = from + (m - from) * p; view.ratio = view.meter / tr.limit;
+          view.puff = Math.sin(p * Math.PI);
+        });
+        view.drink = null; view.puff = 0;
+        updateHud();
+        if (m > tr.limit) return die();
+        await sleep(160);
+      }
+      view.label = '';
+      game.damage = m * tr.carry;
+      await sleep(300);
+      // 寝ているあいだに一部が分解される
+      const from = view.meter;
+      await tween(500, p => { view.meter = from + (game.damage - from) * p; view.ratio = view.meter / tr.limit; });
+      nextDay();
+    }
+
+    async function restDay() {
+      showCtrl('none');
+      speed = 1;
+      game.history[game.day - 1] = 'rest';
+      updateHud();
+      view.mode = 'rest';
+      sfx.rest();
+      const from = game.damage;
+      game.damage *= tr.recover;
+      await tween(1100, p => { view.meter = from + (game.damage - from) * p; view.ratio = view.meter / tr.limit; });
+      await sleep(250);
+      nextDay();
+    }
+
+    function nextDay() {
+      if (game.day >= DAYS) return finish(true);
+      game.day++;
+      view.mode = 'idle';
+      updateHud();
+      showCtrl('choice');
+    }
+
+    async function die() {
+      game.history[game.day - 1] = 'dead';
+      game.over = true;
+      view.mode = 'dead'; view.label = '';
+      updateHud();
+      sfx.dead();
+      speed = 1;
+      await tween(700, p => { view.fall = p; });
+      await sleep(500);
+      finish(false);
+    }
+
+    function finish(survived) {
+      game.over = true;
+      if (survived) { view.mode = 'clear'; sfx.clear(); }
+      updateHud();
+      showCtrl('none');
+      const best = Math.max(store.get('best', 0), game.total);
+      const isBest = game.total >= best && game.total > 0;
+      store.set('best', best);
+      const lived = survived ? DAYS : game.day - 1;
+      const al = count(genes, 0);
+      let msg;
+      if (survived) msg = game.total >= 2400 ? '鉄の肝臓！30日飲みきった' : game.drinkDays <= 10 ? '休みまくって完走' : '30日完走！';
+      else if (al === 0) msg = 'そもそも飲めない体質でした';
+      else if (game.day <= 2) msg = '1日目でダウン…';
+      else if (game.day <= 10) msg = game.day + '日目にダウン…';
+      else msg = game.day + '日目に力尽きた';
+      const pm = genes.slice(3).map(p => (p[0] ? '＋' : '−') + (p[1] ? '＋' : '−')).join(' ');
+      const name = (i, a, b) => [b + b, a + b, a + a][count(genes, i)]; // 強いアレルを先に書く（ND / FS / LS）
+      const html = `
+        <div class="msg">${msg}</div>
+        <div class="score">${game.total.toLocaleString()}g<small>中ジョッキ ${Math.round(game.total / 20)}杯分</small></div>
+        <div class="stats"><span>生存 ${lived}日</span><span>🍺 動肝日 ${game.drinkDays}日</span></div>
+        <div class="best">${isBest ? '🏆 ベスト更新！' : 'ベスト ' + best.toLocaleString() + 'g'}</div>
+        <table class="genes">
+          <tr><td>ALDH2</td><td>${name(0, 'N', 'D')}</td><td>${['下戸', '弱い', '強い'][al]}</td></tr>
+          <tr><td>ADH1B</td><td>${name(1, 'F', 'S')}</td><td>分解が${['遅い', 'ふつう', '速い'][count(genes, 1)]}</td></tr>
+          <tr><td>肝臓</td><td>${name(2, 'L', 'S')}</td><td>回復${['△', '○', '◎'][count(genes, 2)]}</td></tr>
+          <tr><td>体質</td><td>＋${tr.plus}/20</td><td class="pm">${pm}</td></tr>
+          <tr><td>許容量</td><td>${tr.limit}g</td><td>${seed}</td></tr>
+        </table>
+        <div class="row"><button class="big sub" id="again">もう一度</button><button class="big" id="cross">👶 子どもを作る</button></div>
+        <div class="row"><button class="big sub" id="home">タイトルへ</button></div>
+      `;
+      showResult = () => {
+        openPanel(html);
+        $('again').onclick = startGame;
+        $('cross').onclick = openCross;
+        $('home').onclick = () => { sfx.click(); showTitle(); };
+      };
+      showResult();
+    }
+    let showResult = null;
+
+    // ===== かけ合わせ =====
+    function openCross() {
+      sfx.click();
+      openPanel(`
+        <div class="msg">👶 子どもを作る</div>
+        <div class="cross">${seed}<br>×</div>
+        <input id="partner" maxlength="9" placeholder="相手のシード値" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        <div class="row"><button class="big sub" id="randPartner">🎲 ランダムな相手</button><button class="big" id="doCross">かけ合わせる</button></div>
+        <div class="row"><button class="big sub" id="back">もどる</button></div>
+      `);
+      const input = $('partner');
+      $('randPartner').onclick = () => { sfx.click(); input.value = encode(randomGenes()); };
+      $('doCross').onclick = () => {
+        const pg = decode(input.value);
+        if (!pg) { input.style.borderColor = '#d0453a'; input.focus(); tone(160, 0.2, 'square', 0.1); return; }
+        const p = normalizeSeed(input.value);
+        const child = encode(crossGenes(genes, pg));
+        const parent = seed;
+        setSeed(child, gen + 1);
+        sfx.born();
+        openPanel(`
+          <div class="msg">👶 生まれました</div>
+          <div class="cross">${parent} × ${p}<br>↓<br><b>${child}</b></div>
+          <div class="row"><button class="big" id="playChild">この子ではじめる</button></div>
+        `);
+        $('playChild').onclick = () => { showTitle(); startGame(); };
+      };
+      $('back').onclick = () => { sfx.click(); game && game.over ? showResult() : showTitle(); };
+    }
+
+    function openPanel(html) { $('panelBody').innerHTML = html; $('panel').classList.remove('hidden'); }
+    function hidePanel() { $('panel').classList.add('hidden'); }
+
+    $('start').onclick = startGame;
+    $('toCross').onclick = openCross;
+    $('newSeed').onclick = () => { sfx.click(); setSeed(encode(randomGenes()), 1); showTitle(); };
+    $('copy').onclick = () => {
+      const done = () => { $('copy').textContent = 'コピーした'; setTimeout(() => $('copy').textContent = 'コピー', 1200); };
+      try { navigator.clipboard.writeText(seed).then(done, () => {}); } catch (e) {}
+    };
+    $('restBtn').onclick = () => { sfx.click(); restDay(); };
+    $('drinkBtn').onclick = () => { sfx.click(); drinkDay(); };
+    // 飲んでいる最中に画面をタップすると早送り
+    $('stage').addEventListener('pointerdown', () => { if (view.mode === 'drink' || view.mode === 'rest') speed = 3; });
+
+    // ===== 描画 =====
+    const canvas = $('game');
+    const ctx = canvas.getContext('2d');
+    const CW = 400, CH = 340;
+    function resize() {
+      const st = $('stage');
+      const scale = Math.min(st.clientWidth / CW, st.clientHeight / CH);
+      const dpr = window.devicePixelRatio || 1;
+      canvas.style.width = CW * scale + 'px';
+      canvas.style.height = CH * scale + 'px';
+      canvas.width = Math.round(CW * scale * dpr);
+      canvas.height = Math.round(CH * scale * dpr);
+      ctx.setTransform(canvas.width / CW, 0, 0, canvas.height / CH, 0, 0);
+    }
+    window.addEventListener('resize', resize);
+
+    const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+    const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+    function liverColor(r, dead) {
+      if (dead) return [150, 145, 140];
+      const healthy = [196, 84, 70], pale = [190, 150, 120], sick = [150, 160, 105];
+      r = Math.max(0, Math.min(1, r));
+      return r < 0.6 ? mix(healthy, pale, r / 0.6) : mix(pale, sick, (r - 0.6) / 0.4);
+    }
+
+    // 肝臓くん
+    function drawLiver(c, x, y, s, opt) {
+      const { ratio = 0, dead = false, sleep = false, puff = 0, t = 0 } = opt;
+      c.save();
+      c.translate(x, y);
+      c.scale(s, s);
+      const col = liverColor(ratio, dead);
+      // からだ（右葉が大きく、左葉が細い）
+      c.beginPath();
+      c.moveTo(-110, -18);
+      c.bezierCurveTo(-112, -62, -40, -70, 10, -62);
+      c.bezierCurveTo(60, -56, 118, -52, 112, -22);
+      c.bezierCurveTo(106, 4, 70, 18, 30, 34);
+      c.bezierCurveTo(0, 46, -30, 66, -62, 62);
+      c.bezierCurveTo(-100, 58, -110, 20, -110, -18);
+      c.closePath();
+      c.fillStyle = rgb(col);
+      c.fill();
+      c.lineWidth = 5; c.strokeStyle = rgb(mix(col, [60, 30, 20], 0.5)); c.stroke();
+      // つや
+      c.beginPath(); c.ellipse(-55, -38, 26, 9, -0.2, 0, Math.PI * 2);
+      c.fillStyle = 'rgba(255,255,255,0.28)'; c.fill();
+      // ほっぺ
+      c.fillStyle = dead ? 'rgba(0,0,0,0)' : `rgba(255,120,120,${0.35 + puff * 0.3})`;
+      c.beginPath(); c.ellipse(-62, 12, 12 + puff * 4, 8 + puff * 3, 0, 0, Math.PI * 2); c.fill();
+      c.beginPath(); c.ellipse(28, 10, 12 + puff * 4, 8 + puff * 3, 0, 0, Math.PI * 2); c.fill();
+      // 顔
+      c.strokeStyle = '#3a2016'; c.fillStyle = '#3a2016'; c.lineWidth = 5; c.lineCap = 'round';
+      const ex1 = -42, ex2 = 8, ey = -10;
+      if (dead) {
+        for (const ex of [ex1, ex2]) {
+          c.beginPath(); c.moveTo(ex - 8, ey - 8); c.lineTo(ex + 8, ey + 8); c.moveTo(ex + 8, ey - 8); c.lineTo(ex - 8, ey + 8); c.stroke();
+        }
+        c.beginPath(); c.moveTo(-28, 26); c.quadraticCurveTo(-17, 18, -6, 26); c.stroke();
+        c.beginPath(); c.ellipse(-12, 32, 5, 8, 0, 0, Math.PI * 2); c.fillStyle = '#e88'; c.fill();
+      } else if (sleep) {
+        for (const ex of [ex1, ex2]) { c.beginPath(); c.arc(ex, ey, 8, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke(); }
+        c.beginPath(); c.ellipse(-17, 22, 5, 4 + Math.sin(t * 3) * 1.5, 0, 0, Math.PI * 2); c.stroke();
+      } else if (ratio < 0.35) {
+        for (const ex of [ex1, ex2]) { c.beginPath(); c.arc(ex, ey + 4, 9, 1.15 * Math.PI, 1.85 * Math.PI); c.stroke(); }
+        c.beginPath(); c.arc(-17, 12, 14 - puff * 6, 0.1 * Math.PI, 0.9 * Math.PI); c.stroke();
+      } else if (ratio < 0.6) {
+        for (const ex of [ex1, ex2]) { c.beginPath(); c.arc(ex, ey, 6, 0, Math.PI * 2); c.fill(); }
+        c.beginPath(); c.moveTo(-28, 20); c.quadraticCurveTo(-17, 26 - puff * 6, -6, 20); c.stroke();
+      } else if (ratio < 0.85) {
+        for (const ex of [ex1, ex2]) { c.beginPath(); c.arc(ex, ey, 6, 0, Math.PI * 2); c.fill(); }
+        c.beginPath(); c.moveTo(-30, 24); c.lineTo(-24, 20); c.lineTo(-18, 24); c.lineTo(-12, 20); c.lineTo(-6, 24); c.stroke();
+        // 汗
+        c.fillStyle = '#7cc3ea';
+        c.beginPath(); c.moveTo(52, -36); c.quadraticCurveTo(44, -20, 52, -16); c.quadraticCurveTo(60, -20, 52, -36); c.fill();
+      } else {
+        // ぐるぐる目
+        for (const ex of [ex1, ex2]) {
+          c.beginPath();
+          for (let a = 0; a < Math.PI * 5; a += 0.3) {
+            const r = a * 1.6, aa = a + t * 6;
+            const px = ex + Math.cos(aa) * r, py = ey + Math.sin(aa) * r;
+            a === 0 ? c.moveTo(px, py) : c.lineTo(px, py);
+          }
+          c.lineWidth = 3; c.stroke();
+        }
+        c.lineWidth = 5;
+        c.beginPath(); c.moveTo(-30, 24); c.quadraticCurveTo(-24, 16, -17, 24); c.quadraticCurveTo(-10, 32, -4, 24); c.stroke();
+        c.fillStyle = '#7cc3ea';
+        for (const [sx, sy] of [[52, -36], [-88, -30]]) {
+          c.beginPath(); c.moveTo(sx, sy); c.quadraticCurveTo(sx - 8, sy + 16, sx, sy + 20); c.quadraticCurveTo(sx + 8, sy + 16, sx, sy); c.fill();
+        }
+      }
+      c.restore();
+    }
+
+    // お酒の絵（底の中心が (0,0)）
+    function drawDrink(c, kind) {
+      c.lineWidth = 3; c.strokeStyle = '#5a3a28'; c.lineJoin = 'round';
+      const glass = 'rgba(220,240,255,0.55)';
+      if (kind === 'beer') {
+        c.beginPath(); c.roundRect(10, -50, 16, 30, 8); c.lineWidth = 6; c.strokeStyle = '#5a3a28'; c.stroke();
+        c.lineWidth = 3;
+        c.fillStyle = '#f2b632'; c.beginPath(); c.roundRect(-22, -62, 40, 62, 4); c.fill(); c.stroke();
+        c.fillStyle = '#fff';
+        c.beginPath(); c.arc(-14, -64, 9, 0, Math.PI * 2); c.arc(-2, -68, 10, 0, Math.PI * 2); c.arc(10, -64, 9, 0, Math.PI * 2); c.fill();
+        c.fillStyle = 'rgba(255,255,255,0.6)'; c.fillRect(-14, -48, 4, 38);
+      } else if (kind === 'sake') {
+        c.fillStyle = '#f6f2ea';
+        c.beginPath(); c.moveTo(-6, -64); c.lineTo(6, -64); c.quadraticCurveTo(4, -44, 18, -24); c.quadraticCurveTo(26, 0, 0, 0);
+        c.quadraticCurveTo(-26, 0, -18, -24); c.quadraticCurveTo(-4, -44, -6, -64); c.fill(); c.stroke();
+        c.fillStyle = '#2f5d9e'; c.fillRect(-15, -30, 30, 7);
+        c.fillStyle = '#f6f2ea'; c.beginPath(); c.roundRect(24, -14, 18, 14, 3); c.fill(); c.stroke();
+      } else if (kind === 'wine') {
+        c.fillStyle = glass;
+        c.beginPath(); c.moveTo(-18, -70); c.quadraticCurveTo(-20, -36, 0, -34); c.quadraticCurveTo(20, -36, 18, -70); c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = '#8e1d3a';
+        c.beginPath(); c.moveTo(-17, -55); c.quadraticCurveTo(-16, -36, 0, -36); c.quadraticCurveTo(16, -36, 17, -55); c.closePath(); c.fill();
+        c.beginPath(); c.moveTo(0, -34); c.lineTo(0, -4); c.stroke();
+        c.beginPath(); c.ellipse(0, -2, 14, 3, 0, 0, Math.PI * 2); c.fillStyle = glass; c.fill(); c.stroke();
+      } else if (kind === 'bottle') {
+        c.fillStyle = '#2d5a3a';
+        c.beginPath(); c.moveTo(-6, -96); c.lineTo(6, -96); c.lineTo(6, -70); c.quadraticCurveTo(16, -64, 16, -52); c.lineTo(16, 0); c.lineTo(-16, 0); c.lineTo(-16, -52);
+        c.quadraticCurveTo(-16, -64, -6, -70); c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = '#8e1d3a'; c.fillRect(-6, -100, 12, 8);
+        c.fillStyle = '#f3e7cf'; c.fillRect(-13, -40, 26, 22);
+      } else if (kind === 'highball') {
+        c.fillStyle = glass; c.beginPath(); c.roundRect(-16, -80, 32, 80, 3); c.fill(); c.stroke();
+        c.fillStyle = 'rgba(232,190,90,0.75)'; c.fillRect(-14, -66, 28, 64);
+        c.fillStyle = 'rgba(255,255,255,0.85)'; c.strokeStyle = 'rgba(90,58,40,0.4)'; c.lineWidth = 2;
+        for (const [ix, iy] of [[-10, -62], [0, -48], [-8, -32]]) { c.beginPath(); c.roundRect(ix, iy, 14, 12, 2); c.fill(); c.stroke(); }
+        c.fillStyle = 'rgba(255,255,255,0.8)';
+        for (let i = 0; i < 4; i++) { c.beginPath(); c.arc(6 + (i % 2) * 3, -14 - i * 12, 1.8, 0, Math.PI * 2); c.fill(); }
+      } else if (kind === 'rock') {
+        c.fillStyle = glass; c.beginPath(); c.moveTo(-24, -44); c.lineTo(24, -44); c.lineTo(21, 0); c.lineTo(-21, 0); c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = 'rgba(240,235,215,0.8)'; c.fillRect(-21, -26, 42, 24);
+        c.fillStyle = 'rgba(255,255,255,0.9)'; c.strokeStyle = 'rgba(90,58,40,0.4)'; c.lineWidth = 2;
+        c.beginPath(); c.roundRect(-12, -38, 24, 22, 3); c.fill(); c.stroke();
+      } else if (kind === 'shot') {
+        c.fillStyle = glass; c.beginPath(); c.moveTo(-13, -34); c.lineTo(13, -34); c.lineTo(10, 0); c.lineTo(-10, 0); c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = 'rgba(240,215,140,0.9)'; c.fillRect(-11, -22, 22, 20);
+        c.fillStyle = '#9ccc4a'; c.beginPath(); c.arc(12, -34, 10, Math.PI, 2 * Math.PI); c.fill(); c.stroke();
+        c.fillStyle = '#fff'; c.beginPath(); c.arc(-14, -4, 4, 0, Math.PI * 2); c.fill();
+      } else if (kind === 'can') {
+        c.fillStyle = '#d9dde3'; c.beginPath(); c.roundRect(-17, -76, 34, 76, 6); c.fill(); c.stroke();
+        c.fillStyle = '#1c4fa3'; c.fillRect(-15, -60, 30, 44);
+        c.fillStyle = '#ffd400'; c.font = 'bold 15px sans-serif'; c.textAlign = 'center'; c.fillText('9%', 0, -32);
+        c.fillStyle = '#e5e8ec'; c.fillRect(-15, -22, 30, 4);
+      }
+    }
+
+    function draw(now) {
+      view.t = now / 1000;
+      const c = ctx;
+      c.clearRect(0, 0, CW, CH);
+      const dead = view.mode === 'dead' || (game && game.over && game.history[game.day - 1] === 'dead');
+      const sleeping = view.mode === 'rest';
+      const t = view.t;
+
+      // 肝臓くん
+      const bob = dead ? 0 : Math.sin(t * (view.ratio > 0.85 ? 8 : 2)) * (view.ratio > 0.85 ? 3 : 2);
+      c.save();
+      c.translate(190, 205);
+      c.rotate(-view.fall * 0.5);
+      c.translate(0, view.fall * 30);
+      drawLiver(c, 0, bob, 1.25, { ratio: view.ratio, dead, sleep: sleeping, puff: view.puff, t });
+      c.restore();
+      if (dead) {
+        // 魂
+        const p = Math.min(1, view.fall);
+        c.globalAlpha = 0.85 * p;
+        c.fillStyle = '#fff'; c.strokeStyle = '#a99';
+        const gy = 120 - p * 50 + Math.sin(t * 2) * 4;
+        c.beginPath(); c.arc(200, gy, 16, Math.PI, 0); c.quadraticCurveTo(220, gy + 26, 206, gy + 30); c.quadraticCurveTo(196, gy + 20, 184, gy + 20); c.lineTo(184, gy); c.fill(); c.stroke();
+        c.globalAlpha = 1;
+      }
+      if (sleeping) {
+        c.fillStyle = '#4f9a5a'; c.font = 'bold 28px sans-serif'; c.textAlign = 'center';
+        for (let i = 0; i < 3; i++) {
+          const ph = (t * 0.8 + i / 3) % 1;
+          c.globalAlpha = 1 - ph;
+          c.fillText('z', 300 + ph * 40, 140 - ph * 70 - i * 4);
+        }
+        c.globalAlpha = 1;
+        // お茶
+        c.save(); c.translate(320, 250); drawTea(c); c.restore();
+      }
+      if (view.mode === 'title' || view.mode === 'clear') {
+        c.save(); c.translate(330, 240); c.rotate(0.12); drawDrink(c, 'beer'); c.restore();
+      }
+      if (view.mode === 'title') {
+        c.fillStyle = '#4a3020'; c.font = 'bold 56px "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif';
+        c.textAlign = 'center'; c.fillText('動肝日', 200, 64);
+      }
+
+      // お酒
+      if (view.drink) {
+        const d = view.drink;
+        c.save(); c.globalAlpha = Math.max(0, d.a); c.translate(d.x, d.y + 60); c.scale(d.s, d.s); c.rotate(-0.5 * (1 - d.a) * (d.x < 300 ? 1 : 0));
+        drawDrink(c, d.d[4]); c.restore();
+      }
+      if (view.label) {
+        c.fillStyle = '#4a3020'; c.font = 'bold 20px "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif';
+        c.textAlign = 'center'; c.fillText(view.label, 200, 30);
+      }
+
+      // 肝臓メーター（限界の線は見せない。目盛りは 0〜300g 固定）
+      if (view.mode !== 'title') {
+        const mx = 30, my = 312, mw = 340, mh = 16;
+        c.fillStyle = '#f1e2cc'; c.beginPath(); c.roundRect(mx, my, mw, mh, 8); c.fill();
+        const w = Math.min(1, view.meter / 300) * mw;
+        if (w > 0) { c.fillStyle = rgb(liverColor(view.ratio, dead)); c.beginPath(); c.roundRect(mx, my, Math.max(w, 16), mh, 8); c.fill(); }
+        c.fillStyle = '#4a3020'; c.font = 'bold 15px sans-serif'; c.textAlign = 'right';
+        c.fillText(Math.round(view.meter) + 'g', mx + mw, my - 6);
+        c.textAlign = 'left'; c.fillText('🫀', mx, my - 5);
+      }
+      requestAnimationFrame(draw);
+    }
+    function drawTea(c) {
+      c.lineWidth = 3; c.strokeStyle = '#5a3a28';
+      c.fillStyle = '#e9e2d0'; c.beginPath(); c.moveTo(-20, -36); c.lineTo(20, -36); c.lineTo(16, 0); c.lineTo(-16, 0); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#8fbf5a'; c.fillRect(-18, -32, 36, 6);
+      c.strokeStyle = 'rgba(150,150,150,0.6)'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(-6, -44); c.quadraticCurveTo(-12, -54, -6, -62); c.moveTo(6, -44); c.quadraticCurveTo(0, -54, 6, -62); c.stroke();
+    }
+
+    resize();
+    showTitle();
+    requestAnimationFrame(draw);
+    // アイコン作成用（ブラウザのコンソールから呼ぶ）
+    window.makeIcon = size => {
+      const cv = document.createElement('canvas'); cv.width = cv.height = size;
+      const c = cv.getContext('2d'); c.scale(size / 512, size / 512);
+      c.fillStyle = '#fdf3e4'; c.fillRect(0, 0, 512, 512);
+      drawLiver(c, 236, 256, 1.85, { ratio: 0.2 });
+      c.save(); c.translate(410, 440); c.rotate(0.15); c.scale(2, 2); drawDrink(c, 'beer'); c.restore();
+      return cv.toDataURL('image/png');
+    };
+  </script>
+</body>
+</html>
