@@ -36,26 +36,26 @@
       flex: 1; min-height: 0; width: 100%; max-width: 480px; margin: 0 auto;
       display: flex; flex-direction: column; padding: 0 12px calc(80px + env(safe-area-inset-bottom)); box-sizing: border-box; gap: 8px;
     }
-    #hud { display: flex; justify-content: space-between; align-items: baseline; font-weight: bold; min-height: 56px; }
+    #hud { display: flex; flex-direction: column; align-items: center; font-weight: bold; min-height: 92px; }
     #day { font-size: 44px; line-height: 1.1; }
     #day small { font-size: 18px; color: #8a6a50; }
-    #total { font-size: 24px; color: #b5651d; }
+    #total { font-size: 28px; color: #b5651d; }
     #stage {
       flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center;
       touch-action: manipulation; cursor: pointer;
     }
     canvas { display: block; }
-    #ctrl { min-height: 128px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+    #ctrl { min-height: 160px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
     .row { display: flex; gap: 8px; }
     .row > * { flex: 1; }
     button.big {
-      font: inherit; font-size: 20px; font-weight: bold; padding: 14px 8px; border-radius: 16px;
+      font: inherit; font-size: 26px; font-weight: bold; padding: 22px 8px; border-radius: 18px;
       border: none; cursor: pointer; color: #fff; background: #b5651d;
       box-shadow: 0 4px 0 #7c4212; touch-action: manipulation;
     }
     button.big:active { transform: translateY(3px); box-shadow: 0 1px 0 #7c4212; }
     button.rest { background: #4f9a5a; box-shadow: 0 4px 0 #2f6a38; }
-    button.sub { background: #fff; color: #7c4212; box-shadow: 0 4px 0 #ecc9a8; font-size: 16px; }
+    button.sub { background: #fff; color: #7c4212; box-shadow: 0 4px 0 #ecc9a8; font-size: 22px; }
     .seed {
       display: flex; align-items: center; justify-content: center; gap: 8px;
       font-size: 14px; color: #8a6a50;
@@ -76,17 +76,12 @@
       max-height: 100%; overflow-y: auto; box-sizing: border-box; text-align: center;
       display: flex; flex-direction: column; gap: 8px;
     }
-    #panel button.big { font-size: 16px; padding: 11px 6px; }
+    #panel button.big { font-size: 19px; padding: 16px 6px; }
     .msg { font-size: 20px; font-weight: bold; }
     .score { font-size: 40px; font-weight: bold; color: #b5651d; line-height: 1.1; }
-    .score small { font-size: 16px; color: #8a6a50; display: block; font-weight: normal; }
-    .stats { display: flex; justify-content: center; gap: 16px; font-size: 16px; }
-    table.genes { width: 100%; border-collapse: collapse; font-size: 14px; text-align: left; }
-    table.genes td { padding: 3px 6px; border-top: 1px solid #f1e2cc; }
-    table.genes td:nth-child(2) { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: bold; white-space: nowrap; }
-    table.genes td:nth-child(3) { color: #8a6a50; }
-    .pm { letter-spacing: -1px; word-break: break-all; }
-    .best { font-size: 14px; color: #8a6a50; }
+    .stats { font-size: 16px; }
+    .note { font-size: 13px; color: #8a6a50; min-height: 1em; }
+    button.x { background: #111; box-shadow: 0 4px 0 #555; }
     input#partner {
       font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 24px; text-align: center;
       text-transform: uppercase; letter-spacing: 2px; padding: 10px; border-radius: 12px;
@@ -108,11 +103,11 @@
       <div id="titleCtrl">
         <div class="seed" style="margin-bottom:8px"><span id="gen"></span><b id="mySeed"></b><button id="copy">コピー</button></div>
         <div class="row" style="margin-bottom:8px"><button class="big" id="start">はじめる</button></div>
-        <div class="row"><button class="big sub" id="toCross">👶 子どもを作る</button></div>
+        <div class="row"><button class="big sub" id="toCross">子どもを作る</button></div>
       </div>
       <div id="choiceCtrl" class="row hidden">
-        <button class="big rest" id="restBtn">🍵 休肝日</button>
-        <button class="big" id="drinkBtn">🍺 動肝日</button>
+        <button class="big rest" id="restBtn">休肝日</button>
+        <button class="big" id="drinkBtn">動肝日</button>
       </div>
     </div>
   </main>
@@ -395,41 +390,71 @@
       if (survived) { view.mode = 'clear'; sfx.clear(); }
       updateHud();
       showCtrl('none');
-      const best = Math.max(store.get('best', 0), game.total);
-      const isBest = game.total >= best && game.total > 0;
-      store.set('best', best);
-      const lived = survived ? DAYS : game.day - 1;
       const al = count(genes, 0);
       let msg;
-      if (survived) msg = game.total >= 2400 ? '鉄の肝臓！30日飲みきった' : game.drinkDays <= 10 ? '休みまくって完走' : '30日完走！';
-      else if (al === 0) msg = 'そもそも飲めない体質でした';
-      else if (game.day <= 2) msg = '1日目でダウン…';
-      else if (game.day <= 10) msg = game.day + '日目にダウン…';
-      else msg = game.day + '日目に力尽きた';
-      const pm = genes.slice(3).map(p => (p[0] ? '＋' : '−') + (p[1] ? '＋' : '−')).join(' ');
-      const name = (i, a, b) => [b + b, a + b, a + a][count(genes, i)]; // 強いアレルを先に書く（ND / FS / LS）
+      if (survived) msg = game.total >= 2400 ? '鉄の肝臓！' : '30日完走！';
+      else if (al === 0) msg = '下戸でした';
+      else msg = game.day + '日目に死んだ';
+      const aldh = ['DD', 'ND', 'NN'][al] + '（' + ['下戸', '弱い', '強い'][al] + '）';
+      const restDays = game.history.filter(h => h === 'rest').length;
+      const result = { msg, restDays, total: game.total, drinkDays: game.drinkDays, aldh, limit: tr.limit, seed, dead: !survived };
+      prepareShare(result);
       const html = `
         <div class="msg">${msg}</div>
-        <div class="score">${game.total.toLocaleString()}g<small>中ジョッキ ${Math.round(game.total / 20)}杯分</small></div>
-        <div class="stats"><span>生存 ${lived}日</span><span>🍺 動肝日 ${game.drinkDays}日</span></div>
-        <div class="best">${isBest ? '🏆 ベスト更新！' : 'ベスト ' + best.toLocaleString() + 'g'}</div>
-        <table class="genes">
-          <tr><td>ALDH2</td><td>${name(0, 'N', 'D')}</td><td>${['下戸', '弱い', '強い'][al]}</td></tr>
-          <tr><td>ADH1B</td><td>${name(1, 'F', 'S')}</td><td>分解が${['遅い', 'ふつう', '速い'][count(genes, 1)]}</td></tr>
-          <tr><td>肝臓</td><td>${name(2, 'L', 'S')}</td><td>回復${['△', '○', '◎'][count(genes, 2)]}</td></tr>
-          <tr><td>体質</td><td>＋${tr.plus}/20</td><td class="pm">${pm}</td></tr>
-          <tr><td>許容量</td><td>${tr.limit}g</td><td>${seed}</td></tr>
-        </table>
-        <div class="row"><button class="big sub" id="again">もう一度</button><button class="big" id="cross">👶 子どもを作る</button></div>
-        <div class="row"><button class="big sub" id="home">タイトルへ</button></div>
+        <div class="score">${result.total.toLocaleString()}g</div>
+        <div class="stats">動肝日 ${result.drinkDays}日・休肝日 ${restDays}日</div>
+        <div class="stats">ALDH2 ${aldh}・許容量 ${result.limit}g</div>
+        <div class="row"><button class="big x" id="share">𝕏 で投稿</button></div>
+        <div class="row"><button class="big sub" id="again">もう一度</button><button class="big" id="cross">子どもを作る</button></div>
+        <div class="note" id="note"></div>
       `;
       showResult = () => {
         openPanel(html);
+        $('share').onclick = () => share(result);
         $('again').onclick = startGame;
         $('cross').onclick = openCross;
-        $('home').onclick = () => { sfx.click(); showTitle(); };
       };
       showResult();
+    }
+    // ===== X投稿 =====
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/doukanbi/', SHARE_NAME = 'doukanbi.png';
+    let shareFile = null;
+    const shareText = r => `動肝日\n${r.msg} ${r.total.toLocaleString()}g飲んだ\nシード値 ${r.seed}\n#動肝日`;
+    function resultImage(r) {
+      const cv = document.createElement('canvas'); cv.width = 1200; cv.height = 675;
+      const c = cv.getContext('2d');
+      const font = '"Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif';
+      c.fillStyle = '#fdf3e4'; c.fillRect(0, 0, 1200, 675);
+      drawLiver(c, 300, 360, 2.2, { dead: r.dead });
+      c.fillStyle = '#4a3020'; c.textAlign = 'left';
+      c.font = 'bold 64px ' + font; c.fillText('動肝日', 620, 130);
+      c.font = 'bold 48px ' + font; c.fillText(r.msg, 620, 230);
+      c.fillStyle = '#b5651d'; c.font = 'bold 120px ' + font; c.fillText(r.total.toLocaleString() + 'g', 610, 370);
+      c.fillStyle = '#4a3020'; c.font = 'bold 36px ' + font;
+      c.fillText(`動肝日 ${r.drinkDays}日・休肝日 ${r.restDays}日`, 620, 450);
+      c.fillText(`ALDH2 ${r.aldh}`, 620, 505);
+      c.fillStyle = '#8a6a50'; c.font = 'bold 30px ' + font;
+      c.fillText('シード値 ' + r.seed, 620, 580);
+      return cv;
+    }
+    function prepareShare(r) {
+      shareFile = null;
+      resultImage(r).toBlob(b => { if (b) shareFile = new File([b], SHARE_NAME, { type: 'image/png' }); }, 'image/png');
+    }
+    const mobileShare = () => matchMedia('(pointer:coarse)').matches && typeof navigator.share === 'function';
+    function share(r) {
+      sfx.click();
+      const text = shareText(r);
+      const intent = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SHARE_URL)}`;
+      // スマホは画像ごと共有シートへ。PCは画像を保存して投稿画面を開く（Webの投稿URLでは画像を添付できないため）
+      if (mobileShare() && shareFile && navigator.canShare && navigator.canShare({ files: [shareFile] })) {
+        navigator.share({ files: [shareFile], text: `${text}\n${SHARE_URL}` }).catch(e => { if (e.name !== 'AbortError') location.href = intent; });
+        return;
+      }
+      const w = window.open(intent, '_blank', 'noopener');
+      if (!w && mobileShare()) location.href = intent;
+      const a = document.createElement('a'); a.href = resultImage(r).toDataURL('image/png'); a.download = SHARE_NAME; a.click();
+      $('note').textContent = '結果画像を保存しました。投稿に添付してね！';
     }
     let showResult = null;
 
@@ -440,7 +465,7 @@
         <div class="msg">👶 子どもを作る</div>
         <div class="cross">${seed}<br>×</div>
         <input id="partner" maxlength="9" placeholder="相手のシード値" autocomplete="off" autocapitalize="characters" spellcheck="false">
-        <div class="row"><button class="big sub" id="randPartner">🎲 ランダムな相手</button><button class="big" id="doCross">かけ合わせる</button></div>
+        <div class="row"><button class="big sub" id="randPartner">ランダムな相手</button><button class="big" id="doCross">かけ合わせる</button></div>
         <div class="row"><button class="big sub" id="back">もどる</button></div>
       `);
       const input = $('partner');
