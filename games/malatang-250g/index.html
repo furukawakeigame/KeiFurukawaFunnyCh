@@ -147,10 +147,16 @@ function resultImage(total,diff){const c=document.createElement('canvas');c.widt
  // 右下：ドメイン
  g.fillStyle='#a08f7a';g.textAlign='right';g.font=`16px ${font}`;g.fillText('keifurukawafunnych.com',1180,660);
  return c}
-$('share').onclick=async()=>{const total=bowlWeight(),diff=Math.abs(total-250),url='https://keifurukawafunnych.com/games/malatang-250g/',text=t("shareText")(total,diff),img=resultImage(total,diff),name='malatang-250g.png';
- if(navigator.canShare?.({files:[new File([''],name,{type:'image/png'})]})){try{const blob=await new Promise(r=>img.toBlob(r,'image/png'));await navigator.share({files:[new File([blob],name,{type:'image/png'})],text:`${text}\n${url}`});return}catch(e){if(e.name==='AbortError')return}}
- const a=document.createElement('a');a.href=img.toDataURL('image/png');a.download=name;a.click();window.open(`https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,'_blank','noopener');$('best-result').textContent=t('saved')};
-function applyLang(){document.documentElement.lang=lang;document.title=t('title');for(const id of ['back','title','retry','share','weigh','reset'])$(id).textContent=t(id);$('target-label').textContent=t('target');$('stage').setAttribute('aria-label',t('stage'));canvas.setAttribute('aria-label',t('canvas'));if(mode==='start'&&!$('start').hidden&&$('loading').textContent===L[lang==='ja'?'en':'ja'].loading)$('loading').textContent=t('loading');$('sound').textContent=`${t('sound')} ${sound?'ON':'OFF'}`;$('lang').textContent=t('lang');$('lang').setAttribute('aria-label',t('langLabel'));
+// Safari（Mac/iOS）は await をはさむと「ユーザー操作」扱いが切れて共有もポップアップも止められるので、画像は結果表示時に先に作っておき、クリック時は待たずに開く
+const SHARE_URL='https://keifurukawafunnych.com/games/malatang-250g/',SHARE_NAME='malatang-250g.png';let shareFile=null,shareKey='';
+function prepareShare(){if(mode!=='result')return;const total=bowlWeight(),diff=Math.abs(total-250),key=lang+':'+total;if(key===shareKey)return;shareKey=key;shareFile=null;resultImage(total,diff).toBlob(b=>{if(b&&shareKey===key)shareFile=new File([b],SHARE_NAME,{type:'image/png'})},'image/png')}
+const mobileShare=()=>matchMedia('(pointer:coarse)').matches&&typeof navigator.share==='function';
+$('share').onclick=()=>{const total=bowlWeight(),diff=Math.abs(total-250),text=t("shareText")(total,diff),intent=`https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SHARE_URL)}`;
+ if(mobileShare()&&shareFile&&navigator.canShare?.({files:[shareFile]})){navigator.share({files:[shareFile],text:`${text}\n${SHARE_URL}`}).catch(e=>{if(e.name!=='AbortError')location.href=intent});return}
+ const w=window.open(intent,'_blank','noopener');if(!w&&mobileShare())location.href=intent;
+ const a=document.createElement('a');a.href=resultImage(total,diff).toDataURL('image/png');a.download=SHARE_NAME;a.click();$('best-result').textContent=t('saved')};
+{const w2=$('weigh').onclick;$('weigh').onclick=()=>{w2();prepareShare()}}
+function applyLang(){setTimeout(prepareShare);document.documentElement.lang=lang;document.title=t('title');for(const id of ['back','title','retry','share','weigh','reset'])$(id).textContent=t(id);$('target-label').textContent=t('target');$('stage').setAttribute('aria-label',t('stage'));canvas.setAttribute('aria-label',t('canvas'));if(mode==='start'&&!$('start').hidden&&$('loading').textContent===L[lang==='ja'?'en':'ja'].loading)$('loading').textContent=t('loading');$('sound').textContent=`${t('sound')} ${sound?'ON':'OFF'}`;$('lang').textContent=t('lang');$('lang').setAttribute('aria-label',t('langLabel'));
  foods.forEach((f,i)=>{if(i>=CUSTOM_START){f.name=t('my')(i-CUSTOM_START+1);renderSlot(i);return}f.name=t('foods')[f.id];const b=$('ingredients').children[i];b.setAttribute('aria-label',f.name);b.querySelector('b').textContent=f.name});
  if(mode==='result')renderResult(bowlWeight());else if(mode==='play'&&chefPhase!=='angry')chefSay(t('quizzes')[quizIndex])}
 $('lang').onclick=()=>{lang=lang==='ja'?'en':'ja';try{localStorage.setItem('malatang250-lang',lang)}catch{}applyLang()};
