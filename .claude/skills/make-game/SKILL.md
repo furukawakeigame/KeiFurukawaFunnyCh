@@ -50,14 +50,12 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
   - 画面サイズに合わせて表示を調整すること
   - **画面の下に 80px ほどの空白**を入れる（`padding-bottom: calc(80px + env(safe-area-inset-bottom))` など）。Xのアプリ内ブラウザで開くと、下部にXの投稿文が重なってボタンが隠れるため。結果パネルなどの重ねて出す画面も同じ。
   - アイコン `games/<フォルダ名>/icon.png`（正方形のPNG、512×512 推奨）。トップページの一覧に表示する。ユーザーが用意していなければ、ゲームの絵を使って Canvas で描くなどして作り、見せてOKをもらう。ゲームのページにも `<link rel="icon" href="icon.png">` と `<link rel="apple-touch-icon" href="icon.png">` を入れる。
-  - X などにURLを貼ったときにアイコンとタイトルが出るよう、`<head>` にカード用の meta タグを入れる。`og:url` と `og:image` だけは相対パスでは読まれないので、公開URLを `https://` から書く。
+  - X などにURLを貼ったときにアイコンとタイトルが出るよう、`<head>` にカード用の meta タグを入れる。`og:url` と `og:image` だけは相対パスでは読まれないので、公開URLを `https://` から書く。カードはタイトルとアイコンだけにし、**説明文（`description` / `og:description`）は入れない**。
 
     ```html
-    <meta name="description" content="説明文">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="KeiFurukawaFunnyCh">
     <meta property="og:title" content="タイトル">
-    <meta property="og:description" content="説明文">
     <meta property="og:url" content="https://keifurukawafunnych.com/games/<フォルダ名>/">
     <meta property="og:image" content="https://keifurukawafunnych.com/games/<フォルダ名>/icon.png">
     <meta name="twitter:card" content="summary">
