@@ -18,7 +18,7 @@
     body {
       display: flex; flex-direction: column; height: 100dvh;
       font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
-      overflow: hidden;
+      overflow: hidden; touch-action: none;
       -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     }
     header {
@@ -26,9 +26,11 @@
       padding: 8px 12px; width: 100%; max-width: 480px; margin: 0 auto; box-sizing: border-box;
     }
     header a { color: #c0506a; text-decoration: none; font-weight: bold; }
-    #sound {
+    .hbtns { display: flex; gap: 6px; }
+    #lang { font-size: 15px; padding: 0 10px; }
+    .pill {
       font-size: 20px; background: #fff; border: 2px solid #f2c4cf; border-radius: 999px;
-      width: 44px; height: 36px; cursor: pointer;
+      min-width: 44px; height: 36px; cursor: pointer; font-weight: bold; color: #a8445c;
     }
     main {
       flex: 1; min-height: 0; width: 100%; max-width: 480px; margin: 0 auto;
@@ -36,38 +38,42 @@
       padding: 0 12px calc(80px + env(safe-area-inset-bottom));
     }
     #hud { text-align: center; font-weight: bold; min-height: 76px; display: flex; flex-direction: column; justify-content: center; }
+    #hud[hidden] { display: none; }
     #count { font-size: min(36px, 6.8vw); line-height: 1.2; }
     #msg { font-size: 22px; color: #c0506a; }
-    #stage { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; touch-action: none; }
-    #resultPortrait { width: 32%; max-width: 128px; height: auto; flex-shrink: 0; margin-right: 8px; border-radius: 16px; }
+    #stage { position: relative; cursor: crosshair; flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; touch-action: none; }
+    #stage.result { align-items: flex-end; }
+    #resultPortrait { position: absolute; left: 50%; transform: translateX(-50%); height: auto; pointer-events: none; }
     #resultPortrait[hidden] { display: none; }
-    canvas { display: block; touch-action: none; cursor: crosshair; }
+    #ov { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+    canvas { position: relative; display: block; touch-action: none; cursor: crosshair; }
     #ctrl { min-height: 84px; display: flex; gap: 8px; align-items: center; }
     #ctrl > * { flex: 1; }
-    button.big {
+    .big {
       font: inherit; font-size: 24px; font-weight: bold; padding: 18px 8px; border-radius: 18px;
       border: none; cursor: pointer; color: #fff; background: #e06a86;
       box-shadow: 0 4px 0 #a8445c; touch-action: manipulation;
+      display: block; text-align: center; text-decoration: none; line-height: normal;
     }
-    button.big:active { transform: translateY(3px); box-shadow: 0 1px 0 #a8445c; }
+    .big:active { transform: translateY(3px); box-shadow: 0 1px 0 #a8445c; }
     button.big:disabled { opacity: .35; cursor: default; }
     button.sub { background: #fff; color: #a8445c; box-shadow: 0 4px 0 #f2c4cf; }
-    button.x { background: #222; box-shadow: 0 4px 0 #000; }
+    .big.x { background: #222; box-shadow: 0 4px 0 #000; }
   </style>
 </head>
 <body>
   <header>
-    <a href="../../">← トップへ戻る</a>
-    <button id="sound" aria-label="音のオン/オフ">🔊</button>
+    <a href="../../" id="back">← トップへ戻る</a>
+    <div class="hbtns"><button id="lang" class="pill">EN</button><button id="sound" class="pill" aria-label="音のオン/オフ">🔊</button></div>
   </header>
   <main>
     <div id="hud"><div id="count"></div><div id="msg"></div></div>
     <div id="stage"><img id="resultPortrait" width="256" height="256" alt="" hidden><canvas id="cv"></canvas></div>
     <div id="ctrl"></div>
   </main>
+  <svg id="ov"></svg>
   <script>
     const SHARE_URL = 'https://keifurukawafunnych.com/games/cake-three/';
-    const CUTS = 3;
     const SNAP = 0.12;            // 端点スナップ距離（ケーキ半径=1）
     const COLORS = ['#ffb3c1', '#b8e0ff', '#c8f0b0', '#ffe39a', '#e0c8ff', '#ffd0a8'];
 
@@ -98,22 +104,63 @@
     const stage = document.getElementById('stage');
     const resultPortrait = document.getElementById('resultPortrait');
     const PORTRAITS = {
-      '優等生': 'honor-student.png',
-      'ふつうの少年': 'ordinary-boy.png',
-      'ちょっと不良': 'slight-delinquent.png',
-      '不良少年': 'delinquent.png',
-      '番長': 'gang-leader.png',
+      honor: 'honor-student.png',
+      ordinary: 'ordinary-boy.png',
+      slight: 'slight-delinquent.png',
+      delinquent: 'delinquent.png',
+      leader: 'gang-leader.png',
     };
+
+    // 文言（日本語／英語）
+    const L = {
+      ja: {
+        title: 'ケーキ三等分', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
+        undo: '戻す', ok: '決定', retry: 'もう一度', share: 'Xに投稿',
+        ranks: { honor: '優等生', ordinary: 'ふつうの少年', slight: 'ちょっと不良', delinquent: '不良少年', leader: '番長' },
+        diff: d => `差 ${d}%`, pieces: n => `${n}個になった…`,
+        shareText: (rank, detail) => `ケーキを三等分した結果「${rank}」\n${detail}\n#ケーキ三等分`,
+        sharePieces: n => `${n}個になった`,
+      },
+      en: {
+        title: 'Cake in Thirds', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
+        undo: 'Undo', ok: 'Done', retry: 'Retry', share: 'Post on X',
+        ranks: { honor: 'Honor Student', ordinary: 'Ordinary Boy', slight: 'A Bit Rebellious', delinquent: 'Delinquent', leader: 'Gang Leader' },
+        diff: d => `Gap ${d}%`, pieces: n => `${n} pieces…`,
+        shareText: (rank, detail) => `I cut a cake into thirds: "${rank}"\n${detail}\n#CakeInThirds`,
+        sharePieces: n => `Ended up with ${n} pieces`,
+      },
+    };
+    let lang = store.get('lang', navigator.language.startsWith('ja') ? 'ja' : 'en');
+    if (!L[lang]) lang = 'ja';
+    const t = k => L[lang][k];
+    const langBtn = document.getElementById('lang');
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      langBtn.textContent = t('lang'); langBtn.setAttribute('aria-label', t('langLabel'));
+      if (result) showResult();
+      renderCtrl();
+    }
+    langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
     const countEl = document.getElementById('count'), msgEl = document.getElementById('msg');
     const ctrl = document.getElementById('ctrl');
+    const ov = document.getElementById('ov');
     let S = 300, dpr = 1;
 
     let lines = [], preview = null, drag = null, result = null, pieceImg = null;
 
     function resize() {
       const r = stage.getBoundingClientRect();
-      const portraitWidth = resultPortrait.hidden ? 0 : resultPortrait.getBoundingClientRect().width + 8;
-      S = Math.max(1, Math.floor(Math.min(r.width - portraitWidth, r.height)));
+      const showP = !resultPortrait.hidden;
+      stage.classList.toggle('result', showP);
+      S = Math.max(1, Math.floor(Math.min(r.width, showP ? r.height * 0.62 : r.height)));
+      if (showP) {
+        // イラストは円の後ろ。肩から下を円で隠し、顔が円の上に出るように置く
+        const w = Math.min(r.width, S * 0.85);
+        resultPortrait.style.width = w + 'px';
+        resultPortrait.style.top = Math.max(0, r.height - S * 0.9 - w * 0.8) + 'px';
+      }
       dpr = window.devicePixelRatio || 1;
       cv.style.width = cv.style.height = S + 'px';
       cv.width = cv.height = Math.round(S * dpr);
@@ -145,24 +192,25 @@
         ctx.drawImage(pieceImg, c - r, c - r, r * 2, r * 2); ctx.restore();
       }
       ctx.strokeStyle = '#e8b4c0'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(c, c, r, 0, 7); ctx.stroke();
-      // 切り線
-      const drawLine = (l, color, w, dash) => {
-        const [x1, y1] = toPx(l.a), [x2, y2] = toPx(l.b);
-        ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round';
-        if (dash) ctx.setLineDash([8, 6]);
-        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.restore();
-      };
-      for (const l of lines) drawLine(l, '#8a4a3a', 3);
-      if (preview) drawLine(preview, '#e06a86', 3, true);
-      // 端点（スナップ先）
-      if (!result) for (const l of lines) for (const q of [l.a, l.b]) {
-        const [x, y] = toPx(q);
-        ctx.fillStyle = '#8a4a3a'; ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fill();
+      // 結果のときは、線をケーキの上だけに描く
+      if (result) {
+        ctx.save(); ctx.beginPath(); ctx.arc(c, c, r, 0, 7); ctx.clip();
+        ctx.strokeStyle = '#8a4a3a'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+        for (const l of lines) {
+          const [x1, y1] = toPx(l.a), [x2, y2] = toPx(l.b);
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        }
+        ctx.restore();
       }
-      if (preview) for (const q of [preview.a, preview.b]) if (q.snapped) {
-        const [x, y] = toPx(q);
-        ctx.strokeStyle = '#e06a86'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x, y, 11, 0, 7); ctx.stroke();
-      }
+      // 線と端点（スナップ先）は画面全体に重ねたSVGに描く
+      const b = cv.getBoundingClientRect();
+      const sx = q => b.left + toPx(q)[0], sy = q => b.top + toPx(q)[1];
+      let svg = '';
+      if (!result) for (const l of lines) svg += `<line x1="${sx(l.a)}" y1="${sy(l.a)}" x2="${sx(l.b)}" y2="${sy(l.b)}" stroke="#8a4a3a" stroke-width="3" stroke-linecap="round"/>`;
+      if (preview) svg += `<line x1="${sx(preview.a)}" y1="${sy(preview.a)}" x2="${sx(preview.b)}" y2="${sy(preview.b)}" stroke="#e06a86" stroke-width="3" stroke-dasharray="8 6" stroke-linecap="round"/>`;
+      if (!result) for (const l of lines) for (const q of [l.a, l.b]) svg += `<circle cx="${sx(q)}" cy="${sy(q)}" r="5" fill="#8a4a3a"/>`;
+      if (preview) for (const q of [preview.a, preview.b]) if (q.snapped) svg += `<circle cx="${sx(q)}" cy="${sy(q)}" r="11" fill="none" stroke="#e06a86" stroke-width="3"/>`;
+      ov.innerHTML = svg;
       // 割合ラベル
       if (result) for (const p of result.pieces) {
         const [x, y] = toPx(p.center);
@@ -175,12 +223,12 @@
 
     // 入力
     function pos(e) { const b = cv.getBoundingClientRect(); return toCake(e.clientX - b.left, e.clientY - b.top); }
-    cv.addEventListener('pointerdown', e => {
-      if (result || lines.length >= CUTS) return;
-      e.preventDefault(); cv.setPointerCapture(e.pointerId);
+    window.addEventListener('pointerdown', e => {
+      if (result || e.target.closest('button, a')) return;
+      e.preventDefault();
       drag = snap(pos(e)); preview = null; draw(); renderCtrl();
     });
-    cv.addEventListener('pointermove', e => {
+    window.addEventListener('pointermove', e => {
       if (!drag) return;
       preview = { a: drag, b: snap(pos(e)) }; draw();
     });
@@ -190,8 +238,8 @@
       if (Math.hypot(preview.a.x - preview.b.x, preview.a.y - preview.b.y) < 0.05) { preview = null; draw(); return; }
       commit();
     };
-    cv.addEventListener('pointerup', end);
-    cv.addEventListener('pointercancel', () => { drag = null; preview = null; draw(); renderCtrl(); });
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', () => { drag = null; preview = null; draw(); renderCtrl(); });
 
     function btn(label, cls, fn, disabled) {
       const b = document.createElement('button');
@@ -201,23 +249,25 @@
     function renderCtrl() {
       ctrl.innerHTML = '';
       if (result) {
-        btn('もう一度', '', start);
-        btn('Xに投稿', 'x', share);
+        btn(t('retry'), '', start);
+        shareLink();
         return;
       }
-      btn('戻す', 'sub', () => { lines.pop(); hud(); draw(); renderCtrl(); }, !lines.length);
+      btn(t('undo'), 'sub', () => { lines.pop(); hud(); draw(); renderCtrl(); }, !lines.length);
+      btn(t('ok'), '', finish, !lines.length);
     }
     function hud() {
       if (result) return;
-      countEl.textContent = `${lines.length + 1} / ${CUTS} 本目`;
+      countEl.textContent = '';
       msgEl.textContent = '';
+      document.getElementById('hud').hidden = true;
     }
 
     function commit() {
       if (!preview) return;
       lines.push({ a: { x: preview.a.x, y: preview.a.y }, b: { x: preview.b.x, y: preview.b.y } });
       preview = null; sndCut();
-      if (lines.length >= CUTS) finish(); else { hud(); draw(); renderCtrl(); }
+      hud(); draw(); renderCtrl();
     }
 
     // ピースの面積：格子に塗り分けて数える
@@ -274,41 +324,55 @@
       pieceImg = m.img;
       const pcts = m.pieces.map(p => p.pct).sort((a, b) => b - a);
       const diff = pcts.length === 3 ? pcts[0] - pcts[2] : null;
-      let text, sub;
+      let rank;
       const good = fs => fs.forEach((f, i) => setTimeout(() => beep(f, 0.2), i * 120));
       const bad = () => beep(150, 0.7, 'square', 0.08, -60);
-      sub = diff === null ? `${pcts.length}個になった…` : `差 ${diff.toFixed(1)}%`;
-      if (diff === null) { text = '番長'; bad(); }
-      else if (diff < 3) { text = '優等生'; good([660, 880, 1320]); }
-      else if (diff < 7) { text = 'ふつうの少年'; good([660, 880]); }
-      else if (diff < 15) { text = 'ちょっと不良'; beep(440, 0.3, 'triangle'); }
-      else if (diff < 25) { text = '不良少年'; beep(220, 0.5, 'square', 0.08, -60); }
-      else { text = '番長'; bad(); }
-      result = { pieces: m.pieces, diff, text, count: pcts.length };
-      countEl.textContent = text; msgEl.textContent = sub;
-      resultPortrait.src = PORTRAITS[text];
-      resultPortrait.alt = text;
+      if (diff === null) { rank = 'leader'; bad(); }
+      else if (diff < 3) { rank = 'honor'; good([660, 880, 1320]); }
+      else if (diff < 7) { rank = 'ordinary'; good([660, 880]); }
+      else if (diff < 15) { rank = 'slight'; beep(440, 0.3, 'triangle'); }
+      else if (diff < 25) { rank = 'delinquent'; beep(220, 0.5, 'square', 0.08, -60); }
+      else { rank = 'leader'; bad(); }
+      result = { pieces: m.pieces, diff, rank, count: pcts.length };
+      document.getElementById('hud').hidden = false;
+      resultPortrait.src = PORTRAITS[rank];
       resultPortrait.hidden = false;
+      showResult();
       resize(); renderCtrl();
     }
+    function showResult() {
+      const r = result, name = t('ranks')[r.rank];
+      countEl.textContent = name;
+      msgEl.textContent = r.diff === null ? t('pieces')(r.count) : t('diff')(r.diff.toFixed(1));
+      resultPortrait.alt = name;
+    }
 
-    function share() {
+    function shareUrl() {
       const r = result;
-      const body = `ケーキを三等分した結果「${r.text}」\n` + (r.diff === null
-        ? `${r.count}個になった`
-        : `${r.pieces.map(p => p.pct.toFixed(1) + '%').join(' / ')}（差 ${r.diff.toFixed(1)}%）`);
-      const intent = `https://x.com/intent/post?text=${encodeURIComponent(body + '\n#ケーキ三等分')}&url=${encodeURIComponent(SHARE_URL)}`;
-      const w = window.open(intent, '_blank');
-      if (w) w.opener = null; else location.href = intent;
+      const detail = r.diff === null
+        ? t('sharePieces')(r.count)
+        : `${r.pieces.map(p => p.pct.toFixed(1) + '%').join(' / ')} (${t('diff')(r.diff.toFixed(1))})`;
+      const body = t('shareText')(t('ranks')[r.rank], detail);
+      return `https://x.com/intent/post?text=${encodeURIComponent(body)}&url=${encodeURIComponent(SHARE_URL)}`;
+    }
+    // X投稿は本物のリンクにする。スマホはタップで同じタブから x.com へ飛ぶと X アプリが開く
+    // （window.open で新しいタブを開くとアプリに切り替わらない）。PCは新しいタブで開く。
+    function shareLink() {
+      const a = document.createElement('a');
+      a.className = 'big x'; a.textContent = t('share'); a.href = shareUrl();
+      if (!matchMedia('(pointer: coarse)').matches) { a.target = '_blank'; a.rel = 'noopener'; }
+      ctrl.appendChild(a);
     }
 
     function start() {
       lines = []; preview = null; drag = null; result = null; pieceImg = null;
-      resultPortrait.hidden = true;
+      resultPortrait.src = PORTRAITS.ordinary;
+      resultPortrait.alt = '';
+      resultPortrait.hidden = false;
       hud(); resize(); renderCtrl();
     }
     window.addEventListener('resize', resize);
-    start(); resize();
+    start(); applyLang(); resize();
   </script>
 </body>
 </html>
