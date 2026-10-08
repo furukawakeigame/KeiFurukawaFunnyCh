@@ -46,17 +46,11 @@
     #height { font-size: 44px; text-shadow: 0 2px 0 #fff; }
     #best { font-size: 16px; font-weight: bold; color: #b0501a; }
     #logo {
-      position: absolute; top: 8%; left: 0; right: 0; z-index: 2; pointer-events: none;
+      position: absolute; top: 84px; left: 0; right: 0; z-index: 2; pointer-events: none;
       text-align: center; white-space: pre-line; line-height: 1.2;
-      font-size: min(48px, 12vw); font-weight: 900; color: #5a3517;
+      font-size: min(48px, 10vw); font-weight: 900; color: #5a3517;
     }
     #logo[hidden] { display: none; }
-    #tap {
-      position: absolute; left: 0; right: 0; bottom: calc(110px + env(safe-area-inset-bottom));
-      text-align: center; font-size: 26px; font-weight: bold; color: #c4561c; pointer-events: none;
-      animation: blink 1.2s infinite; z-index: 2;
-    }
-    #tap[hidden] { display: none; }
     #finish {
       position: absolute; left: 50%; transform: translateX(-50%); z-index: 2;
       bottom: calc(92px + env(safe-area-inset-bottom)); width: min(240px, 70%);
@@ -64,7 +58,6 @@
     }
     #finish:active { transform: translate(-50%, 3px); }
     #finish[hidden] { display: none; }
-    @keyframes blink { 50% { opacity: .3; } }
     #result {
       position: absolute; inset: 0; z-index: 4; display: flex; align-items: flex-end; justify-content: center;
       padding: 12px 12px calc(80px + env(safe-area-inset-bottom)); box-sizing: border-box;
@@ -102,7 +95,6 @@
     <div id="stage"></div>
     <div id="hud"><div id="height">0cm</div><div id="best"></div></div>
     <div id="logo"></div>
-    <div id="tap">TAP!</div>
     <button id="finish" class="big" hidden></button>
     <div id="result" hidden>
       <div class="panel">
@@ -130,14 +122,14 @@
     const L = {
       ja: {
         title: 'バーガータワー', logo: 'バーガータワー', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
-        tap: 'タップでスタート', best: h => `ベスト ${h}cm`, newBest: h => `ベスト更新！ ${h}cm`,
+        best: h => `ベスト ${h}cm`, newBest: h => `ベスト更新！ ${h}cm`,
         retry: 'もう一度', share: 'Xに投稿', finish: '🍔 完成させる',
         msgs: ['まだおやつサイズ', 'ふつうのバーガー', '立派なビッグバーガー！', '口に入らない…', 'もはや建築物'],
         shareText: (h, m) => `バーガータワーで ${h}cm 積み上げた！「${m}」 #バーガータワー`,
       },
       en: {
         title: 'Burger Tower', logo: 'BURGER TOWER', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
-        tap: 'Tap to start', best: h => `Best ${h}cm`, newBest: h => `New best! ${h}cm`,
+        best: h => `Best ${h}cm`, newBest: h => `New best! ${h}cm`,
         retry: 'Play again', share: 'Post on X', finish: '🍔 Finish it',
         msgs: ['Snack size', 'A regular burger', 'A mighty big burger!', "Won't fit in your mouth…", "That's architecture"],
         shareText: (h, m) => `I stacked a ${h}cm burger in Burger Tower! "${m}" #BurgerTower`,
@@ -153,7 +145,6 @@
       document.title = t('title');
       $('back').textContent = t('back');
       langBtn.textContent = t('lang'); langBtn.setAttribute('aria-label', t('langLabel'));
-      $('tap').textContent = t('tap');
       $('logo').textContent = t('logo');
       $('retry').textContent = t('retry');
       $('finish').textContent = t('finish');
@@ -378,7 +369,7 @@ if (uDecalOn > 0.5 && vWPos.y < uDecalPos.y && (up ? vWPos.y > topY - 0.05 : vWN
     // ---- ゲーム状態 ----
     let pieces = [];      // {kind, mesh, body}
     let holder = null;    // 揺れている次の具材 {kind, mesh}
-    let state = 'title';  // title / play / final（最後のバンズ） / settle（完成待ち） / result
+    let state = 'play';  // play / final（最後のバンズ） / settle（完成待ち） / result
     let swingT = 0, nextAt = 0, settleAt = 0;
     let curH = 0, stackTop = 0, camY = 0, holderY = 2.9;
     let best = store.get('best', 0);
@@ -427,10 +418,9 @@ if (uDecalOn > 0.5 && vWPos.y < uDecalPos.y && (up ? vWPos.y > topY - 0.05 : vWN
       };
     }
     function drop() {
-      if (state === 'title') { audio(); start(); return; }
       if ((state !== 'play' && state !== 'final') || !holder) return;
       const p = holderPos();
-      scene.remove(holder.mesh);
+      scene.remove(holder.mesh); $('logo').hidden = true;
       addPiece(holder.kind, p.x, p.y, p.z, holder.rot);
       holder = null; blip();
       nextAt = performance.now() + 650;
@@ -486,7 +476,7 @@ if (uDecalOn > 0.5 && vWPos.y < uDecalPos.y && (up ? vWPos.y > topY - 0.05 : vWN
     }
     function start() {
       reset();
-      state = 'play'; $('tap').hidden = true; $('logo').hidden = true; $('hud').hidden = false; $('finish').hidden = false;
+      state = 'play'; $('finish').hidden = false;
       spawnHolder(); hud();
     }
 
@@ -552,7 +542,7 @@ if (uDecalOn > 0.5 && vWPos.y < uDecalPos.y && (up ? vWPos.y > topY - 0.05 : vWN
       world.step(1 / 60, dt, 3);
       for (const p of pieces) sync(p);
 
-      if (state !== 'title' && state !== 'result') {
+      if (state !== 'result') {
         // お皿から落ちた具材：音を鳴らし、見えなくなったら消す
         for (const p of pieces) {
           if (!p.fell && p.body.position.y < -1) { p.fell = true; crash(); }
@@ -602,8 +592,8 @@ if (uDecalOn > 0.5 && vWPos.y < uDecalPos.y && (up ? vWPos.y > topY - 0.05 : vWN
       requestAnimationFrame(loop);
     }
 
-    reset(); resize(); applyLang();
-    $('tap').hidden = false; $('hud').hidden = true;
+    // スタート画面なし：開いたらすぐ遊べる（タイトルは最初の1個を落とすまで表示）
+    resize(); applyLang(); start();
     requestAnimationFrame(loop);
     window.__game = { get state() { return state; }, drop, finish: finishBurger, get h() { return curH; }, get hx() { return holder ? holderPos() : null; } };
   </script>
