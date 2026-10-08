@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>円周率かくれんぼ</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <!-- X などにURLを貼ったときのカード表示（ここだけは https:// から書く） -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="円周率かくれんぼ">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/pi-hide/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/pi-hide/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    html, body { margin: 0; height: 100%; background: #e4f1d4; color: #2f3b22; }
+    body {
+      display: flex; flex-direction: column; height: 100dvh;
+      font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden; touch-action: manipulation;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; width: 100%; max-width: 480px; margin: 0 auto; box-sizing: border-box;
+    }
+    header a { color: #d0612a; text-decoration: none; font-weight: bold; }
+    .hbtns { display: flex; gap: 6px; }
+    #lang { font-size: 15px; padding: 0 10px; }
+    .pill {
+      font-size: 20px; background: #fff; border: 2px solid #bcd6a2; border-radius: 999px;
+      min-width: 44px; height: 36px; cursor: pointer; font-weight: bold; color: #d0612a;
+    }
+    main {
+      flex: 1; min-height: 0; width: 100%; max-width: 480px; margin: 0 auto;
+      display: flex; flex-direction: column; box-sizing: border-box; gap: 10px;
+      padding: 0 12px calc(80px + env(safe-area-inset-bottom));
+    }
+    .screen { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+    [hidden] { display: none !important; }
+    .lens { display: flex; gap: 6px; }
+    .lens button {
+      flex: 1; font: inherit; font-size: 18px; font-weight: bold; padding: 8px 0; border-radius: 12px;
+      border: 2px solid #bcd6a2; background: #fff; color: #d0612a; cursor: pointer;
+    }
+    .lens button.on { background: #d0612a; color: #fff; border-color: #d0612a; }
+    .boxes { display: flex; justify-content: center; gap: 8px; }
+    .boxes span {
+      width: 52px; height: 64px; border-radius: 12px; background: #fff; border: 3px solid #bcd6a2;
+      display: flex; align-items: center; justify-content: center; font-size: 38px; font-weight: bold;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+    }
+    .boxes span.cur { border-color: #d0612a; }
+    .pad { display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); gap: 8px; flex: 1; min-height: 0; max-height: 300px; }
+    .pad button {
+      font: inherit; font-size: 26px; font-weight: bold; border-radius: 14px; border: none; background: #fff;
+      color: #2f3b22; box-shadow: 0 3px 0 #bcd6a2; cursor: pointer; min-height: 40px;
+    }
+    .pad button:active { transform: translateY(2px); box-shadow: 0 1px 0 #bcd6a2; }
+    .big {
+      font: inherit; font-size: 22px; font-weight: bold; padding: 14px 8px; border-radius: 16px;
+      border: none; cursor: pointer; color: #fff; background: #d0612a;
+      box-shadow: 0 4px 0 #9a4318; display: block; text-align: center; text-decoration: none; line-height: normal;
+    }
+    .big:active { transform: translateY(3px); box-shadow: 0 1px 0 #9a4318; }
+    button.big:disabled { opacity: .35; cursor: default; }
+    .big.sub { background: #fff; color: #d0612a; box-shadow: 0 4px 0 #bcd6a2; }
+    .big.x { background: #222; box-shadow: 0 4px 0 #000; }
+    .row2 { display: flex; gap: 8px; }
+    .row2 > * { flex: 1; }
+
+    /* 主役：横に流れる円周率の帯。プレイヤーは帯のうしろに隠れて、頭だけのぞかせる */
+    #tape { position: relative; flex: 1; min-height: 250px; --band: min(76px, 19vw); --top: 52%; }
+    #band {
+      position: absolute; left: -12px; right: -12px; top: var(--top); height: var(--band); margin-top: calc(var(--band) / -2);
+      background: #2c4a2a; color: #a9c98e; z-index: 2; overflow: hidden;
+      font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: bold; font-size: calc(var(--band) * .68); line-height: var(--band);
+      box-shadow: 0 6px 0 #1d331c;
+    }
+    #line { position: absolute; left: 50%; top: 0; white-space: nowrap; will-change: transform; }
+    #line b { color: #fff; border-radius: 6px; animation: pop .35s; }
+    @keyframes pop { 0% { transform: scale(1.6); } }
+    #band::before, #band::after { content: ''; position: absolute; top: 0; bottom: 0; width: 22%; z-index: 1; }
+    #band::before { left: 0; background: linear-gradient(90deg, #2c4a2a, transparent); }
+    #band::after { right: 0; background: linear-gradient(-90deg, #2c4a2a, transparent); }
+    #scope {
+      position: absolute; left: 50%; top: 4px; bottom: 4px; width: calc(var(--len) * 1ch + 10px); transform: translateX(-50%);
+      border: 3px solid #f0a020; border-radius: 10px; background: rgba(240,160,32,.14); z-index: 2; box-sizing: border-box;
+    }
+    #players { list-style: none; margin: 0; padding: 0; position: absolute; inset: 0; }
+    #players li { position: absolute; top: var(--top); left: var(--x); width: 0; }
+    #players .who {
+      position: absolute; left: 0; bottom: calc(var(--band) / 2 + 4px); z-index: 1; line-height: 1.2;
+      display: flex; flex-direction: column; align-items: center;
+      transform: translate(-50%, calc(100% - 30px)); transition: transform .4s cubic-bezier(.3,1.8,.5,1);
+    }
+    /* ゆらゆらは中の .bob に付けて、飛び出す動き（.who の transform）とぶつからないようにする */
+    #players .bob { display: block; }
+    #players li:nth-child(odd) .bob { animation: peek 2.4s ease-in-out infinite; }
+    #players li:nth-child(even) .bob { animation: peek 2.4s ease-in-out 1.2s infinite; }
+    @keyframes peek { 50% { transform: translateY(8px); } }
+    #players li.found .bob { animation: none; }
+    #players .tag {
+      display: block; text-align: center; line-height: 1.1; min-width: 1.2em;
+      font-size: 15px; font-weight: bold; color: #fff; background: var(--c); border-radius: 999px; padding: 7px 4px;
+    }
+    #players.many .tag { font-size: 12px; padding: 6px 2px; }
+    #players li.found .who { transform: translate(-50%, 0); }
+    #players .say {
+      position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 3px; white-space: nowrap;
+      opacity: 0; transition: opacity .2s;
+      font-size: 16px; font-weight: bold; color: #fff; background: var(--c); border-radius: 999px; padding: 2px 9px;
+    }
+    #players .info {
+      position: absolute; left: 0; top: calc(var(--band) / 2 + 12px); transform: translateX(-50%); text-align: center; white-space: nowrap;
+      background: #fff; border-radius: 8px; padding: 1px 5px; border-bottom: 3px solid var(--c); z-index: 3;
+    }
+    #players.stagger li:nth-child(even) .info { top: calc(var(--band) / 2 + 52px); }
+    #players li.found .say { opacity: 1; }
+    #players li.me .info { box-shadow: 0 0 0 2px #4a5ad0; }
+    #players .num { display: block; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 17px; font-weight: bold; line-height: 1.2; }
+    #players .st { display: block; font-size: 10px; font-weight: bold; color: #6a7558; }
+    #players.many .num { font-size: 12px; }
+    #players.many .info { padding: 1px 3px; }
+    #players.many .st { font-size: 9px; }
+    #players.many .say { font-size: 13px; padding: 1px 5px; }
+    #pos { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; font-size: 14px; font-weight: bold; color: #6a7558; }
+    @media (prefers-reduced-motion: reduce) { #players .bob { animation: none !important; } }
+    #verdict { text-align: center; font-size: min(34px, 8.6vw); font-weight: bold; color: #d0612a; min-height: 1.3em; line-height: 1.3; margin-top: min(48px, 7vh); }
+    #verdict span { display: inline-block; animation: pop .35s; }
+    #verdict small { display: block; font-size: 17px; color: #2f3b22; }
+    .counter { display: flex; align-items: center; justify-content: center; gap: 14px; font-size: 20px; font-weight: bold; }
+    .counter button { font: inherit; width: 44px; height: 40px; border-radius: 12px; border: 2px solid #bcd6a2; background: #fff; color: #d0612a; cursor: pointer; }
+    .counter button:disabled { opacity: .35; cursor: default; }
+    .namerow { display: flex; align-items: center; gap: 8px; }
+    #turn { flex: none; font-size: 18px; font-weight: bold; color: var(--c, #d0612a); white-space: nowrap; }
+    #turn:empty { display: none; }
+    #name {
+      font: inherit; font-size: 18px; font-weight: bold; text-align: center; padding: 6px 10px; border-radius: 12px;
+      border: 3px solid var(--c, #bcd6a2); background: #fff; color: #2f3b22; flex: 1; min-width: 0; box-sizing: border-box; user-select: text;
+    }
+    #turn.err { animation: shake .3s; }
+    @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+    @media (max-height: 620px) {
+      .screen { gap: 6px; }
+      .boxes span { height: 48px; width: 44px; font-size: 30px; }
+      .lens button { padding: 5px 0; font-size: 16px; }
+      .counter button { height: 34px; }
+      #name { padding: 3px 8px; font-size: 16px; }
+      .pad { gap: 5px; }
+      .pad button { min-height: 32px; font-size: 22px; }
+      .big { padding: 10px 8px; font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="../../" id="back">← トップへ戻る</a>
+    <div class="hbtns"><button id="lang" class="pill">EN</button><button id="sound" class="pill" aria-label="音のオン/オフ">🔊</button></div>
+  </header>
+  <main>
+    <section id="pick" class="screen">
+      <div class="lens" id="modes"></div>
+      <div class="counter" id="counter" hidden><button id="minus">−</button><span id="count"></span><button id="plus">＋</button></div>
+      <div class="lens" id="lens"></div>
+      <div class="namerow"><div id="turn"></div><input id="name" type="text" autocomplete="off" enterkeyhint="done"></div>
+      <div class="boxes" id="boxes"></div>
+      <div class="pad" id="pad"></div>
+      <button class="big" id="go" disabled>スタート</button>
+    </section>
+    <section id="race" class="screen" hidden>
+      <div id="verdict"></div>
+      <div id="tape"><ul id="players"></ul><div id="band"><div id="line"></div><div id="scope"></div></div><div id="pos"></div></div>
+      <div class="row2" id="after" hidden>
+        <button class="big sub" id="retry">もう一度</button>
+        <a class="big x" id="share">Xに投稿</a>
+      </div>
+      <button class="big sub" id="skip">早送り ▶▶</button>
+    </section>
+  </main>
+  <script>
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/pi-hide/';
+    const COLORS = ['#4a5ad0', '#e85a70', '#f0a020', '#2db07a', '#a05ad0', '#20a8d0', '#d06a2a', '#7a8a20', '#d04aa0', '#506070'];
+    // CPU は大学生っぽい名前から5人選ぶ
+    const CPU_JA = ['けんた', 'みさき', 'りょう', 'あやか', 'しゅん', 'なつき', 'ゆうと', 'まい', 'たくみ', 'はるか', 'そうた', 'えりか'];
+    const CPU_EN = ['Kenta', 'Misaki', 'Ryo', 'Ayaka', 'Shun', 'Natsuki', 'Yuto', 'Mai', 'Takumi', 'Haruka', 'Sota', 'Erika'];
+    const NAME_MAX = 6;
+    const MIN_P = 2, MAX_P = 10;
+
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('pi-hide:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('pi-hide:' + k, JSON.stringify(v)); } catch {} },
+    };
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const updateSoundBtn = () => { soundBtn.textContent = soundOn ? '🔊' : '🔇'; };
+    soundBtn.onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updateSoundBtn(); };
+    updateSoundBtn();
+    let actx;
+    function beep(freq, dur, type = 'sine', vol = 0.15, slide = 0) {
+      if (!soundOn) return;
+      try {
+        actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+        const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+        o.type = type; o.frequency.setValueAtTime(freq, t);
+        if (slide) o.frequency.linearRampToValueAtTime(freq + slide, t + dur);
+        g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur);
+      } catch {}
+    }
+
+    // 文言（日本語／英語）
+    const rankEn = r => ['1st', '2nd', '3rd'][r - 1] || `${r}th`;
+    const L = {
+      ja: {
+        title: '円周率かくれんぼ', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
+        modes: ['🤖 CPU', '👥 となりの人'], count: n => `${n}人`,
+        len: n => `${n}桁`, go: 'スタート', next: '次の人へ', skip: '早送り ▶▶', retry: 'もう一度', share: 'Xに投稿',
+        you: 'あなた', cpu: CPU_JA, pname: k => `P${k}`, namePh: k => `名前（P${k}）`, myPh: '名前（あなた）',
+        turn: k => `P${k} の番`, dup: '同じ数字はダメ！',
+        pos: n => `小数点以下 ${n.toLocaleString()}桁目`,
+        found: n => `${n.toLocaleString()}桁目`, none: '見つからず', rank: r => `${r}位`,
+        wait: 'かくれ中…', seek: 'みーつけた！', seekWho: n => `${n}、みーつけた！`, ask: 'もういいかい？', ready: 'もういいよ！',
+        verdict: (n, r) => `${n}は ${r}位`, winner: n => `${n} の勝ち！`,
+        msg: ['最後まで隠れきった！', 'あと少しで逃げきれた', 'なかなかしぶとい', 'ふつうに見つかった', '割とすぐ見つかった', '真っ先に見つかった…'],
+        pvpMsg: n => `${n}人の中で最後まで隠れきった`,
+        posText: p => p === Infinity ? '100万桁以内' : `${p.toLocaleString()}桁目`,
+        shareText: (num, pos, r) => `円周率かくれんぼで「${num}」を隠したら${pos}で見つかって、6人中${r}でした`,
+        sharePvp: (n, num, pos) => `円周率かくれんぼ（${n}人）の優勝は「${num}」！${pos}まで隠れきった`,
+      },
+      en: {
+        title: 'Pi Hide & Seek', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
+        modes: ['🤖 CPU', '👥 Pass & play'], count: n => `${n} players`,
+        len: n => `${n} digits`, go: 'Start', next: 'Next player', skip: 'Fast ▶▶', retry: 'Again', share: 'Post on X',
+        you: 'You', cpu: CPU_EN, pname: k => `P${k}`, namePh: k => `Name (P${k})`, myPh: 'Your name',
+        turn: k => `P${k}'s turn`, dup: 'Already taken!',
+        pos: n => `decimal place ${n.toLocaleString()}`,
+        found: n => `#${n.toLocaleString()}`, none: 'never found', rank: rankEn,
+        wait: 'hiding…', seek: 'Found!', seekWho: n => `Found you, ${n}!`, ask: 'Ready or not…?', ready: 'Here I come!',
+        verdict: (n, r) => `${n}: ${rankEn(r)} place`, winner: n => `${n} wins!`,
+        msg: ['Hid till the very end!', 'Almost got away', 'Pretty stubborn', 'Found eventually', 'Found fairly quickly', 'Found first…'],
+        pvpMsg: n => `Last one hiding of ${n} players`,
+        posText: p => p === Infinity ? 'beyond 1,000,000' : p.toLocaleString(),
+        shareText: (num, pos, r) => `I hid "${num}" in pi and got found at digit ${pos} — ${r} of 6 in Pi Hide & Seek`,
+        sharePvp: (n, num, pos) => `Pi Hide & Seek (${n} players): "${num}" won, hiding until digit ${pos} of pi`,
+      },
+    };
+    let lang = store.get('lang', navigator.language.startsWith('ja') ? 'ja' : 'en');
+    if (!L[lang]) lang = 'ja';
+    const t = k => L[lang][k];
+    const $ = id => document.getElementById(id);
+    const langBtn = $('lang');
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      $('back').textContent = t('back');
+      langBtn.textContent = t('lang'); langBtn.setAttribute('aria-label', t('langLabel'));
+      $('skip').textContent = t('skip');
+      $('retry').textContent = t('retry'); $('share').textContent = t('share');
+      renderPick(); renderPlayers(); renderVerdict();
+    }
+    langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+
+    // 円周率（小数点以下100万桁）
+    let PI = null;
+    const piReady = fetch('pi.txt').then(r => r.text()).then(s => { PI = s.trim(); });
+
+    // ---- モード・人数・数字を選ぶ ----
+    let mode = store.get('mode', 'cpu');          // 'cpu' | 'pvp'
+    let count = store.get('count', 3);            // となりの人モードの人数
+    let len = store.get('len', 3);
+    let input = '';
+    let entries = [];                             // となりの人モードで入力済みの {num, name}
+    const reset = () => { input = ''; entries = []; $('name').value = mode === 'cpu' ? myName : ''; };
+    const randNum = () => Array.from({ length: len }, () => Math.floor(Math.random() * 10)).join('');
+    // 名前：入力があればそれ、なければ「あなた」「P1」、CPU は選ばれた名前
+    const nameOf = i => {
+      const p = players[i];
+      if (p?.cpu != null) return t('cpu')[p.cpu];
+      return p?.name || (mode === 'cpu' ? t('you') : t('pname')(i + 1));
+    };
+    const esc = x => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    let myName = store.get('name', '');
+    const colorOf = i => COLORS[i % COLORS.length];
+
+    function chips(el, items, isOn, onPick) {
+      el.innerHTML = '';
+      items.forEach((label, k) => {
+        const b = document.createElement('button');
+        b.textContent = label; b.className = isOn(k) ? 'on' : '';
+        b.onclick = () => { onPick(k); renderPick(); };
+        el.appendChild(b);
+      });
+    }
+    function renderPick() {
+      chips($('modes'), t('modes'), k => (k === 0) === (mode === 'cpu'),
+        k => { mode = k === 0 ? 'cpu' : 'pvp'; store.set('mode', mode); reset(); });
+      chips($('lens'), [2, 3, 4, 5].map(t('len')), k => k + 2 === len,
+        k => { len = k + 2; store.set('len', len); reset(); });
+      $('counter').hidden = mode !== 'pvp';
+      $('count').textContent = t('count')(count);
+      $('minus').disabled = count <= MIN_P; $('plus').disabled = count >= MAX_P;
+      const turn = $('turn');
+      turn.textContent = mode === 'pvp' ? t('turn')(entries.length + 1) : '';
+      $('name').placeholder = mode === 'pvp' ? t('namePh')(entries.length + 1) : t('myPh');
+      $('name').style.setProperty('--c', colorOf(entries.length));
+      turn.style.setProperty('--c', colorOf(entries.length));
+      const el = $('boxes'); el.innerHTML = '';
+      for (let i = 0; i < len; i++) {
+        const s = document.createElement('span');
+        s.textContent = input[i] || ''; if (i === input.length) s.className = 'cur';
+        el.appendChild(s);
+      }
+      const last = mode === 'cpu' || entries.length + 1 >= count;
+      $('go').textContent = last ? t('go') : t('next');
+      $('go').disabled = input.length !== len;
+    }
+    $('minus').onclick = () => { count = Math.max(MIN_P, count - 1); store.set('count', count); entries = entries.slice(0, count - 1); renderPick(); };
+    $('plus').onclick = () => { count = Math.min(MAX_P, count + 1); store.set('count', count); renderPick(); };
+
+    function press(k) {
+      if (k === 'del') input = input.slice(0, -1);
+      else if (k === 'rnd') input = randNum();
+      else if (input.length < len) input += k;
+      beep(660 + input.length * 60, 0.05, 'square', 0.04);
+      renderPick();
+    }
+    for (const k of ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'rnd', '0', 'del']) {
+      const b = document.createElement('button');
+      b.textContent = k === 'del' ? '⌫' : k === 'rnd' ? '🎲' : k;
+      b.onclick = () => press(k);
+      $('pad').appendChild(b);
+    }
+    $('name').maxLength = NAME_MAX;
+    $('name').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') e.target.blur(); });
+    document.addEventListener('keydown', e => {
+      if ($('pick').hidden) return;
+      if (/^[0-9]$/.test(e.key)) press(e.key);
+      else if (e.key === 'Backspace') press('del');
+      else if (e.key === 'Enter' && !$('go').disabled) submit();
+    });
+    $('go').onclick = () => submit();
+
+    function submit() {
+      const name = $('name').value.trim().slice(0, NAME_MAX);
+      if (mode === 'cpu') { myName = name; store.set('name', name); return start([{ num: input, name }]); }
+      const turn = $('turn');
+      if (entries.some(e => e.num === input)) {
+        turn.textContent = t('dup'); turn.classList.remove('err'); void turn.offsetWidth; turn.classList.add('err');
+        beep(180, 0.2, 'sawtooth', 0.06); return;
+      }
+      entries.push({ num: input, name }); input = ''; $('name').value = '';
+      beep(880, 0.08, 'square', 0.05);
+      if (entries.length >= count) start(entries.slice());
+      else renderPick();
+    }
+
+    // ---- かくれんぼ ----
+    let players = [], cursor = 0, events = [], timer = 0, fast = false, done = false, myRank = 0, runId = 0;
+    async function start(nums) {
+      await piReady;
+      const used = new Set(nums.map(e => e.num));
+      if (mode === 'cpu') {
+        const pool = [...CPU_JA.keys()].sort(() => Math.random() - 0.5);
+        while (nums.length < 6) {
+          const n = randNum();
+          if (!used.has(n)) { used.add(n); nums.push({ num: n, cpu: pool.pop() }); }
+        }
+      }
+      players = nums.map(({ num, name, cpu }, i) => {
+        const k = PI.indexOf(num);
+        return { num, name, cpu, i, pos: k < 0 ? Infinity : k + 1, out: false, rank: 0 };   // pos = 小数点以下何桁目から始まるか
+      });
+      // 先に出た人から脱落。最後まで出なかった人が1位
+      events = [...players].sort((a, b) => a.pos - b.pos);
+      events.forEach((p, j) => { p.rank = players.length - j; });
+      myRank = players[0].rank;
+      cursor = -1; fast = false; done = false; reset();
+      $('pick').hidden = true; $('race').hidden = false;
+      $('tape').style.setProperty('--len', len);
+      $('after').hidden = true; $('skip').hidden = false;
+      renderPlayers(); renderVerdict(); renderTape(-1, null);
+      // もういいかい？ → もういいよ！ → 探しはじめる
+      const id = ++runId, v = $('verdict');
+      v.textContent = t('ask'); beep(440, 0.3, 'sine', 0.1, 120);
+      timer = setTimeout(() => {
+        if (id !== runId) return;
+        v.textContent = t('ready'); beep(660, 0.3, 'sine', 0.1, -120);
+        timer = setTimeout(() => { if (id === runId) { v.textContent = ''; step(id); } }, 900);
+      }, 900);
+    }
+    $('skip').onclick = () => { fast = true; };
+    $('retry').onclick = () => {
+      runId++; clearTimeout(timer); $('race').hidden = true; $('pick').hidden = false; reset(); renderPick();
+    };
+
+    // 横一列の帯。at（小数でもよい）の桁がレンズの左端に来るよう左へ流す
+    const SIDE = 18;
+    const ch = k => k >= 1 ? (PI[k - 1] ?? '') : k === 0 ? '.' : k === -1 ? '3' : '\u00a0';
+    function renderTape(at, hit) {
+      const base = Math.floor(at);
+      let html = '';
+      for (let k = base - SIDE; k <= base + SIDE; k++) {
+        const d = ch(k);
+        html += hit && k >= hit.pos && k < hit.pos + hit.num.length ? `<b style="background:${colorOf(hit.i)}">${d}</b>` : d;
+      }
+      const line = $('line');
+      line.innerHTML = html;
+      line.style.transform = `translateX(calc(${-(len / 2 + SIDE + (at - base))} * 1ch))`;
+      $('pos').textContent = at < 0.5 ? '' : t('pos')(Math.round(at));
+    }
+
+    function step(id) {
+      if (id !== runId) return;
+      const remaining = events.filter(p => !p.out);
+      if (!remaining.length) return finish();
+      // 1位の人も最後までスクロールして見つける（100万桁以内にいなければ端まで）
+      const next = remaining[0].pos !== Infinity ? remaining[0] : null;
+      // 次の出現位置まで、対数スケールで進む（3.14 の「3」から始める）
+      const from = cursor, to = next ? next.pos : PI.length - 5;
+      const lg = x => Math.log(x + 3);
+      const dur = fast ? 250 : cursor < 1 ? 2400 : 1600;
+      const t0 = performance.now();
+      const anim = now => {
+        if (id !== runId) return;
+        const r = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - r, 3);
+        const at = Math.exp(lg(from) + (lg(to) - lg(from)) * e) - 3;
+        renderTape(at, null);
+        if (r < 1) { requestAnimationFrame(anim); return; }
+        cursor = to;
+        if (!next) { remaining.forEach(p => { p.out = true; }); return finish(); }
+        next.out = true;
+        renderTape(to, next);
+        renderPlayers(next);
+        $('verdict').innerHTML = `<span style="color:${colorOf(next.i)}">${t('seekWho')(esc(nameOf(next.i)))}</span>`;
+        const sad = mode === 'cpu' && next.i === 0;
+        beep(sad ? 300 : 520, 0.25, 'triangle', 0.15, sad ? -150 : 200);
+        timer = setTimeout(() => step(id), remaining.length === 1 ? 1300 : fast ? 350 : 1100);
+      };
+      requestAnimationFrame(anim);
+    }
+
+    function finish() {
+      done = true;
+      renderPlayers(); renderVerdict();
+      $('skip').hidden = true; $('after').hidden = false;
+      if (mode === 'pvp' || myRank === 1) { beep(523, 0.15, 'square', 0.08); setTimeout(() => beep(659, 0.15, 'square', 0.08), 150); setTimeout(() => beep(784, 0.3, 'square', 0.08), 300); }
+      else beep(200, 0.4, 'sawtooth', 0.06, -80);
+    }
+
+    // 札は最初に1回だけ作り、あとは中身とクラスだけ変える（作り直すと動きがリセットされてワープする）
+    function renderPlayers(hit) {
+      const el = $('players'); if (!players.length) return;
+      const n = players.length;
+      if (el.childElementCount !== n || hit === undefined && !players.some(p => p.out)) {
+        el.innerHTML = '';
+        el.classList.toggle('many', n > 6);
+        // 数字の札が横に並びきらないときは2段にずらす
+        el.classList.toggle('stagger', n * (len * 11 + 12) > el.clientWidth);
+        for (const p of players) {
+          const li = document.createElement('li');
+          li.style.setProperty('--c', colorOf(p.i));
+          li.style.setProperty('--x', `${(p.i + 0.5) / n * 100}%`);
+          li.innerHTML = `<span class="who"><span class="say"></span><span class="bob"><span class="tag"></span></span></span>`
+            + `<span class="info"><span class="num">${p.num}</span><span class="st"></span></span>`;
+          el.appendChild(li);
+        }
+      }
+      players.forEach((p, k) => {
+        const li = el.children[k];
+        const found = p.out && p.pos !== Infinity;
+        li.classList.toggle('me', mode === 'cpu' && p.i === 0);
+        li.classList.toggle('found', found || done);   // 終わったら全員出てくる
+        li.querySelector('.tag').innerHTML = [...nameOf(p.i)].map(esc).join('<br>');   // 1文字ずつ縦に積む
+        li.querySelector('.say').textContent = done ? `${p.rank === 1 ? '👑' : ''}${t('rank')(p.rank)}`
+          : found ? (n > 6 ? '👀' : t('seek')) : '';
+        const st = li.querySelector('.st');
+        st.textContent = found ? t('found')(p.pos) : done ? t('none') : '';
+        st.hidden = !st.textContent;
+      });
+    }
+
+    function renderVerdict() {
+      const v = $('verdict');
+      if (!done) { v.innerHTML = ''; return; }
+      const win = players.find(p => p.rank === 1);
+      let text;
+      if (mode === 'cpu') {
+        v.innerHTML = `${t('verdict')(esc(nameOf(0)), myRank)}<small>${t('msg')[myRank - 1]}</small>`;
+        const me = players[0];
+        text = t('shareText')(me.num, t('posText')(me.pos), t('rank')(myRank));
+      } else {
+        v.innerHTML = `${t('winner')(esc(nameOf(win.i)))}<small>${t('pvpMsg')(players.length)}</small>`;
+        text = t('sharePvp')(players.length, win.num, t('posText')(win.pos));
+      }
+      const a = $('share');
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SHARE_URL)}`;
+      if (matchMedia('(pointer: coarse)').matches) { a.removeAttribute('target'); a.removeAttribute('rel'); }
+      else { a.target = '_blank'; a.rel = 'noopener'; }
+    }
+
+    applyLang();
+  </script>
+</body>
+</html>
