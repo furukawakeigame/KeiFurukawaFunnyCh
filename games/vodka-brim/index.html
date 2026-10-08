@@ -320,6 +320,7 @@
       if (mode === 'solo') {
         soloResult = { level, msg: soloMsg(level) };
         phase = 'result';
+        prepareShare();
         const k = soloResult.msg;
         if (k === 'god' || k === 'edge') sndGood([660, 880, 1320]); else if (k === 'good') sndGood([660, 880]); else beep(330, 0.3, 'triangle', 0.1);
       } else if (mode === 'friend') {
@@ -793,6 +794,14 @@
       shareKey = key; shareFile = null;
       setTimeout(() => shareKey === key && game && shareImage().toBlob(b => { if (b && shareKey === key) shareFile = new File([b], 'vodka-brim.png', { type: 'image/png' }); }, 'image/png'), 50);
     }
+    // 画像ファイルをその場で作る（共有シートはタップ直後に開く必要があるので、待たずに作る）
+    function imageFileNow() {
+      if (shareFile) return shareFile;
+      const bin = atob(shareImage().toDataURL('image/png').split(',')[1]);
+      const u8 = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      return (shareFile = new File([u8], 'vodka-brim.png', { type: 'image/png' }));
+    }
     function sendText() {
       return loser >= 0 ? t('sendTextEnd')(nameOf(loser)) : t('sendText')(nameOf(turnIdx()));
     }
@@ -814,9 +823,9 @@
       if (mobile()) {
         btn(done ? t('sendResult') : t('send'), '', async () => {
           const url = gameUrl(), text = sendText() + '\n' + url;
-          if (!shareFile) shareFile = await new Promise(r => shareImage().toBlob(b => r(new File([b], 'vodka-brim.png', { type: 'image/png' })), 'image/png'));
+          const file = imageFileNow();
           try {
-            if (navigator.canShare?.({ files: [shareFile] })) await navigator.share({ files: [shareFile], text });
+            if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], text });
             else if (navigator.share) await navigator.share({ text });
             else copyUrl();
           } catch (e) { if (e.name !== 'AbortError') copyUrl(); }
@@ -841,9 +850,10 @@
       if (!mob) { a.target = '_blank'; a.rel = 'noopener'; }
       a.onclick = e => {
         if (mob) {
-          if (shareFile && navigator.canShare?.({ files: [shareFile] })) {
+          const file = navigator.canShare ? imageFileNow() : null;
+          if (file && navigator.canShare({ files: [file] })) {
             e.preventDefault();
-            navigator.share({ files: [shareFile], text: `${shareBody()}\n${SHARE_URL}` })
+            navigator.share({ files: [file], text: `${shareBody()}\n${SHARE_URL}` })
               .catch(err => { if (err.name !== 'AbortError') location.href = a.href; });
           }
           return;
