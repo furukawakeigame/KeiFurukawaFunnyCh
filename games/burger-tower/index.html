@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>バーガー積み</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <!-- X などにURLを貼ったときのカード表示（ここだけは https:// から書く） -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="バーガー積み">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/burger-tower/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/burger-tower/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    html, body { margin: 0; height: 100%; background: #fff4e0; color: #5a3517; }
+    body {
+      display: flex; flex-direction: column; height: 100dvh;
+      font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden; touch-action: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; width: 100%; max-width: 480px; margin: 0 auto; box-sizing: border-box;
+      position: relative; z-index: 3;
+    }
+    header a { color: #c4561c; text-decoration: none; font-weight: bold; }
+    .hbtns { display: flex; gap: 6px; }
+    #lang { font-size: 15px; padding: 0 10px; }
+    .pill {
+      font-size: 20px; background: #fff; border: 2px solid #f3cf9a; border-radius: 999px;
+      min-width: 44px; height: 36px; cursor: pointer; font-weight: bold; color: #b0501a;
+    }
+    main {
+      flex: 1; min-height: 0; position: relative;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom));
+    }
+    #stage { position: absolute; inset: 0 0 calc(80px + env(safe-area-inset-bottom)); cursor: pointer; touch-action: none; }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    #hud {
+      position: absolute; top: 4px; left: 0; right: 0; text-align: center; pointer-events: none;
+      font-weight: bold; z-index: 2;
+    }
+    #height { font-size: 44px; text-shadow: 0 2px 0 #fff; }
+    #best { font-size: 16px; color: #b0501a; }
+    #tap {
+      position: absolute; left: 0; right: 0; bottom: calc(110px + env(safe-area-inset-bottom));
+      text-align: center; font-size: 26px; font-weight: bold; color: #c4561c; pointer-events: none;
+      animation: blink 1.2s infinite; z-index: 2;
+    }
+    #tap[hidden] { display: none; }
+    @keyframes blink { 50% { opacity: .3; } }
+    #result {
+      position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center;
+      padding: 12px 12px calc(80px + env(safe-area-inset-bottom)); box-sizing: border-box;
+      background: rgba(255, 244, 224, .55);
+    }
+    #result[hidden] { display: none; }
+    .panel {
+      background: #fff; border-radius: 24px; padding: 20px 16px; width: 100%; max-width: 360px;
+      box-sizing: border-box; text-align: center; box-shadow: 0 6px 0 #f3cf9a;
+    }
+    #rH { font-size: 56px; font-weight: bold; line-height: 1.1; }
+    #rBest { font-size: 16px; color: #b0501a; margin: 4px 0 8px; }
+    #rMsg { font-size: 22px; font-weight: bold; color: #c4561c; margin-bottom: 16px; }
+    .big {
+      font: inherit; font-size: 22px; font-weight: bold; padding: 14px 8px; border-radius: 18px;
+      border: none; cursor: pointer; color: #fff; background: #e8742a; width: 100%;
+      box-shadow: 0 4px 0 #a84e14; touch-action: manipulation; margin-top: 10px;
+      display: block; text-align: center; text-decoration: none; box-sizing: border-box;
+    }
+    .big:active { transform: translateY(3px); box-shadow: 0 1px 0 #a84e14; }
+    .big.x { background: #222; box-shadow: 0 4px 0 #000; }
+  </style>
+  <script type="importmap">
+    { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+    } }
+  </script>
+</head>
+<body>
+  <header>
+    <a href="../../" id="back">← トップへ戻る</a>
+    <div class="hbtns"><button id="lang" class="pill">EN</button><button id="sound" class="pill" aria-label="音のオン/オフ">🔊</button></div>
+  </header>
+  <main>
+    <div id="stage"></div>
+    <div id="hud"><div id="height">0cm</div><div id="best"></div></div>
+    <div id="tap">TAP!</div>
+    <div id="result" hidden>
+      <div class="panel">
+        <div id="rH"></div>
+        <div id="rBest"></div>
+        <div id="rMsg"></div>
+        <div id="shareBox"></div>
+        <button id="retry" class="big"></button>
+      </div>
+    </div>
+  </main>
+  <script type="module">
+    import * as THREE from 'three';
+    import * as CANNON from 'cannon-es';
+
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/burger-tower/';
+    const CM = 5; // 1ユニット = 5cm
+
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('burger-tower:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('burger-tower:' + k, JSON.stringify(v)); } catch {} },
+    };
+
+    // ---- 言語 ----
+    const L = {
+      ja: {
+        title: 'バーガー積み', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
+        tap: 'タップでスタート', best: h => `ベスト ${h}cm`, newBest: h => `ベスト更新！ ${h}cm`,
+        retry: 'もう一度', share: 'Xに投稿',
+        msgs: ['まだおやつサイズ', 'ふつうのバーガー', '立派なビッグバーガー！', '口に入らない…', 'もはや建築物'],
+        shareText: (h, m) => `バーガー積みで ${h}cm 積み上げた！「${m}」 #バーガー積み`,
+      },
+      en: {
+        title: 'Burger Tower', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
+        tap: 'Tap to start', best: h => `Best ${h}cm`, newBest: h => `New best! ${h}cm`,
+        retry: 'Play again', share: 'Post on X',
+        msgs: ['Snack size', 'A regular burger', 'A mighty big burger!', "Won't fit in your mouth…", "That's architecture"],
+        shareText: (h, m) => `I stacked a ${h}cm burger in Burger Tower! "${m}" #BurgerTower`,
+      },
+    };
+    let lang = store.get('lang', navigator.language.startsWith('ja') ? 'ja' : 'en');
+    if (!L[lang]) lang = 'ja';
+    const t = k => L[lang][k];
+    const $ = id => document.getElementById(id);
+    const langBtn = $('lang');
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      $('back').textContent = t('back');
+      langBtn.textContent = t('lang'); langBtn.setAttribute('aria-label', t('langLabel'));
+      $('tap').textContent = t('tap');
+      $('retry').textContent = t('retry');
+      hud();
+      if (result) showResult();
+    }
+    langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+
+    // ---- 音 ----
+    let soundOn = store.get('sound', true);
+    const soundBtn = $('sound');
+    const updateSoundBtn = () => { soundBtn.textContent = soundOn ? '🔊' : '🔇'; };
+    soundBtn.onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updateSoundBtn(); };
+    updateSoundBtn();
+    let ac = null;
+    function audio() {
+      if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch { return null; } }
+      if (ac.state === 'suspended') ac.resume();
+      return ac;
+    }
+    function thump(vol = 0.5, freq = 180) {
+      if (!soundOn) return;
+      const a = audio(); if (!a) return;
+      const o = a.createOscillator(), g = a.createGain(), now = a.currentTime;
+      o.type = 'sine';
+      o.frequency.setValueAtTime(freq, now); o.frequency.exponentialRampToValueAtTime(freq * 0.4, now + 0.12);
+      g.gain.setValueAtTime(vol, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      o.connect(g).connect(a.destination); o.start(now); o.stop(now + 0.16);
+    }
+    function blip() {
+      if (!soundOn) return;
+      const a = audio(); if (!a) return;
+      const o = a.createOscillator(), g = a.createGain(), now = a.currentTime;
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(500, now); o.frequency.exponentialRampToValueAtTime(900, now + 0.06);
+      g.gain.setValueAtTime(0.15, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      o.connect(g).connect(a.destination); o.start(now); o.stop(now + 0.09);
+    }
+    function crash() {
+      if (!soundOn) return;
+      const a = audio(); if (!a) return;
+      const now = a.currentTime, len = 0.6;
+      const buf = a.createBuffer(1, a.sampleRate * len, a.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length) ** 2;
+      const s = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+      s.buffer = buf; f.type = 'lowpass'; f.frequency.value = 900; g.gain.value = 0.6;
+      s.connect(f).connect(g).connect(a.destination); s.start(now);
+      [0, 0.12, 0.25].forEach((dt, i) => setTimeout(() => thump(0.4, 160 - i * 30), dt * 1000));
+    }
+
+    // ---- 3D ----
+    const stage = $('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    stage.appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xfff4e0);
+    scene.fog = new THREE.Fog(0xfff4e0, 30, 60);
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0xd8a870, 1.4));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 40 });
+    scene.add(sun, sun.target);
+
+    // テーブルとお皿
+    const table = new THREE.Mesh(new THREE.CircleGeometry(30, 48), new THREE.MeshLambertMaterial({ color: 0xf6c886 }));
+    table.rotation.x = -Math.PI / 2; table.position.y = -0.25; table.receiveShadow = true;
+    scene.add(table);
+    const plate = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.0, 0.25, 48), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+    plate.position.y = -0.125; plate.receiveShadow = true; plate.castShadow = true;
+    scene.add(plate);
+
+    const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -20, 0) });
+    world.broadphase = new CANNON.SAPBroadphase(world);
+    world.solver.iterations = 20;
+    world.allowSleep = true;
+    const mat = new CANNON.Material();
+    world.addContactMaterial(new CANNON.ContactMaterial(mat, mat, { friction: 0.6, restitution: 0.02 }));
+    const plateBody = new CANNON.Body({ mass: 0, material: mat, shape: new CANNON.Cylinder(2.6, 2.6, 0.25, 24) });
+    plateBody.position.set(0, -0.125, 0);
+    world.addBody(plateBody);
+
+    const lam = c => new THREE.MeshLambertMaterial({ color: c });
+    // 具材の種類：見た目・物理の形・重さ
+    function bunTop(r, h) {
+      const g = new THREE.SphereGeometry(r, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+      g.scale(1, h / r, 1); g.translate(0, -h / 2, 0);
+      return g;
+    }
+    function wavyDisk(r, h, waves, amp) {
+      const g = new THREE.CylinderGeometry(r, r, h, 64, 1);
+      const p = g.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), z = p.getZ(i), a = Math.atan2(z, x), d = Math.hypot(x, z);
+        if (d > r * 0.9) {
+          const k = 1 + amp * Math.sin(a * waves);
+          p.setX(i, x * k); p.setZ(i, z * k);
+          p.setY(i, p.getY(i) + amp * 1.5 * Math.cos(a * waves * 1.3));
+        }
+      }
+      g.computeVertexNormals();
+      return g;
+    }
+    const KINDS = {
+      bunBottom: { r: 1.5, h: 0.5, mass: 2, geo: () => new THREE.CylinderGeometry(1.5, 1.4, 0.5, 32), color: 0xd98a3a },
+      patty:     { r: 1.55, h: 0.4, mass: 3, geo: () => wavyDisk(1.55, 0.4, 9, 0.03), color: 0x6b3a1e },
+      cheese:    { box: 2.7, h: 0.1, mass: 0.6, geo: () => new THREE.BoxGeometry(2.7, 0.1, 2.7), color: 0xffc928 },
+      lettuce:   { r: 1.75, h: 0.16, mass: 0.4, geo: () => wavyDisk(1.75, 0.16, 11, 0.07), color: 0x7cc84a },
+      tomato:    { r: 1.2, h: 0.28, mass: 1, geo: () => new THREE.CylinderGeometry(1.2, 1.2, 0.28, 32), color: 0xe5402f },
+      pickle:    { r: 0.65, h: 0.14, mass: 0.2, geo: () => new THREE.CylinderGeometry(0.65, 0.65, 0.14, 20), color: 0x5f8f2a },
+      bunMid:    { r: 1.5, h: 0.45, mass: 1.5, geo: () => new THREE.CylinderGeometry(1.5, 1.5, 0.45, 32), color: 0xe39a48 },
+      bunTop:    { r: 1.55, h: 0.9, mass: 1.5, geo: () => bunTop(1.55, 0.9), color: 0xe39a48, seeds: true },
+    };
+    const BAG = ['patty', 'patty', 'cheese', 'lettuce', 'tomato', 'pickle', 'bunMid', 'bunTop'];
+    const geoCache = {};
+    function makeMesh(kind) {
+      const k = KINDS[kind];
+      const geo = geoCache[kind] ||= k.geo();
+      const m = new THREE.Mesh(geo, lam(k.color));
+      m.castShadow = true; m.receiveShadow = true;
+      if (k.seeds) {
+        const sg = new THREE.SphereGeometry(0.06, 6, 4); sg.scale(1.6, 0.6, 1);
+        const sm = lam(0xfff6dc);
+        for (let i = 0; i < 18; i++) {
+          const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * 1.15;
+          const y = k.h * Math.sqrt(Math.max(0, 1 - (d / k.r) ** 2)) - k.h / 2;
+          const s = new THREE.Mesh(sg, sm);
+          s.position.set(Math.cos(a) * d, y, Math.sin(a) * d); s.rotation.y = a;
+          m.add(s);
+        }
+      }
+      if (kind === 'tomato' || kind === 'pickle') {
+        const inner = new THREE.Mesh(new THREE.CylinderGeometry(k.r * 0.75, k.r * 0.75, k.h + 0.01, 20), lam(kind === 'tomato' ? 0xff7a5c : 0xa6c95a));
+        m.add(inner);
+      }
+      return m;
+    }
+    function makeBody(kind) {
+      const k = KINDS[kind];
+      const shape = k.box ? new CANNON.Box(new CANNON.Vec3(k.box / 2, k.h / 2, k.box / 2)) : new CANNON.Cylinder(k.r, k.r, k.h, 16);
+      const b = new CANNON.Body({ mass: k.mass, material: mat, shape, linearDamping: 0.05, angularDamping: 0.2 });
+      b.sleepSpeedLimit = 0.15; b.sleepTimeLimit = 0.5;
+      return b;
+    }
+
+    // ---- ゲーム状態 ----
+    let pieces = [];      // {kind, mesh, body}
+    let holder = null;    // 揺れている次の具材 {kind, mesh}
+    let state = 'title';  // title / play / falling / result
+    let swingT = 0, nextAt = 0, overAt = 0;
+    let maxH = 0, stackTop = 0, camY = 0;
+    let best = store.get('best', 0);
+    let result = null;
+    let bag = [];
+    const nextKind = () => { if (!bag.length) bag = BAG.slice().sort(() => Math.random() - 0.5); return bag.pop(); };
+
+    function addPiece(kind, x, y, z, rotY = 0) {
+      const mesh = makeMesh(kind), body = makeBody(kind);
+      body.position.set(x, y, z);
+      body.quaternion.setFromEuler(0, rotY, 0);
+      body.addEventListener('collide', e => {
+        const v = Math.abs(e.contact.getImpactVelocityAlongNormal());
+        if (v > 1.2 && performance.now() - (body.lastHit || 0) > 120) { body.lastHit = performance.now(); thump(Math.min(0.5, v * 0.06), 140 + Math.random() * 60); }
+      });
+      world.addBody(body); scene.add(mesh);
+      const p = { kind, mesh, body };
+      pieces.push(p); sync(p);
+      return p;
+    }
+    const sync = p => { p.mesh.position.copy(p.body.position); p.mesh.quaternion.copy(p.body.quaternion); };
+    const topOf = p => p.body.position.y + (KINDS[p.kind].h / 2);
+
+    function reset() {
+      for (const p of pieces) { world.removeBody(p.body); scene.remove(p.mesh); }
+      pieces = [];
+      if (holder) scene.remove(holder.mesh);
+      holder = null; bag = [];
+      addPiece('bunBottom', 0, 0.25, 0);
+      maxH = 0; stackTop = 0.5; camY = 0.5; swingT = 0; result = null;
+      $('result').hidden = true;
+    }
+    function spawnHolder() {
+      const kind = nextKind();
+      holder = { kind, mesh: makeMesh(kind), rot: Math.random() * Math.PI };
+      scene.add(holder.mesh);
+      swingT = Math.random() * 10;
+    }
+    function holderPos() {
+      const n = pieces.length;
+      const speed = Math.min(1.4 + n * 0.07, 3.4);
+      const amp = 2.2;
+      return {
+        x: amp * Math.sin(swingT * speed),
+        z: amp * 0.45 * Math.sin(swingT * speed * 0.73 + 1),
+        y: stackTop + 2.4,
+      };
+    }
+    function drop() {
+      if (state === 'title') { state = 'play'; $('tap').hidden = true; audio(); spawnHolder(); return; }
+      if (state !== 'play' || !holder) return;
+      const p = holderPos();
+      scene.remove(holder.mesh);
+      addPiece(holder.kind, p.x, p.y, p.z, holder.rot);
+      holder = null; blip();
+      nextAt = performance.now() + 650;
+    }
+
+    // ---- 入力 ----
+    stage.addEventListener('pointerdown', e => { e.preventDefault(); drop(); });
+    addEventListener('keydown', e => {
+      if (e.code === 'Space' || e.code === 'Enter') {
+        if (state === 'result' && e.code === 'Enter') return;
+        e.preventDefault();
+        if (state === 'result') { start(); return; }
+        drop();
+      }
+    });
+    $('retry').onclick = () => start();
+
+    // ---- HUD・結果 ----
+    const cm = h => Math.round(h * CM);
+    function hud() {
+      $('height').textContent = `${cm(maxH)}cm`;
+      $('best').textContent = best > 0 ? t('best')(best) : '';
+    }
+    function msgFor(h) { return t('msgs')[h < 10 ? 0 : h < 20 ? 1 : h < 30 ? 2 : h < 45 ? 3 : 4]; }
+    function showResult() {
+      const r = result;
+      $('rH').textContent = `${r.h}cm`;
+      $('rBest').textContent = r.isBest ? t('newBest')(r.h) : t('best')(best);
+      $('rMsg').textContent = msgFor(r.h);
+      const box = $('shareBox'); box.textContent = '';
+      const a = document.createElement('a');
+      a.className = 'big x'; a.textContent = t('share');
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('shareText')(r.h, msgFor(r.h)))}&url=${encodeURIComponent(SHARE_URL)}`;
+      if (!matchMedia('(pointer: coarse)').matches) { a.target = '_blank'; a.rel = 'noopener'; }
+      box.appendChild(a);
+    }
+    function gameOver() {
+      state = 'falling'; overAt = performance.now();
+      if (holder) { scene.remove(holder.mesh); holder = null; }
+      crash();
+    }
+    function finish() {
+      state = 'result';
+      const h = cm(maxH), isBest = h > best;
+      if (isBest) { best = h; store.set('best', best); }
+      result = { h, isBest };
+      showResult(); hud();
+      $('result').hidden = false;
+    }
+    function start() {
+      reset();
+      state = 'play'; $('tap').hidden = true;
+      spawnHolder(); hud();
+    }
+
+    // ---- ループ ----
+    function resize() {
+      const w = stage.clientWidth, h = stage.clientHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      // 縦長の画面では少し引く
+      camera.userData.dist = w < h ? 13 + 4 * (h / w - 1) : 13;
+      camera.updateProjectionMatrix();
+    }
+    addEventListener('resize', resize);
+
+    let last = performance.now();
+    function loop(now) {
+      const dt = Math.min((now - last) / 1000, 1 / 20); last = now;
+      world.step(1 / 60, dt, 4);
+      for (const p of pieces) sync(p);
+
+      if (state === 'play' || state === 'falling') {
+        // 落ちた具材があればゲームオーバー
+        if (state === 'play' && pieces.some(p => p.body.position.y < -1.5)) gameOver();
+        // 止まっている具材のいちばん上 = 高さ
+        let top = 0.5;
+        for (const p of pieces) {
+          const b = p.body;
+          if (b.position.y < 0) continue;
+          if (b.velocity.length() < 0.25 || b.sleepState === CANNON.Body.SLEEPING) top = Math.max(top, topOf(p));
+        }
+        stackTop = Math.max(0.5, Math.min(top, pieces.reduce((m, p) => Math.max(m, topOf(p)), 0)));
+        if (state === 'play' && performance.now() > nextAt) {
+          const settled = pieces.every(p => p.body.velocity.length() < 0.25 || p.body.sleepState === CANNON.Body.SLEEPING);
+          if (settled) { maxH = Math.max(maxH, stackTop); hud(); }
+          if (!holder) spawnHolder();
+        }
+        if (state === 'falling' && now - overAt > 1800) finish();
+      }
+      if (holder) {
+        swingT += dt;
+        const p = holderPos();
+        holder.mesh.position.set(p.x, p.y, p.z);
+        holder.mesh.rotation.set(0, holder.rot, 0);
+      }
+
+      // カメラ：斜め上から、タワーの上に合わせてついていく
+      camY += (stackTop - camY) * Math.min(1, dt * 2);
+      const d = camera.userData.dist || 13;
+      camera.position.set(d * 0.35, camY + d * 0.62, d * 0.85);
+      camera.lookAt(0, camY - 0.2, 0);
+      sun.position.set(4, camY + 10, 6); sun.target.position.set(0, camY, 0);
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+
+    reset(); resize(); applyLang();
+    $('tap').hidden = false;
+    requestAnimationFrame(loop);
+    window.__game = { get state() { return state; }, drop, get maxH() { return maxH; }, get hx() { return holder ? holderPos() : null; } };
+  </script>
+</body>
+</html>
