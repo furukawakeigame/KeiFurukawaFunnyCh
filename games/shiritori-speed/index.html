@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>しりとりスピード</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <!-- X などにURLを貼ったときのカード表示（ここだけは https:// から書く） -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="しりとりスピード">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/shiritori-speed/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/shiritori-speed/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    html, body { margin: 0; height: 100%; background: #1f6b4a; color: #fff; }
+    body {
+      display: flex; flex-direction: column; height: 100dvh;
+      font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden; touch-action: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom)); box-sizing: border-box;
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; width: 100%; max-width: 520px; margin: 0 auto; box-sizing: border-box;
+    }
+    header a { color: #ffe9a8; text-decoration: none; font-weight: bold; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill {
+      height: 34px; min-width: 34px; border-radius: 17px; border: 2px solid #ffe9a8;
+      background: transparent; color: #ffe9a8; font-weight: bold; font-size: 15px; padding: 0 10px;
+      display: flex; align-items: center; justify-content: center; cursor: pointer;
+    }
+    .pill svg { width: 20px; height: 20px; }
+    main {
+      flex: 1; min-height: 0; width: 100%; max-width: 520px; margin: 0 auto;
+      display: flex; flex-direction: column; justify-content: space-between;
+      padding: 4px 12px; box-sizing: border-box; position: relative;
+    }
+    .row { display: flex; justify-content: center; gap: 8px; }
+    .info { display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 15px; min-height: 26px; }
+    .info b { font-size: 22px; }
+    .card {
+      --w: min(21vw, 104px);
+      width: var(--w); height: calc(var(--w) * 1.4); border-radius: 10px;
+      background: #fffdf6; color: #333; box-shadow: 0 3px 0 rgba(0,0,0,.25);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-weight: bold; box-sizing: border-box; position: relative; flex: none;
+    }
+    .card .w { font-size: calc(var(--w) * min(.3, .86 / var(--n))); line-height: 1; white-space: nowrap; }
+    .card .w .h { color: #d2433b; }
+    .card .w .t { color: #2a63c7; }
+    .hand .card { cursor: grab; touch-action: none; }
+    .hand .card.empty { background: rgba(255,255,255,.12); box-shadow: none; cursor: default; }
+    .card.back { background: repeating-linear-gradient(45deg, #b8322c 0 8px, #9e2924 8px 16px); border: 4px solid #fffdf6; }
+    .card.drag { position: fixed; z-index: 50; pointer-events: none; transform: scale(1.08); box-shadow: 0 10px 18px rgba(0,0,0,.35); }
+    .piles { gap: 18px; }
+    .pile { --w: min(30vw, 140px); border: 3px dashed rgba(255,255,255,.35); transition: transform .1s; }
+        .pile .tail {
+      position: absolute; bottom: -14px; right: -14px; width: 40px; height: 40px; border-radius: 50%;
+      background: #2a63c7; color: #fff; font-size: 24px; display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 0 rgba(0,0,0,.3);
+    }
+    .pile.over { transform: scale(1.06); border-color: #ffe9a8; }
+    .pile.flash { animation: flash .3s; }
+    @keyframes flash { 0% { box-shadow: 0 0 0 8px #ffe9a8; } 100% { box-shadow: 0 3px 0 rgba(0,0,0,.25); } }
+    .shake { animation: shake .3s; }
+    @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+    .opp .card { --w: min(13vw, 60px); }
+    .stun { opacity: .5; }
+    .timerbar { height: 8px; border-radius: 4px; background: rgba(255,255,255,.2); overflow: hidden; flex: 1; margin: 0 10px; }
+    .timerbar i { display: block; height: 100%; background: #ffe9a8; width: 100%; }
+    .overlay {
+      position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; background: rgba(20,70,48,.94); z-index: 20; text-align: center; padding: 0 16px 0;
+    }
+    .overlay h1 { margin: 0; font-size: clamp(30px, 9vw, 44px); color: #ffe9a8; }
+    .overlay .big { font-size: clamp(28px, 9vw, 42px); font-weight: bold; }
+    .overlay p { margin: 0; font-size: 17px; }
+    .btn {
+      min-width: 200px; padding: 13px 20px; border-radius: 28px; border: none; font-weight: bold; font-size: 18px;
+      background: #ffe9a8; color: #1f6b4a; cursor: pointer; text-decoration: none; box-shadow: 0 3px 0 rgba(0,0,0,.25);
+    }
+    .btn.sub { background: transparent; color: #ffe9a8; border: 2px solid #ffe9a8; box-shadow: none; }
+    .lv { display: flex; gap: 6px; }
+    .lv button { padding: 8px 12px; border-radius: 18px; border: 2px solid #ffe9a8; background: transparent; color: #ffe9a8; font-weight: bold; font-size: 15px; cursor: pointer; }
+    .lv button.on { background: #ffe9a8; color: #1f6b4a; }
+    .hidden { display: none !important; }
+    .msg { position: absolute; left: 0; right: 0; top: 46%; text-align: center; font-size: 30px; font-weight: bold; color: #ffe9a8; text-shadow: 0 2px 0 rgba(0,0,0,.4); pointer-events: none; opacity: 0; transition: opacity .2s; z-index: 5; }
+    .msg.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <div class="hbtns"><button id="lang" class="pill">EN</button><button id="sound" class="pill"></button></div>
+  </header>
+  <main>
+    <div>
+      <div class="info"><span id="leftInfo"></span><div class="timerbar hidden" id="tbar"><i id="tfill"></i></div><span id="rightInfo"></span></div>
+      <div class="row opp" id="opp"></div>
+    </div>
+    <div class="row piles">
+      <div class="card pile" data-p="0"></div>
+      <div class="card pile" data-p="1"></div>
+    </div>
+    <div>
+      <div class="row hand" id="hand"></div>
+      <div class="info"><span id="myDeck"></span><span></span></div>
+    </div>
+    <div class="msg" id="msg"></div>
+
+    <div class="overlay" id="title">
+      <h1 id="tTitle"></h1>
+      <div class="row" style="gap:6px">
+        <div class="card"><div class="w" style="--n:3">りん<span class="t">ご</span></div></div>
+        <div class="card"><div class="w" style="--n:3"><span class="h">ご</span>りら</div></div>
+      </div>
+      <button class="btn" id="bCpu"></button>
+      <div class="lv" id="lv"><button data-l="0"></button><button data-l="1"></button><button data-l="2"></button></div>
+      <button class="btn" id="bTa"></button>
+    </div>
+    <div class="overlay hidden" id="result">
+      <div class="big" id="rBig"></div>
+      <p id="rSub"></p>
+      <a class="btn" id="share"></a>
+      <button class="btn" id="again"></button>
+      <button class="btn sub" id="toTitle"></button>
+    </div>
+  </main>
+
+  <script>
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('shiritori-speed:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('shiritori-speed:' + k, JSON.stringify(v)); } catch {} },
+    };
+
+    // 音
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const SPK = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9h4l5-4v14l-5-4H3z"/>';
+    const updateSoundBtn = () => {
+      soundBtn.innerHTML = SPK + (soundOn
+        ? '<path d="M15 8.5a5 5 0 0 1 0 7M17.5 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>'
+        : '<path d="M15 9l6 6M21 9l-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>');
+    };
+    soundBtn.onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updateSoundBtn(); };
+    updateSoundBtn();
+    let actx;
+    function beep(freq, dur, type = 'sine', vol = 0.15, slide = 0, delay = 0) {
+      if (!soundOn) return;
+      try {
+        actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+        const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + delay;
+        o.type = type; o.frequency.setValueAtTime(freq, t);
+        if (slide) o.frequency.linearRampToValueAtTime(freq + slide, t + dur);
+        g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur);
+      } catch {}
+    }
+    const sndPlay = () => beep(660, 0.1, 'triangle', 0.2, 300);
+    const sndCpu = () => beep(330, 0.1, 'triangle', 0.12, 100);
+    const sndMiss = () => beep(160, 0.25, 'square', 0.08, -60);
+    const sndFlip = () => { beep(520, 0.08, 'sine', 0.15); beep(780, 0.1, 'sine', 0.15, 0, 0.09); };
+    const sndWin = () => [523, 659, 784, 1047].forEach((f, i) => beep(f, 0.18, 'triangle', 0.18, 0, i * 0.12));
+    const sndLose = () => [392, 330, 262].forEach((f, i) => beep(f, 0.25, 'sawtooth', 0.07, 0, i * 0.18));
+
+    // 文言（日本語／英語）
+    const LV = ['よわい', 'ふつう', 'つよい'], LVE = ['Easy', 'Normal', 'Hard'];
+    const L = {
+      ja: {
+        title: 'しりとりスピード', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English', sound: '音のオン/オフ',
+        cpu: 'CPUと対戦', ta: 'タイムアタック 60秒', lv: i => LV[i],
+        cpuLeft: n => `CPU 残り${n}枚`, myLeft: n => `残り${n}枚`, played: n => `<b>${n}</b>枚`, time: s => `${s}秒`, best: n => `ベスト${n}枚`,
+        flip: 'せーの！', win: '勝ち！', lose: '負け…',
+        winSub: (n, l) => n >= 15 ? `${l}のCPUに${n}枚差で圧勝` : n >= 6 ? `${l}のCPUに${n}枚差で勝利` : `${l}のCPUに${n}枚差で辛勝`,
+        loseSub: (n, l) => n <= 3 ? `あと${n}枚だった…（${l}）` : n <= 10 ? `残り${n}枚。${l}のCPUに負けた` : `残り${n}枚。${l}のCPUに完敗`,
+        taBig: n => `${n}枚`,
+        taSub: (n, b) => (n > b ? 'ベスト更新！ ' : '') + (n >= 30 ? 'しりとりの鬼' : n >= 20 ? 'かなり速い' : n >= 10 ? 'いい調子' : 'まだまだ'),
+        shareWin: (n, l) => `しりとりスピードで${l}のCPUに勝った！（${n}枚差）`,
+        shareLose: (n, l) => `しりとりスピードで${l}のCPUに負けた…（残り${n}枚）`,
+        shareTa: n => `しりとりスピードのタイムアタックで60秒に${n}枚つないだ！`,
+        share: 'Xに投稿', again: 'もう一度', toTitle: 'モード選択へ',
+      },
+      en: {
+        title: 'Shiritori Speed', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え', sound: 'Sound on/off',
+        cpu: 'Play vs CPU', ta: 'Time Attack 60s', lv: i => LVE[i],
+        cpuLeft: n => `CPU: ${n} left`, myLeft: n => `${n} left`, played: n => `<b>${n}</b> cards`, time: s => `${s}s`, best: n => `Best ${n}`,
+        flip: 'Flip!', win: 'You win!', lose: 'You lose...',
+        winSub: (n, l) => n >= 15 ? `Crushed the ${l} CPU by ${n} cards` : n >= 6 ? `Beat the ${l} CPU by ${n} cards` : `Barely beat the ${l} CPU by ${n} cards`,
+        loseSub: (n, l) => n <= 3 ? `Only ${n} cards to go... (${l})` : n <= 10 ? `${n} cards left. Lost to the ${l} CPU` : `${n} cards left. Crushed by the ${l} CPU`,
+        taBig: n => `${n} cards`,
+        taSub: (n, b) => (n > b ? 'New best! ' : '') + (n >= 30 ? 'Shiritori demon' : n >= 20 ? 'Very fast' : n >= 10 ? 'Nice pace' : 'Keep practicing'),
+        shareWin: (n, l) => `I beat the ${l} CPU in Shiritori Speed! (by ${n} cards)`,
+        shareLose: (n, l) => `I lost to the ${l} CPU in Shiritori Speed... (${n} cards left)`,
+        shareTa: n => `I chained ${n} cards in 60 seconds in Shiritori Speed!`,
+        share: 'Post on X', again: 'Play again', toTitle: 'Modes',
+      },
+    };
+    let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
+    if (!L[lang]) lang = 'ja';
+    const t = k => L[lang][k];
+    const $ = id => document.getElementById(id);
+    const langBtn = $('lang');
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      $('back').textContent = t('back');
+      langBtn.textContent = t('lang'); langBtn.setAttribute('aria-label', t('langLabel'));
+      soundBtn.setAttribute('aria-label', t('sound'));
+      $('tTitle').textContent = t('title');
+      $('bCpu').textContent = t('cpu'); $('bTa').textContent = t('ta');
+      document.querySelectorAll('#lv button').forEach((b, i) => { b.textContent = t('lv')(i); b.classList.toggle('on', i === level); });
+      $('share').textContent = t('share'); $('again').textContent = t('again'); $('toTitle').textContent = t('toTitle');
+      renderInfo();
+      if (result) showResult();
+    }
+    langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+
+    // 単語（「ん」で終わるものは入れない）
+    const WORDS = (`りんご ごりら らっぱ ぱんだ だるま まくら らくだ だちょう うさぎ ぎたー たぬき きつね ねこ こあら
+      らいおん いるか かめ めだか かばん すいか かき きのこ こま まめ めがね ねずみ みかん みみ みず ずぼん
+      いぬ ぬいぐるみ みそしる るすばん とけい いちご ごはん はさみ みどり りす すし しか かに にんじん
+      にわとり りょうり りかい いか かさ さる るびー びーる るーる くじら らーめん めろん ろうそく くつ つくえ
+      えんぴつ つみき きりん うま まり りゅう うし しまうま まど どんぐり りぼん ぼうし しお おに にじ
+      じかん じしゃく くま まつり とまと とら らじお おばけ けいと とり りれー れもん もも もぐら
+      らっこ こおり りんかく くり りそう うみ みち ちず ずかん かぜ ぜりー りか かお おかし しろ ろけっと
+      とんぼ ぼたん たまご ごま まんが がっこう うどん そら らんどせる るーぺ ぺんぎん たこ こども もち ちょう
+      うちゅう うで でんわ わに にもつ つばめ めいろ ろば ばなな なす すな なつ つき きって てがみ みらい いす
+      すみれ れいぞうこ こけし しっぽ ぽすと とうふ ふね ねぎ ぎんこう うなぎ ぎゅうにゅう うちわ わさび びわ
+      わなげ げた たき きもの のり りんどう うき きく くも もり りく くさ さかな なべ べんとう うめ めじろ ろく
+      くし しま まつ つな なわ わた たけ けむし しかく くるま まほう うそ そば ばす すず ずつう うた たいこ こい
+      いのしし しじみ みみず ずこう さくら らく くぎ ぎょうざ ざる るり じてんしゃ やかん かえる るす
+      すいとう うがい いし しゃもじ じゃがいも もみじ じどうしゃ やま まぐろ ろうか かいだん だんご ごぼう うめぼし
+      しんごう うずら らいむ むし しいたけ けしごむ むぎ ぎふ ふくろう うんどう うりぼう おでん てんぐ ぐみ
+      みこし しょうゆ ゆき きっぷ ぷりん ゆびわ わかめ めんこ こたつ つる るつぼ ぼーる るい いと とげ げんき
+      きじ じゅーす すいか かいがら らくがき きびだんご ごみ みかづき きた たいやき きせつ つの のこぎり りんぐ
+      ぐらす すけーと とびら らっきょう うに にく くじゃく くすり りす すきやき きゃべつ つばさ さめ めいし
+      しゃしん てぶくろ ろっく くっきー きーほるだー だいこん こうもり りゅっく くちびる るーと とけい えき
+      きゅうり りんぷん はな なまず ずきん かがみ みるく くらげ げーむ むかで でんしゃ やぎ ぎんなん のりまき
+      きんぎょ こすもす すずめ めだま まいく くわがた たんぽぽ ぽてと とかげ げんかん かたつむり りょかん`)
+      .split(/\s+/).filter(w => w && !w.endsWith('ん') && w[0] !== 'ん' && !/^[ゃゅょっー]/.test(w));
+    const SMALL = { 'ゃ': 'や', 'ゅ': 'ゆ', 'ょ': 'よ', 'っ': 'つ', 'ぁ': 'あ', 'ぃ': 'い', 'ぅ': 'う', 'ぇ': 'え', 'ぉ': 'お' };
+    function tailOf(w) {
+      let i = w.length - 1;
+      while (i > 0 && w[i] === 'ー') i--;
+      return SMALL[w[i]] || w[i];
+    }
+    const byHead = {};
+    for (const w of WORDS) (byHead[w[0]] = byHead[w[0]] || []).push(w);
+    const pick = a => a[Math.floor(Math.random() * a.length)];
+
+    // 山札から1枚引く。場につながる言葉が出やすいように少しだけ寄せる
+    function draw() {
+      if (Math.random() < 0.45) {
+        const heads = piles.map(tailOf).filter(h => byHead[h]);
+        if (heads.length) return pick(byHead[pick(heads)]);
+      }
+      return pick(WORDS);
+    }
+    function pileWord() {
+      for (let i = 0; i < 50; i++) { const w = pick(WORDS); if (byHead[tailOf(w)]) return w; }
+      return 'りんご';
+    }
+
+    // 状態
+    const DECK = 20, HAND = 4, TA_TIME = 60;
+    const CPU_MS = [[2600, 4200], [1600, 2800], [900, 1600]];
+    let mode = null, level = store.get('level', 1), result = null;
+    let piles = ['', ''], hand = [], myDeck = 0, cpuHand = [], cpuDeck = 0, played = 0;
+    let stunUntil = 0, endAt = 0, cpuTimer = 0, stallTimer = 0, tick = 0, running = false;
+
+    document.querySelectorAll('#lv button').forEach((b, i) => b.onclick = () => { level = i; store.set('level', i); applyLang(); });
+
+    function fillHand(h, deckLeft) {
+      for (let i = 0; i < HAND; i++) if (!h[i] && deckLeft() > 0) h[i] = draw(), deckLeft(-1);
+    }
+    function start(m) {
+      mode = m; result = null; running = true; played = 0; stunUntil = 0;
+      piles = [pileWord(), pileWord()];
+      hand = []; cpuHand = [];
+      myDeck = m === 'ta' ? Infinity : DECK; cpuDeck = DECK;
+      const myCnt = d => d ? (myDeck += d) : myDeck;
+      fillHand(hand, myCnt);
+      if (m === 'cpu') fillHand(cpuHand, d => d ? (cpuDeck += d) : cpuDeck);
+      $('title').classList.add('hidden'); $('result').classList.add('hidden');
+      $('opp').classList.toggle('hidden', m !== 'cpu');
+      $('tbar').classList.toggle('hidden', m !== 'ta');
+      clearTimeout(cpuTimer); clearTimeout(stallTimer); clearInterval(tick);
+      if (m === 'cpu') scheduleCpu();
+      if (m === 'ta') { endAt = performance.now() + TA_TIME * 1000; tick = setInterval(taTick, 100); }
+      render(); checkStall();
+    }
+    const canPlay = w => piles.findIndex(p => w && w[0] === tailOf(p));
+    const anyMove = h => h.some(w => canPlay(w) >= 0);
+    const myLeft = () => hand.filter(Boolean).length + (mode === 'ta' ? 0 : myDeck);
+    const cpuLeft = () => cpuHand.filter(Boolean).length + cpuDeck;
+
+    function playTo(pi, w) {
+      piles[pi] = w;
+      const el = document.querySelector(`.pile[data-p="${pi}"]`);
+      el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+    }
+    function playerPlay(idx, pi) {
+      const w = hand[idx];
+      if (!running || !w || performance.now() < stunUntil) return false;
+      if (w[0] !== tailOf(piles[pi])) {
+        stunUntil = performance.now() + 500; sndMiss();
+        const el = document.querySelector(`.pile[data-p="${pi}"]`);
+        el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');
+        render(); setTimeout(render, 520);
+        return false;
+      }
+      playTo(pi, w); sndPlay(); played++;
+      hand[idx] = null;
+      if (mode === 'ta' || myDeck > 0) { hand[idx] = draw(); if (mode !== 'ta') myDeck--; }
+      render();
+      if (mode === 'cpu' && myLeft() === 0) return finish(true), true;
+      checkStall();
+      return true;
+    }
+    function scheduleCpu() {
+      const [a, b] = CPU_MS[level];
+      cpuTimer = setTimeout(cpuMove, a + Math.random() * (b - a));
+    }
+    function cpuMove() {
+      if (!running) return;
+      for (let i = 0; i < HAND; i++) {
+        const pi = canPlay(cpuHand[i]);
+        if (pi >= 0) {
+          playTo(pi, cpuHand[i]); sndCpu();
+          cpuHand[i] = cpuDeck > 0 ? (cpuDeck--, draw()) : null;
+          render();
+          if (cpuLeft() === 0) return finish(false);
+          checkStall();
+          break;
+        }
+      }
+      scheduleCpu();
+    }
+    // 誰も出せないときは、少し待って場をめくり直す
+    function checkStall() {
+      clearTimeout(stallTimer);
+      if (!running) return;
+      if (anyMove(hand) || (mode === 'cpu' && anyMove(cpuHand))) return;
+      stallTimer = setTimeout(() => {
+        if (!running || anyMove(hand) || (mode === 'cpu' && anyMove(cpuHand))) return;
+        piles = [pileWord(), pileWord()]; sndFlip();
+        const m = $('msg'); m.textContent = t('flip'); m.classList.add('show'); setTimeout(() => m.classList.remove('show'), 700);
+        document.querySelectorAll('.pile').forEach(el => { el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); });
+        render(); checkStall();
+      }, 1500);
+    }
+    function taTick() {
+      const left = Math.max(0, endAt - performance.now());
+      $('tfill').style.width = (left / (TA_TIME * 1000) * 100) + '%';
+      renderInfo();
+      if (left <= 0) finish(null);
+    }
+    function finish(win) {
+      running = false; clearTimeout(cpuTimer); clearTimeout(stallTimer); clearInterval(tick); cancelDrag();
+      if (mode === 'ta') {
+        const best = store.get('best', 0);
+        result = { mode: 'ta', n: played, best };
+        if (played > best) store.set('best', played);
+        sndWin();
+      } else {
+        result = { mode: 'cpu', win, n: win ? cpuLeft() : myLeft(), level };
+        win ? sndWin() : sndLose();
+      }
+      setTimeout(showResult, 500);
+    }
+    function showResult() {
+      const r = result, lv = t('lv')(r.level ?? 0);
+      let big, sub, text;
+      if (r.mode === 'ta') { big = t('taBig')(r.n); sub = t('taSub')(r.n, r.best); text = t('shareTa')(r.n); }
+      else if (r.win) { big = t('win'); sub = t('winSub')(r.n, lv); text = t('shareWin')(r.n, lv); }
+      else { big = t('lose'); sub = t('loseSub')(r.n, lv); text = t('shareLose')(r.n, lv); }
+      $('rBig').textContent = big; $('rSub').textContent = sub;
+      const a = $('share');
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent('https://keifurukawafunnych.com/games/shiritori-speed/')}`;
+      if (matchMedia('(pointer: coarse)').matches) { a.removeAttribute('target'); a.removeAttribute('rel'); }
+      else { a.target = '_blank'; a.rel = 'noopener'; }
+      $('result').classList.remove('hidden');
+    }
+    $('bCpu').onclick = () => start('cpu');
+    $('bTa').onclick = () => start('ta');
+    $('again').onclick = () => start(mode);
+    $('toTitle').onclick = () => { result = null; $('result').classList.add('hidden'); $('title').classList.remove('hidden'); };
+
+    // 描画
+    const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    function wordHtml(w, isPile) {
+      if (isPile) {
+        const tl = w.length - 1 - [...w].reverse().findIndex(c => c !== 'ー');
+        return `<div class="w" style="--n:${w.length}">${esc(w.slice(0, tl))}<span class="t">${esc(w.slice(tl))}</span></div><div class="tail">${tailOf(w)}</div>`;
+      }
+      return `<div class="w" style="--n:${w.length}"><span class="h">${esc(w[0])}</span>${esc(w.slice(1))}</div>`;
+    }
+    function renderInfo() {
+      if (!mode) return;
+      if (mode === 'cpu') {
+        $('leftInfo').textContent = t('cpuLeft')(cpuLeft());
+        $('rightInfo').textContent = t('lv')(level);
+        $('myDeck').textContent = t('myLeft')(myLeft());
+      } else {
+        $('leftInfo').innerHTML = t('played')(played);
+        $('rightInfo').textContent = t('time')(Math.ceil(Math.max(0, endAt - performance.now()) / 1000));
+        $('myDeck').textContent = t('best')(Math.max(store.get('best', 0), played));
+      }
+    }
+    function render() {
+      document.querySelectorAll('.pile').forEach((el, i) => el.innerHTML = piles[i] ? wordHtml(piles[i], true) : '');
+      const h = $('hand');
+      h.innerHTML = '';
+      hand.forEach((w, i) => {
+        const c = document.createElement('div');
+        c.className = 'card' + (w ? '' : ' empty') + (performance.now() < stunUntil ? ' stun' : '');
+        if (w) { c.innerHTML = wordHtml(w); c.dataset.i = i; c.addEventListener('pointerdown', onDown); }
+        h.appendChild(c);
+      });
+      $('opp').innerHTML = cpuHand.map(w => `<div class="card back${w ? '' : ' hidden'}"></div>`).join('');
+      renderInfo();
+    }
+
+    // ドラッグ＆ドロップ
+    let drag = null;
+    function pileAt(x, y) {
+      for (const el of document.querySelectorAll('.pile')) {
+        const r = el.getBoundingClientRect(), m = 24;
+        if (x > r.left - m && x < r.right + m && y > r.top - m && y < r.bottom + m) return +el.dataset.p;
+      }
+      return -1;
+    }
+    function onDown(e) {
+      if (!running || drag) return;
+      e.preventDefault();
+      const src = e.currentTarget, r = src.getBoundingClientRect();
+      const ghost = src.cloneNode(true);
+      ghost.classList.add('drag');
+      ghost.style.width = r.width + 'px'; ghost.style.height = r.height + 'px';
+      document.body.appendChild(ghost);
+      src.style.visibility = 'hidden';
+      drag = { i: +src.dataset.i, src, ghost, dx: e.clientX - r.left, dy: e.clientY - r.top, id: e.pointerId };
+      move(e);
+    }
+    function move(e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      drag.ghost.style.left = (e.clientX - drag.dx) + 'px';
+      drag.ghost.style.top = (e.clientY - drag.dy) + 'px';
+      const p = pileAt(e.clientX, e.clientY);
+      document.querySelectorAll('.pile').forEach(el => el.classList.toggle('over', +el.dataset.p === p));
+    }
+    function cancelDrag() {
+      if (!drag) return;
+      drag.ghost.remove(); drag.src.style.visibility = '';
+      document.querySelectorAll('.pile').forEach(el => el.classList.remove('over'));
+      drag = null;
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', e => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const p = pileAt(e.clientX, e.clientY), i = drag.i;
+      cancelDrag();
+      if (p >= 0) playerPlay(i, p);
+    });
+    window.addEventListener('pointercancel', cancelDrag);
+
+    applyLang();
+  </script>
+</body>
+</html>
