@@ -409,7 +409,7 @@
 
     // ---------- 描画 ----------
     const VW = 400, VH = 520;   // 仮想座標
-    const RIM = 230, BASE = 430, K = 6, K2 = 19; // 縁のy、底のy、縁より下/上の 1mm の大きさ
+    const RIM = 230, BASE = 430, K = 6, K2 = 12; // 縁のy、底のy、縁より下/上の 1mm の大きさ
     function sizeCanvas() {
       const r = stage.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
       cv.width = Math.max(1, Math.round(r.width * dpr)); cv.height = Math.max(1, Math.round(r.height * dpr));
@@ -436,7 +436,8 @@
       g.fillStyle = '#6b4632'; g.fillRect(-padX, BASE, VW + padX * 2, 8);
 
       const dying = phase === 'spill' || (phase === 'result' && loser >= 0);
-      drawGlassWithLiquid(g, time);
+      // あふれたら盛り上がりがしぼんで縁の高さに戻る
+      drawGlassWithLiquid(g, time, dying ? { level: Math.max(0, level * (1 - deathT / 0.45)), noWobble: true } : {});
       if (dying) drawSpill(g, deathT);
       drawBottle(g);
       if (dying) drawDead(g, deathT);
@@ -451,71 +452,137 @@
       }
     }
 
-    // グラスの内側：y での左右の x
-    const innerHalf = y => 54 + (72 - 54) * (404 - y) / (404 - RIM);
+    // ---------- グラスと液体（少し上から見下ろした形） ----------
+    const E = 0.17;                          // 楕円のつぶれ具合（見下ろす角度）
+    const OUT_T = 80, OUT_B = 60;            // 外側の半幅（縁・底）
+    const IN_T = 72, IN_B = 54, IN_Y = 404;  // 内側の半幅（縁・底）と内底のy
+    const innerHalf = y => IN_B + (IN_T - IN_B) * (IN_Y - y) / (IN_Y - RIM);
+    // 楕円：0=右, PI/2=手前, PI=左, 3PI/2=奥
+    const ell = (g, cy, rx, a0, a1, ccw = false) => g.ellipse(200, cy, rx, rx * E, 0, a0, a1, ccw);
+    function liquidGrad(g) {
+      // ふちが濃く、まん中が薄い（光の屈折で端が暗く見える）
+      const lg = g.createLinearGradient(200 - OUT_T, 0, 200 + OUT_T, 0);
+      lg.addColorStop(0, 'rgba(120,175,230,.62)'); lg.addColorStop(0.18, 'rgba(185,220,252,.30)');
+      lg.addColorStop(0.5, 'rgba(215,236,255,.20)'); lg.addColorStop(0.82, 'rgba(185,220,252,.30)');
+      lg.addColorStop(1, 'rgba(120,175,230,.62)');
+      return lg;
+    }
+    // 縁より上の液面：上はほぼ平ら、肩は丸く、縁の外へ少しはみ出す
+    function domeShape(lv, w, time) {
+      const H = Math.max(0, lv) * K2;
+      const R = Math.min(46, 6 + H * 1.7);                         // 肩の丸み
+      const o = H * 0.07 + w * (1.8 + Math.sin(time * 31) * 1.2);   // 縁からのはみ出し
+      const yt = RIM - H + w * Math.sin(time * 21) * 1.0;
+      const rt = OUT_T - R * 0.55;                                  // 平らな上面の半幅
+      return { H, R, o, yt, rt };
+    }
     function drawGlassWithLiquid(g, time, opt = {}) {
-      const cx = opt.cx ?? 200, lv = opt.level ?? level;
-      g.save(); g.translate(cx - 200, 0);
+      const lv = opt.level ?? level;
+      const hasLiquid = !!game || opt.level !== undefined;
       const w = opt.noWobble ? 0 : wobble(lv);
-      // 液体
-      g.fillStyle = 'rgba(190,225,255,.38)';
-      g.strokeStyle = 'rgba(235,248,255,.9)'; g.lineWidth = 2;
-      if (game || opt.level !== undefined) {
-        if (lv < 0) {
-          const y = RIM - lv * K;
-          if (y < 404) {
-            g.beginPath();
-            g.moveTo(200 - innerHalf(y), y); g.lineTo(200 + innerHalf(y), y);
-            g.lineTo(200 + 54, 404); g.lineTo(200 - 54, 404); g.closePath(); g.fill();
-            // メニスカス（壁ぎわで少し上がる）
-            g.beginPath(); g.moveTo(200 - innerHalf(y), y - 3);
-            g.quadraticCurveTo(200 - innerHalf(y) + 10, y, 200, y);
-            g.quadraticCurveTo(200 + innerHalf(y) - 10, y, 200 + innerHalf(y), y - 3); g.stroke();
-          }
-        } else {
-          // 縁より上：ぷっくりした山
-          const h = lv * K2, half = 79;
-          const jig = (x) => w * (Math.sin(time * 23 + x * 0.09) * 2.2 + Math.sin(time * 37 - x * 0.05) * 1.4);
-          g.beginPath();
-          g.moveTo(200 - 54, 404); g.lineTo(200 - 72, RIM);
-          for (let i = 0; i <= 40; i++) {
-            const u = -1 + i / 20, x = 200 + u * half;
-            const k = Math.pow(Math.max(0, 1 - Math.pow(Math.abs(u), 2.4)), 1 / 2.4);
-            g.lineTo(x, RIM - (h + jig(x) * (h > 4 ? 1 : 0)) * k * (1 + w * 0.04 * Math.sin(time * 19)));
-          }
-          g.lineTo(200 + 72, RIM); g.lineTo(200 + 54, 404); g.closePath(); g.fill();
-          g.beginPath();
-          for (let i = 0; i <= 40; i++) {
-            const u = -1 + i / 20, x = 200 + u * half;
-            const k = Math.pow(Math.max(0, 1 - Math.pow(Math.abs(u), 2.4)), 1 / 2.4);
-            const y = RIM - (h + jig(x) * (h > 4 ? 1 : 0)) * k * (1 + w * 0.04 * Math.sin(time * 19));
-            i ? g.lineTo(x, y) : g.moveTo(x, y);
-          }
-          g.stroke();
-          // ハイライト
-          if (h > 6) {
-            g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 3; g.lineCap = 'round';
-            g.beginPath(); g.ellipse(200 - 30, RIM - h * 0.62, 18, Math.max(2, h * 0.15), -0.25, Math.PI * 1.1, Math.PI * 1.7); g.stroke();
+      g.save(); g.lineJoin = 'round'; g.lineCap = 'round';
+
+      // --- グラスの奥側 ---
+      g.fillStyle = 'rgba(255,255,255,.05)';
+      g.beginPath(); g.moveTo(200 - OUT_T, RIM); g.lineTo(200 - OUT_B, BASE); ell(g, BASE, OUT_B, Math.PI, 0, true);
+      g.lineTo(200 + OUT_T, RIM); ell(g, RIM, OUT_T, 0, Math.PI, true); g.fill();
+      g.strokeStyle = 'rgba(230,242,255,.35)'; g.lineWidth = 2;
+      g.beginPath(); ell(g, RIM, OUT_T, Math.PI, Math.PI * 2); g.stroke();
+      g.strokeStyle = 'rgba(230,242,255,.2)'; g.lineWidth = 1.2;
+      g.beginPath(); ell(g, RIM, IN_T, Math.PI, Math.PI * 2); g.stroke();
+      g.beginPath(); ell(g, IN_Y, IN_B, Math.PI, Math.PI * 2); g.stroke();
+
+      // --- 液体 ---
+      if (hasLiquid && lv < 0) {
+        const y = RIM - lv * K;
+        if (y < IN_Y - 1) {
+          const rx = innerHalf(y);
+          g.fillStyle = liquidGrad(g);
+          g.beginPath(); g.moveTo(200 - rx, y); ell(g, y, rx, Math.PI, Math.PI * 2);
+          g.lineTo(200 + IN_B, IN_Y); ell(g, IN_Y, IN_B, 0, Math.PI); g.closePath(); g.fill();
+          // 液面（上から見える面）
+          g.fillStyle = 'rgba(225,242,255,.16)';
+          g.beginPath(); ell(g, y, rx, 0, Math.PI * 2); g.fill();
+          // メニスカス：壁ぎわで液が少しはい上がり、光る輪になる
+          const m = clamp(-lv / 0.8, 0.2, 1);
+          g.strokeStyle = `rgba(240,250,255,${0.6 * m})`; g.lineWidth = 1.6;
+          g.beginPath(); ell(g, y - 1.5 * m, rx, 0, Math.PI * 2); g.stroke();
+          g.strokeStyle = `rgba(240,250,255,${0.18 * m})`; g.lineWidth = 3;
+          g.beginPath(); ell(g, y, rx - 5, Math.PI * 1.1, Math.PI * 1.9); g.stroke();
+        }
+      } else if (hasLiquid) {
+        const d = domeShape(lv, w, time);
+        // 盛り上がりの輪郭（左の肩 → 奥 → 右の肩）
+        const domePath = () => {
+          g.moveTo(200 - OUT_T, RIM);
+          g.bezierCurveTo(200 - OUT_T - d.o, RIM - d.H * 0.6, 200 - d.rt - d.R * 0.6, d.yt, 200 - d.rt, d.yt);
+          ell(g, d.yt, d.rt, Math.PI, Math.PI * 2);
+          g.bezierCurveTo(200 + d.rt + d.R * 0.6, d.yt, 200 + OUT_T + d.o, RIM - d.H * 0.6, 200 + OUT_T, RIM);
+        };
+        // グラスの中と盛り上がりを1つの形で塗る（重ね塗りで濃くならないように）
+        g.fillStyle = liquidGrad(g);
+        g.beginPath(); g.moveTo(200 - IN_B, IN_Y); g.lineTo(200 - IN_T, RIM);
+        domePath();
+        g.lineTo(200 + IN_T, RIM); g.lineTo(200 + IN_B, IN_Y); ell(g, IN_Y, IN_B, 0, Math.PI);
+        g.closePath(); g.fill();
+        if (d.H > 0.8) {
+          // 盛り上がりの中：上が明るく、縁の近くでまた光る（レンズのような見え方）
+          g.save();
+          g.beginPath(); domePath(); ell(g, RIM, OUT_T, 0, Math.PI); g.closePath(); g.clip();
+          const vg = g.createLinearGradient(0, d.yt - d.rt * E, 0, RIM + OUT_T * E);
+          vg.addColorStop(0, 'rgba(255,255,255,.30)'); vg.addColorStop(0.35, 'rgba(255,255,255,.04)');
+          vg.addColorStop(0.75, 'rgba(255,255,255,.02)'); vg.addColorStop(1, 'rgba(255,255,255,.28)');
+          g.fillStyle = vg; g.fillRect(0, d.yt - 100, 400, d.H + 200);
+          // 上面に映る照明（ぼんやり＋くっきりの2つ）
+          const sp = g.createRadialGradient(200 - 22, d.yt, 1, 200 - 22, d.yt, d.rt * 0.9);
+          sp.addColorStop(0, 'rgba(255,255,255,.35)'); sp.addColorStop(1, 'rgba(255,255,255,0)');
+          g.fillStyle = sp; g.fillRect(0, d.yt - 100, 400, d.H + 200);
+          g.restore();
+          g.fillStyle = 'rgba(255,255,255,.8)';
+          g.beginPath(); g.ellipse(200 - 30, d.yt + 1, Math.min(18, d.rt * 0.25), Math.max(1, Math.min(3, d.H * 0.12)), -0.06, 0, Math.PI * 2); g.fill();
+          // 輪郭のふちに細い光（表面張力で張った膜のように見える）
+          g.strokeStyle = 'rgba(240,250,255,.7)'; g.lineWidth = 1.3;
+          g.beginPath(); domePath(); g.stroke();
+          // 左の肩に光の点
+          g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2;
+          g.beginPath(); g.ellipse(200 - OUT_T + d.R * 0.32 - d.o * 0.3, RIM - d.H * 0.58, Math.max(1.5, d.R * 0.28), Math.max(1.5, d.H * 0.26), 0.25, Math.PI * 1.08, Math.PI * 1.42); g.stroke();
+        }
+        // 限界が近いと、上面にさざ波
+        if (w > 0.02) {
+          for (let k = 0; k < 3; k++) {
+            const ph = (time * 1.6 + k / 3) % 1;
+            g.strokeStyle = `rgba(255,255,255,${w * (1 - ph) * 0.5})`; g.lineWidth = 1;
+            g.beginPath(); ell(g, d.yt, Math.max(1, d.rt * ph), 0, Math.PI * 2); g.stroke();
           }
         }
       }
-      // グラス
-      g.lineJoin = 'round';
-      g.fillStyle = 'rgba(255,255,255,.10)';
-      g.beginPath(); g.moveTo(200 - 80, RIM); g.lineTo(200 - 60, BASE); g.lineTo(200 + 60, BASE); g.lineTo(200 + 80, RIM);
-      g.lineTo(200 + 72, RIM); g.lineTo(200 + 54, 404); g.lineTo(200 - 54, 404); g.lineTo(200 - 72, RIM); g.closePath(); g.fill();
-      g.strokeStyle = 'rgba(230,242,255,.75)'; g.lineWidth = 2.5;
-      g.beginPath(); g.moveTo(200 - 80, RIM); g.lineTo(200 - 60, BASE); g.lineTo(200 + 60, BASE); g.lineTo(200 + 80, RIM); g.stroke();
-      g.lineWidth = 1.5; g.strokeStyle = 'rgba(230,242,255,.45)';
-      g.beginPath(); g.moveTo(200 - 72, RIM); g.lineTo(200 - 54, 404); g.lineTo(200 + 54, 404); g.lineTo(200 + 72, RIM); g.stroke();
-      g.strokeStyle = 'rgba(230,242,255,.9)'; g.lineWidth = 3; g.lineCap = 'round';
-      g.beginPath(); g.moveTo(200 - 80, RIM); g.lineTo(200 - 72, RIM); g.moveTo(200 + 72, RIM); g.lineTo(200 + 80, RIM); g.stroke();
-      g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 5;
-      g.beginPath(); g.moveTo(200 - 62, RIM + 22); g.lineTo(200 - 50, BASE - 40); g.stroke();
-      // 縁の線（0mm の目印）
+
+      // --- グラスの手前側 ---
+      g.strokeStyle = 'rgba(230,242,255,.35)'; g.lineWidth = 1.4;
+      g.beginPath(); g.moveTo(200 - IN_T, RIM); g.lineTo(200 - IN_B, IN_Y); g.moveTo(200 + IN_T, RIM); g.lineTo(200 + IN_B, IN_Y); g.stroke();
+      g.beginPath(); ell(g, IN_Y, IN_B, Math.PI, 0, true); g.stroke();
+      // 厚い底
+      g.fillStyle = 'rgba(255,255,255,.08)';
+      g.beginPath(); g.moveTo(200 - IN_B, IN_Y); ell(g, IN_Y, IN_B, Math.PI, 0, true); g.lineTo(200 + OUT_B, BASE);
+      ell(g, BASE, OUT_B, 0, Math.PI); g.closePath(); g.fill();
+      // 外側の輪郭
+      g.strokeStyle = 'rgba(230,242,255,.8)'; g.lineWidth = 2.5;
+      g.beginPath(); g.moveTo(200 - OUT_T, RIM); g.lineTo(200 - OUT_B, BASE); g.moveTo(200 + OUT_T, RIM); g.lineTo(200 + OUT_B, BASE); g.stroke();
+      g.beginPath(); ell(g, BASE, OUT_B, Math.PI, 0, true); g.stroke();
+      // 手前の縁（厚みのある口）
+      g.strokeStyle = 'rgba(240,248,255,.95)'; g.lineWidth = 2.8;
+      g.beginPath(); ell(g, RIM, OUT_T, Math.PI, 0, true); g.stroke();
+      g.strokeStyle = 'rgba(230,242,255,.45)'; g.lineWidth = 1.4;
+      g.beginPath(); ell(g, RIM + 1, IN_T, Math.PI, 0, true); g.stroke();
+      // ガラスの映り込み
+      g.strokeStyle = 'rgba(255,255,255,.32)'; g.lineWidth = 6;
+      g.beginPath(); g.moveTo(200 - 63, RIM + 30); g.lineTo(200 - 50, BASE - 36); g.stroke();
+      g.strokeStyle = 'rgba(255,255,255,.14)'; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(200 + 66, RIM + 34); g.lineTo(200 + 59, RIM + 100); g.stroke();
+      // 縁の高さの目印（0mm）
       if (!opt.noRuler) {
         g.setLineDash([5, 6]); g.strokeStyle = 'rgba(255,200,120,.55)'; g.lineWidth = 1.5;
-        g.beginPath(); g.moveTo(200 - 130, RIM); g.lineTo(200 - 86, RIM); g.moveTo(200 + 86, RIM); g.lineTo(200 + 130, RIM); g.stroke();
+        g.beginPath(); g.moveTo(200 - 130, RIM); g.lineTo(200 - 88, RIM); g.moveTo(200 + 88, RIM); g.lineTo(200 + 130, RIM); g.stroke();
         g.setLineDash([]);
       }
       g.restore();
@@ -558,22 +625,26 @@
       drops = drops.filter(d => tipY + d.y < surfaceY());
     }
 
-    // あふれる
+    // あふれる：左の縁から一気に流れ落ち、盛り上がりがしぼむ
     function drawSpill(g, tt) {
-      const p = clamp(tt / 1.0, 0, 1);
-      g.fillStyle = 'rgba(190,225,255,.5)';
-      for (const side of [-1, 1]) {
-        const x0 = 200 + side * 80, x1 = 200 + side * 60;
-        const yEnd = RIM + (BASE - RIM) * Math.min(1, p * 2);
-        g.beginPath(); g.moveTo(x0, RIM - 2);
-        g.lineTo(x0 + side * 6, RIM + 4);
-        g.lineTo(x0 + (x1 - x0) * (yEnd - RIM) / (BASE - RIM) + side * 6, yEnd);
-        g.lineTo(x0 + (x1 - x0) * (yEnd - RIM) / (BASE - RIM), yEnd);
-        g.closePath(); g.fill();
-      }
-      if (p > 0.45) {
-        const q = (p - 0.45) / 0.55;
-        g.beginPath(); g.ellipse(200, BASE + 6, 70 + q * 110, 5 + q * 6, 0, 0, 7); g.fill();
+      const p = clamp(tt / 0.55, 0, 1), q = clamp((tt - 0.3) / 0.8, 0, 1);
+      const yEnd = RIM + (BASE - RIM) * p;
+      const wx = y => 200 - OUT_T + (OUT_T - OUT_B) * (y - RIM) / (BASE - RIM); // 外壁の x
+      g.fillStyle = 'rgba(175,215,250,.55)';
+      g.beginPath();
+      g.moveTo(wx(RIM) + 12, RIM - 2);
+      g.quadraticCurveTo(wx(RIM) - 10, RIM - 4, wx(RIM) - 6, RIM + 12);
+      g.lineTo(wx(yEnd) - 5, yEnd);
+      g.lineTo(wx(yEnd) + 3, yEnd);
+      g.lineTo(wx(RIM + 14) + 4, RIM + 14);
+      g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 1.2;
+      g.beginPath(); g.moveTo(wx(RIM) - 5, RIM + 10); g.lineTo(wx(yEnd) - 4, yEnd); g.stroke();
+      if (q > 0) {
+        g.fillStyle = 'rgba(175,215,250,.42)';
+        g.beginPath(); g.ellipse(170 - q * 20, BASE + 5, 24 + q * 120, 3 + q * 7, 0, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1;
+        g.beginPath(); g.ellipse(170 - q * 20, BASE + 5, 24 + q * 120, 3 + q * 7, 0, Math.PI * 1.1, Math.PI * 1.9); g.stroke();
       }
     }
 
