@@ -95,17 +95,21 @@
       display: flex; flex-direction: column; align-items: center;
       transform: translate(-50%, calc(100% - 30px)); transition: transform .4s cubic-bezier(.3,1.8,.5,1);
     }
-    #players li:nth-child(odd) .who { animation: peek 2.4s ease-in-out infinite; }
-    #players li:nth-child(even) .who { animation: peek 2.4s ease-in-out 1.2s infinite; }
-    @keyframes peek { 50% { transform: translate(-50%, calc(100% - 22px)); } }
+    /* ゆらゆらは中の .bob に付けて、飛び出す動き（.who の transform）とぶつからないようにする */
+    #players .bob { display: block; }
+    #players li:nth-child(odd) .bob { animation: peek 2.4s ease-in-out infinite; }
+    #players li:nth-child(even) .bob { animation: peek 2.4s ease-in-out 1.2s infinite; }
+    @keyframes peek { 50% { transform: translateY(8px); } }
+    #players li.found .bob { animation: none; }
     #players .tag {
       display: block; text-align: center; line-height: 1.1; min-width: 1.2em;
       font-size: 15px; font-weight: bold; color: #fff; background: var(--c); border-radius: 999px; padding: 7px 4px;
     }
     #players.many .tag { font-size: 12px; padding: 6px 2px; }
-    #players li.found .who { transform: translate(-50%, 0); animation: none; }
+    #players li.found .who { transform: translate(-50%, 0); }
     #players .say {
-      display: block; margin-bottom: 3px; white-space: nowrap;
+      position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 3px; white-space: nowrap;
+      opacity: 0; transition: opacity .2s;
       font-size: 12px; font-weight: bold; color: #fff; background: var(--c); border-radius: 999px; padding: 1px 7px;
     }
     #players .info {
@@ -113,6 +117,7 @@
       background: #fff; border-radius: 8px; padding: 1px 5px; border-bottom: 3px solid var(--c); z-index: 3;
     }
     #players.stagger li:nth-child(even) .info { top: calc(var(--band) / 2 + 52px); }
+    #players li.found .say { opacity: 1; }
     #players li.me .info { box-shadow: 0 0 0 2px #4a5ad0; }
     #players .num { display: block; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 17px; font-weight: bold; line-height: 1.2; }
     #players .st { display: block; font-size: 10px; font-weight: bold; color: #6a7558; }
@@ -121,7 +126,7 @@
     #players.many .st { font-size: 9px; }
     #players.many .say { font-size: 10px; padding: 0 4px; }
     #pos { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; font-size: 14px; font-weight: bold; color: #6a7558; }
-    @media (prefers-reduced-motion: reduce) { #players .who { animation: none !important; } }
+    @media (prefers-reduced-motion: reduce) { #players .bob { animation: none !important; } }
     #verdict { text-align: center; font-size: 24px; font-weight: bold; color: #d0612a; min-height: 30px; }
     #verdict small { display: block; font-size: 15px; color: #2f3b22; }
     .counter { display: flex; align-items: center; justify-content: center; gap: 14px; font-size: 20px; font-weight: bold; }
@@ -444,31 +449,36 @@
       else beep(200, 0.4, 'sawtooth', 0.06, -80);
     }
 
+    // 札は最初に1回だけ作り、あとは中身とクラスだけ変える（作り直すと動きがリセットされてワープする）
     function renderPlayers(hit) {
       const el = $('players'); if (!players.length) return;
-      el.innerHTML = '';
       const n = players.length;
-      el.classList.toggle('many', n > 6);
-      // 数字の札が横に並びきらないときは2段にずらす
-      el.classList.toggle('stagger', n * (len * 11 + 12) > el.clientWidth);
-      // 並びは毎回シャッフルせず、プレイヤー順に帯の上へ等間隔
-      for (const p of players) {
-        const li = document.createElement('li');
-        li.style.setProperty('--c', colorOf(p.i));
-        li.style.setProperty('--x', `${(p.i + 0.5) / n * 100}%`);
-        const found = p.out && p.pos !== Infinity;
-        const shown = found || done;   // 終わったら全員出てくる
-        li.className = (mode === 'cpu' && p.i === 0 ? 'me ' : '') + (shown && hit !== p ? 'found' : '');
-        const nm = nameOf(p.i);
-        const who = `<span class="tag">${[...nm].map(esc).join('<br>')}</span>`;   // 1文字ずつ縦に積む
-        const say = done ? `<span class="say">${p.rank === 1 ? '👑' : ''}${t('rank')(p.rank)}</span>`
-          : found ? `<span class="say">${n > 6 ? '👀' : t('seek')}</span>` : '';
-        const st = found ? t('found')(p.pos) : done ? t('none') : '';
-        li.innerHTML = `<span class="who">${say}${who}</span><span class="info"><span class="num">${p.num}</span>${st ? `<span class="st">${st}</span>` : ''}</span>`;
-        el.appendChild(li);
-        // 見つかった瞬間は、帯のうしろから飛び出す
-        if (hit === p) requestAnimationFrame(() => requestAnimationFrame(() => li.classList.add('found')));
+      if (el.childElementCount !== n || hit === undefined && !players.some(p => p.out)) {
+        el.innerHTML = '';
+        el.classList.toggle('many', n > 6);
+        // 数字の札が横に並びきらないときは2段にずらす
+        el.classList.toggle('stagger', n * (len * 11 + 12) > el.clientWidth);
+        for (const p of players) {
+          const li = document.createElement('li');
+          li.style.setProperty('--c', colorOf(p.i));
+          li.style.setProperty('--x', `${(p.i + 0.5) / n * 100}%`);
+          li.innerHTML = `<span class="who"><span class="say"></span><span class="bob"><span class="tag"></span></span></span>`
+            + `<span class="info"><span class="num">${p.num}</span><span class="st"></span></span>`;
+          el.appendChild(li);
+        }
       }
+      players.forEach((p, k) => {
+        const li = el.children[k];
+        const found = p.out && p.pos !== Infinity;
+        li.classList.toggle('me', mode === 'cpu' && p.i === 0);
+        li.classList.toggle('found', found || done);   // 終わったら全員出てくる
+        li.querySelector('.tag').innerHTML = [...nameOf(p.i)].map(esc).join('<br>');   // 1文字ずつ縦に積む
+        li.querySelector('.say').textContent = done ? `${p.rank === 1 ? '👑' : ''}${t('rank')(p.rank)}`
+          : found ? (n > 6 ? '👀' : t('seek')) : '';
+        const st = li.querySelector('.st');
+        st.textContent = found ? t('found')(p.pos) : done ? t('none') : '';
+        st.hidden = !st.textContent;
+      });
     }
 
     function renderVerdict() {
