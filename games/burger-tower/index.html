@@ -199,7 +199,8 @@
     // ---- 3D ----
     const stage = $('stage');
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    // 高解像度スマホでも描く画素数を抑える
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     renderer.shadowMap.enabled = true;
     stage.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
@@ -224,7 +225,7 @@
 
     const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -20, 0) });
     world.broadphase = new CANNON.SAPBroadphase(world);
-    world.solver.iterations = 20;
+    world.solver.iterations = 12;
     world.allowSleep = true;
     const mat = new CANNON.Material();
     world.addContactMaterial(new CANNON.ContactMaterial(mat, mat, { friction: 0.6, restitution: 0.02 }));
@@ -232,7 +233,9 @@
     plateBody.position.set(0, -0.125, 0);
     world.addBody(plateBody);
 
-    const lam = c => new THREE.MeshLambertMaterial({ color: c, side: THREE.DoubleSide });
+    // マテリアルは色ごとに1つを使い回す
+    const matCache = {};
+    const lam = c => matCache[c] ||= new THREE.MeshLambertMaterial({ color: c, side: THREE.DoubleSide });
     // 具材の種類：見た目・物理の形・重さ
     function bunTop(r, h) {
       // 底を閉じたドーム（回転体）
@@ -275,7 +278,7 @@
       const m = new THREE.Mesh(geo, lam(k.color));
       m.castShadow = true; m.receiveShadow = true;
       if (k.seeds) {
-        const sg = new THREE.SphereGeometry(0.06, 6, 4); sg.scale(1.6, 0.6, 1);
+        const sg = geoCache.seed ||= new THREE.SphereGeometry(0.06, 6, 4).scale(1.6, 0.6, 1);
         const sm = lam(0xfff6dc);
         for (let i = 0; i < 18; i++) {
           const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * 1.15;
@@ -286,14 +289,14 @@
         }
       }
       if (kind === 'tomato' || kind === 'pickle') {
-        const inner = new THREE.Mesh(new THREE.CylinderGeometry(k.r * 0.75, k.r * 0.75, k.h + 0.01, 20), lam(kind === 'tomato' ? 0xff7a5c : 0xa6c95a));
+        const inner = new THREE.Mesh(geoCache[kind + 'In'] ||= new THREE.CylinderGeometry(k.r * 0.75, k.r * 0.75, k.h + 0.01, 20), lam(kind === 'tomato' ? 0xff7a5c : 0xa6c95a));
         m.add(inner);
       }
       return m;
     }
     function makeBody(kind) {
       const k = KINDS[kind];
-      const shape = k.box ? new CANNON.Box(new CANNON.Vec3(k.box / 2, k.h / 2, k.box / 2)) : new CANNON.Cylinder(k.r, k.r, k.h, 16);
+      const shape = k.box ? new CANNON.Box(new CANNON.Vec3(k.box / 2, k.h / 2, k.box / 2)) : new CANNON.Cylinder(k.r, k.r, k.h, 10);
       const b = new CANNON.Body({ mass: k.mass, material: mat, shape, linearDamping: 0.05, angularDamping: 0.2 });
       b.sleepSpeedLimit = 0.15; b.sleepTimeLimit = 0.5;
       return b;
@@ -428,7 +431,7 @@
     let last = performance.now();
     function loop(now) {
       const dt = Math.min((now - last) / 1000, 1 / 20); last = now;
-      world.step(1 / 60, dt, 4);
+      world.step(1 / 60, dt, 3);
       for (const p of pieces) sync(p);
 
       if (state !== 'title' && state !== 'result') {
