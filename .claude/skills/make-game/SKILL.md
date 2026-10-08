@@ -56,7 +56,7 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
 
     ```html
     <meta property="og:type" content="website">
-    <meta property="og:site_name" content="KeiFurukawaFunnyCh">
+    <meta property="og:site_name" content="ふるかわけい面白チャンネル">
     <meta property="og:title" content="タイトル">
     <meta property="og:url" content="https://keifurukawafunnych.com/games/<フォルダ名>/">
     <meta property="og:image" content="https://keifurukawafunnych.com/games/<フォルダ名>/icon.png">
