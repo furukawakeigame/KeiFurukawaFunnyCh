@@ -70,16 +70,29 @@
     .row2 { display: flex; gap: 8px; }
     .row2 > * { flex: 1; }
 
+    /* 主役：円周率の紙が上へ流れていく */
     #tape {
-      background: #2c4a2a; color: #a9c98e; border-radius: 14px; padding: 10px 0 8px; text-align: center;
-      font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden;
+      position: relative; flex: 1; min-height: 160px; overflow: hidden; border-radius: 16px;
+      background: #2c4a2a; color: #a9c98e; font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: min(40px, 9.6vw); font-weight: bold;
     }
-    #digits { font-size: min(30px, 7.4vw); letter-spacing: .06em; white-space: nowrap; font-weight: bold; }
-    #digits b { color: #fff; border-radius: 4px; padding: 0 1px; }
-    #pos { font-size: 16px; margin-top: 4px; color: #fff; }
+    #rows { position: absolute; left: 0; right: 0; top: 50%; margin-top: -5.4em; will-change: transform; }
+    #rows div { height: 1.2em; line-height: 1.2em; display: flex; justify-content: center; letter-spacing: .08em; opacity: var(--o, .35); }
+    #rows div.mid { --o: 1; color: #fff; }
+    #rows b { color: #fff; border-radius: 5px; animation: pop .35s; }
+    @keyframes pop { 0% { transform: scale(1.6); } }
+    #lens {
+      position: absolute; left: 6px; right: 6px; top: 50%; height: 1.3em; margin-top: -.65em; pointer-events: none;
+      border: 3px solid #f0a020; border-radius: 12px; background: rgba(240,160,32,.12);
+    }
+    #seeker { position: absolute; right: -2px; top: -.55em; font-size: .9em; animation: walk .5s steps(2) infinite; }
+    #tape::before, #tape::after { content: ''; position: absolute; left: 0; right: 0; height: 30%; z-index: 1; pointer-events: none; }
+    #tape::before { top: 0; background: linear-gradient(#2c4a2a, transparent); }
+    #tape::after { bottom: 0; background: linear-gradient(transparent, #2c4a2a); }
+    #pos { position: absolute; left: 0; right: 0; bottom: 8px; z-index: 2; text-align: center; font-size: 15px; color: #fff; font-family: system-ui, sans-serif; }
     #players {
-      list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0;
-      display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); grid-auto-rows: minmax(0, 1fr); gap: 6px;
+      list-style: none; margin: 0; padding: 0; flex: none;
+      display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); grid-auto-rows: 82px; gap: 5px;
     }
     #players li {
       position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
@@ -113,7 +126,7 @@
     #players.many .num { font-size: min(16px, 4.4vw); }
     #players.many .st { font-size: 9px; }
     #players.many .say { font-size: 10px; padding: 0 5px; }
-    #seeker { display: inline-block; animation: walk .5s steps(2) infinite; }
+    #players.many li.found .face, #players.many li.found .tag { transform: translate(-50%, 0) scale(1.05); }
     @keyframes walk { 50% { transform: translateY(-3px) rotate(-8deg); } }
     @media (prefers-reduced-motion: reduce) { #seeker { animation: none; } }
     #verdict { text-align: center; font-size: 24px; font-weight: bold; color: #d0612a; min-height: 30px; }
@@ -152,7 +165,7 @@
       <button class="big" id="go" disabled>スタート</button>
     </section>
     <section id="race" class="screen" hidden>
-      <div id="tape"><div id="digits"></div><div id="pos"></div></div>
+      <div id="tape"><div id="rows"></div><div id="lens"><span id="seeker">🔍</span></div><div id="pos"></div></div>
       <div id="verdict"></div>
       <ul id="players"></ul>
       <div class="row2" id="after" hidden>
@@ -343,7 +356,7 @@
       events = [...players].sort((a, b) => a.pos - b.pos);
       events.forEach((p, j) => { p.rank = players.length - j; });
       myRank = players[0].rank;
-      cursor = 0; fast = false; done = false; reset();
+      cursor = 0; shift = 0; fast = false; done = false; reset();
       $('pick').hidden = true; $('race').hidden = false;
       $('after').hidden = true; $('skip').hidden = false;
       renderPlayers(); renderVerdict(); renderTape(1, null);
@@ -361,18 +374,27 @@
       runId++; clearTimeout(timer); $('race').hidden = true; $('pick').hidden = false; reset(); renderPick();
     };
 
+    // 10桁ずつの行にして、at（小数でもよい）の行がレンズの中に来るよう上へ流す
+    const ROW = 10, SIDE = 4;
+    let shift = 0;   // 行の区切りのずれ。見つけた数字が行のまん中に来るように変える
     function renderTape(at, hit) {
-      // at の位置を中心に数字を並べる
-      const W = 11, half = 5;
-      const s = Math.max(1, at - half);
+      if (hit) shift = ((hit.pos - 1 - Math.floor((ROW - hit.num.length) / 2)) % ROW + ROW) % ROW;
+      const base = Math.floor((at - 1 - shift) / ROW), r = hit ? base : (at - 1 - shift) / ROW;   // 見つけたら行をレンズにぴったり合わせる
       let html = '';
-      for (let k = s; k < s + W; k++) {
-        const d = PI[k - 1] ?? '';
-        if (hit && k >= hit.pos && k < hit.pos + hit.num.length) html += `<b style="background:${colorOf(hit.i)}">${d}</b>`;
-        else html += d;
+      for (let j = base - SIDE; j <= base + SIDE; j++) {
+        let row = '';
+        const k0 = j * ROW + 1 + shift;
+        if (k0 < 1 && k0 + ROW >= 1) row = '3.';
+        for (let k = Math.max(1, k0); k < k0 + ROW; k++) {
+          const d = PI[k - 1] ?? '';
+          row += hit && k >= hit.pos && k < hit.pos + hit.num.length ? `<b style="background:${colorOf(hit.i)}">${d}</b>` : d;
+        }
+        html += `<div${j === base ? ' class="mid"' : ''}>${row || '&nbsp;'}</div>`;
       }
-      $('digits').innerHTML = (s === 1 ? '3.' : '…') + html + '…';
-      $('pos').innerHTML = `<span id="seeker">🔍</span> ${t('pos')(at)}`;
+      const rows = $('rows');
+      rows.innerHTML = html;
+      rows.style.transform = `translateY(${-(r - base) * 1.2}em)`;
+      $('pos').textContent = t('pos')(Math.round(at));
     }
 
     function step(id) {
@@ -393,7 +415,7 @@
         if (id !== runId) return;
         const r = Math.min(1, (now - t0) / dur);
         const e = 1 - Math.pow(1 - r, 3);
-        const at = Math.round(Math.exp(Math.log(from) + (Math.log(to) - Math.log(from)) * e));
+        const at = Math.exp(Math.log(from) + (Math.log(to) - Math.log(from)) * e);
         renderTape(at, null);
         if (r < 1) { requestAnimationFrame(anim); return; }
         cursor = to; next.out = true;
@@ -420,8 +442,8 @@
       const el = $('players'); if (!players.length) return;
       el.innerHTML = '';
       const n = players.length;
-      el.style.setProperty('--cols', n <= 6 ? 3 : n <= 8 ? 4 : 5);
-      el.classList.toggle('many', n > 6);
+      el.style.setProperty('--cols', n <= 6 ? n : 5);
+      el.classList.toggle('many', n > 3);
       const list = done ? [...players].sort((a, b) => a.rank - b.rank) : players;
       for (const p of list) {
         const li = document.createElement('li');
