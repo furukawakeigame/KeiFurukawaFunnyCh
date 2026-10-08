@@ -12,4 +12,5 @@ Codex など、AGENTS.md を読むエージェント向けの案内です。ル�
 - ユーザーとのやり取りは日本語で行う。
 - `SKILL.md` に出てくる「ブラウザペイン」「`preview_start`」は Claude Code の機能。Codex では、PowerShell で `.claude/serve.ps1` を起動し（`powershell -ExecutionPolicy Bypass -File .claude/serve.ps1`）、ユーザーのブラウザで `http://localhost:8000/` を開いてもらって確認する。
 - スマホ幅の確認や動画の録画など、ブラウザ操作が必要な工程をできない場合は、そのことをユーザーに伝える。
+- X用の動画をユーザーが自分で撮るときは、`.claude/recorder.html`（9:16 録画ツール）の使い方を案内する。手順は `SKILL.md` の「6. X告知」にある。
 - コミットメッセージや手順は `SKILL.md` に合わせる。予約公開中（`publish-<フォルダ名>` ブランチがある間）は、`main` に直接コミットしない。
