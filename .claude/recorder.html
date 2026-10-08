@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>9:16 録画ツール</title>
+<style>
+  :root { --bg: #15131a; --panel: #211d29; --line: #3a3346; --text: #eeeaf4; --sub: #a99fb8; --accent: #ff4d5e; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: "Yu Gothic UI", "Hiragino Sans", system-ui, sans-serif; }
+  #wrap { display: flex; gap: 20px; padding: 12px; box-sizing: border-box; min-height: 100%; align-items: flex-start; justify-content: center; }
+  #stage { position: relative; flex: none; background: #000; border-radius: 0; overflow: hidden; box-shadow: 0 0 0 2px var(--line); }
+  #stage.rec { box-shadow: 0 0 0 3px var(--accent); }
+  #game { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
+  #count { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 160px; font-weight: 900; color: #fff; background: rgba(0,0,0,.45); pointer-events: none; }
+  #count[hidden] { display: none; }
+  #side { width: 300px; display: flex; flex-direction: column; gap: 12px; }
+  h1 { font-size: 20px; margin: 4px 0; }
+  label { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--sub); }
+  select { flex: 1; font: inherit; padding: 8px; border-radius: 8px; background: var(--panel); color: var(--text); border: 1px solid var(--line); }
+  button, #dl { font: inherit; font-size: 16px; font-weight: bold; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; text-align: center; text-decoration: none; }
+  button.main { background: var(--accent); border-color: var(--accent); color: #fff; font-size: 18px; }
+  button[hidden], #result[hidden] { display: none; }
+  #time { font-size: 28px; font-weight: bold; font-variant-numeric: tabular-nums; color: var(--accent); min-height: 1.2em; }
+  #msg { font-size: 14px; color: #ffb3b3; min-height: 1.2em; margin: 0; }
+  #result { display: flex; flex-direction: column; gap: 8px; }
+  #pv { width: 100%; aspect-ratio: 9 / 16; background: #000; border-radius: 8px; }
+  #dl { background: #2f8f5b; border-color: #2f8f5b; color: #fff; }
+  details { font-size: 13px; color: var(--sub); line-height: 1.6; }
+  details ol { padding-left: 20px; margin: 6px 0; }
+  @media (max-width: 760px) { #wrap { flex-direction: column; align-items: center; } #side { width: 100%; max-width: 420px; } }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage"><iframe id="game" allow="autoplay; clipboard-write"></iframe><div id="count" hidden></div></div>
+  <div id="side">
+    <h1>9:16 録画ツール</h1>
+    <label>ゲーム <select id="pick"></select></label>
+    <button id="reload">ゲームを最初から</button>
+    <label><input type="checkbox" id="snd" checked> 音も録る</label>
+    <button id="rec" class="main">● 録画開始</button>
+    <button id="stop" hidden>■ 停止して保存</button>
+    <div id="time"></div>
+    <p id="msg"></p>
+    <div id="result" hidden>
+      <video id="pv" controls playsinline></video>
+      <a id="dl" download>MP4を保存</a>
+    </div>
+    <details>
+      <summary>使い方</summary>
+      <ol>
+        <li>PCの Chrome か Edge で開く。</li>
+        <li>「録画開始」を押し、共有の画面で<b>「このタブ」</b>を選んで共有する（音も録るときは「タブの音声も共有」をオン）。</li>
+        <li>3・2・1 のあと録画が始まる。左の縦長の枠の中だけが録画されるので、そのままゲームを遊ぶ。</li>
+        <li>「停止して保存」を押すと、1080×1920 の MP4 ができる。確認して「MP4を保存」。</li>
+      </ol>
+      枠の外（この説明やボタン）は映りません。録画中はウィンドウの大きさを変えないでください。
+    </details>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.min.js"></script>
+<script>
+// 9:16 の枠でゲームを遊び、その枠だけを 1080×1920 の MP4 にする。
+// タブの画面共有（getDisplayMedia）→ 枠の部分だけ切り抜き → WebCodecs で H.264/AAC にして mp4-muxer で MP4 にする。
+// （MediaRecorder の MP4 は長さ情報が壊れることがあるので使わない）
+const W = 1080, H = 1920, FPS = 30;
+const $ = id => document.getElementById(id);
+const stage = $('stage'), frameEl = $('game'), pick = $('pick');
+const msg = t => { $('msg').textContent = t || ''; };
+
+// 枠の大きさ：画面の高さに合わせた 9:16
+function fit() {
+  const h = Math.max(320, Math.min(innerHeight - 24, 960));
+  const w = Math.round(h * 9 / 16);
+  stage.style.width = w + 'px'; stage.style.height = Math.round(w * 16 / 9) + 'px';
+}
+addEventListener('resize', fit); fit();
+
+// ゲーム一覧はトップページから読む
+async function loadList() {
+  try {
+    const doc = new DOMParser().parseFromString(await (await fetch('../index.html')).text(), 'text/html');
+    for (const a of doc.querySelectorAll('ul.games li div > a')) pick.add(new Option(a.textContent.trim(), '../' + a.getAttribute('href')));
+  } catch {}
+  if (!pick.options.length) pick.add(new Option('ウォッカ表面張力', '../games/vodka-brim/'));
+  const q = new URLSearchParams(location.search).get('game');
+  if (q) for (const o of pick.options) if (o.value.includes('/' + q + '/')) o.selected = true;
+  load();
+}
+function load() { frameEl.src = pick.value; }
+pick.onchange = load;
+$('reload').onclick = () => { frameEl.src = 'about:blank'; setTimeout(load, 50); };
+
+let rec = null;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function start() {
+  msg(''); $('result').hidden = true;
+  if (!('VideoEncoder' in window) || !navigator.mediaDevices?.getDisplayMedia) { msg('このブラウザでは録画できません。PCの Chrome か Edge で開いてください。'); return; }
+  // H.264 の設定が使えるか先に確かめる
+  let vcfg = null;
+  for (const codec of ['avc1.640028', 'avc1.640032', 'avc1.4d0032']) {
+    const c = { codec, width: W, height: H, bitrate: 10e6, framerate: FPS };
+    try { if ((await VideoEncoder.isConfigSupported(c)).supported) { vcfg = c; break; } } catch {}
+  }
+  if (!vcfg) { msg('このブラウザでは MP4（H.264）を作れません。PCの Chrome か Edge の最新版で開いてください。'); return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: FPS }, audio: $('snd').checked,
+      preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude', monitorTypeSurfaces: 'exclude',
+    });
+  } catch { msg('共有がキャンセルされました。'); return; }
+  const vt = stream.getVideoTracks()[0];
+  const surface = vt.getSettings().displaySurface;
+  if (surface && surface !== 'browser') { stream.getTracks().forEach(t => t.stop()); msg('共有の画面で「このタブ」を選んでください。'); return; }
+  // 枠だけを切り抜く（対応していなければ、描くときに位置から切り抜く）
+  let cropped = false;
+  if (window.CropTarget && vt.cropTo) { try { await vt.cropTo(await CropTarget.fromElement(stage)); cropped = true; } catch {} }
+  const video = document.createElement('video');
+  video.muted = true; video.playsInline = true; video.srcObject = new MediaStream([vt]);
+  await video.play();
+
+  // 音（AAC が使えるときだけ）
+  const at = stream.getAudioTracks()[0];
+  let acfg = null;
+  if (at && 'AudioEncoder' in window && 'MediaStreamTrackProcessor' in window) {
+    const s = at.getSettings();
+    const c = { codec: 'mp4a.40.2', sampleRate: s.sampleRate || 48000, numberOfChannels: s.channelCount || 2, bitrate: 160000 };
+    try { if ((await AudioEncoder.isConfigSupported(c)).supported) acfg = c; } catch {}
+  }
+  if ($('snd').checked && !acfg) msg(at ? 'このブラウザでは音を録れないので、映像だけ録ります。' : '音が共有されていないので、映像だけ録ります。');
+
+  const muxer = new Mp4Muxer.Muxer({
+    target: new Mp4Muxer.ArrayBufferTarget(),
+    video: { codec: 'avc', width: W, height: H, frameRate: FPS },
+    audio: acfg ? { codec: 'aac', sampleRate: acfg.sampleRate, numberOfChannels: acfg.numberOfChannels } : undefined,
+    fastStart: 'in-memory', firstTimestampBehavior: 'offset',
+  });
+  const venc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: e => { msg('録画エラー: ' + e.message); if (rec) stop(); } });
+  venc.configure(vcfg);
+  let aenc = null;
+  if (acfg) {
+    aenc = new AudioEncoder({ output: (c, m) => muxer.addAudioChunk(c, m), error: e => msg('音の録音エラー: ' + e.message) });
+    aenc.configure(acfg);
+  }
+
+  const out = document.createElement('canvas'); out.width = W; out.height = H;
+  const o = out.getContext('2d');
+  const draw = () => {
+    o.fillStyle = '#000'; o.fillRect(0, 0, W, H);
+    if (!video.videoWidth) return;
+    if (cropped) { o.drawImage(video, 0, 0, W, H); return; }
+    const r = stage.getBoundingClientRect(), sx = video.videoWidth / innerWidth, sy = video.videoHeight / innerHeight;
+    o.drawImage(video, r.left * sx, r.top * sy, r.width * sx, r.height * sy, 0, 0, W, H);
+  };
+
+  rec = { stream, venc, aenc, muxer, recording: false, frames: 0, t0: 0, timer: 0, clock: 0, slug: (pick.value.match(/games\/([^/]+)/) || [, 'game'])[1] };
+  $('rec').hidden = true; $('stop').hidden = false; pick.disabled = true;
+  vt.onended = () => { if (rec) stop(); };
+
+  // 3・2・1（枠の上に出すが、消えてから録り始めるので映らない）
+  const cnt = $('count'); cnt.hidden = false;
+  for (const n of [3, 2, 1]) { cnt.textContent = n; await sleep(700); }
+  cnt.hidden = true;
+  try { frameEl.focus(); frameEl.contentWindow.focus(); } catch {}
+  await sleep(150);
+
+  // 録画開始
+  rec.recording = true; rec.t0 = performance.now(); stage.classList.add('rec');
+  rec.timer = setInterval(() => {
+    if (!rec?.recording || venc.state !== 'configured') return;
+    draw();
+    if (venc.encodeQueueSize > 8) return; // 追いつかないときは1コマとばす
+    const ts = Math.round((performance.now() - rec.t0) * 1000);
+    const vf = new VideoFrame(out, { timestamp: ts, duration: Math.round(1e6 / FPS) });
+    venc.encode(vf, { keyFrame: rec.frames % (FPS * 2) === 0 }); vf.close(); rec.frames++;
+  }, 1000 / FPS);
+  rec.clock = setInterval(() => {
+    const s = Math.floor((performance.now() - rec.t0) / 1000);
+    $('time').textContent = '● ' + String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  }, 250);
+  if (aenc) {
+    const reader = new MediaStreamTrackProcessor({ track: at }).readable.getReader();
+    rec.audioReader = reader;
+    (async () => {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (rec?.recording && aenc.state === 'configured') aenc.encode(value);
+        value.close();
+      }
+    })().catch(() => {});
+  }
+}
+
+async function stop() {
+  const r = rec; if (!r) return;
+  rec = null; r.recording = false;
+  clearInterval(r.timer); clearInterval(r.clock);
+  stage.classList.remove('rec');
+  $('stop').hidden = true; $('rec').hidden = false; pick.disabled = false; $('time').textContent = '';
+  try { r.audioReader?.cancel(); } catch {}
+  r.stream.getTracks().forEach(t => t.stop());
+  if (!r.frames) { msg('録画できたコマがありませんでした。'); return; }
+  msg('MP4 を作っています…');
+  try {
+    if (r.venc.state === 'configured') { await r.venc.flush(); r.venc.close(); }
+    if (r.aenc) { await r.aenc.flush(); r.aenc.close(); }
+    r.muxer.finalize();
+  } catch (e) { msg('MP4 にできませんでした: ' + e.message); return; }
+  const blob = new Blob([r.muxer.target.buffer], { type: 'video/mp4' });
+  const url = URL.createObjectURL(blob);
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  $('pv').src = url;
+  $('dl').href = url;
+  $('dl').download = `${r.slug}-9x16-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.mp4`;
+  $('dl').textContent = `MP4を保存（${(blob.size / 1e6).toFixed(1)}MB）`;
+  $('result').hidden = false;
+  msg('');
+}
+
+$('rec').onclick = start;
+$('stop').onclick = stop;
+loadList();
+</script>
+</body>
+</html>
