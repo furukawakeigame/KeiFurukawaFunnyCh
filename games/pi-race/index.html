@@ -39,7 +39,6 @@
     }
     .screen { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
     [hidden] { display: none !important; }
-    .logo { text-align: center; font-size: 44px; font-weight: bold; color: #4a5ad0; line-height: 1; margin-top: 4px; }
     .lens { display: flex; gap: 6px; }
     .lens button {
       flex: 1; font: inherit; font-size: 18px; font-weight: bold; padding: 8px 0; border-radius: 12px;
@@ -93,6 +92,22 @@
     #players .rk { font-size: 17px; color: #4a5ad0; }
     #verdict { text-align: center; font-size: 24px; font-weight: bold; color: #4a5ad0; min-height: 30px; }
     #verdict small { display: block; font-size: 15px; color: #2a2a4a; }
+    .counter { display: flex; align-items: center; justify-content: center; gap: 14px; font-size: 20px; font-weight: bold; }
+    .counter button { font: inherit; width: 44px; height: 40px; border-radius: 12px; border: 2px solid #c8cff5; background: #fff; color: #4a5ad0; cursor: pointer; }
+    .counter button:disabled { opacity: .35; cursor: default; }
+    #turn { text-align: center; font-size: 22px; font-weight: bold; color: var(--c, #4a5ad0); min-height: 28px; }
+    #turn.err { animation: shake .3s; }
+    @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+    #players .face.tag { font-size: 15px; font-weight: bold; color: #fff; background: var(--c); border-radius: 999px; min-width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; }
+    @media (max-height: 620px) {
+      .screen { gap: 6px; }
+      .boxes span { height: 48px; width: 44px; font-size: 30px; }
+      .lens button { padding: 5px 0; font-size: 16px; }
+      .counter button { height: 34px; }
+      .pad { gap: 5px; }
+      .pad button { min-height: 32px; font-size: 22px; }
+      .big { padding: 10px 8px; font-size: 20px; }
+    }
   </style>
 </head>
 <body>
@@ -102,8 +117,10 @@
   </header>
   <main>
     <section id="pick" class="screen">
-      <div class="logo">π</div>
+      <div class="lens" id="modes"></div>
+      <div class="counter" id="counter" hidden><button id="minus">−</button><span id="count"></span><button id="plus">＋</button></div>
       <div class="lens" id="lens"></div>
+      <div id="turn"></div>
       <div class="boxes" id="boxes"></div>
       <div class="pad" id="pad"></div>
       <button class="big" id="go" disabled>スタート</button>
@@ -121,8 +138,9 @@
   </main>
   <script>
     const SHARE_URL = 'https://keifurukawafunnych.com/games/pi-race/';
-    const COLORS = ['#4a5ad0', '#e85a70', '#f0a020', '#2db07a', '#a05ad0', '#20a8d0'];
+    const COLORS = ['#4a5ad0', '#e85a70', '#f0a020', '#2db07a', '#a05ad0', '#20a8d0', '#d06a2a', '#7a8a20', '#d04aa0', '#506070'];
     const FACES = ['😀', '🐱', '🐶', '🐸', '🐵', '🐼'];
+    const MIN_P = 2, MAX_P = 10;
 
     const store = {
       get(k, d) { try { const v = localStorage.getItem('pi-race:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -147,30 +165,39 @@
     }
 
     // 文言（日本語／英語）
+    const rankEn = r => ['1st', '2nd', '3rd'][r - 1] || `${r}th`;
     const L = {
       ja: {
         title: '円周率レース', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
-        len: n => `${n}桁`, go: 'スタート', skip: '早送り ▶▶', retry: 'もう一度', share: 'Xに投稿',
-        names: ['あなた', 'ねこ', 'いぬ', 'かえる', 'さる', 'ぱんだ'],
+        modes: ['🤖 CPU', '👥 となりの人'], count: n => `${n}人`,
+        len: n => `${n}桁`, go: 'スタート', next: '次の人へ', skip: '早送り ▶▶', retry: 'もう一度', share: 'Xに投稿',
+        names: ['あなた', 'ねこ', 'いぬ', 'かえる', 'さる', 'ぱんだ'], pname: k => `P${k}`,
+        turn: k => `P${k} の番`, dup: '同じ数字はダメ！',
         pos: n => `小数点以下 ${n.toLocaleString()}桁目`,
         found: n => `${n.toLocaleString()}桁目`, none: '100万桁以内に出ず', rank: r => `${r}位`,
         wait: 'まだ出てない…',
-        verdict: r => `あなたは ${r}位`,
+        verdict: r => `あなたは ${r}位`, winner: n => `${n} の勝ち！`,
         msg: ['円周率の奥深くに潜んだ！', 'あと少しで最深部だった', 'なかなかしぶとい', 'ふつうの数字', '割とすぐ見つかった', '真っ先に見つかった…'],
-        shareText: (num, pos, r) => `円周率レースで「${num}」は円周率の${pos}に出てきて、6人中${r}位でした`,
-        shareNone: '100万桁以内',
+        pvpMsg: n => `${n}人中、いちばん奥に隠れていた`,
+        posText: p => p === Infinity ? '100万桁以内' : `${p.toLocaleString()}桁目`,
+        shareText: (num, pos, r) => `円周率レースで「${num}」は円周率の${pos}に出てきて、6人中${r}でした`,
+        sharePvp: (n, num, pos) => `円周率レース（${n}人対戦）の優勝は「${num}」！円周率の${pos}まで隠れていた`,
       },
       en: {
         title: 'Pi Race', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
-        len: n => `${n} digits`, go: 'Start', skip: 'Fast ▶▶', retry: 'Again', share: 'Post on X',
-        names: ['You', 'Cat', 'Dog', 'Frog', 'Monkey', 'Panda'],
+        modes: ['🤖 CPU', '👥 Pass & play'], count: n => `${n} players`,
+        len: n => `${n} digits`, go: 'Start', next: 'Next player', skip: 'Fast ▶▶', retry: 'Again', share: 'Post on X',
+        names: ['You', 'Cat', 'Dog', 'Frog', 'Monkey', 'Panda'], pname: k => `P${k}`,
+        turn: k => `P${k}'s turn`, dup: 'Already taken!',
         pos: n => `decimal place ${n.toLocaleString()}`,
-        found: n => `#${n.toLocaleString()}`, none: 'not in 1M digits', rank: r => ['1st', '2nd', '3rd'][r - 1] || `${r}th`,
+        found: n => `#${n.toLocaleString()}`, none: 'not in 1M digits', rank: rankEn,
         wait: 'not yet…',
-        verdict: r => `You placed ${['1st', '2nd', '3rd'][r - 1] || r + 'th'}`,
+        verdict: r => `You placed ${rankEn(r)}`, winner: n => `${n} wins!`,
         msg: ['Hidden deepest in pi!', 'So close to the deepest', 'Pretty stubborn', 'An ordinary number', 'Found fairly quickly', 'Found first…'],
+        pvpMsg: n => `Hid deepest of ${n} players`,
+        posText: p => p === Infinity ? 'beyond 1,000,000' : p.toLocaleString(),
         shareText: (num, pos, r) => `In Pi Race, "${num}" first appears at digit ${pos} of pi — I placed ${r} of 6`,
-        shareNone: 'beyond 1,000,000',
+        sharePvp: (n, num, pos) => `Pi Race (${n} players): "${num}" won, hiding until digit ${pos} of pi`,
       },
     };
     let lang = store.get('lang', navigator.language.startsWith('ja') ? 'ja' : 'en');
@@ -183,9 +210,9 @@
       document.title = t('title');
       $('back').textContent = t('back');
       langBtn.textContent = t('lang'); langBtn.setAttribute('aria-label', t('langLabel'));
-      $('go').textContent = t('go'); $('skip').textContent = t('skip');
+      $('skip').textContent = t('skip');
       $('retry').textContent = t('retry'); $('share').textContent = t('share');
-      renderLens(); renderPlayers(); renderVerdict();
+      renderPick(); renderPlayers(); renderVerdict();
     }
     langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
 
@@ -193,33 +220,56 @@
     let PI = null;
     const piReady = fetch('pi.txt').then(r => r.text()).then(s => { PI = s.trim(); });
 
-    // ---- 数字を選ぶ ----
+    // ---- モード・人数・数字を選ぶ ----
+    let mode = store.get('mode', 'cpu');          // 'cpu' | 'pvp'
+    let count = store.get('count', 3);            // となりの人モードの人数
     let len = store.get('len', 3);
     let input = '';
-    function renderLens() {
-      const el = $('lens'); el.innerHTML = '';
-      for (const n of [2, 3, 4, 5]) {
+    let entries = [];                             // となりの人モードで入力済みの数字
+    const reset = () => { input = ''; entries = []; };
+    const randNum = () => Array.from({ length: len }, () => Math.floor(Math.random() * 10)).join('');
+    const nameOf = i => mode === 'cpu' ? t('names')[i] : t('pname')(i + 1);
+    const colorOf = i => COLORS[i % COLORS.length];
+
+    function chips(el, items, isOn, onPick) {
+      el.innerHTML = '';
+      items.forEach((label, k) => {
         const b = document.createElement('button');
-        b.textContent = t('len')(n); b.className = n === len ? 'on' : '';
-        b.onclick = () => { len = n; store.set('len', n); input = input.slice(0, n); renderLens(); renderBoxes(); };
+        b.textContent = label; b.className = isOn(k) ? 'on' : '';
+        b.onclick = () => { onPick(k); renderPick(); };
         el.appendChild(b);
-      }
+      });
     }
-    function renderBoxes() {
+    function renderPick() {
+      chips($('modes'), t('modes'), k => (k === 0) === (mode === 'cpu'),
+        k => { mode = k === 0 ? 'cpu' : 'pvp'; store.set('mode', mode); reset(); });
+      chips($('lens'), [2, 3, 4, 5].map(t('len')), k => k + 2 === len,
+        k => { len = k + 2; store.set('len', len); reset(); });
+      $('counter').hidden = mode !== 'pvp';
+      $('count').textContent = t('count')(count);
+      $('minus').disabled = count <= MIN_P; $('plus').disabled = count >= MAX_P;
+      const turn = $('turn');
+      turn.textContent = mode === 'pvp' ? t('turn')(entries.length + 1) : '';
+      turn.style.setProperty('--c', colorOf(entries.length));
       const el = $('boxes'); el.innerHTML = '';
       for (let i = 0; i < len; i++) {
         const s = document.createElement('span');
         s.textContent = input[i] || ''; if (i === input.length) s.className = 'cur';
         el.appendChild(s);
       }
+      const last = mode === 'cpu' || entries.length + 1 >= count;
+      $('go').textContent = last ? t('go') : t('next');
       $('go').disabled = input.length !== len;
     }
+    $('minus').onclick = () => { count = Math.max(MIN_P, count - 1); store.set('count', count); entries = entries.slice(0, count - 1); renderPick(); };
+    $('plus').onclick = () => { count = Math.min(MAX_P, count + 1); store.set('count', count); renderPick(); };
+
     function press(k) {
       if (k === 'del') input = input.slice(0, -1);
-      else if (k === 'rnd') input = Array.from({ length: len }, () => Math.floor(Math.random() * 10)).join('');
+      else if (k === 'rnd') input = randNum();
       else if (input.length < len) input += k;
       beep(660 + input.length * 60, 0.05, 'square', 0.04);
-      renderBoxes();
+      renderPick();
     }
     for (const k of ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'rnd', '0', 'del']) {
       const b = document.createElement('button');
@@ -231,38 +281,51 @@
       if ($('pick').hidden) return;
       if (/^[0-9]$/.test(e.key)) press(e.key);
       else if (e.key === 'Backspace') press('del');
-      else if (e.key === 'Enter' && !$('go').disabled) start();
+      else if (e.key === 'Enter' && !$('go').disabled) submit();
     });
-    $('go').onclick = () => start();
+    $('go').onclick = () => submit();
+
+    function submit() {
+      if (mode === 'cpu') return start([input]);
+      const turn = $('turn');
+      if (entries.includes(input)) {
+        turn.textContent = t('dup'); turn.classList.remove('err'); void turn.offsetWidth; turn.classList.add('err');
+        beep(180, 0.2, 'sawtooth', 0.06); return;
+      }
+      entries.push(input); input = '';
+      beep(880, 0.08, 'square', 0.05);
+      if (entries.length >= count) start(entries.slice());
+      else renderPick();
+    }
 
     // ---- レース ----
-    let players = [], cursor = 0, events = [], timer = 0, fast = false, done = false, myRank = 0;
-    async function start() {
+    let players = [], cursor = 0, events = [], timer = 0, fast = false, done = false, myRank = 0, runId = 0;
+    async function start(nums) {
       await piReady;
-      const used = new Set([input]);
-      players = [{ num: input, i: 0 }];
-      while (players.length < 6) {
-        const n = Array.from({ length: len }, () => Math.floor(Math.random() * 10)).join('');
-        if (!used.has(n)) { used.add(n); players.push({ num: n, i: players.length }); }
+      const used = new Set(nums);
+      if (mode === 'cpu') {
+        while (nums.length < 6) {
+          const n = randNum();
+          if (!used.has(n)) { used.add(n); nums.push(n); }
+        }
       }
-      for (const p of players) {
-        const k = PI.indexOf(p.num);
-        p.pos = k < 0 ? Infinity : k + 1;   // 小数点以下何桁目から始まるか
-        p.out = false; p.rank = 0;
-      }
+      players = nums.map((num, i) => {
+        const k = PI.indexOf(num);
+        return { num, i, pos: k < 0 ? Infinity : k + 1, out: false, rank: 0 };   // pos = 小数点以下何桁目から始まるか
+      });
       // 先に出た人から脱落。最後まで出なかった人が1位
       events = [...players].sort((a, b) => a.pos - b.pos);
-      events.forEach((p, j) => { p.rank = 6 - j; });
+      events.forEach((p, j) => { p.rank = players.length - j; });
       myRank = players[0].rank;
-      cursor = 0; fast = false; done = false;
+      cursor = 0; fast = false; done = false; reset();
       $('pick').hidden = true; $('race').hidden = false;
       $('after').hidden = true; $('skip').hidden = false;
       renderPlayers(); renderVerdict(); renderTape(1, null);
-      step();
+      step(++runId);
     }
     $('skip').onclick = () => { fast = true; };
     $('retry').onclick = () => {
-      clearTimeout(timer); $('race').hidden = true; $('pick').hidden = false; renderBoxes();
+      runId++; clearTimeout(timer); $('race').hidden = true; $('pick').hidden = false; reset(); renderPick();
     };
 
     function renderTape(at, hit) {
@@ -272,14 +335,15 @@
       let html = '';
       for (let k = s; k < s + W; k++) {
         const d = PI[k - 1] ?? '';
-        if (hit && k >= hit.pos && k < hit.pos + len) html += `<b style="background:${COLORS[hit.i]}">${d}</b>`;
+        if (hit && k >= hit.pos && k < hit.pos + hit.num.length) html += `<b style="background:${colorOf(hit.i)}">${d}</b>`;
         else html += d;
       }
       $('digits').innerHTML = (s === 1 ? '3.' : '…') + html + '…';
       $('pos').textContent = t('pos')(at);
     }
 
-    function step() {
+    function step(id) {
+      if (id !== runId) return;
       const next = events.find(p => !p.out && p.pos !== Infinity);
       const remaining = events.filter(p => !p.out);
       if (!next || remaining.length === 1) {
@@ -293,6 +357,7 @@
       const dur = fast ? 250 : 1600;
       const t0 = performance.now();
       const anim = now => {
+        if (id !== runId) return;
         const r = Math.min(1, (now - t0) / dur);
         const e = 1 - Math.pow(1 - r, 3);
         const at = Math.round(Math.exp(Math.log(from) + (Math.log(to) - Math.log(from)) * e));
@@ -301,8 +366,9 @@
         cursor = to; next.out = true;
         renderTape(to, next);
         renderPlayers(next);
-        beep(next.i === 0 ? 300 : 520, 0.25, 'triangle', 0.15, next.i === 0 ? -150 : 200);
-        timer = setTimeout(step, fast ? 350 : 1100);
+        const sad = mode === 'cpu' && next.i === 0;
+        beep(sad ? 300 : 520, 0.25, 'triangle', 0.15, sad ? -150 : 200);
+        timer = setTimeout(() => step(id), fast ? 350 : 1100);
       };
       requestAnimationFrame(anim);
     }
@@ -311,7 +377,7 @@
       done = true;
       renderPlayers(); renderVerdict();
       $('skip').hidden = true; $('after').hidden = false;
-      if (myRank === 1) { beep(523, 0.15, 'square', 0.08); setTimeout(() => beep(659, 0.15, 'square', 0.08), 150); setTimeout(() => beep(784, 0.3, 'square', 0.08), 300); }
+      if (mode === 'pvp' || myRank === 1) { beep(523, 0.15, 'square', 0.08); setTimeout(() => beep(659, 0.15, 'square', 0.08), 150); setTimeout(() => beep(784, 0.3, 'square', 0.08), 300); }
       else beep(200, 0.4, 'sawtooth', 0.06, -80);
     }
 
@@ -321,12 +387,14 @@
       const list = done ? [...players].sort((a, b) => a.rank - b.rank) : players;
       for (const p of list) {
         const li = document.createElement('li');
-        li.style.setProperty('--c', COLORS[p.i]);
-        li.className = (p.i === 0 ? 'me ' : '') + (p.out && !done ? 'out ' : '') + (hit === p ? 'hit' : '');
+        li.style.setProperty('--c', colorOf(p.i));
+        li.className = (mode === 'cpu' && p.i === 0 ? 'me ' : '') + (p.out && !done ? 'out ' : '') + (hit === p ? 'hit' : '');
         const st = p.out || done
           ? `<span class="rk">${t('rank')(p.rank)}</span> ${p.pos === Infinity ? t('none') : t('found')(p.pos)}`
           : t('wait');
-        li.innerHTML = `<span class="face">${FACES[p.i]}</span><span>${t('names')[p.i]}</span><span class="num">${p.num}</span><span class="st">${st}</span>`;
+        const face = mode === 'cpu' ? `<span class="face">${FACES[p.i]}</span><span>${nameOf(p.i)}</span>`
+          : `<span class="face tag">${nameOf(p.i)}</span>`;
+        li.innerHTML = `${face}<span class="num">${p.num}</span><span class="st">${st}</span>`;
         el.appendChild(li);
       }
       if (hit) setTimeout(() => el.querySelector('.hit')?.classList.remove('hit'), 300);
@@ -335,17 +403,23 @@
     function renderVerdict() {
       const v = $('verdict');
       if (!done) { v.innerHTML = ''; return; }
-      v.innerHTML = `${t('verdict')(myRank)}<small>${t('msg')[myRank - 1]}</small>`;
-      const me = players[0];
-      const pos = me.pos === Infinity ? t('shareNone') : (lang === 'ja' ? me.pos.toLocaleString() + '桁目' : me.pos.toLocaleString());
-      const text = t('shareText')(me.num, pos, t('rank')(myRank));
+      const win = players.find(p => p.rank === 1);
+      let text;
+      if (mode === 'cpu') {
+        v.innerHTML = `${t('verdict')(myRank)}<small>${t('msg')[myRank - 1]}</small>`;
+        const me = players[0];
+        text = t('shareText')(me.num, t('posText')(me.pos), t('rank')(myRank));
+      } else {
+        v.innerHTML = `${t('winner')(nameOf(win.i))}<small>${t('pvpMsg')(players.length)}</small>`;
+        text = t('sharePvp')(players.length, win.num, t('posText')(win.pos));
+      }
       const a = $('share');
       a.href = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SHARE_URL)}`;
       if (matchMedia('(pointer: coarse)').matches) { a.removeAttribute('target'); a.removeAttribute('rel'); }
       else { a.target = '_blank'; a.rel = 'noopener'; }
     }
 
-    applyLang(); renderBoxes();
+    applyLang();
   </script>
 </body>
 </html>
