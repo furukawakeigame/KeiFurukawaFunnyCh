@@ -260,7 +260,38 @@
 
     // マテリアルは色ごとに1つを使い回す
     const matCache = {};
-    const lam = c => matCache[c] ||= new THREE.MeshLambertMaterial({ color: c, side: THREE.DoubleSide });
+    // 落下地点のデカール：揺れている具材の形を真下に投影し、上向きの面に色を塗る（全マテリアル共通）
+    const decal = {
+      uDecalOn: { value: 0 }, uDecalPos: { value: new THREE.Vector3() },
+      uDecalRot: { value: 0 }, uDecalR: { value: 1 }, uDecalBox: { value: 0 },
+    };
+    function addDecal(m) {
+      m.onBeforeCompile = sh => {
+        Object.assign(sh.uniforms, decal);
+        sh.vertexShader = 'varying vec3 vWPos;\nvarying vec3 vWN;\n' + sh.vertexShader.replace('#include <project_vertex>',
+          '#include <project_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvWN = normalize(mat3(modelMatrix) * objectNormal);');
+        sh.fragmentShader = `varying vec3 vWPos;
+varying vec3 vWN;
+uniform float uDecalOn, uDecalRot, uDecalR, uDecalBox;
+uniform vec3 uDecalPos;
+` + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+if (uDecalOn > 0.5 && vWN.y > 0.4 && vWPos.y < uDecalPos.y) {
+  vec2 d = vWPos.xz - uDecalPos.xz;
+  float c = cos(uDecalRot), s = sin(uDecalRot);
+  vec2 l = vec2(c * d.x - s * d.y, s * d.x + c * d.y);
+  float dist = uDecalBox > 0.5 ? max(abs(l.x), abs(l.y)) : length(l);
+  float aa = fwidth(dist) * 1.5;
+  float inside = 1.0 - smoothstep(uDecalR - aa, uDecalR + aa, dist);
+  float rim = inside * smoothstep(uDecalR - 0.14 - aa, uDecalR - 0.14 + aa, dist);
+  float k = max(inside * 0.28, rim * 0.9);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.18, 0.43), k);
+}`);
+      };
+      m.customProgramCacheKey = () => 'decal';
+      return m;
+    }
+    const lam = c => matCache[c] ||= addDecal(new THREE.MeshLambertMaterial({ color: c, side: THREE.DoubleSide }));
+    plate.material = lam(0xffffff);
     // 具材の種類：見た目・物理の形・重さ
     function bunTop(r, h) {
       // 底を閉じたドーム（回転体）
@@ -453,52 +484,24 @@
     }
     addEventListener('resize', resize);
 
-    // ---- 落下地点のガイド ----
-    // 具材の輪郭を真下に投げて、当たった面に沿わせた帯（輪）と、中心からの縦線を出す
-    const SEG = 40, BAND = 0.12;
-    const guideGeo = new THREE.BufferGeometry();
-    guideGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SEG * 6 * 3), 3));
-    const ringPts = Array.from({ length: (SEG + 1) * 2 }, () => new THREE.Vector3());
-    const guideMat = new THREE.MeshBasicMaterial({ color: 0xff2f6e, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
-    const guide = new THREE.Mesh(guideGeo, guideMat);
-    guide.frustumCulled = false; guide.renderOrder = 2;
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1, 6).translate(0, -0.5, 0), guideMat);
-    stem.renderOrder = 2;
-    scene.add(guide, stem);
+    // ---- 落下地点のガイド：デカールの位置合わせと、中心から真下への縦線 ----
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1, 6).translate(0, -0.5, 0),
+      new THREE.MeshBasicMaterial({ color: 0xff2f6e, transparent: true, opacity: 0.8 }));
+    scene.add(stem);
     const ray = new THREE.Raycaster(), down = new THREE.Vector3(0, -1, 0), origin = new THREE.Vector3();
-    function castDown(x, z, targets) {
-      origin.set(x, holderY + 3, z);
-      ray.set(origin, down);
-      const hit = ray.intersectObjects(targets, true)[0];
-      return hit ? hit.point.y + 0.03 : null;
-    }
     function updateGuide() {
-      guide.visible = stem.visible = !!holder;
+      decal.uDecalOn.value = stem.visible = holder ? 1 : 0;
       if (!holder) return;
-      const k = KINDS[holder.kind], p = holder.mesh.position, rot = holder.rot;
-      const targets = [plate, ...pieces.map(q => q.mesh)];
-      const pos = guideGeo.attributes.position;
-      for (let i = 0; i <= SEG; i++) {
-        const a = (i / SEG) * Math.PI * 2;
-        let rr = k.r || k.box / 2;
-        if (k.box) rr /= Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a)));
-        for (let j = 0; j < 2; j++) {
-          const rad = rr - j * BAND, ca = Math.cos(a + rot), sa = Math.sin(a + rot);
-          const x = p.x + ca * rad, z = p.z - sa * rad;
-          const y = castDown(x, z, targets);
-          ringPts[i * 2 + j].set(x, y ?? NaN, z);
-        }
-      }
-      // 4すみのどれかが何にも当たらない（お皿の外）区間は描かない
-      for (let i = 0; i < SEG; i++) {
-        const [a, b, c, d] = [ringPts[i * 2], ringPts[i * 2 + 1], ringPts[i * 2 + 2], ringPts[i * 2 + 3]];
-        const ok = !isNaN(a.y + b.y + c.y + d.y);
-        [a, b, c, b, d, c].forEach((v, n) => ok ? pos.setXYZ(i * 6 + n, v.x, v.y, v.z) : pos.setXYZ(i * 6 + n, 0, -100, 0));
-      }
-      pos.needsUpdate = true;
-      const cy = castDown(p.x, p.z, targets) ?? -12;
-      stem.position.set(p.x, p.y - k.h / 2, p.z);
-      stem.scale.y = Math.max(0.01, p.y - k.h / 2 - cy);
+      const k = KINDS[holder.kind], p = holder.mesh.position, bottom = p.y - k.h / 2;
+      decal.uDecalPos.value.set(p.x, bottom, p.z);
+      decal.uDecalRot.value = holder.rot;
+      decal.uDecalR.value = k.r || k.box / 2;
+      decal.uDecalBox.value = k.box ? 1 : 0;
+      origin.set(p.x, bottom - 0.01, p.z);
+      ray.set(origin, down);
+      const hit = ray.intersectObjects([plate, ...pieces.map(q => q.mesh)], true)[0];
+      stem.position.set(p.x, bottom, p.z);
+      stem.scale.y = Math.max(0.01, hit ? bottom - hit.point.y : 12);
     }
 
     let last = performance.now();
