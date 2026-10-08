@@ -40,8 +40,6 @@
     #hud { text-align: center; font-weight: bold; min-height: 64px; display: flex; flex-direction: column; justify-content: center; }
     #lv { font-size: min(40px, 9vw); line-height: 1.15; font-variant-numeric: tabular-nums; }
     #msg { font-size: 19px; color: #9fd8ff; min-height: 1.3em; }
-    #log { font-size: 13px; color: #b9aec6; text-align: center; line-height: 1.4; min-height: 0; }
-    #log:empty { display: none; }
     #stage { position: relative; flex: 1; min-height: 0; touch-action: none; cursor: pointer; }
     #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
     #warn { position: absolute; right: 4px; bottom: 2px; font-size: 11px; color: #a89bb5; pointer-events: none; }
@@ -82,7 +80,6 @@
   </header>
   <main>
     <div id="hud"><div id="lv"></div><div id="msg"></div></div>
-    <div id="log"></div>
     <div id="stage"><canvas id="cv"></canvas><div id="warn" hidden></div><div id="panel" hidden></div></div>
     <div id="ctrl"></div>
   </main>
@@ -201,7 +198,7 @@
     const langBtn = document.getElementById('lang');
     langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
 
-    const lvEl = document.getElementById('lv'), msgEl = document.getElementById('msg'), logEl = document.getElementById('log');
+    const lvEl = document.getElementById('lv'), msgEl = document.getElementById('msg');
     const ctrl = document.getElementById('ctrl'), panel = document.getElementById('panel'), warnEl = document.getElementById('warn');
     const stage = document.getElementById('stage'), cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 
@@ -656,16 +653,6 @@
       parent.appendChild(b); return b;
     }
     const mobile = () => matchMedia('(pointer: coarse)').matches;
-    function logText() {
-      if (!game || mode === 'solo' || !game.pours.length) return '';
-      const items = game.pours.map((p, i) => `${nameOf(i % 2)} ${fmtPour(p)}${loser >= 0 && i === game.pours.length - 1 ? ' 💥' : ''}`);
-      return items.join(' → ');
-    }
-    // 画面では最後の6手だけ見せる（画像には全体）
-    function shortLog() {
-      const s = logText().split(' → ');
-      return s.length > 6 ? '… → ' + s.slice(-6).join(' → ') : s.join(' → ');
-    }
     function refresh() {
       document.documentElement.lang = lang;
       document.title = t('title');
@@ -675,7 +662,6 @@
       warnEl.hidden = phase !== 'result';
       ctrl.innerHTML = ''; ctrl.className = '';
       panel.hidden = true; panel.innerHTML = '';
-      logEl.textContent = shortLog();
       lvEl.textContent = ''; msgEl.textContent = '';
       stage.style.cursor = phase === 'ready' ? 'pointer' : 'default';
 
@@ -766,7 +752,7 @@
       c.width = W; c.height = H;
       const g = c.getContext('2d'), font = 'system-ui, sans-serif';
       // 下半分にゲーム画面
-      const sc = 1.55, ox = (W - VW * sc) / 2, oy = H - VH * sc - 40;
+      const sc = 1.95, ox = (W - VW * sc) / 2, oy = H - VH * sc;
       g.fillStyle = '#1d1726'; g.fillRect(0, 0, W, H);
       g.save(); g.translate(ox, oy); g.scale(sc, sc);
       drawScene(g, now, ox / sc, oy / sc);
@@ -781,25 +767,8 @@
       const bw = g.measureText(big).width; if (bw > W - 100) g.font = `bold ${Math.floor(100 * (W - 100) / bw)}px ${font}`;
       g.fillText(big, W / 2, 160);
       g.fillStyle = '#9fd8ff'; g.font = `bold 50px ${font}`; g.fillText(sub, W / 2, 250);
-      // 経過
-      const log = logText();
-      if (log) {
-        g.fillStyle = '#d6cce2'; g.font = `32px ${font}`;
-        const lines = wrap(g, log, W - 120).slice(-3);
-        lines.forEach((ln, i) => g.fillText(ln, W / 2, 320 + i * 44));
-      }
       if (loser >= 0 || phase === 'result') { g.fillStyle = '#a89bb5'; g.font = `24px ${font}`; g.textAlign = 'right'; g.fillText(t('warn'), W - 24, H - 20); }
       return c;
-    }
-    function wrap(g, text, maxW) {
-      const toks = text.split(' → '), lines = [];
-      let cur = '';
-      for (const tk of toks) {
-        const next = cur ? cur + ' → ' + tk : tk;
-        if (g.measureText(next).width > maxW && cur) { lines.push(cur + ' →'); cur = tk; } else cur = next;
-      }
-      if (cur) lines.push(cur);
-      return lines;
     }
     let shareFile = null, shareKey = '';
     function prepareShare() {
