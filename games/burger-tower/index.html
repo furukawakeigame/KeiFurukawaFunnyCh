@@ -51,11 +51,17 @@
       animation: blink 1.2s infinite; z-index: 2;
     }
     #tap[hidden] { display: none; }
+    #finish {
+      position: absolute; left: 50%; transform: translateX(-50%); z-index: 2;
+      bottom: calc(92px + env(safe-area-inset-bottom)); width: min(240px, 70%);
+      margin: 0; font-size: 20px; padding: 12px 8px;
+    }
+    #finish:active { transform: translate(-50%, 3px); }
+    #finish[hidden] { display: none; }
     @keyframes blink { 50% { opacity: .3; } }
     #result {
-      position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center;
+      position: absolute; inset: 0; z-index: 4; display: flex; align-items: flex-end; justify-content: center;
       padding: 12px 12px calc(80px + env(safe-area-inset-bottom)); box-sizing: border-box;
-      background: rgba(255, 244, 224, .55);
     }
     #result[hidden] { display: none; }
     .panel {
@@ -90,6 +96,7 @@
     <div id="stage"></div>
     <div id="hud"><div id="height">0cm</div><div id="best"></div></div>
     <div id="tap">TAP!</div>
+    <button id="finish" class="big" hidden></button>
     <div id="result" hidden>
       <div class="panel">
         <div id="rH"></div>
@@ -117,14 +124,14 @@
       ja: {
         title: 'バーガー積み', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
         tap: 'タップでスタート', best: h => `ベスト ${h}cm`, newBest: h => `ベスト更新！ ${h}cm`,
-        retry: 'もう一度', share: 'Xに投稿',
+        retry: 'もう一度', share: 'Xに投稿', finish: '🍔 完成させる',
         msgs: ['まだおやつサイズ', 'ふつうのバーガー', '立派なビッグバーガー！', '口に入らない…', 'もはや建築物'],
         shareText: (h, m) => `バーガー積みで ${h}cm 積み上げた！「${m}」 #バーガー積み`,
       },
       en: {
         title: 'Burger Tower', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
         tap: 'Tap to start', best: h => `Best ${h}cm`, newBest: h => `New best! ${h}cm`,
-        retry: 'Play again', share: 'Post on X',
+        retry: 'Play again', share: 'Post on X', finish: '🍔 Finish it',
         msgs: ['Snack size', 'A regular burger', 'A mighty big burger!', "Won't fit in your mouth…", "That's architecture"],
         shareText: (h, m) => `I stacked a ${h}cm burger in Burger Tower! "${m}" #BurgerTower`,
       },
@@ -141,6 +148,7 @@
       langBtn.textContent = t('lang'); langBtn.setAttribute('aria-label', t('langLabel'));
       $('tap').textContent = t('tap');
       $('retry').textContent = t('retry');
+      $('finish').textContent = t('finish');
       hud();
       if (result) showResult();
     }
@@ -254,7 +262,7 @@
       bunMid:    { r: 1.5, h: 0.45, mass: 1.5, geo: () => new THREE.CylinderGeometry(1.5, 1.5, 0.45, 32), color: 0xe39a48 },
       bunTop:    { r: 1.55, h: 0.9, mass: 1.5, geo: () => bunTop(1.55, 0.9), color: 0xe39a48, seeds: true },
     };
-    const BAG = ['patty', 'patty', 'cheese', 'lettuce', 'tomato', 'pickle', 'bunMid', 'bunTop'];
+    const BAG = ['patty', 'patty', 'cheese', 'lettuce', 'tomato', 'pickle', 'bunMid'];
     const geoCache = {};
     function makeMesh(kind) {
       const k = KINDS[kind];
@@ -289,9 +297,9 @@
     // ---- ゲーム状態 ----
     let pieces = [];      // {kind, mesh, body}
     let holder = null;    // 揺れている次の具材 {kind, mesh}
-    let state = 'title';  // title / play / falling / result
-    let swingT = 0, nextAt = 0, overAt = 0;
-    let maxH = 0, stackTop = 0, camY = 0;
+    let state = 'title';  // title / play / final（最後のバンズ） / settle（完成待ち） / result
+    let swingT = 0, nextAt = 0, settleAt = 0;
+    let curH = 0, stackTop = 0, camY = 0;
     let best = store.get('best', 0);
     let result = null;
     let bag = [];
@@ -319,11 +327,10 @@
       if (holder) scene.remove(holder.mesh);
       holder = null; bag = [];
       addPiece('bunBottom', 0, 0.25, 0);
-      maxH = 0; stackTop = 0.5; camY = 0.5; swingT = 0; result = null;
+      curH = 0.5; stackTop = 0.5; camY = 0.5; swingT = 0; result = null;
       $('result').hidden = true;
     }
-    function spawnHolder() {
-      const kind = nextKind();
+    function spawnHolder(kind = nextKind()) {
       holder = { kind, mesh: makeMesh(kind), rot: Math.random() * Math.PI };
       scene.add(holder.mesh);
       swingT = Math.random() * 10;
@@ -339,14 +346,23 @@
       };
     }
     function drop() {
-      if (state === 'title') { state = 'play'; $('tap').hidden = true; audio(); spawnHolder(); return; }
-      if (state !== 'play' || !holder) return;
+      if (state === 'title') { audio(); start(); return; }
+      if ((state !== 'play' && state !== 'final') || !holder) return;
       const p = holderPos();
       scene.remove(holder.mesh);
       addPiece(holder.kind, p.x, p.y, p.z, holder.rot);
       holder = null; blip();
       nextAt = performance.now() + 650;
+      if (state === 'final') { state = 'settle'; settleAt = performance.now(); }
     }
+    // 完成ボタン：揺れている具材を上のバンズに替える
+    function finishBurger() {
+      if (state !== 'play') return;
+      state = 'final'; $('finish').hidden = true;
+      if (holder) scene.remove(holder.mesh);
+      spawnHolder('bunTop');
+    }
+    $('finish').onclick = finishBurger;
 
     // ---- 入力 ----
     stage.addEventListener('pointerdown', e => { e.preventDefault(); drop(); });
@@ -363,7 +379,7 @@
     // ---- HUD・結果 ----
     const cm = h => Math.round(h * CM);
     function hud() {
-      $('height').textContent = `${cm(maxH)}cm`;
+      $('height').textContent = `${cm(curH)}cm`;
       $('best').textContent = best > 0 ? t('best')(best) : '';
     }
     function msgFor(h) { return t('msgs')[h < 10 ? 0 : h < 20 ? 1 : h < 30 ? 2 : h < 45 ? 3 : 4]; }
@@ -379,14 +395,9 @@
       if (!matchMedia('(pointer: coarse)').matches) { a.target = '_blank'; a.rel = 'noopener'; }
       box.appendChild(a);
     }
-    function gameOver() {
-      state = 'falling'; overAt = performance.now();
-      if (holder) { scene.remove(holder.mesh); holder = null; }
-      crash();
-    }
     function finish() {
-      state = 'result';
-      const h = cm(maxH), isBest = h > best;
+      state = 'result'; $('finish').hidden = true;
+      const h = cm(curH), isBest = h > best;
       if (isBest) { best = h; store.set('best', best); }
       result = { h, isBest };
       showResult(); hud();
@@ -394,7 +405,7 @@
     }
     function start() {
       reset();
-      state = 'play'; $('tap').hidden = true;
+      state = 'play'; $('tap').hidden = true; $('finish').hidden = false;
       spawnHolder(); hud();
     }
 
@@ -415,9 +426,15 @@
       world.step(1 / 60, dt, 4);
       for (const p of pieces) sync(p);
 
-      if (state === 'play' || state === 'falling') {
-        // 落ちた具材があればゲームオーバー
-        if (state === 'play' && pieces.some(p => p.body.position.y < -1.5)) gameOver();
+      if (state !== 'title' && state !== 'result') {
+        // お皿から落ちた具材：音を鳴らし、見えなくなったら消す
+        for (const p of pieces) {
+          if (!p.fell && p.body.position.y < -1) { p.fell = true; crash(); }
+        }
+        for (const p of pieces.filter(p => p.body.position.y < -8)) {
+          world.removeBody(p.body); scene.remove(p.mesh);
+          pieces.splice(pieces.indexOf(p), 1);
+        }
         // 止まっている具材のいちばん上 = 高さ
         let top = 0.5;
         for (const p of pieces) {
@@ -426,12 +443,14 @@
           if (b.velocity.length() < 0.25 || b.sleepState === CANNON.Body.SLEEPING) top = Math.max(top, topOf(p));
         }
         stackTop = Math.max(0.5, Math.min(top, pieces.reduce((m, p) => Math.max(m, topOf(p)), 0)));
-        if (state === 'play' && performance.now() > nextAt) {
-          const settled = pieces.every(p => p.body.velocity.length() < 0.25 || p.body.sleepState === CANNON.Body.SLEEPING);
-          if (settled) { maxH = Math.max(maxH, stackTop); hud(); }
-          if (!holder) spawnHolder();
+        // 全部止まったら高さを更新（崩れたら下がる）
+        const settled = pieces.every(p => p.fell || p.body.velocity.length() < 0.25 || p.body.sleepState === CANNON.Body.SLEEPING);
+        if (settled && now > nextAt) { curH = stackTop; hud(); }
+        if (state === 'play' && now > nextAt && !holder) spawnHolder();
+        // 最後のバンズが落ち着いたら（長くても5秒で）結果へ
+        if (state === 'settle' && now > nextAt && (settled || now - settleAt > 5000)) {
+          curH = stackTop; finish();
         }
-        if (state === 'falling' && now - overAt > 1800) finish();
       }
       if (holder) {
         swingT += dt;
@@ -453,7 +472,7 @@
     reset(); resize(); applyLang();
     $('tap').hidden = false;
     requestAnimationFrame(loop);
-    window.__game = { get state() { return state; }, drop, get maxH() { return maxH; }, get hx() { return holder ? holderPos() : null; } };
+    window.__game = { get state() { return state; }, drop, finish: finishBurger, get h() { return curH; }, get hx() { return holder ? holderPos() : null; } };
   </script>
 </body>
 </html>
