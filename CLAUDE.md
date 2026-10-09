@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Kei Furukawa's personal site for publishing self-made HTML games. Requirements from the owner: **zero cost** and **as simple as possible**. Keep it that way — no frameworks, no build step, no package.json, no backend.
+Kei Furukawa's personal site for publishing self-made HTML games. Requirements from the owner: **zero cost** and **as simple as possible**. Keep it that way — no build step, no package.json, no backend. Libraries are OK when they help (e.g. three.js for 3D): load them from a free CDN with a pinned version (`<script type="importmap">` / `<script src>`), never via npm or a bundler.
 
 ## Structure
 
