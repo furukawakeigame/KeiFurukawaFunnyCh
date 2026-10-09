@@ -376,7 +376,34 @@
       return idx.slice(0, n);
     }
 
-    function clearGhosts() { ghosts.forEach(g => room.remove(g.mesh)); ghosts = []; }
+    function clearGhosts() { ghosts.forEach(g => { room.remove(g.mesh); room.remove(g.trail); }); ghosts = []; }
+
+    // 過去の自分がこれから歩く道を、床に点で見せる（近い未来ほど濃く、次の1歩は大きく）
+    const dotGeo = new THREE.CircleGeometry(0.14, 16), segGeo = new THREE.PlaneGeometry(0.1, 1);
+    function makeTrail(p, k) {
+      const g = new THREE.Group();
+      // 点と、その手前の点からの線をひと組にする
+      p.forEach(([x, z], i) => {
+        const m = new THREE.MeshBasicMaterial({ color: 0xbfe4ff, transparent: true, depthWrite: false });
+        const set = new THREE.Group(); set.position.y = 0.03 + k * 0.002;
+        const d = new THREE.Mesh(dotGeo, m); d.rotation.x = -Math.PI / 2; d.position.set(x, 0, z); set.add(d);
+        const q = p[i - 1];
+        if (q && (q[0] !== x || q[1] !== z)) {
+          const sg = new THREE.Mesh(segGeo, m); sg.rotation.x = -Math.PI / 2;
+          sg.rotation.z = q[0] !== x ? Math.PI / 2 : 0; sg.position.set((x + q[0]) / 2, 0, (z + q[1]) / 2); set.add(sg);
+        }
+        set.userData.dot = d; g.add(set);
+      });
+      room.add(g); return g;
+    }
+    function updateTrails(tt) {
+      for (const g of ghosts) g.trail.children.forEach((d, i) => {
+        const ahead = i - tt;
+        d.visible = ahead >= 1;
+        d.children[0].material.opacity = Math.max(0.15, 0.95 - (ahead - 1) * 0.08);
+        d.userData.dot.scale.setScalar(ahead === 1 ? 1.8 : 1);
+      });
+    }
 
     function startDay() {
       turn = 0; pos = [...START]; path = [[...START]];
@@ -385,7 +412,7 @@
       doorRing.visible = !tasks.length;
       clearGhosts();
       ghosts = paths.map((p, i) => {
-        const gh = { day: i + 1, path: p, mesh: makePerson(0x5fa8ff, true) };
+        const gh = { day: i + 1, path: p, mesh: makePerson(0x5fa8ff, true), trail: makeTrail(p, i) };
         setLabel(gh); return gh;
       });
       player.visible = true;
@@ -463,6 +490,7 @@
       const pp = anim.prev || pos;
       player.position.set(lerp(pp[0], pos[0], k), hop, lerp(pp[1], pos[1], k));
       const tt = anim.prev ? anim.turn : turn;
+      updateTrails(tt);
       for (const g of ghosts) {
         const b = ghostPos(g.path, tt);
         const a = ghostPos(g.path, anim.prev ? tt - 1 : tt) || b;
