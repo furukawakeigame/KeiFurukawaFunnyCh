@@ -68,7 +68,7 @@
     }
     #tray canvas {
       width: min(13vw, 68px); height: min(13vw, 68px); background: #f8ecd6; border-radius: 14px;
-      cursor: grab; touch-action: none;
+      cursor: pointer; touch-action: none;
     }
     #tray canvas.used { opacity: .5; }
     .overlay {
@@ -407,8 +407,7 @@
 
     let things = []; // { id, mesh, body }
     let lastLand = 0;
-    // held: つかんでいる間は物理世界に入れず、離したときに入れる
-    function addThing(id, pos, held = false) {
+    function addThing(id, pos) {
       const [mesh, r] = BUILD[id]();
       scene.add(mesh);
       const body = new CANNON.Body({ mass: 1, shape: new CANNON.Sphere(r), linearDamping: 0.1, angularDamping: 0.5 });
@@ -420,7 +419,7 @@
         const now = performance.now();
         if (v > 2 && now - lastLand > 60) { lastLand = now; sLand(v); }
       });
-      if (!held) world.addBody(body);
+      world.addBody(body);
       const th = { id, mesh, body };
       things.push(th);
       return th;
@@ -433,7 +432,7 @@
       const p = th.body.position;
       return Math.hypot(p.x - BOWL.x, p.z - BOWL.z) < 1.3 && p.y > 0 && p.y < 1.5;
     };
-    function clearAll() { [...things].forEach(th => { if (th !== drag?.th) removeThing(th); }); }
+    function clearAll() { [...things].forEach(th => { removeThing(th); }); }
 
     // ---- お客さん ----
     const SHIRTS = ['#d9532a', '#3d7bd0', '#4aa36a', '#8a5ab8', '#e0a030', '#444'];
@@ -552,65 +551,18 @@
     $('start').onclick = start;
     $('retry').onclick = start;
 
-    // ---- ドラッグ ----
-    const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-    const HOLD_Y = 1.7, holdPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -HOLD_Y);
-    let drag = null;
-    // つかんでいる動物の真下に落ちる場所の影を出す
-    const marker = new THREE.Mesh(new THREE.CircleGeometry(1, 24), new THREE.MeshBasicMaterial({ color: "#000", transparent: true, opacity: 0.25, depthWrite: false }));
-    marker.rotation.x = -Math.PI / 2; marker.visible = false; scene.add(marker);
-    const downRay = new THREE.Raycaster(), DOWN = new THREE.Vector3(0, -1, 0);
-    function updateMarker() {
-      if (!drag) { marker.visible = false; return; }
-      const p = drag.th.body.position;
-      downRay.set(new THREE.Vector3(p.x, p.y, p.z), DOWN);
-      const hit = downRay.intersectObjects([counter, rice, inner, outer], false)[0];
-      marker.visible = !!hit;
-      if (hit) { marker.position.copy(hit.point).y += 0.02; marker.scale.setScalar(drag.th.body.shapes[0].radius * 0.9); }
-    }
-    function pointerWorld(e) {
-      const r = renderer.domElement.getBoundingClientRect();
-      ndc.set((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-      ray.setFromCamera(ndc, camera);
-      const p = new THREE.Vector3();
-      if (!ray.ray.intersectPlane(holdPlane, p)) return null;
-      p.x = THREE.MathUtils.clamp(p.x, -4, 4);
-      p.z = THREE.MathUtils.clamp(p.z, -1.8, 2.6);
-      return p;
-    }
-    tray.addEventListener('pointerdown', e => {
+    // ---- タップで丼の上から落とす ----
+    // 真上から少しずれた位置に落とすので、縁に当たって外れることもある
+    tray.addEventListener("pointerdown", e => {
       const id = e.target.dataset?.id;
-      if (!id || state !== 'play') return;
+      if (!id || state !== "play") return;
       e.preventDefault();
-      const p = pointerWorld(e) || new THREE.Vector3(0, HOLD_Y, 2);
-      const th = addThing(id, p, true);
-      drag = { th, pid: e.pointerId, hist: [{ p: p.clone(), t: performance.now() }] };
+      const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 1.15;
+      const th = addThing(id, new THREE.Vector3(BOWL.x + Math.cos(a) * r, 2.6, BOWL.z + Math.sin(a) * r));
+      th.body.velocity.set(Math.random() - 0.5, 0, Math.random() - 0.5);
+      th.body.angularVelocity.set(Math.random() * 4 - 2, Math.random() * 4 - 2, Math.random() * 4 - 2);
       sPick();
     });
-    addEventListener('pointermove', e => {
-      if (!drag || e.pointerId !== drag.pid) return;
-      const p = pointerWorld(e); if (!p) return;
-      drag.th.body.position.set(p.x, p.y, p.z);
-      drag.hist.push({ p, t: performance.now() });
-      if (drag.hist.length > 8) drag.hist.shift();
-    });
-    function release(e) {
-      if (!drag || e.pointerId !== drag.pid) return;
-      const { th, hist } = drag; drag = null;
-      const b = th.body;
-      world.addBody(b);
-      // 離す直前の手の動きで少し投げる（狙いがずれる原因）
-      const now = performance.now(), recent = hist.filter(h => now - h.t < 100);
-      let v = new THREE.Vector3();
-      if (recent.length >= 2) {
-        const a = recent[0], z = recent[recent.length - 1];
-        v = z.p.clone().sub(a.p).divideScalar(Math.max(0.03, (now - a.t) / 1000)).multiplyScalar(0.6).clampLength(0, 4);
-      }
-      b.velocity.set(v.x, 0, v.z);
-      b.angularVelocity.set(Math.random() * 4 - 2, Math.random() * 4 - 2, Math.random() * 4 - 2);
-    }
-    addEventListener('pointerup', release);
-    addEventListener('pointercancel', release);
 
     // ---- 画面サイズ ----
     const LOOK = new THREE.Vector3(0, -0.2, -0.6);
@@ -690,7 +642,6 @@
         hud();
       }
 
-      updateMarker();
       // 吹き出しをお客さんの頭の上に
       if (cust && !$('bubble').hidden) {
         headPos.set(cust.g.position.x, cust.g.position.y + 1.65, cust.g.position.z).project(camera);
