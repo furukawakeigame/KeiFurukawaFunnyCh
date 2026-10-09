@@ -139,7 +139,7 @@
       ja: {
         title: 'しりとりスピード', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English', sound: '音のオン/オフ',
         cpu: 'CPUと対戦', ta: 'タイムアタック 60秒', lv: i => LV[i],
-        cpuLeft: n => `CPU 残り${n}枚`, myLeft: n => `残り${n}枚`, played: n => `<b>${n}</b>枚`, time: s => `${s}秒`, best: n => `ベスト${n}枚`,
+        played: n => `<b>${n}</b>枚`, time: s => `${s}秒`, best: n => `ベスト${n}枚`,
         flip: 'せーの！', win: '勝ち！', lose: '負け…',
         winSub: (n, l) => n >= 15 ? `${l}のCPUに${n}枚差で圧勝` : n >= 6 ? `${l}のCPUに${n}枚差で勝利` : `${l}のCPUに${n}枚差で辛勝`,
         loseSub: (n, l) => n <= 3 ? `あと${n}枚だった…（${l}）` : n <= 10 ? `残り${n}枚。${l}のCPUに負けた` : `残り${n}枚。${l}のCPUに完敗`,
@@ -153,7 +153,7 @@
       en: {
         title: 'Shiritori Speed', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え', sound: 'Sound on/off',
         cpu: 'Play vs CPU', ta: 'Time Attack 60s', lv: i => LVE[i],
-        cpuLeft: n => `CPU: ${n} left`, myLeft: n => `${n} left`, played: n => `<b>${n}</b> cards`, time: s => `${s}s`, best: n => `Best ${n}`,
+        played: n => `<b>${n}</b> cards`, time: s => `${s}s`, best: n => `Best ${n}`,
         flip: 'Flip!', win: 'You win!', lose: 'You lose...',
         winSub: (n, l) => n >= 15 ? `Crushed the ${l} CPU by ${n} cards` : n >= 6 ? `Beat the ${l} CPU by ${n} cards` : `Barely beat the ${l} CPU by ${n} cards`,
         loseSub: (n, l) => n <= 3 ? `Only ${n} cards to go... (${l})` : n <= 10 ? `${n} cards left. Lost to the ${l} CPU` : `${n} cards left. Crushed by the ${l} CPU`,
@@ -350,8 +350,33 @@
     const HAND_Z = 3.15, HAND_Y = 0.75, HAND_TILT = 0.75;
     const handPos = i => new THREE.Vector3((i - 1.5) * 1.32, HAND_Y, HAND_Z);
     const PILE_X = [-0.8, 0.8], PILE_Z = 0.2;
-    const cpuPos = i => new THREE.Vector3((i - 1.5) * 0.95, 0.05, -2.2);
-    const myDeckPos = new THREE.Vector3(3.4, 0.1, 2.4), cpuDeckPos = new THREE.Vector3(2.4, 0.1, -2.4);
+    const cpuPos = i => new THREE.Vector3((i - 1.5) * 0.95 + 0.4, 0.05, -2.2);
+    const myDeckPos = new THREE.Vector3(2.35, 0.1, 1.05), cpuDeckPos = new THREE.Vector3(-2.5, 0.1, -2.2);
+    // 山札：残り枚数ぶんの厚みで積み、いちばん上に枚数を描く
+    function deckTopTex(n) {
+      const c = document.createElement('canvas'); c.width = 128; c.height = 179;
+      const g = c.getContext('2d');
+      g.drawImage(backTex.image, 0, 0);
+      g.fillStyle = '#fffdf6'; g.beginPath(); g.arc(64, 90, 34, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#b8322c'; g.font = 'bold 40px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(n, 64, 92);
+      const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; return tx;
+    }
+    const decks = [myDeckPos, cpuDeckPos].map(pos => {
+      const top = new THREE.MeshBasicMaterial();
+      const m = new THREE.Mesh(new THREE.BoxGeometry(CW, 1, CH), [edgeMat, edgeMat, top, edgeMat, edgeMat, edgeMat]);
+      m.castShadow = true; m.position.copy(pos); m.visible = false; m.userData.n = -1;
+      scene.add(m);
+      return m;
+    });
+    function setDeck(d, n, show) {
+      d.visible = show && n > 0;
+      if (!d.visible || d.userData.n === n) return;
+      d.userData.n = n;
+      const h = 0.03 + n * 0.022;
+      d.scale.y = h; d.position.y = h / 2;
+      d.material[2].map?.dispose(); d.material[2].map = deckTopTex(n); d.material[2].needsUpdate = true;
+    }
     const rings = PILE_X.map(x => {
       const r = new THREE.Mesh(new THREE.PlaneGeometry(CW + 0.3, CH + 0.3), new THREE.MeshBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0 }));
       r.rotation.x = -Math.PI / 2; r.position.set(x, 0.005, PILE_Z); scene.add(r); return r;
@@ -520,10 +545,12 @@
 
     function renderInfo() {
       if (!mode) return;
+      setDeck(decks[0], myDeck, mode === 'cpu');
+      setDeck(decks[1], cpuDeck, mode === 'cpu');
       if (mode === 'cpu') {
-        $('leftInfo').textContent = t('cpuLeft')(cpuLeft());
+        $('leftInfo').textContent = '';
         $('rightInfo').textContent = t('lv')(level);
-        $('myDeck').textContent = t('myLeft')(myLeft());
+        $('myDeck').textContent = '';
       } else {
         $('leftInfo').innerHTML = t('played')(played);
         $('rightInfo').textContent = t('time')(Math.ceil(Math.max(0, endAt - performance.now()) / 1000));
