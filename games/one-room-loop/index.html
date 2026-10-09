@@ -368,7 +368,8 @@
     const paths = [];         // 過去の日の道順
     let anim = { t: 1 };      // 1歩分の移動アニメ
 
-    function ghostPos(p, tt) { return tt < p.length ? p[tt] : null; }
+    // 過去の自分は、昔の日ほど遅れて起きる（1日前は1歩、2日前は2歩遅れ）。起きる前はベッドの中で、ぶつからない
+    function ghostPos(g, tt) { const i = tt - g.delay; return i >= 0 && i < g.path.length ? g.path[i] : null; }
 
     function pickTasks() {
       const n = 1; // タスクは1日1個
@@ -398,7 +399,7 @@
     }
     function updateTrails(tt) {
       for (const g of ghosts) g.trail.children.forEach((d, i) => {
-        const ahead = i - tt;
+        const ahead = i - (tt - g.delay);
         d.visible = ahead >= 1;
         d.children[0].material.opacity = Math.max(0.15, 0.95 - (ahead - 1) * 0.08);
         d.userData.dot.scale.setScalar(ahead === 1 ? 1.8 : 1);
@@ -412,7 +413,7 @@
       doorRing.visible = !tasks.length;
       clearGhosts();
       ghosts = paths.map((p, i) => {
-        const gh = { day: i + 1, path: p, mesh: makePerson(0x5fa8ff, true), trail: makeTrail(p, i) };
+        const gh = { day: i + 1, delay: day - (i + 1), path: p, mesh: makePerson(0x5fa8ff, true), trail: makeTrail(p, i) };
         setLabel(gh); return gh;
       });
       player.visible = true;
@@ -440,7 +441,7 @@
       sndStep();
       // 過去の自分とぶつかったか（同じマス or すれ違い）
       for (const g of ghosts) {
-        const a = ghostPos(g.path, turn - 1), b = ghostPos(g.path, turn);
+        const a = ghostPos(g, turn - 1), b = ghostPos(g, turn);
         if (b && (same(b, pos) || (a && same(a, pos) && same(b, prev)))) return die();
       }
       const ti = tasks.findIndex(i => same(TASKS[i].pos, pos));
@@ -492,8 +493,8 @@
       const tt = anim.prev ? anim.turn : turn;
       updateTrails(tt);
       for (const g of ghosts) {
-        const b = ghostPos(g.path, tt);
-        const a = ghostPos(g.path, anim.prev ? tt - 1 : tt) || b;
+        const b = ghostPos(g, tt);
+        const a = ghostPos(g, anim.prev ? tt - 1 : tt) || b;
         if (!b) { g.mesh.visible = false; continue; }
         g.mesh.visible = true;
         g.mesh.position.set(lerp(a[0], b[0], k), hop, lerp(a[1], b[1], k));
