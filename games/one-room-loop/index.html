@@ -497,6 +497,7 @@
       document.getElementById('titleOv').hidden = true;
       document.getElementById('resultOv').hidden = true;
       state = 'intro';
+      resize();
       startDay();
     }
     document.getElementById('startBtn').onclick = newGame;
@@ -528,13 +529,53 @@
       if (!w || !h || !W) return;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
-      // 部屋全体が収まる距離にする
-      const tan2 = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-      const span = W + H;
-      const dist = Math.max(span * 0.82 / (tan2 * camera.aspect), span * 0.57 / tan2) + 0.5;
-      camera.position.set(Math.sin(CAM_YAW) * dist * 0.62, dist * 0.82, Math.cos(CAM_YAW) * dist * 0.62);
-      camera.lookAt(0, 0, 0);
       camera.updateProjectionMatrix();
+      // 部屋の角（床と壁の上端）が画面いっぱいに収まるよう、距離と注視点を画面比率に合わせて詰める
+      const ox = room.position.x, oz = room.position.z, corners = [];
+      for (const x of [-0.5, W - 0.5]) for (const z of [-0.5, H - 0.5]) for (const y of [0, 1.4])
+        corners.push(new THREE.Vector3(x + ox, y, z + oz));
+      const dirv = new THREE.Vector3(Math.sin(CAM_YAW) * 0.62, 0.82, Math.cos(CAM_YAW) * 0.62).normalize();
+      const target = new THREE.Vector3(0, 0, 0);
+      const halfTan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      let dist = W + H;
+      for (let i = 0; i < 6; i++) {
+        camera.position.copy(target).addScaledVector(dirv, dist);
+        camera.lookAt(target); camera.updateMatrixWorld();
+        let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+        for (const c of corners) {
+          const p = c.clone().project(camera);
+          x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+        }
+        // はみ出し／余白の分だけ注視点をずらし、距離を伸び縮みさせる
+        const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+        const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+        target.addScaledVector(right, (x0 + x1) / 2 * dist * halfTan * camera.aspect);
+        target.addScaledVector(up, (y0 + y1) / 2 * dist * halfTan);
+        dist *= Math.max((x1 - x0) / 2, (y1 - y0) / 2) / 0.95;
+      }
+      // 縦長の画面では部屋の高さに合わせてさらに寄り、はみ出す横方向はプレイヤーを追って動かす（エディタは全体表示）
+      let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+      camera.position.copy(target).addScaledVector(dirv, dist); camera.lookAt(target); camera.updateMatrixWorld();
+      for (const c of corners) { const p = c.clone().project(camera); x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); }
+      const zoom = state === 'edit' ? 1 : Math.max(0.72, Math.min((x1 - x0), (y1 - y0)) / 2 / 0.95);
+      cam.dist = dist * zoom; cam.base = target.clone(); cam.dir = dirv;
+      cam.right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+      cam.up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+      cam.maxX = Math.max(0, (x1 - x0) / 2 / zoom - 0.95) * cam.dist * halfTan * camera.aspect;
+      cam.maxY = Math.max(0, (y1 - y0) / 2 / zoom - 0.95) * cam.dist * halfTan;
+      cam.off = null; updateCamera(1);
+    }
+    const cam = { dist: 10, base: new THREE.Vector3(), off: null };
+    // プレイヤーの位置へ注視点を寄せる（部屋の端より外は映さない）
+    function updateCamera(k) {
+      if (!cam.right) return;
+      const pw = player.getWorldPosition(new THREE.Vector3()).sub(cam.base);
+      const clamp = (v, m) => Math.max(-m, Math.min(m, v));
+      const want = [player.visible ? clamp(pw.dot(cam.right), cam.maxX) : 0, player.visible ? clamp(pw.dot(cam.up), cam.maxY) : 0];
+      cam.off = cam.off ? cam.off.map((o, i) => o + (want[i] - o) * k) : want;
+      const target = cam.base.clone().addScaledVector(cam.right, cam.off[0]).addScaledVector(cam.up, cam.off[1]);
+      camera.position.copy(target).addScaledVector(cam.dir, cam.dist);
+      camera.lookAt(target);
     }
     new ResizeObserver(resize).observe(stage);
     let last = performance.now();
@@ -547,6 +588,7 @@
         const k = Math.min(1, (now - player.userData.dieAt) / 400);
         player.rotation.x = -k * Math.PI / 2;
       }
+      updateCamera(Math.min(1, dt / 150));
       holdTick(now);
       renderer.render(scene, camera);
     });
