@@ -528,7 +528,10 @@
     const holdCam = camera.clone();
     function resize() {
       if (ICON_MODE) return;
-      const w = stage.clientWidth, h = stage.clientHeight;
+      const w = stage.clientWidth, h = stage.clientHeight, hh = tray.offsetTop + tray.offsetHeight;
+      // 大きさが変わっていなければ何もしない（キャンバスを作り直すと一瞬消えてチカチカする）
+      if (w === lastSize[0] && h === lastSize[1] && hh === lastSize[2]) return;
+      lastSize = [w, h, hh];
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
@@ -538,11 +541,15 @@
       camera.position.copy(LOOK).addScaledVector(dir, dist);
       camera.lookAt(LOOK);
       camera.updateProjectionMatrix();
-      const hh = tray.offsetTop + tray.offsetHeight;
       holdRenderer.setSize(w, hh);
       holdCam.copy(camera);
       holdCam.setViewOffset(w, h, 0, 0, w, hh);
+      // 作り直したキャンバスが空のまま表示されないよう、すぐ描き直す
+      renderer.render(scene, camera);
+      holdRenderer.render(holdScene, holdCam);
     }
+    let lastSize = [];
+    addEventListener('resize', resize);
     new ResizeObserver(resize).observe(stage);
     resize();
 
