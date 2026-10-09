@@ -336,17 +336,35 @@
     }
 
     // 人
+    // 人：頭・胴体・腕・脚の箱でできたブロック人形。歩くと手足を振る
     function makePerson(color, ghost) {
       const g = new THREE.Group();
-      const m = new THREE.MeshLambertMaterial({ color, transparent: ghost, opacity: ghost ? 0.6 : 1 });
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.55, 16), m); body.position.y = 0.3;
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), m); head.position.y = 0.76;
-      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.05, 0.05), mat(0x222222)); eye.position.set(0, 0.8, 0.18);
-      if (ghost) eye.material = new THREE.MeshBasicMaterial({ color: 0x113355, transparent: true, opacity: 0.6 });
-      [body, head].forEach(o => { o.castShadow = !ghost; g.add(o); });
-      g.add(eye);
+      const m = c => ghost ? new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.6 }) : mat(c);
+      const part = (w, h, d, material, x, y, z, parent = g) => {
+        const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+        o.position.set(x, y, z); o.castShadow = !ghost; parent.add(o); return o;
+      };
+      // 腕と脚は付け根で回るように、付け根の位置にグループを置く
+      const limb = (x, y, w, h, material) => {
+        const pivot = new THREE.Group(); pivot.position.set(x, y, 0); g.add(pivot);
+        part(w, h, w, material, 0, -h / 2, 0, pivot); return pivot;
+      };
+      const skin = m(0xf2c9a0), shirt = m(color), pants = m(0x3d4452);
+      const legL = limb(-0.08, 0.3, 0.13, 0.3, pants), legR = limb(0.08, 0.3, 0.13, 0.3, pants);
+      part(0.34, 0.34, 0.2, shirt, 0, 0.47, 0);
+      const armL = limb(-0.23, 0.62, 0.1, 0.32, shirt), armR = limb(0.23, 0.62, 0.1, 0.32, shirt);
+      part(0.3, 0.28, 0.28, skin, 0, 0.8, 0);
+      const eyes = ghost ? new THREE.MeshBasicMaterial({ color: 0x113355, transparent: true, opacity: 0.6 }) : mat(0x222222);
+      part(0.05, 0.06, 0.02, eyes, -0.07, 0.82, 0.145); part(0.05, 0.06, 0.02, eyes, 0.07, 0.82, 0.145);
+      g.userData.limbs = [armL, armR, legL, legR];
       room.add(g);
       return g;
+    }
+    // 歩きの手足振り（k: 0→1 で1歩）
+    function swing(p, k) {
+      const a = Math.sin(k * Math.PI * 2) * 0.7;
+      const [armL, armR, legL, legR] = p.userData.limbs;
+      armL.rotation.x = a; armR.rotation.x = -a; legL.rotation.x = -a; legR.rotation.x = a;
     }
     const player = makePerson(0xffffff, false);
 
@@ -487,9 +505,10 @@
     // ---- 描画 ----
     const lerp = (a, b, k) => a + (b - a) * k;
     function placeAll(k) {
-      const hop = Math.sin(k * Math.PI) * 0.12;
+      const hop = Math.sin(k * Math.PI) * 0.05;
       const pp = anim.prev || pos;
       player.position.set(lerp(pp[0], pos[0], k), hop, lerp(pp[1], pos[1], k));
+      swing(player, anim.prev ? k : 1);
       const tt = anim.prev ? anim.turn : turn;
       updateTrails(tt);
       for (const g of ghosts) {
@@ -498,6 +517,7 @@
         if (!b) { g.mesh.visible = false; continue; }
         g.mesh.visible = true;
         g.mesh.position.set(lerp(a[0], b[0], k), hop, lerp(a[1], b[1], k));
+        swing(g.mesh, a[0] !== b[0] || a[1] !== b[1] ? k : 1);
         if (a[0] !== b[0] || a[1] !== b[1]) g.mesh.rotation.y = Math.atan2(b[0] - a[0], b[1] - a[1]);
       }
     }
