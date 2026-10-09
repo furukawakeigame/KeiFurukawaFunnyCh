@@ -235,10 +235,10 @@
     for (let x = 0; x < W; x++) for (let z = 0; z < H; z++)
       box(1, 0.1, 1, (x + z) % 2 ? 0xc79a6b : 0xbf9163, x, -0.05, z);
     // 壁（奥と左）
-    box(W + 0.2, 1.4, 0.1, 0xe8e2d6, (W - 1) / 2, 0.7, -0.55);
-    box(0.1, 1.4, H + 0.2, 0xddd6c8, -0.55, 0.7, (H - 1) / 2);
+    const backWall = [box(W + 0.2, 1.4, 0.1, 0xe8e2d6, (W - 1) / 2, 0.7, -0.55)];
+    const leftWall = [box(0.1, 1.4, H + 0.2, 0xddd6c8, -0.55, 0.7, (H - 1) / 2)];
     // 窓
-    box(1.6, 0.6, 0.04, 0x9fd3ff, 4.5, 0.85, -0.5);
+    backWall.push(box(1.6, 0.6, 0.04, 0x9fd3ff, 4.5, 0.85, -0.5));
     // 家具
     box(2, 0.85, 0.9, 0xd9d9d9, 0.5, 0.42, 0);          // キッチン台
     box(0.6, 0.06, 0.5, 0x8899aa, 0, 0.87, 0);           // 流し
@@ -254,7 +254,7 @@
     box(0.06, 0.5, 0.85, 0x111111, 6.1, 0.85, 2);
     box(1.95, 1.2, 0.95, 0xcfe8f0, 0.5, 0.6, 3);          // ユニットバス
     box(0.95, 0.04, 0.95, 0x8a5a3a, 0, 0.02, 4);          // 玄関
-    box(0.08, 1.3, 0.8, 0x6d4c41, -0.5, 0.65, 4);         // ドア
+    leftWall.push(box(0.08, 1.3, 0.8, 0x6d4c41, -0.5, 0.65, 4));        // ドア
 
     // タスクのマーカー
     const markers = TASKS.map(tk => {
@@ -338,6 +338,10 @@
 
     function step(dx, dz) {
       if (state !== 'play' || anim.t < 1) return;
+      // ジョイスティックの向きを、いまのカメラの向きに合わせて回す
+      const q = ((Math.round(camYaw / (Math.PI / 2)) % 4) + 4) % 4;
+      const sn = [0, 1, 0, -1][q], cs = [1, 0, -1, 0][q];
+      [dx, dz] = [dx * cs + dz * sn, -dx * sn + dz * cs];
       const np = [pos[0] + dx, pos[1] + dz];
       if ((dx || dz) && !walkable(...np)) return;
       const prev = pos; pos = np; turn++; path.push([...np]);
@@ -406,6 +410,25 @@
         if (a[0] !== b[0] || a[1] !== b[1]) g.mesh.rotation.y = Math.atan2(b[0] - a[0], b[1] - a[1]);
       }
     }
+    // 部屋をドラッグして回す
+    let camYaw = 0, camDist = 10, rotPtr = null, rotX = 0;
+    function placeCamera() {
+      camera.position.set(Math.sin(camYaw) * camDist * 0.62, camDist * 0.82, Math.cos(camYaw) * camDist * 0.62);
+      camera.lookAt(0, 0, 0);
+      // カメラ側の壁は隠して中が見えるようにする
+      backWall.forEach(m => m.visible = camera.position.z > -1);
+      leftWall.forEach(m => m.visible = camera.position.x > -1);
+    }
+    const cvs = renderer.domElement;
+    cvs.style.cursor = 'grab';
+    cvs.addEventListener('pointerdown', e => { rotPtr = e.pointerId; rotX = e.clientX; cvs.setPointerCapture(e.pointerId); cvs.style.cursor = 'grabbing'; });
+    cvs.addEventListener('pointermove', e => {
+      if (e.pointerId !== rotPtr) return;
+      camYaw -= (e.clientX - rotX) * 0.01; rotX = e.clientX; placeCamera();
+    });
+    const rotEnd = e => { if (e.pointerId === rotPtr) { rotPtr = null; cvs.style.cursor = 'grab'; } };
+    cvs.addEventListener('pointerup', rotEnd);
+    cvs.addEventListener('pointercancel', rotEnd);
     function resize() {
       const w = stage.clientWidth, h = stage.clientHeight;
       renderer.setSize(w, h, false);
@@ -413,8 +436,7 @@
       // 部屋全体が収まる距離にする
       const tan2 = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
       const dist = Math.max(8.6 / (tan2 * camera.aspect), 6.2 / tan2) + 0.5;
-      camera.position.set(0, dist * 0.82, dist * 0.62);
-      camera.lookAt(0, 0, 0.3);
+      camDist = dist; placeCamera();
       camera.updateProjectionMatrix();
     }
     new ResizeObserver(resize).observe(stage);
