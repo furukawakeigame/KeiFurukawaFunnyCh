@@ -93,17 +93,17 @@
         title: '日の丸職人', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English', sound: '音のオン/オフ',
         again: 'もう一度', post: 'Xにポスト',
         stick: '貼る', sizeLabel: '丸の大きさ',
-        gap: (mm, sz) => `位置 ${mm}mm・大きさ ${sz}mm ずれ`, out: '降参',
+        score: s => `${s}点`, gap: (mm, sz) => `位置 ${mm}mm・大きさ ${sz}mm ずれ`, out: '降参',
         palau: 'パラオ', laos: 'ラオス', jp: '日本', niger: 'ニジェール', bangladesh: 'バングラデシュ', greenland: 'グリーンランド', tunisia: 'チュニジア',
-        share: r => '日の丸職人：' + (r.out ? '白旗をあげました' : r.country ? `${L.ja[r.country]}の国旗ができました` : `日本の国旗ができました（位置${r.mm}mm・大きさ${r.sz}mmずれ）`),
+        share: r => '日の丸職人：' + (r.out ? '白旗をあげました' : r.country && r.country !== 'jp' ? `${L.ja[r.country]}の国旗ができました` : (r.country === 'jp' ? '日本の国旗ができました' : `${r.score}点`) + `（位置${r.mm}mm・大きさ${r.sz}mmずれ）`),
       },
       en: {
         title: 'Rising Sun Craftsman', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え', sound: 'Sound on/off',
         again: 'Again', post: 'Post on X',
         stick: 'Stick', sizeLabel: 'Circle size',
-        gap: (mm, sz) => `Position ${mm}mm, size ${sz}mm off`, out: 'Surrender',
+        score: s => `${s} pts`, gap: (mm, sz) => `Position ${mm}mm, size ${sz}mm off`, out: 'Surrender',
         palau: 'Palau', laos: 'Laos', jp: 'Japan', niger: 'Niger', bangladesh: 'Bangladesh', greenland: 'Greenland', tunisia: 'Tunisia',
-        share: r => 'Rising Sun Craftsman: ' + (r.out ? 'I raised the white flag' : r.country ? `I made the flag of ${L.en[r.country]}` : `I made the flag of Japan (position ${r.mm}mm, size ${r.sz}mm off)`),
+        share: r => 'Rising Sun Craftsman: ' + (r.out ? 'I raised the white flag' : r.country && r.country !== 'jp' ? `I made the flag of ${L.en[r.country]}` : (r.country === 'jp' ? 'I made the flag of Japan' : `${r.score} pts`) + ` (position ${r.mm}mm, size ${r.sz}mm off)`),
       },
     };
     let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
@@ -196,7 +196,7 @@
         ctx.fillStyle = st.disc;
         ctx.beginPath(); ctx.arc(sx(disc.x), sy(disc.y), disc.d / 2 * k, 0, Math.PI * 2); ctx.fill();
       }
-      if (state === 'done' && !result.country && !result.out) { // 正解の位置と大きさ
+      if (state === 'done' && (!result.country || result.country === 'jp') && !result.out) { // 正解の位置と大きさ
         ctx.setLineDash([6, 5]); ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(sx(0), sy(0), JP / 2 * k, 0, Math.PI * 2); ctx.stroke();
         ctx.setLineDash([]);
@@ -237,8 +237,10 @@
         // ここから下は丸が左（旗竿側）に寄った国旗
         x <= -80 && x >= -130 && Math.abs(y) <= 20 && Math.abs(d - 400) <= 30 ? 'greenland' :
         x <= -20 && x > -80 && Math.abs(y) <= 20 && Math.abs(d - 400) <= 30 ? 'bangladesh' :
-        x <= -30 && x >= -110 && Math.abs(y) <= 20 && d >= 320 && d < 370 ? 'palau' : null;
-      return { mm, sz, country };
+        x <= -30 && x >= -110 && Math.abs(y) <= 20 && d >= 320 && d < 370 ? 'palau' :
+        mm <= 15 && sz <= 15 ? 'jp' : null; // 日本は厳しめ。外れたら点数を出す
+      const score = Math.max(0, Math.round(100 - Math.max(0, mm + sz - 5) * 0.35));
+      return { mm, sz, country, score };
     }
     $('stick').onclick = () => {
       if (state !== 'ready') return;
@@ -253,8 +255,9 @@
       const { out, mm, sz } = result;
       // 別の国旗になったときは点数の代わりに国名を出す
       // 点数ではなく、できた国旗の国名を出す
-      $('score').textContent = out ? t('out') : t(result.country || 'jp');
-      $('gap').textContent = out || result.country ? '' : t('gap')(mm, sz);
+      const c = result.country;
+      $('score').textContent = out ? t('out') : c ? t(c) : t('score')(result.score);
+      $('gap').textContent = out || (c && c !== 'jp') ? '' : t('gap')(mm, sz);
       const post = $('post');
       post.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(result))}&url=${encodeURIComponent(SHARE_URL)}`;
       if (matchMedia('(pointer: coarse)').matches) { post.removeAttribute('target'); post.removeAttribute('rel'); }
