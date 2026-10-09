@@ -397,21 +397,26 @@
 
     function clearGhosts() { ghosts.forEach(g => { room.remove(g.mesh); room.remove(g.trail); }); ghosts = []; }
 
-    // 過去の自分がこれから歩く道を、床に点で見せる（近い未来ほど濃く、次の1歩は大きく）
-    const dotGeo = new THREE.CircleGeometry(0.14, 16), segGeo = new THREE.PlaneGeometry(0.1, 1);
+    // 過去の自分がこれから歩く道を、床に矢印でつないで見せる（近い未来ほど濃く、次の1歩は大きな矢印）
+    const arrowShape = new THREE.Shape();
+    arrowShape.moveTo(0, 0.2); arrowShape.lineTo(0.18, -0.12); arrowShape.lineTo(0, -0.03); arrowShape.lineTo(-0.18, -0.12); arrowShape.closePath();
+    const arrowGeo = new THREE.ShapeGeometry(arrowShape).scale(1.4, 1.4, 1), segGeo = new THREE.PlaneGeometry(0.08, 1), dotGeo = new THREE.CircleGeometry(0.12, 16);
     function makeTrail(p, k) {
       const g = new THREE.Group();
-      // 点と、その手前の点からの線をひと組にする
+      // 各マスに「手前のマスからの線」と「進む向きの矢印」をひと組で置く
       p.forEach(([x, z], i) => {
         const m = new THREE.MeshBasicMaterial({ color: 0xbfe4ff, transparent: true, depthWrite: false });
         const set = new THREE.Group(); set.position.y = 0.03 + k * 0.002;
-        const d = new THREE.Mesh(dotGeo, m); d.rotation.x = -Math.PI / 2; d.position.set(x, 0, z); set.add(d);
         const q = p[i - 1];
+        let mark;
         if (q && (q[0] !== x || q[1] !== z)) {
+          const dx = x - q[0], dz = z - q[1];
           const sg = new THREE.Mesh(segGeo, m); sg.rotation.x = -Math.PI / 2;
-          sg.rotation.z = q[0] !== x ? Math.PI / 2 : 0; sg.position.set((x + q[0]) / 2, 0, (z + q[1]) / 2); set.add(sg);
-        }
-        set.userData.dot = d; g.add(set);
+          sg.rotation.z = dx ? Math.PI / 2 : 0; sg.position.set((x + q[0]) / 2, 0, (z + q[1]) / 2); set.add(sg);
+          mark = new THREE.Mesh(arrowGeo, m); mark.rotation.set(-Math.PI / 2, 0, Math.atan2(-dx, -dz));
+        } else mark = new THREE.Mesh(dotGeo, m), mark.rotation.x = -Math.PI / 2;
+        mark.position.set(x, 0.001, z); set.add(mark);
+        set.userData.mark = mark; g.add(set);
       });
       room.add(g); return g;
     }
@@ -419,8 +424,9 @@
       for (const g of ghosts) g.trail.children.forEach((d, i) => {
         const ahead = i - (tt - g.delay);
         d.visible = ahead >= 1;
-        d.children[0].material.opacity = Math.max(0.15, 0.95 - (ahead - 1) * 0.08);
-        d.userData.dot.scale.setScalar(ahead === 1 ? 1.8 : 1);
+        d.children[0].material.opacity = ahead === 1 ? 1 : Math.max(0.15, 0.8 - (ahead - 2) * 0.08);
+        d.children[0].material.color.set(ahead === 1 ? 0x7fd0ff : 0xbfe4ff);
+        d.userData.mark.scale.setScalar(ahead === 1 ? 2.2 : 1);
       });
     }
 
@@ -497,7 +503,6 @@
       document.getElementById('titleOv').hidden = true;
       document.getElementById('resultOv').hidden = true;
       state = 'intro';
-      resize();
       startDay();
     }
     document.getElementById('startBtn').onclick = newGame;
@@ -519,7 +524,9 @@
         g.mesh.visible = true;
         g.mesh.position.set(lerp(a[0], b[0], k), hop, lerp(a[1], b[1], k));
         swing(g.mesh, a[0] !== b[0] || a[1] !== b[1] ? k : 1);
-        if (a[0] !== b[0] || a[1] !== b[1]) g.mesh.rotation.y = Math.atan2(b[0] - a[0], b[1] - a[1]);
+        const n = k >= 1 && ghostPos(g, tt + 1);
+        if (n && (n[0] !== b[0] || n[1] !== b[1])) g.mesh.rotation.y = Math.atan2(n[0] - b[0], n[1] - b[1]); // 止まったら次に進む方を向く
+        else if (a[0] !== b[0] || a[1] !== b[1]) g.mesh.rotation.y = Math.atan2(b[0] - a[0], b[1] - a[1]);
       }
     }
     // 斜め上から見下ろす固定カメラ
@@ -553,28 +560,7 @@
         target.addScaledVector(up, (y0 + y1) / 2 * dist * halfTan);
         dist *= Math.max((x1 - x0) / 2, (y1 - y0) / 2) / 0.95;
       }
-      // 縦長の画面では部屋の高さに合わせてさらに寄り、はみ出す横方向はプレイヤーを追って動かす（エディタは全体表示）
-      let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
-      camera.position.copy(target).addScaledVector(dirv, dist); camera.lookAt(target); camera.updateMatrixWorld();
-      for (const c of corners) { const p = c.clone().project(camera); x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); }
-      const zoom = state === 'edit' ? 1 : Math.max(0.72, Math.min((x1 - x0), (y1 - y0)) / 2 / 0.95);
-      cam.dist = dist * zoom; cam.base = target.clone(); cam.dir = dirv;
-      cam.right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
-      cam.up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
-      cam.maxX = Math.max(0, (x1 - x0) / 2 / zoom - 0.95) * cam.dist * halfTan * camera.aspect;
-      cam.maxY = Math.max(0, (y1 - y0) / 2 / zoom - 0.95) * cam.dist * halfTan;
-      cam.off = null; updateCamera(1);
-    }
-    const cam = { dist: 10, base: new THREE.Vector3(), off: null };
-    // プレイヤーの位置へ注視点を寄せる（部屋の端より外は映さない）
-    function updateCamera(k) {
-      if (!cam.right) return;
-      const pw = player.getWorldPosition(new THREE.Vector3()).sub(cam.base);
-      const clamp = (v, m) => Math.max(-m, Math.min(m, v));
-      const want = [player.visible ? clamp(pw.dot(cam.right), cam.maxX) : 0, player.visible ? clamp(pw.dot(cam.up), cam.maxY) : 0];
-      cam.off = cam.off ? cam.off.map((o, i) => o + (want[i] - o) * k) : want;
-      const target = cam.base.clone().addScaledVector(cam.right, cam.off[0]).addScaledVector(cam.up, cam.off[1]);
-      camera.position.copy(target).addScaledVector(cam.dir, cam.dist);
+      camera.position.copy(target).addScaledVector(dirv, dist);
       camera.lookAt(target);
     }
     new ResizeObserver(resize).observe(stage);
@@ -588,7 +574,6 @@
         const k = Math.min(1, (now - player.userData.dieAt) / 400);
         player.rotation.x = -k * Math.PI / 2;
       }
-      updateCamera(Math.min(1, dt / 150));
       holdTick(now);
       renderer.render(scene, camera);
     });
