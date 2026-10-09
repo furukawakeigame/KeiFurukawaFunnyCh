@@ -183,7 +183,7 @@
     langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
 
     // 単語（「ん」で終わるものは入れない）
-    const WORDS = (`りんご ごりら らっぱ ぱんだ だるま まくら らくだ だちょう うさぎ ぎたー たぬき きつね ねこ こあら
+    const WORDS = (`いろは りんご ごりら らっぱ ぱんだ だるま まくら らくだ だちょう うさぎ ぎたー たぬき きつね ねこ こあら
       らいおん いるか かめ めだか かばん すいか かき きのこ こま まめ めがね ねずみ みかん みみ みず ずぼん
       いぬ ぬいぐるみ みそしる るすばん とけい いちご ごはん はさみ みどり りす すし しか かに にんじん
       にわとり りょうり りかい いか かさ さる るびー びーる るーる くじら らーめん めろん ろうそく くつ つくえ
@@ -229,6 +229,15 @@
     function pileWord() {
       for (let i = 0; i < 50; i++) { const w = pick(WORDS); if (byHead[tailOf(w)]) return w; }
       return 'りんご';
+    }
+    // 誰も出せずにめくり直すときは、手札のどれかが必ずつながる言葉を場に出す
+    const byTail = {};
+    for (const w of WORDS) (byTail[tailOf(w)] = byTail[tailOf(w)] || []).push(w);
+    function flipWords() {
+      const heads = [...hand, ...cpuHand].filter(Boolean).map(w => w[0]).filter(h => byTail[h]);
+      const ws = [pileWord(), pileWord()];
+      if (heads.length) ws[Math.floor(Math.random() * 2)] = pick(byTail[pick(heads)]);
+      return ws;
     }
 
     // ===== 3D =====
@@ -496,7 +505,7 @@
       if (anyMove(hand) || (mode === 'cpu' && anyMove(cpuHand))) return;
       stallTimer = setTimeout(() => {
         if (!running || anyMove(hand) || (mode === 'cpu' && anyMove(cpuHand))) return;
-        piles = [pileWord(), pileWord()]; sndFlip();
+        piles = flipWords(); sndFlip();
         piles.forEach((w, p) => aimPile(makeCard(w, 'pile', new THREE.Vector3(PILE_X[p], 0.6, PILE_Z)), p));
         const msg = $('msg'); msg.textContent = t('flip'); msg.classList.add('show'); setTimeout(() => msg.classList.remove('show'), 700);
         checkStall();
