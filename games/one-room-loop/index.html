@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>1Kループ</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <!-- X などにURLを貼ったときのカード表示（ここだけは https:// から書く） -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="1Kループ">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/one-room-loop/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/one-room-loop/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    html, body { margin: 0; height: 100%; background: #23262e; color: #eee; }
+    body {
+      display: flex; flex-direction: column; height: 100dvh;
+      font-family: "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden; touch-action: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; width: 100%; max-width: 560px; margin: 0 auto; box-sizing: border-box;
+    }
+    header a { color: #ffd27a; text-decoration: none; font-weight: bold; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill {
+      font: inherit; font-size: 15px; font-weight: bold; background: #343844; color: #eee;
+      border: 2px solid #4a4f5e; border-radius: 999px; min-width: 44px; height: 36px; padding: 0 10px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    main {
+      flex: 1; min-height: 0; width: 100%; max-width: 560px; margin: 0 auto; box-sizing: border-box;
+      display: flex; flex-direction: column;
+      padding: 0 0 calc(80px + env(safe-area-inset-bottom));
+    }
+    #hud { display: flex; justify-content: space-between; align-items: center; padding: 0 16px; height: 40px; font-weight: bold; }
+    #day { font-size: 22px; }
+    #steps { font-size: 18px; color: #ffd27a; }
+    #steps.low { color: #ff6b6b; }
+    #stage { position: relative; flex: 1; min-height: 0; }
+    #stage canvas { display: block; width: 100%; height: 100%; }
+    #pad { height: 150px; flex: none; display: flex; justify-content: center; align-items: center; }
+    #joy {
+      width: 128px; height: 128px; border-radius: 50%; position: relative; touch-action: none; cursor: grab;
+      background: radial-gradient(circle, #3a3f4c 0 55%, #30343f 56%); border: 3px solid #4a4f5e; box-sizing: border-box;
+    }
+    #knob {
+      position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%;
+      background: #f2f2f2; box-shadow: 0 3px 0 #9a9a9a; pointer-events: none;
+    }
+    #joy svg { position: absolute; inset: 0; pointer-events: none; }
+    .ov {
+      position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+      background: rgba(20, 22, 28, .78); text-align: center; padding: 16px; box-sizing: border-box;
+    }
+    .ov[hidden] { display: none; }
+    #dayCard { background: transparent; pointer-events: none; font-size: 44px; font-weight: bold; text-shadow: 0 3px 0 #000; }
+    h1 { margin: 0; font-size: 40px; color: #ffd27a; }
+    #rDays { font-size: 34px; font-weight: bold; }
+    #rMsg { font-size: 18px; }
+    .big {
+      font: inherit; font-size: 22px; font-weight: bold; padding: 14px 0; width: 220px; border-radius: 16px; border: none;
+      cursor: pointer; color: #23262e; background: #ffd27a; box-shadow: 0 4px 0 #b58a35;
+      text-decoration: none; display: block; touch-action: manipulation;
+    }
+    .big:active { transform: translateY(3px); box-shadow: 0 1px 0 #b58a35; }
+    .big.x { background: #000; color: #fff; box-shadow: 0 4px 0 #555; }
+    #err { color: #ff8b8b; }
+  </style>
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <div class="hbtns">
+      <button id="lang" class="pill">EN</button>
+      <button id="sound" class="pill" aria-label="sound"></button>
+    </div>
+  </header>
+  <main>
+    <div id="hud"><span id="day"></span><span id="steps"></span></div>
+    <div id="stage">
+      <div id="dayCard" class="ov" hidden></div>
+      <div id="titleOv" class="ov">
+        <h1 id="tTitle">1Kループ</h1>
+        <button id="startBtn" class="big">スタート</button>
+        <p id="err" hidden></p>
+      </div>
+      <div id="resultOv" class="ov" hidden>
+        <div id="rDays"></div>
+        <div id="rMsg"></div>
+        <button id="retryBtn" class="big">もう一度</button>
+        <a id="shareBtn" class="big x" href="#">Xに投稿</a>
+      </div>
+    </div>
+    <div id="pad">
+      <div id="joy">
+        <svg viewBox="0 0 128 128"><g fill="#6a7080">
+          <path d="M64 10 l8 10 h-16z"/><path d="M64 118 l8 -10 h-16z"/>
+          <path d="M10 64 l10 8 v-16z"/><path d="M118 64 l-10 8 v-16z"/>
+        </g></svg>
+        <div id="knob"></div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    const errEl = document.getElementById('err');
+    let THREE;
+    try { THREE = await import('three'); }
+    catch {
+      errEl.hidden = false;
+      errEl.textContent = '3Dライブラリを読み込めませんでした / Failed to load 3D library';
+      document.getElementById('startBtn').disabled = true;
+      throw new Error('three load failed');
+    }
+
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('one-room-loop:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('one-room-loop:' + k, JSON.stringify(v)); } catch {} },
+    };
+
+    // ---- 音 ----
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const SPK = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>';
+    const updateSoundBtn = () => {
+      soundBtn.innerHTML = SPK + (soundOn ? '<path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/>' : '<path d="M16 9l6 6M22 9l-6 6"/>') + '</svg>';
+    };
+    soundBtn.onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updateSoundBtn(); };
+    updateSoundBtn();
+    let actx;
+    function beep(freq, dur, type = 'sine', vol = 0.12, slide = 0, delay = 0) {
+      if (!soundOn) return;
+      try {
+        actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+        const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + delay;
+        o.type = type; o.frequency.setValueAtTime(freq, t);
+        if (slide) o.frequency.linearRampToValueAtTime(freq + slide, t + dur);
+        g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur);
+      } catch {}
+    }
+    const sndStep = () => beep(180, 0.05, 'triangle', 0.08);
+    const sndTask = () => { beep(660, 0.1, 'square', 0.06); beep(990, 0.15, 'square', 0.06, 0, 0.08); };
+    const sndClear = () => [523, 659, 784, 1047].forEach((f, i) => beep(f, 0.15, 'square', 0.06, 0, i * 0.09));
+    const sndDie = () => beep(300, 0.6, 'sawtooth', 0.1, -240);
+
+    // ---- 文言 ----
+    const L = {
+      ja: {
+        title: '1Kループ', back: '← トップへ戻る', lang: 'EN', start: 'スタート', retry: 'もう一度', share: 'Xに投稿',
+        day: n => `${n}日目`, steps: n => `残り ${n}歩`, ghostDay: n => `${n}日目`,
+        days: n => `${n}日 生存`,
+        msgHit: d => d <= 1 ? '昨日の自分は手強い' : d <= 4 ? '過去の自分に轢かれた' : d <= 8 ? '部屋が自分で渋滞している' : 'もはや自分の群れ',
+        msgLate: '遅刻した',
+        shareText: n => `1Kループで${n}日生き延びた\n#1Kループ`,
+      },
+      en: {
+        title: '1K Loop', back: '← Top', lang: '日本語', start: 'Start', retry: 'Retry', share: 'Post on X',
+        day: n => `Day ${n}`, steps: n => `${n} steps left`, ghostDay: n => `D${n}`,
+        days: n => `Survived ${n} day${n === 1 ? '' : 's'}`,
+        msgHit: d => d <= 1 ? 'Yesterday\'s you is tough' : d <= 4 ? 'Run over by your past self' : d <= 8 ? 'Traffic jam of yourselves' : 'A herd of yous',
+        msgLate: 'You were late',
+        shareText: n => `I survived ${n} day${n === 1 ? '' : 's'} in 1K Loop\n#1KLoop`,
+      },
+    };
+    let lang = store.get('lang', navigator.language.startsWith('ja') ? 'ja' : 'en');
+    if (!L[lang]) lang = 'ja';
+    const t = k => L[lang][k];
+    const langBtn = document.getElementById('lang');
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      document.getElementById('tTitle').textContent = t('title');
+      document.getElementById('startBtn').textContent = t('start');
+      document.getElementById('retryBtn').textContent = t('retry');
+      document.getElementById('shareBtn').textContent = t('share');
+      langBtn.textContent = t('lang');
+      updateHud();
+      ghosts.forEach(g => setLabel(g));
+      if (result) showResult();
+    }
+    langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+
+    // ---- 部屋のマップ ----
+    // 7×5マス。x: 0..6（左→右）, z: 0..4（奥→手前）
+    const W = 7, H = 5, MAX_STEPS = 30;
+    const START = [5, 1], DOOR = [0, 4];
+    const blocked = new Set(['0,0', '1,0', '3,0', '5,0', '6,0', '0,2', '3,2', '6,2', '0,3', '1,3']);
+    const TASKS = [
+      { pos: [0, 1], color: 0x6ec6ff }, // 流し
+      { pos: [1, 1], color: 0xff8a50 }, // コンロ
+      { pos: [3, 1], color: 0xb39ddb }, // 机
+      { pos: [1, 2], color: 0x80deea }, // 洗濯機
+      { pos: [2, 3], color: 0x4fc3f7 }, // 風呂
+      { pos: [4, 3], color: 0xffd54f }, // ローテーブル
+      { pos: [6, 3], color: 0xf48fb1 }, // テレビ
+      { pos: [6, 4], color: 0x81c784 }, // 植木
+      { pos: [2, 4], color: 0xa1887f }, // ゴミ
+    ];
+    const walkable = (x, z) => x >= 0 && x < W && z >= 0 && z < H && !blocked.has(x + ',' + z);
+    const same = (a, b) => a[0] === b[0] && a[1] === b[1];
+
+    // ---- three.js ----
+    const stage = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    stage.prepend(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x23262e);
+    const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+    scene.add(new THREE.HemisphereLight(0xfff4e0, 0x404050, 1.6));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    sun.position.set(4, 10, 6); sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6 });
+    scene.add(sun);
+
+    const room = new THREE.Group();
+    room.position.set(-(W - 1) / 2, 0, -(H - 1) / 2); // マップ座標をそのまま使えるようにずらす
+    scene.add(room);
+    const mat = c => new THREE.MeshLambertMaterial({ color: c });
+    function box(w, h, d, c, x, y, z, parent = room) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(c));
+      m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; parent.add(m); return m;
+    }
+    // 床（市松のフローリング）
+    for (let x = 0; x < W; x++) for (let z = 0; z < H; z++)
+      box(1, 0.1, 1, (x + z) % 2 ? 0xc79a6b : 0xbf9163, x, -0.05, z);
+    // 壁（奥と左）
+    box(W + 0.2, 1.4, 0.1, 0xe8e2d6, (W - 1) / 2, 0.7, -0.55);
+    box(0.1, 1.4, H + 0.2, 0xddd6c8, -0.55, 0.7, (H - 1) / 2);
+    // 窓
+    box(1.6, 0.6, 0.04, 0x9fd3ff, 4.5, 0.85, -0.5);
+    // 家具
+    box(2, 0.85, 0.9, 0xd9d9d9, 0.5, 0.42, 0);          // キッチン台
+    box(0.6, 0.06, 0.5, 0x8899aa, 0, 0.87, 0);           // 流し
+    box(0.4, 0.04, 0.4, 0x333333, 1, 0.87, 0);            // コンロ
+    box(0.9, 0.7, 0.7, 0x8d6e63, 3, 0.35, 0);             // 机
+    box(0.4, 0.3, 0.3, 0x333a44, 3, 0.85, -0.1);          // モニター
+    box(1.9, 0.4, 0.95, 0x90a4ae, 5.5, 0.2, 0);           // ベッド
+    box(0.5, 0.12, 0.7, 0xffffff, 6.2, 0.46, 0);          // 枕
+    box(0.85, 0.85, 0.85, 0xf5f5f5, 0, 0.42, 2);          // 洗濯機
+    box(0.4, 0.04, 0.4, 0x445566, 0, 0.86, 2);
+    box(0.9, 0.35, 0.9, 0xa1887f, 3, 0.18, 2);            // ローテーブル
+    box(0.3, 0.7, 0.9, 0x37474f, 6.3, 0.45, 2);           // テレビ台＋テレビ
+    box(0.06, 0.5, 0.85, 0x111111, 6.1, 0.85, 2);
+    box(1.95, 1.2, 0.95, 0xcfe8f0, 0.5, 0.6, 3);          // ユニットバス
+    box(0.95, 0.04, 0.95, 0x8a5a3a, 0, 0.02, 4);          // 玄関
+    box(0.08, 1.3, 0.8, 0x6d4c41, -0.5, 0.65, 4);         // ドア
+
+    // タスクのマーカー
+    const markers = TASKS.map(tk => {
+      const g = new THREE.Group();
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.42, 32), new THREE.MeshBasicMaterial({ color: tk.color, transparent: true, opacity: 0.8 }));
+      ring.rotation.x = -Math.PI / 2; ring.position.y = 0.02; g.add(ring);
+      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.16), new THREE.MeshLambertMaterial({ color: tk.color, emissive: tk.color, emissiveIntensity: 0.5 }));
+      gem.position.y = 0.6; g.add(gem); g.userData.gem = gem;
+      g.position.set(tk.pos[0], 0, tk.pos[1]); g.visible = false; room.add(g);
+      return g;
+    });
+    const doorRing = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.42, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 }));
+    doorRing.rotation.x = -Math.PI / 2; doorRing.position.set(DOOR[0], 0.05, DOOR[1]); doorRing.visible = false; room.add(doorRing);
+
+    // 人
+    function makePerson(color, ghost) {
+      const g = new THREE.Group();
+      const m = new THREE.MeshLambertMaterial({ color, transparent: ghost, opacity: ghost ? 0.6 : 1 });
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.55, 16), m); body.position.y = 0.3;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), m); head.position.y = 0.76;
+      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.05, 0.05), mat(0x222222)); eye.position.set(0, 0.8, 0.18);
+      if (ghost) eye.material = new THREE.MeshBasicMaterial({ color: 0x113355, transparent: true, opacity: 0.6 });
+      [body, head].forEach(o => { o.castShadow = !ghost; g.add(o); });
+      g.add(eye);
+      room.add(g);
+      return g;
+    }
+    const player = makePerson(0xffffff, false);
+
+    function setLabel(gh) {
+      if (gh.label) { gh.mesh.remove(gh.label); gh.label.material.map.dispose(); }
+      const c = document.createElement('canvas'); c.width = 128; c.height = 64;
+      const x = c.getContext('2d');
+      x.font = 'bold 40px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillStyle = '#9fd3ff'; x.strokeStyle = '#102030'; x.lineWidth = 6;
+      x.strokeText(t('ghostDay')(gh.day), 64, 34); x.fillText(t('ghostDay')(gh.day), 64, 34);
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+      s.scale.set(0.9, 0.45, 1); s.position.y = 1.3; gh.mesh.add(s); gh.label = s;
+    }
+
+    // ---- ゲーム状態 ----
+    let state = 'title';      // title | intro | play | dead
+    let day = 1, turn = 0, pos = [...START], path = [], tasks = [], ghosts = [], result = null;
+    const paths = [];         // 過去の日の道順
+    let anim = { t: 1 };      // 1歩分の移動アニメ
+
+    function ghostPos(p, tt) { return tt < p.length ? p[tt] : null; }
+
+    function pickTasks() {
+      const n = Math.min(2 + Math.ceil(day / 2), 4);
+      const idx = TASKS.map((_, i) => i).sort(() => Math.random() - 0.5);
+      return idx.slice(0, n);
+    }
+
+    function startDay() {
+      turn = 0; pos = [...START]; path = [[...START]];
+      tasks = pickTasks();
+      markers.forEach((m, i) => m.visible = tasks.includes(i));
+      doorRing.visible = false;
+      ghosts.forEach(g => room.remove(g.mesh));
+      ghosts = paths.map((p, i) => {
+        const gh = { day: i + 1, path: p, mesh: makePerson(0x5fa8ff, true) };
+        setLabel(gh); return gh;
+      });
+      anim = { t: 1 };
+      placeAll(1);
+      updateHud();
+      state = 'intro';
+      const dc = document.getElementById('dayCard');
+      dc.textContent = t('day')(day); dc.hidden = false;
+      setTimeout(() => { dc.hidden = true; if (state === 'intro') state = 'play'; }, 900);
+    }
+
+    function updateHud() {
+      const playing = state !== 'title';
+      document.getElementById('day').textContent = playing ? t('day')(day) : '';
+      const st = document.getElementById('steps');
+      st.textContent = playing ? t('steps')(MAX_STEPS - turn) : '';
+      st.classList.toggle('low', MAX_STEPS - turn <= 5);
+    }
+
+    function step(dx, dz) {
+      if (state !== 'play' || anim.t < 1) return;
+      const np = [pos[0] + dx, pos[1] + dz];
+      if ((dx || dz) && !walkable(...np)) return;
+      const prev = pos; pos = np; turn++; path.push([...np]);
+      if (dx || dz) player.rotation.y = Math.atan2(dx, dz);
+      anim = { t: 0, prev, turn };
+      sndStep();
+      // 過去の自分とぶつかったか（同じマス or すれ違い）
+      for (const g of ghosts) {
+        const a = ghostPos(g.path, turn - 1), b = ghostPos(g.path, turn);
+        if (b && (same(b, pos) || (a && same(a, pos) && same(b, prev)))) return die('hit');
+      }
+      const ti = tasks.findIndex(i => same(TASKS[i].pos, pos));
+      if (ti >= 0) { markers[tasks[ti]].visible = false; tasks.splice(ti, 1); sndTask(); if (!tasks.length) doorRing.visible = true; }
+      if (!tasks.length && same(pos, DOOR)) {
+        state = 'intro'; sndClear();
+        paths.push(path); day++;
+        setTimeout(startDay, 450);
+        return updateHud();
+      }
+      if (turn >= MAX_STEPS) return die('late');
+      updateHud();
+    }
+
+    function die(why) {
+      state = 'dead'; sndDie(); updateHud();
+      result = { days: day - 1, why };
+      player.userData.dieAt = performance.now();
+      setTimeout(showResult, 900);
+    }
+
+    function showResult() {
+      document.getElementById('rDays').textContent = t('days')(result.days);
+      document.getElementById('rMsg').textContent = result.why === 'late' ? t('msgLate') : t('msgHit')(result.days);
+      const url = 'https://keifurukawafunnych.com/games/one-room-loop/';
+      const a = document.getElementById('shareBtn');
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('shareText')(result.days))}&url=${encodeURIComponent(url)}`;
+      if (matchMedia('(pointer: coarse)').matches) { a.removeAttribute('target'); a.removeAttribute('rel'); }
+      else { a.target = '_blank'; a.rel = 'noopener'; }
+      document.getElementById('resultOv').hidden = false;
+    }
+
+    function newGame() {
+      paths.length = 0; day = 1; result = null;
+      player.rotation.set(0, 0, 0); player.userData.dieAt = 0;
+      document.getElementById('titleOv').hidden = true;
+      document.getElementById('resultOv').hidden = true;
+      state = 'intro';
+      startDay();
+    }
+    document.getElementById('startBtn').onclick = newGame;
+    document.getElementById('retryBtn').onclick = newGame;
+
+    // ---- 描画 ----
+    const lerp = (a, b, k) => a + (b - a) * k;
+    function placeAll(k) {
+      const hop = Math.sin(k * Math.PI) * 0.12;
+      const pp = anim.prev || pos;
+      player.position.set(lerp(pp[0], pos[0], k), hop, lerp(pp[1], pos[1], k));
+      const tt = anim.prev ? anim.turn : turn;
+      for (const g of ghosts) {
+        const b = ghostPos(g.path, tt);
+        const a = ghostPos(g.path, anim.prev ? tt - 1 : tt) || b;
+        if (!b) { g.mesh.visible = false; continue; }
+        g.mesh.visible = true;
+        g.mesh.position.set(lerp(a[0], b[0], k), hop, lerp(a[1], b[1], k));
+        if (a[0] !== b[0] || a[1] !== b[1]) g.mesh.rotation.y = Math.atan2(b[0] - a[0], b[1] - a[1]);
+      }
+    }
+    function resize() {
+      const w = stage.clientWidth, h = stage.clientHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      // 部屋全体が収まる距離にする
+      const tan2 = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      const dist = Math.max(8.6 / (tan2 * camera.aspect), 6.2 / tan2) + 0.5;
+      camera.position.set(0, dist * 0.82, dist * 0.62);
+      camera.lookAt(0, 0, 0.3);
+      camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(stage);
+    resize();
+    let last = performance.now();
+    renderer.setAnimationLoop(now => {
+      const dt = now - last; last = now;
+      if (anim.t < 1) { anim.t = Math.min(1, anim.t + dt / 130); placeAll(anim.t); }
+      markers.forEach(m => { m.userData.gem.rotation.y += dt / 600; m.userData.gem.position.y = 0.6 + Math.sin(now / 300) * 0.06; });
+      doorRing.material.opacity = 0.5 + Math.sin(now / 200) * 0.4;
+      if (player.userData.dieAt) {
+        const k = Math.min(1, (now - player.userData.dieAt) / 400);
+        player.rotation.x = -k * Math.PI / 2;
+      }
+      holdTick(now);
+      renderer.render(scene, camera);
+    });
+
+    // ---- 操作（仮想ジョイスティック＋キー） ----
+    const joy = document.getElementById('joy'), knob = document.getElementById('knob');
+    let jp = null, dir = null, nextRepeat = 0, downAt = 0, moved = false;
+    function setDir(d, now) {
+      if (d && (!dir || d[0] !== dir[0] || d[1] !== dir[1])) { dir = d; step(...d); nextRepeat = now + 220; }
+      else if (!d) dir = null;
+    }
+    function holdTick(now) {
+      if (dir && now >= nextRepeat && anim.t >= 1) { step(...dir); nextRepeat = now + 170; }
+    }
+    function joyMove(e) {
+      const r = joy.getBoundingClientRect();
+      let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+      const len = Math.hypot(dx, dy), max = 40;
+      if (len > max) { dx *= max / len; dy *= max / len; }
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+      if (len < 18) return setDir(null);
+      moved = true;
+      setDir(Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)], performance.now());
+    }
+    joy.addEventListener('pointerdown', e => {
+      e.preventDefault(); joy.setPointerCapture(e.pointerId);
+      jp = e.pointerId; downAt = performance.now(); moved = false; joyMove(e);
+    });
+    joy.addEventListener('pointermove', e => { if (e.pointerId === jp) joyMove(e); });
+    const joyEnd = e => {
+      if (e.pointerId !== jp) return;
+      jp = null; knob.style.transform = ''; setDir(null);
+      if (!moved && performance.now() - downAt < 300) step(0, 0); // 軽くタップでその場で1歩待つ
+    };
+    joy.addEventListener('pointerup', joyEnd);
+    joy.addEventListener('pointercancel', joyEnd);
+
+    const KEYS = { ArrowUp: [0, -1], KeyW: [0, -1], ArrowDown: [0, 1], KeyS: [0, 1], ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0], Space: [0, 0] };
+    addEventListener('keydown', e => {
+      const d = KEYS[e.code]; if (!d) return;
+      e.preventDefault(); if (e.repeat) return;
+      if (state === 'title' || (state === 'dead' && result && e.code === 'Space')) return;
+      if (d[0] || d[1]) setDir(d, performance.now()); else step(0, 0);
+    });
+    addEventListener('keyup', e => { const d = KEYS[e.code]; if (d && dir && d[0] === dir[0] && d[1] === dir[1]) setDir(null); });
+
+    applyLang();
+  </script>
+</body>
+</html>
