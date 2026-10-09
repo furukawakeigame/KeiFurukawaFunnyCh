@@ -30,6 +30,11 @@
       color: #333; font-size: 15px; padding: 0 10px; cursor: pointer; font-family: inherit;
     }
     main { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 0 16px; }
+    #wrap { position: relative; }
+    #editor {
+      position: absolute; z-index: 2; font-size: 16px; padding: 8px 10px; border: 2px solid #333; border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.35); background: #fff;
+    }
     #poster {
       display: block; height: min(60dvh, calc((100vw - 32px) * 1.5)); aspect-ratio: 2 / 3; width: auto;
       box-shadow: 0 3px 14px rgba(0,0,0,.25); touch-action: none; cursor: grab; background: #fff;
@@ -58,7 +63,12 @@
     #file { display: none; }
     @media (min-width: 760px) {
       main { flex-direction: row; justify-content: center; align-items: flex-start; gap: 28px; }
-      #poster { height: min(78dvh, 900px); }
+      #wrap { position: relative; }
+    #editor {
+      position: absolute; z-index: 2; font-size: 16px; padding: 8px 10px; border: 2px solid #333; border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.35); background: #fff;
+    }
+    #poster { height: min(78dvh, 900px); }
     }
   </style>
 </head>
@@ -68,7 +78,7 @@
     <div class="hbtns"><button id="lang" class="pill">EN</button></div>
   </header>
   <main>
-    <canvas id="poster" width="800" height="1200"></canvas>
+    <div id="wrap"><canvas id="poster" width="800" height="1200"></canvas><textarea id="editor" rows="1" hidden></textarea></div>
     <div id="panel">
       <div class="row">
         <button id="photo" class="btn sub"></button>
@@ -79,9 +89,6 @@
         <input id="zoom" type="range" min="0.5" max="3" step="0.01" value="1">
         <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="#333" stroke-width="2"/><path d="M12 12l6 6M5 8h6M8 5v6" stroke="#333" stroke-width="2"/></svg>
       </div>
-      <textarea id="f-catch" rows="2"></textarea>
-      <div class="row"><input id="f-name" type="text"><input id="f-kana" type="text"></div>
-      <div class="row"><input id="f-party" type="text"><input id="f-slogan" type="text"></div>
       <div class="row colors" id="colors"></div>
       <div class="row layouts" id="layouts"></div>
       <div class="row">
@@ -223,7 +230,28 @@
       textOut(p, x + 18, y + (size + 30) / 2 + 2, size, c);
     }
 
-    function draw() {
+    // ポスター上で文字を直接編集する範囲（ポスターの座標）。タップした場所の文字を編集する
+    const BOX = {
+      tate: { party: [10, 30, 270, 90], kana: [10, 122, 270, 50], name: [20, 185, 250, 990], slogan: [300, 20, 490, 60], catch: [310, 940, 480, 240] },
+      yoko: { party: [20, 20, 380, 110], catch: [450, 110, 320, 690], kana: [50, 850, 700, 70], name: [30, 925, 740, 155], slogan: [30, 1095, 740, 100] },
+      naname: { party: [20, 20, 380, 110], catch: [450, 110, 320, 590], kana: [100, 770, 600, 70], name: [40, 845, 720, 150], slogan: [60, 1085, 680, 80] },
+    };
+    let editing = null;
+    function guides() {
+      const b = BOX[st.layout];
+      ctx.save(); ctx.lineWidth = 3; ctx.setLineDash([12, 8]);
+      FIELDS.forEach(k => {
+        const [x, y, w, h] = b[k];
+        ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.strokeRect(x + 1, y + 1, w, h);
+        ctx.strokeStyle = k === editing ? '#ffe33b' : 'rgba(255,255,255,.9)'; ctx.strokeRect(x, y, w, h);
+        if (!fields[k].trim()) {
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          textOut(t('ph')[k], x + w / 2, y + h / 2, fit(t('ph')[k], w - 10, 30, 700), 'rgba(255,255,255,.95)', 'rgba(0,0,0,.4)', 700);
+        }
+      });
+      ctx.restore();
+    }
+    function draw(withGuides = true) {
       const c = st.color, f = fields;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
@@ -243,10 +271,10 @@
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         textOut(f.party, 145, 80, fit(f.party, 240, 60), '#fff');
         const nm = CJK.test(f.name) ? f.name.replace(/[ 　]/g, '') : f.name;
-        vertical(nm, 270, 150, 1010, 250, '#fff', null, 250);
-        if (f.kana.trim()) vertical(f.kana, 44, 160, 990, 30, '#fff', null, 32);
+        vertical(nm, 270, 190, 980, 250, '#fff', null, 250);
+        textOut(f.kana, 145, 145, fit(f.kana, 250, 30, 700), '#fff', null, 700);
         ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-        if (f.slogan.trim()) textOut(f.slogan, 775, 50, fit(f.slogan, 460, 32, 700), '#fff', dark(c), 700);
+        textOut(f.slogan, 775, 50, fit(f.slogan, 460, 32, 700), '#fff', dark(c), 700);
         const lines = f.catch.split('\n').filter(l => l.trim()).slice(-3);
         let cs = 78; lines.forEach(l => { cs = Math.min(cs, fit(l, 450, 78)); });
         ctx.textAlign = 'left';
@@ -270,13 +298,29 @@
         textOut(f.slogan, 0, 0, fit(f.slogan, 680, 36), c);
         ctx.restore();
       }
+      if (withGuides) guides();
     }
     let psTimer = 0;
+    function exportCanvas(fn) { draw(false); const r = fn(); draw(); return r; }
     function save() { store.set('state', st); store.set('fields', fields); draw(); loadFont(); clearTimeout(psTimer); psTimer = setTimeout(prepareShare, 300); }
 
     // ---- 入力 ----
-    FIELDS.forEach(k => { $('f-' + k).oninput = e => { fields[k] = e.target.value; save(); }; });
-    function fillInputs() { FIELDS.forEach(k => { $('f-' + k).value = fields[k]; }); }
+    const ed = $('editor');
+    function openEditor(k) {
+      editing = k; ed.hidden = false; ed.value = fields[k];
+      ed.rows = k === 'catch' ? 3 : 1; ed.placeholder = t('ph')[k]; ed.setAttribute('aria-label', t('ph')[k]);
+      const s = cv.getBoundingClientRect().width / W, [x, y, w, h] = BOX[st.layout][k];
+      const cw = cv.getBoundingClientRect().width, ew = Math.min(cw, Math.max(220, w * s));
+      ed.style.width = ew + 'px';
+      ed.style.left = Math.min(cw - ew, Math.max(0, x * s)) + 'px';
+      ed.style.top = Math.min(cv.getBoundingClientRect().height - 50, Math.max(0, (y + h / 2) * s - 22)) + 'px';
+      ed.focus(); ed.select(); draw();
+    }
+    function closeEditor() { if (!editing) return; editing = null; ed.hidden = true; draw(); }
+    ed.oninput = () => { if (editing) { fields[editing] = ed.value; save(); } };
+    ed.onkeydown = e => { if ((e.key === 'Enter' && editing !== 'catch' && !e.isComposing) || e.key === 'Escape') { e.preventDefault(); ed.blur(); } };
+    ed.onblur = closeEditor;
+    function fillInputs() { if (editing) ed.value = fields[editing]; }
 
     COLORS.forEach(c => {
       const b = document.createElement('button'); b.style.background = c; b.setAttribute('aria-label', c);
@@ -330,10 +374,13 @@
     // ---- 写真のドラッグ・ピンチ・ホイール ----
     const pts = new Map(); let pinch = null;
     const toPoster = () => W / cv.getBoundingClientRect().width;
-    cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); pinch = null; });
+    let tap = null;
+    cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); pinch = null; tap = pts.size === 1 ? [e.clientX, e.clientY] : null; });
     cv.addEventListener('pointermove', e => {
       if (!pts.has(e.pointerId)) return;
       const prev = pts.get(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]);
+      if (tap && Math.hypot(e.clientX - tap[0], e.clientY - tap[1]) > 8) tap = null;
+      if (tap) return;
       if (pts.size >= 2) {
         const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
         if (pinch) st.zoom = Math.min(3, Math.max(0.5, st.zoom * d / pinch));
@@ -344,7 +391,18 @@
       }
       draw();
     });
-    const up = e => { if (pts.delete(e.pointerId)) { pinch = null; save(); } };
+    const up = e => {
+      if (!pts.delete(e.pointerId)) return;
+      pinch = null;
+      if (tap && e.type === 'pointerup') {
+        // 動かさずに離したらタップ。その場所の文字を編集する
+        const r = cv.getBoundingClientRect(), k = W / r.width, px = (e.clientX - r.left) * k, py = (e.clientY - r.top) * k;
+        const hit = FIELDS.find(f => { const [x, y, w, h] = BOX[st.layout][f]; return px >= x && px <= x + w && py >= y && py <= y + h; });
+        tap = null;
+        if (hit) { e.preventDefault(); openEditor(hit); return; }
+      }
+      tap = null; save();
+    };
     cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
     cv.addEventListener('wheel', e => {
       e.preventDefault();
@@ -354,7 +412,7 @@
     // ---- 保存・ポスト ----
     function download() {
       draw();
-      const a = document.createElement('a'); a.href = cv.toDataURL('image/png'); a.download = 'election-poster.png'; a.click();
+      const a = document.createElement('a'); a.href = exportCanvas(() => cv.toDataURL('image/png')); a.download = 'election-poster.png'; a.click();
       $('saved').textContent = t('saved');
     }
     $('save').onclick = download;
@@ -362,7 +420,7 @@
     function prepareShare() {
       $('post').href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(fields))}&url=${encodeURIComponent(SHARE_URL)}`;
       shareFile = null;
-      cv.toBlob(b => { if (b) shareFile = new File([b], 'election-poster.png', { type: 'image/png' }); }, 'image/png');
+      exportCanvas(() => cv.toBlob(b => { if (b) shareFile = new File([b], 'election-poster.png', { type: 'image/png' }); }, 'image/png'));
     }
     $('post').addEventListener('pointerdown', prepareShare);
     $('post').addEventListener('focus', prepareShare);
@@ -387,7 +445,6 @@
       $('photo').textContent = t('photo'); $('random').textContent = t('random');
       $('save').textContent = t('save'); $('post').textContent = t('post');
       $('zoom').setAttribute('aria-label', t('zoom'));
-      FIELDS.forEach(k => { $('f-' + k).placeholder = t('ph')[k]; $('f-' + k).setAttribute('aria-label', t('ph')[k]); });
       if (matchMedia('(pointer: coarse)').matches) $('post').removeAttribute('target');
       else { $('post').target = '_blank'; $('post').rel = 'noopener'; }
       $('saved').textContent = '';
