@@ -31,9 +31,15 @@
     }
     main { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 0 16px; }
     #wrap { position: relative; }
-    #editor {
-      position: absolute; z-index: 2; font-size: 16px; padding: 8px 10px; border: 2px solid #333; border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0,0,0,.35); background: #fff;
+    #editbox {
+      position: absolute; z-index: 2; display: flex; gap: 6px; padding: 6px; border-radius: 12px;
+      background: #fff; box-shadow: 0 4px 16px rgba(0,0,0,.35); box-sizing: border-box;
+    }
+    #editbox[hidden] { display: none; }
+    #editor { flex: 1; min-width: 0; font-size: 16px; padding: 8px 10px; border: 1px solid #bbb; border-radius: 8px; }
+    #ok {
+      flex: none; font-size: 16px; font-weight: bold; padding: 0 16px; border: none; border-radius: 8px;
+      background: #bc002d; color: #fff; cursor: pointer; font-family: inherit;
     }
     #poster {
       display: block; height: min(60dvh, calc((100vw - 32px) * 1.5)); aspect-ratio: 2 / 3; width: auto;
@@ -64,9 +70,15 @@
     @media (min-width: 760px) {
       main { flex-direction: row; justify-content: center; align-items: flex-start; gap: 28px; }
       #wrap { position: relative; }
-    #editor {
-      position: absolute; z-index: 2; font-size: 16px; padding: 8px 10px; border: 2px solid #333; border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0,0,0,.35); background: #fff;
+    #editbox {
+      position: absolute; z-index: 2; display: flex; gap: 6px; padding: 6px; border-radius: 12px;
+      background: #fff; box-shadow: 0 4px 16px rgba(0,0,0,.35); box-sizing: border-box;
+    }
+    #editbox[hidden] { display: none; }
+    #editor { flex: 1; min-width: 0; font-size: 16px; padding: 8px 10px; border: 1px solid #bbb; border-radius: 8px; }
+    #ok {
+      flex: none; font-size: 16px; font-weight: bold; padding: 0 16px; border: none; border-radius: 8px;
+      background: #bc002d; color: #fff; cursor: pointer; font-family: inherit;
     }
     #poster { height: min(78dvh, 900px); }
     }
@@ -78,7 +90,7 @@
     <div class="hbtns"><button id="lang" class="pill">EN</button></div>
   </header>
   <main>
-    <div id="wrap"><canvas id="poster" width="800" height="1200"></canvas><textarea id="editor" rows="1" hidden></textarea></div>
+    <div id="wrap"><canvas id="poster" width="800" height="1200"></canvas><div id="editbox" hidden><textarea id="editor" rows="1" enterkeyhint="done"></textarea><button id="ok" type="button"></button></div></div>
     <div id="panel">
       <div class="row">
         <button id="photo" class="btn sub"></button>
@@ -112,7 +124,7 @@
     const L = {
       ja: {
         title: '選挙ポスター', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
-        photo: '写真を選ぶ', random: 'おまかせ', save: '画像を保存', post: 'Xにポスト', zoom: '写真の大きさ',
+        ok: '決定', photo: '写真を選ぶ', random: 'おまかせ', save: '画像を保存', post: 'Xにポスト', zoom: '写真の大きさ',
         saved: '画像を保存しました。ポストに添付してください',
         ph: { catch: 'キャッチコピー', name: '名前', kana: 'ふりがな', party: '政党名', slogan: 'ひとこと' },
         def: { catch: 'この町を\nもっと面白く', name: '山田太郎', kana: 'やまだ たろう', party: '面白党', slogan: '清き一票を、よろしくお願いします' },
@@ -126,7 +138,7 @@
       },
       en: {
         title: 'Election Poster', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
-        photo: 'Choose photo', random: 'Random', save: 'Save image', post: 'Post on X', zoom: 'Photo size',
+        ok: 'Done', photo: 'Choose photo', random: 'Random', save: 'Save image', post: 'Post on X', zoom: 'Photo size',
         saved: 'Image saved. Attach it to your post.',
         ph: { catch: 'Catchphrase', name: 'Name', kana: 'Subtitle', party: 'Party', slogan: 'Slogan' },
         def: { catch: 'Make our town\nmore fun.', name: 'Taro Yamada', kana: 'FOR MAYOR', party: 'Fun Party', slogan: 'Your vote matters. Thank you!' },
@@ -305,21 +317,23 @@
     function save() { store.set('state', st); store.set('fields', fields); draw(); loadFont(); clearTimeout(psTimer); psTimer = setTimeout(prepareShare, 300); }
 
     // ---- 入力 ----
-    const ed = $('editor');
+    const ed = $('editor'), box = $('editbox');
     function openEditor(k) {
-      editing = k; ed.hidden = false; ed.value = fields[k];
+      editing = k; box.hidden = false; ed.value = fields[k];
       ed.rows = k === 'catch' ? 3 : 1; ed.placeholder = t('ph')[k]; ed.setAttribute('aria-label', t('ph')[k]);
       const s = cv.getBoundingClientRect().width / W, [x, y, w, h] = BOX[st.layout][k];
-      const cw = cv.getBoundingClientRect().width, ew = Math.min(cw, Math.max(220, w * s));
-      ed.style.width = ew + 'px';
-      ed.style.left = Math.min(cw - ew, Math.max(0, x * s)) + 'px';
-      ed.style.top = Math.min(cv.getBoundingClientRect().height - 50, Math.max(0, (y + h / 2) * s - 22)) + 'px';
+      const cw = cv.getBoundingClientRect().width, ew = Math.min(cw, Math.max(260, w * s));
+      box.style.width = ew + 'px';
+      box.style.left = Math.min(cw - ew, Math.max(0, x * s)) + 'px';
+      box.style.top = Math.min(cv.getBoundingClientRect().height - 50, Math.max(0, (y + h / 2) * s - 22)) + 'px';
       ed.focus(); ed.select(); draw();
     }
-    function closeEditor() { if (!editing) return; editing = null; ed.hidden = true; draw(); }
+    function closeEditor() { if (!editing) return; editing = null; box.hidden = true; draw(); }
     ed.oninput = () => { if (editing) { fields[editing] = ed.value; save(); } };
     ed.onkeydown = e => { if ((e.key === 'Enter' && editing !== 'catch' && !e.isComposing) || e.key === 'Escape') { e.preventDefault(); ed.blur(); } };
-    ed.onblur = closeEditor;
+    // 決定ボタンを押したときも、入力欄のフォーカスが外れて閉じる
+    ed.onblur = () => setTimeout(() => { if (!box.contains(document.activeElement)) closeEditor(); });
+    $('ok').onclick = closeEditor;
     function fillInputs() { if (editing) ed.value = fields[editing]; }
 
     COLORS.forEach(c => {
@@ -442,6 +456,7 @@
       document.title = t('title');
       $('back').textContent = t('back');
       $('lang').textContent = t('lang'); $('lang').setAttribute('aria-label', t('langLabel'));
+      $('ok').textContent = t('ok');
       $('photo').textContent = t('photo'); $('random').textContent = t('random');
       $('save').textContent = t('save'); $('post').textContent = t('post');
       $('zoom').setAttribute('aria-label', t('zoom'));
