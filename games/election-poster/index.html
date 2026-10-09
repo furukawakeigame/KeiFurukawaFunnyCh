@@ -13,6 +13,9 @@
   <meta property="og:url" content="https://keifurukawafunnych.com/games/election-poster/">
   <meta property="og:image" content="https://keifurukawafunnych.com/games/election-poster/icon.png">
   <meta name="twitter:card" content="summary">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@700;900&display=swap" rel="stylesheet">
   <style>
     html, body { margin: 0; background: #e9e4dc; color: #333; }
     body {
@@ -105,11 +108,11 @@
         photo: '写真を選ぶ', random: 'おまかせ', save: '画像を保存', post: 'Xにポスト', zoom: '写真の大きさ',
         saved: '画像を保存しました。ポストに添付してください',
         ph: { catch: 'キャッチコピー', name: '名前', kana: 'ふりがな', party: '政党名', slogan: 'ひとこと' },
-        def: { catch: 'この町を、\nもっと面白く。', name: '山田 たろう', kana: 'やまだ たろう', party: '面白党', slogan: '清き一票を、よろしくお願いします' },
+        def: { catch: 'この町を\nもっと面白く', name: '山田太郎', kana: 'やまだ たろう', party: '面白党', slogan: '清き一票を、よろしくお願いします' },
         share: f => `選挙ポスターを作りました。${f.party} ${f.name}`,
         rnd: {
           catch: ['毎日を、\n金曜日に。', '税金より、\nおやつを。', '寝坊を、\n合法に。', '月曜日を、\nなくします。', '全員に、\n昼寝の時間を。', '信号を、\nずっと青に。', '会議は、\n5分まで。', 'ごはんを、\n大盛りに。'],
-          name: ['山田 たろう', '鈴木 はなこ', '田中 ねこ', 'ふとん しきお', 'から あげる', 'すし のぞむ'],
+          name: ['山田太郎', '鈴木 はなこ', '田中 ねこ', 'ふとん しきお', 'から あげる', 'すし のぞむ'],
           party: ['面白党', 'ねむい党', '大盛り党', '金曜党', 'おやつ党', 'ずっと休み党'],
           slogan: ['清き一票を、よろしくお願いします', '公約は、だいたい守ります', '投票日は、晴れるといいな', 'まずは、お話を聞かせてください'],
         },
@@ -135,18 +138,21 @@
     const t = k => L[lang][k];
 
     // ---- 状態 ----
-    const COLORS = ['#c8102e', '#1d4fa3', '#14834a', '#e86a10', '#6b2fa0', '#222222'];
-    const LAYOUTS = ['yoko', 'tate', 'naname'];
+    const COLORS = ['#2a62d8', '#c8102e', '#14834a', '#e86a10', '#6b2fa0', '#222222'];
+    const LAYOUTS = ['tate', 'yoko', 'naname'];
     const W = 800, H = 1200;
-    const st = Object.assign({ color: COLORS[0], layout: 'yoko', zoom: 1, ox: 0, oy: 0 }, store.get('state', {}));
+    const st = Object.assign({ color: COLORS[0], layout: 'tate', zoom: 1, ox: 0, oy: 0 }, store.get('state', {}));
     let fields = store.get('fields', null) || { ...t('def') };
     let img = null;
     const savedPhoto = store.get('photo', null);
     if (savedPhoto) { const im = new Image(); im.onload = () => { img = im; draw(); }; im.src = savedPhoto; }
 
     const cv = $('poster'), ctx = cv.getContext('2d');
-    const FONT = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Noto Sans JP", system-ui, sans-serif';
+    const FONT = '"Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Noto Sans JP", system-ui, sans-serif';
     const font = (px, w = 900) => `${w} ${px}px ${FONT}`;
+    const YELLOW = '#ffe33b';
+    // 帯の色を暗くしてフチ取りに使う
+    const dark = c => '#' + [1, 3, 5].map(i => Math.round(parseInt(c.slice(i, i + 2), 16) * 0.35).toString(16).padStart(2, '0')).join('');
     const CJK = /[　-鿿＀-￯]/;
 
     // 幅に収まるまで文字を小さくする
@@ -223,7 +229,7 @@
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
       if (st.layout === 'yoko') {
         drawPhoto(0, 0, W, 830);
-        vertical(f.catch, 760, 120, 660, 110, '#fff', c, 300);
+        vertical(f.catch, 760, 120, 660, 110, YELLOW, dark(c), 300);
         partyBox(30, 30, c);
         ctx.fillStyle = c; ctx.fillRect(0, 830, W, 260);
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -231,17 +237,24 @@
         textOut(f.name, W / 2, 1000, fit(f.name, 740, 160), '#fff');
         textOut(f.slogan, W / 2, 1145, fit(f.slogan, 740, 46), c);
       } else if (st.layout === 'tate') {
-        drawPhoto(250, 0, W - 250, 1000);
-        ctx.fillStyle = c; ctx.fillRect(0, 0, 250, H);
-        vertical(f.name, 225, 80, 880, 190, '#fff', null, 190);
-        vertical(f.kana, 50, 80, 880, 34, '#fff', null, 40);
-        vertical(f.catch, 770, 110, 840, 96, '#fff', c, 260);
-        partyBox(280, 30, c);
+        // 見本：左に色の縦帯、白い極太の縦書きの名前、右下に黄色の横書きキャッチ
+        drawPhoto(290, 0, W - 290, H);
+        ctx.fillStyle = c; ctx.fillRect(0, 0, 290, H);
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        textOut(f.slogan, 525, 1100, fit(f.slogan, 510, 44), c);
+        textOut(f.party, 145, 80, fit(f.party, 240, 60), '#fff');
+        const nm = CJK.test(f.name) ? f.name.replace(/[ 　]/g, '') : f.name;
+        vertical(nm, 270, 150, 1010, 250, '#fff', null, 250);
+        if (f.kana.trim()) vertical(f.kana, 44, 160, 990, 30, '#fff', null, 32);
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        if (f.slogan.trim()) textOut(f.slogan, 775, 50, fit(f.slogan, 460, 32, 700), '#fff', dark(c), 700);
+        const lines = f.catch.split('\n').filter(l => l.trim()).slice(-3);
+        let cs = 78; lines.forEach(l => { cs = Math.min(cs, fit(l, 450, 78)); });
+        ctx.textAlign = 'left';
+        const cx = 320 + (460 - Math.max(0, ...lines.map(l => (ctx.font = font(cs), ctx.measureText(l).width)))) / 2;
+        lines.forEach((l, i) => textOut(l, cx, 1140 - (lines.length - 1 - i) * cs * 1.25, cs, YELLOW, dark(c)));
       } else {
         drawPhoto(0, 0, W, H);
-        vertical(f.catch, 760, 120, 560, 110, '#fff', c, 300);
+        vertical(f.catch, 760, 120, 560, 110, YELLOW, dark(c), 300);
         partyBox(30, 30, c);
         ctx.fillStyle = c;
         ctx.beginPath(); ctx.moveTo(0, 800); ctx.lineTo(W, 680); ctx.lineTo(W, 1020); ctx.lineTo(0, 1140); ctx.fill();
@@ -259,7 +272,7 @@
       }
     }
     let psTimer = 0;
-    function save() { store.set('state', st); store.set('fields', fields); draw(); clearTimeout(psTimer); psTimer = setTimeout(prepareShare, 300); }
+    function save() { store.set('state', st); store.set('fields', fields); draw(); loadFont(); clearTimeout(psTimer); psTimer = setTimeout(prepareShare, 300); }
 
     // ---- 入力 ----
     FIELDS.forEach(k => { $('f-' + k).oninput = e => { fields[k] = e.target.value; save(); }; });
@@ -272,7 +285,7 @@
     });
     const LAYOUT_SVG = {
       yoko: '<rect width="30" height="45" fill="#ddd"/><rect y="28" width="30" height="10" fill="#888"/>',
-      tate: '<rect width="30" height="45" fill="#ddd"/><rect width="10" height="45" fill="#888"/>',
+      tate: '<rect width="30" height="45" fill="#ddd"/><rect width="11" height="45" fill="#888"/>',
       naname: '<rect width="30" height="45" fill="#ddd"/><path d="M0 30L30 25V37L0 42Z" fill="#888"/>',
     };
     LAYOUTS.forEach(l => {
@@ -294,7 +307,7 @@
       st.color = pick(COLORS); st.layout = pick(LAYOUTS);
       fillInputs(); marks(); save();
     };
-    const KANA = { '山田 たろう': 'やまだ たろう', '鈴木 はなこ': 'すずき はなこ', '田中 ねこ': 'たなか ねこ' };
+    const KANA = { '山田太郎': 'やまだ たろう', '鈴木 はなこ': 'すずき はなこ', '田中 ねこ': 'たなか ねこ' };
 
     // 写真は縮小して端末内（localStorage）にだけ保存する
     $('photo').onclick = () => $('file').click();
@@ -390,7 +403,14 @@
 
     $('zoom').value = st.zoom;
     fillInputs(); marks(); applyLang(); draw();
-    if (document.fonts) document.fonts.ready.then(draw);
+    // Webフォントは使う文字の分だけ読み込まれるので、文字が変わるたびに読み込んで描き直す
+    let fontKey = '';
+    function loadFont() {
+      const text = Object.values(fields).join('') + t('def').party;
+      if (!document.fonts || text === fontKey) return; fontKey = text;
+      Promise.all([document.fonts.load(font(100), text), document.fonts.load(font(100, 700), text)]).then(draw, () => {});
+    }
+    loadFont();
   </script>
 </body>
 </html>
