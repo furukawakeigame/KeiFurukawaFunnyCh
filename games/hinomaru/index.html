@@ -87,7 +87,7 @@
         again: 'もう一度', post: 'Xにポスト',
         stick: '貼る', sizeLabel: '丸の大きさ',
         score: s => `${s}点`, gap: (mm, sz) => `位置 ${mm}mm・大きさ ${sz}mm ずれ`, out: '旗の外',
-        palau: 'パラオ', laos: 'ラオス', niger: 'ニジェール',
+        palau: 'パラオ', laos: 'ラオス', niger: 'ニジェール', bangladesh: 'バングラデシュ', greenland: 'グリーンランド', tunisia: 'チュニジア',
         share: r => '日の丸職人：' + (r.out ? '日の丸を旗の外に貼りました' : r.country ? `${L.ja[r.country]}の国旗ができました` : `位置${r.mm}mm・大きさ${r.sz}mmずれ（${r.score}点）`),
       },
       en: {
@@ -95,7 +95,7 @@
         again: 'Again', post: 'Post on X',
         stick: 'Stick', sizeLabel: 'Circle size',
         score: s => `${s} pts`, gap: (mm, sz) => `Position ${mm}mm, size ${sz}mm off`, out: 'Off the flag',
-        palau: 'Palau', laos: 'Laos', niger: 'Niger',
+        palau: 'Palau', laos: 'Laos', niger: 'Niger', bangladesh: 'Bangladesh', greenland: 'Greenland', tunisia: 'Tunisia',
         share: r => 'Rising Sun Craftsman: ' + (r.out ? 'I stuck the sun outside the flag' : r.country ? `I made the flag of ${L.en[r.country]}` : `position ${r.mm}mm, size ${r.sz}mm off (${r.score} pts)`),
       },
     };
@@ -156,6 +156,22 @@
 
     const STYLE = {
       jp: { bg: [['#fff', 1]], disc: '#bc002d' },
+      bangladesh: { bg: [['#006a4e', 1]], disc: '#f42a41' },
+      greenland: { bg: [['#fff', .5], ['#c8102e', .5]], disc: '#c8102e', paint: (cx, cy, r) => { // 丸の下半分は白
+        ctx.fillStyle = '#c8102e'; ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, 0); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI); ctx.fill();
+      } },
+      tunisia: { bg: [['#e70013', 1]], disc: '#fff', paint: (cx, cy, r) => { // 白い丸に赤い三日月と星
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#e70013'; ctx.beginPath(); ctx.arc(cx, cy, r * .75, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx + r * .2, cy, r * .6, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#e70013'; ctx.beginPath();
+        for (let i = 0; i < 10; i++) {
+          const a = -Math.PI / 2 + i * Math.PI / 5, q = i % 2 ? r * .16 : r * .4;
+          ctx.lineTo(cx + r * .2 + Math.cos(a) * q, cy + Math.sin(a) * q);
+        }
+        ctx.fill();
+      } },
       palau: { bg: [['#4aadd6', 1]], disc: '#ffde00' },
       laos: { bg: [['#ce1126', .25], ['#002868', .5], ['#ce1126', .25]], disc: '#fff' },
       niger: { bg: [['#e05206', 1 / 3], ['#fff', 1 / 3], ['#0db02b', 1 / 3]], disc: '#e05206' },
@@ -168,8 +184,11 @@
       let y = f.y;
       for (const [c, h] of st.bg) { ctx.fillStyle = c; ctx.fillRect(f.x, y, f.w, f.h * h + 1); y += f.h * h; }
       ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1; ctx.strokeRect(f.x + .5, f.y + .5, f.w - 1, f.h - 1);
-      ctx.fillStyle = st.disc;
-      ctx.beginPath(); ctx.arc(sx(disc.x), sy(disc.y), disc.d / 2 * k, 0, Math.PI * 2); ctx.fill();
+      if (st.paint) st.paint(sx(disc.x), sy(disc.y), disc.d / 2 * k);
+      else {
+        ctx.fillStyle = st.disc;
+        ctx.beginPath(); ctx.arc(sx(disc.x), sy(disc.y), disc.d / 2 * k, 0, Math.PI * 2); ctx.fill();
+      }
       if (state === 'done' && !result.country) { // 正解の位置と大きさ
         ctx.setLineDash([6, 5]); ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(sx(0), sy(0), JP / 2 * k, 0, Math.PI * 2); ctx.stroke();
@@ -208,7 +227,11 @@
       const country =
         center && Math.abs(d - 150) <= 30 ? 'niger' :
         center && Math.abs(d - 240) <= 30 ? 'laos' :
-        x <= -30 && x >= -110 && Math.abs(y) <= 20 && Math.abs(d - JP) <= 40 ? 'palau' : null; // パラオは丸が左寄り
+        center && Math.abs(d - 300) <= 20 ? 'tunisia' :
+        // ここから下は丸が左（旗竿側）に寄った国旗
+        x <= -80 && x >= -130 && Math.abs(y) <= 20 && Math.abs(d - 400) <= 30 ? 'greenland' :
+        x <= -20 && x > -80 && Math.abs(y) <= 20 && Math.abs(d - 400) <= 30 ? 'bangladesh' :
+        x <= -30 && x >= -110 && Math.abs(y) <= 20 && d >= 320 && d < 370 ? 'palau' : null;
       return { mm, sz, score, country };
     }
     $('stick').onclick = () => {
