@@ -339,7 +339,8 @@
     // 人：頭・胴体・腕・脚の箱でできたブロック人形。歩くと手足を振る
     function makePerson(color, ghost) {
       const g = new THREE.Group();
-      const m = c => ghost ? new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.6 }) : mat(c);
+      const mats = [];
+      const m = c => { const x = ghost ? new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.6 }) : mat(c); mats.push(x); return x; };
       const part = (w, h, d, material, x, y, z, parent = g) => {
         const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
         o.position.set(x, y, z); o.castShadow = !ghost; parent.add(o); return o;
@@ -356,7 +357,7 @@
       part(0.3, 0.28, 0.28, skin, 0, 0.8, 0);
       const eyes = ghost ? new THREE.MeshBasicMaterial({ color: 0x113355, transparent: true, opacity: 0.6 }) : mat(0x222222);
       part(0.05, 0.06, 0.02, eyes, -0.07, 0.82, 0.145); part(0.05, 0.06, 0.02, eyes, 0.07, 0.82, 0.145);
-      g.userData.limbs = [armL, armR, legL, legR];
+      g.userData.limbs = [armL, armR, legL, legR]; g.userData.mats = mats;
       room.add(g);
       return g;
     }
@@ -395,39 +396,26 @@
       return idx.slice(0, n);
     }
 
-    function clearGhosts() { ghosts.forEach(g => { room.remove(g.mesh); room.remove(g.trail); }); ghosts = []; }
+    function clearGhosts() { ghosts.forEach(g => room.remove(g.mesh)); ghosts = []; }
 
-    // 過去の自分がこれから歩く道を、床に矢印でつないで見せる（近い未来ほど濃く、次の1歩は大きな矢印）
-    const arrowShape = new THREE.Shape();
-    arrowShape.moveTo(0, 0.2); arrowShape.lineTo(0.18, -0.12); arrowShape.lineTo(0, -0.03); arrowShape.lineTo(-0.18, -0.12); arrowShape.closePath();
-    const arrowGeo = new THREE.ShapeGeometry(arrowShape).scale(1.4, 1.4, 1), segGeo = new THREE.PlaneGeometry(0.08, 1), dotGeo = new THREE.CircleGeometry(0.12, 16);
-    function makeTrail(p, k) {
-      const g = new THREE.Group();
-      // 各マスに「手前のマスからの線」と「進む向きの矢印」をひと組で置く
-      p.forEach(([x, z], i) => {
-        const m = new THREE.MeshBasicMaterial({ color: 0xbfe4ff, transparent: true, depthWrite: false });
-        const set = new THREE.Group(); set.position.y = 0.03 + k * 0.002;
-        const q = p[i - 1];
-        let mark;
-        if (q && (q[0] !== x || q[1] !== z)) {
-          const dx = x - q[0], dz = z - q[1];
-          const sg = new THREE.Mesh(segGeo, m); sg.rotation.x = -Math.PI / 2;
-          sg.rotation.z = dx ? Math.PI / 2 : 0; sg.position.set((x + q[0]) / 2, 0, (z + q[1]) / 2); set.add(sg);
-          mark = new THREE.Mesh(arrowGeo, m); mark.rotation.set(-Math.PI / 2, 0, Math.atan2(-dx, -dz));
-        } else mark = new THREE.Mesh(dotGeo, m), mark.rotation.x = -Math.PI / 2;
-        mark.position.set(x, 0.001, z); set.add(mark);
-        set.userData.mark = mark; g.add(set);
-      });
-      room.add(g); return g;
-    }
-    function updateTrails(tt) {
-      for (const g of ghosts) g.trail.children.forEach((d, i) => {
-        const ahead = i - (tt - g.delay);
-        d.visible = ahead >= 1;
-        d.children[0].material.opacity = ahead === 1 ? 1 : Math.max(0.15, 0.8 - (ahead - 2) * 0.08);
-        d.children[0].material.color.set(ahead === 1 ? 0x7fd0ff : 0xbfe4ff);
-        d.userData.mark.scale.setScalar(ahead === 1 ? 2.2 : 1);
-      });
+    // 待っている間、過去の自分は次に進むマスへ半歩踏み出しては戻る（次の1歩のチラ見せ）。
+    // まだベッドの中の自分は、起きてくるマスで点滅する
+    function previewGhosts(now) {
+      const ph = (now % 900) / 900, lean = (1 - Math.cos(ph * Math.PI * 2)) / 2 * 0.38;
+      for (const g of ghosts) {
+        const b = ghostPos(g, turn), n = ghostPos(g, turn + 1), mats = g.mesh.userData.mats;
+        if (!b && n) {
+          g.mesh.visible = true; g.mesh.position.set(n[0], 0, n[1]); swing(g.mesh, 1);
+          mats.forEach(m => m.opacity = 0.15 + 0.35 * (1 - Math.cos(ph * Math.PI * 2)) / 2);
+          continue;
+        }
+        mats.forEach(m => m.opacity = 0.6);
+        if (!b || !n || same(b, n)) continue;
+        const dx = n[0] - b[0], dz = n[1] - b[1];
+        g.mesh.position.set(b[0] + dx * lean, 0, b[1] + dz * lean);
+        g.mesh.rotation.y = Math.atan2(dx, dz);
+        swing(g.mesh, ph * 0.5);
+      }
     }
 
     function startDay() {
@@ -437,7 +425,7 @@
       doorRing.visible = !tasks.length;
       clearGhosts();
       ghosts = paths.map((p, i) => {
-        const gh = { day: i + 1, delay: day - (i + 1), path: p, mesh: makePerson(0x5fa8ff, true), trail: makeTrail(p, i) };
+        const gh = { day: i + 1, delay: day - (i + 1), path: p, mesh: makePerson(0x5fa8ff, true) };
         setLabel(gh); return gh;
       });
       player.visible = true;
@@ -516,7 +504,6 @@
       player.position.set(lerp(pp[0], pos[0], k), hop, lerp(pp[1], pos[1], k));
       swing(player, anim.prev ? k : 1);
       const tt = anim.prev ? anim.turn : turn;
-      updateTrails(tt);
       for (const g of ghosts) {
         const b = ghostPos(g, tt);
         const a = ghostPos(g, anim.prev ? tt - 1 : tt) || b;
@@ -574,6 +561,7 @@
         const k = Math.min(1, (now - player.userData.dieAt) / 400);
         player.rotation.x = -k * Math.PI / 2;
       }
+      if (anim.t >= 1 && (state === 'play' || state === 'intro')) previewGhosts(now);
       holdTick(now);
       renderer.render(scene, camera);
     });
