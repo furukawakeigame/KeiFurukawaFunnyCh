@@ -224,7 +224,7 @@
       'k': { name: 'キッチン', color: 0xd9d9d9, h: 0.85 },
       'f': { name: '冷蔵庫', color: 0xf0f0f0, h: 1.5 },
       'w': { name: '洗濯機', color: 0xf5f5f5, h: 0.85 },
-      'u': { name: '風呂', color: 0xcfe8f0, h: 1.2 },
+      'u': { name: '風呂', color: 0xcfe8f0, h: 0.55 },
       'b': { name: 'ベッド', color: 0x90a4ae, h: 0.4 },
       'd': { name: '机', color: 0x8d6e63, h: 0.7 },
       't': { name: 'テーブル', color: 0xa1887f, h: 0.7 },
@@ -294,7 +294,9 @@
     function furnish(c, x, z, tile, j) {
       const at = (xx, zz) => layout[zz]?.[xx];
       const open = (xx, zz) => at(xx, zz) && TILES[at(xx, zz)].h === 0;
-      const front = [[0, 1], [1, 0], [-1, 0], [0, -1]].find(([dx, dz]) => open(x + dx, z + dz)) || [0, 1];
+      // 正面は、カメラ側（右・手前）のタスクのマス → カメラ側の通れるマス → それ以外の通れるマス の順で選ぶ
+      const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+      const front = dirs.slice(0, 2).find(([dx, dz]) => at(x + dx, z + dz) === '*') || dirs.find(([dx, dz]) => open(x + dx, z + dz)) || [1, 0];
       const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = Math.atan2(front[0], front[1]); statics.add(g);
       const b = (w, h, d, col, lx, ly, lz) => box(w, h, d, col, lx, ly, lz, g);
       const cyl = (r, h, col, lx, ly, lz, rx = 0) => {
@@ -332,10 +334,17 @@
           cyl(0.24, 0.03, 0x9fb4c4, 0, h * 0.45, F, Math.PI / 2); cyl(0.17, 0.035, 0x5b6f80, 0, h * 0.45, F + 0.005, Math.PI / 2);
           b(0.8, 0.12, 0.02, 0xdadada, 0, h - 0.1, F); cyl(0.04, 0.03, 0x444444, 0.25, h - 0.1, F + 0.01, Math.PI / 2);
           break;
-        case 'u': // 風呂：お湯の見える浴槽のふちと、正面の扉
-          b(0.8, 0.02, 0.8, 0x7fc8e8, 0, h + 0.005, 0);
-          if (!same(0, 1) || front[1] !== 1) { b(0.5, 0.9, 0.02, 0xb7d4de, 0, 0.5, F); b(0.25, 0.25, 0.025, 0x9fd3ff, 0, 0.7, F); }
+        case 'u': { // 湯船：つながったマスは1つの浴槽にする。ふちはつながっていない側だけ
+          const cx = x + (j.ex - j.wx) / 2, cz = z + (j.ez - j.nz) / 2, w = j.ex + j.wx, d = j.ez + j.nz, t = 0.08;
+          box(w, 0.1, d, tile.color, cx, 0.05, cz, statics);
+          box(w, 0.02, d, 0x7fc8e8, cx, h - 0.12, cz, statics);
+          box(w, h - 0.12, d, 0xb9dbe6, cx, (h - 0.12) / 2, cz, statics);
+          if (!same(1, 0)) box(t, h, d, tile.color, x + j.ex - t / 2, h / 2, cz, statics);
+          if (!same(-1, 0)) box(t, h, d, tile.color, x - j.wx + t / 2, h / 2, cz, statics);
+          if (!same(0, 1)) box(w, h, t, tile.color, cx, h / 2, z + j.ez - t / 2, statics);
+          if (!same(0, -1)) box(w, h, t, tile.color, cx, h / 2, z - j.nz + t / 2, statics);
           break;
+        }
         case 'b': { // ベッド：枠・マットレス・掛け布団、頭の側に枕
           box(j.ex + j.wx, 0.2, j.ez + j.nz, 0x6d4c41, x + (j.ex - j.wx) / 2, 0.1, z + (j.ez - j.nz) / 2, statics);
           box(j.ex + j.wx - 0.04, 0.16, j.ez + j.nz - 0.04, 0xf0f0f0, x + (j.ex - j.wx) / 2, 0.28, z + (j.ez - j.nz) / 2, statics);
@@ -382,7 +391,7 @@
           // 同じ家具が隣にあれば隙間なくつなげる
           const ex = at(x + 1, z) === c ? 0.5 : 0.45, wx = at(x - 1, z) === c ? 0.5 : 0.45;
           const ez = at(x, z + 1) === c ? 0.5 : 0.45, nz = at(x, z - 1) === c ? 0.5 : 0.45;
-          if (c !== 'd' && c !== 't' && c !== 'v' && c !== 's' && c !== 'b')
+          if (!'dtvsbu'.includes(c))
             box(ex + wx, tile.h, ez + nz, tile.color, x + (ex - wx) / 2, tile.h / 2, z + (ez - nz) / 2, statics);
           furnish(c, x, z, tile, { ex, wx, ez, nz });
         }
