@@ -44,8 +44,6 @@
     .info b { font-size: 22px; }
     #topInfo { top: 4px; }
     #botInfo { bottom: 4px; }
-    .timerbar { height: 8px; border-radius: 4px; background: rgba(255,255,255,.2); overflow: hidden; flex: 1; margin: 0 10px; }
-    .timerbar i { display: block; height: 100%; background: #ffe9a8; width: 100%; }
     .overlay {
       position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 14px; background: rgba(30,22,36,.82); z-index: 20; text-align: center; padding: 0 16px;
@@ -75,7 +73,7 @@
   </header>
   <main>
     <canvas id="cv"></canvas>
-    <div class="info" id="topInfo"><span id="leftInfo"></span><div class="timerbar hidden" id="tbar"><i id="tfill"></i></div><span id="rightInfo"></span></div>
+    <div class="info" id="topInfo"><span id="leftInfo"></span><span id="rightInfo"></span></div>
     <div class="info" id="botInfo"><span id="myDeck"></span><span></span></div>
     <div class="msg" id="msg"></div>
 
@@ -138,30 +136,30 @@
     const L = {
       ja: {
         title: 'しりとりスピード', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English', sound: '音のオン/オフ',
-        cpu: 'CPUと対戦', ta: 'タイムアタック 60秒', lv: i => LV[i],
-        played: n => `<b>${n}</b>枚`, time: s => `${s}秒`, best: n => `ベスト${n}枚`,
+        cpu: 'CPUと対戦', ta: 'タイムアタック', lv: i => LV[i],
+        time: s => `${s}秒`, best: s => `ベスト${s}秒`,
         flip: 'せーの！', win: '勝ち！', lose: '負け…',
         winSub: (n, l) => n >= 15 ? `${l}のCPUに${n}枚差で圧勝` : n >= 6 ? `${l}のCPUに${n}枚差で勝利` : `${l}のCPUに${n}枚差で辛勝`,
         loseSub: (n, l) => n <= 3 ? `あと${n}枚だった…（${l}）` : n <= 10 ? `残り${n}枚。${l}のCPUに負けた` : `残り${n}枚。${l}のCPUに完敗`,
-        taBig: n => `${n}枚`,
-        taSub: (n, b) => (n > b ? 'ベスト更新！ ' : '') + (n >= 30 ? 'しりとりの鬼' : n >= 20 ? 'かなり速い' : n >= 10 ? 'いい調子' : 'まだまだ'),
+        taBig: s => `${s}秒`,
+        taSub: (s, nb) => (nb ? 'ベスト更新！ ' : '') + (s < 30 ? 'しりとりの鬼' : s < 45 ? 'かなり速い' : s < 70 ? 'いい調子' : 'まだまだ'),
         shareWin: (n, l) => `しりとりスピードで${l}のCPUに勝った！（${n}枚差）`,
         shareLose: (n, l) => `しりとりスピードで${l}のCPUに負けた…（残り${n}枚）`,
-        shareTa: n => `しりとりスピードのタイムアタックで60秒に${n}枚つないだ！`,
+        shareTa: s => `しりとりスピードのタイムアタックで、山札を${s}秒で出し切った！`,
         share: 'Xに投稿', again: 'もう一度', toTitle: 'モード選択へ', loadErr: '読み込みに失敗しました。通信環境を確認して再読み込みしてください。',
       },
       en: {
         title: 'Shiritori Speed', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え', sound: 'Sound on/off',
-        cpu: 'Play vs CPU', ta: 'Time Attack 60s', lv: i => LVE[i],
-        played: n => `<b>${n}</b> cards`, time: s => `${s}s`, best: n => `Best ${n}`,
+        cpu: 'Play vs CPU', ta: 'Time Attack', lv: i => LVE[i],
+        time: s => `${s}s`, best: s => `Best ${s}s`,
         flip: 'Flip!', win: 'You win!', lose: 'You lose...',
         winSub: (n, l) => n >= 15 ? `Crushed the ${l} CPU by ${n} cards` : n >= 6 ? `Beat the ${l} CPU by ${n} cards` : `Barely beat the ${l} CPU by ${n} cards`,
         loseSub: (n, l) => n <= 3 ? `Only ${n} cards to go... (${l})` : n <= 10 ? `${n} cards left. Lost to the ${l} CPU` : `${n} cards left. Crushed by the ${l} CPU`,
-        taBig: n => `${n} cards`,
-        taSub: (n, b) => (n > b ? 'New best! ' : '') + (n >= 30 ? 'Shiritori demon' : n >= 20 ? 'Very fast' : n >= 10 ? 'Nice pace' : 'Keep practicing'),
+        taBig: s => `${s}s`,
+        taSub: (s, nb) => (nb ? 'New best! ' : '') + (s < 30 ? 'Shiritori demon' : s < 45 ? 'Very fast' : s < 70 ? 'Nice pace' : 'Keep practicing'),
         shareWin: (n, l) => `I beat the ${l} CPU in Shiritori Speed! (by ${n} cards)`,
         shareLose: (n, l) => `I lost to the ${l} CPU in Shiritori Speed... (${n} cards left)`,
-        shareTa: n => `I chained ${n} cards in 60 seconds in Shiritori Speed!`,
+        shareTa: s => `I emptied my deck in ${s}s in Shiritori Speed Time Attack!`,
         share: 'Post on X', again: 'Play again', toTitle: 'Modes', loadErr: 'Failed to load. Check your connection and reload.',
       },
     };
@@ -215,6 +213,7 @@
     }
     const byHead = {};
     for (const w of WORDS) (byHead[w[0]] = byHead[w[0]] || []).push(w);
+    const fmtSec = ms => (ms / 1000).toFixed(1);
     const pick = a => a[Math.floor(Math.random() * a.length)];
 
     // 山札から1枚引く。場につながる言葉が出やすいように少しだけ寄せる
@@ -414,12 +413,12 @@
     resize();
 
     // ===== 状態 =====
-    const DECK = 20, HAND = 4, TA_TIME = 60;
+    const DECK = 20, HAND = 4;
     const CPU_MS = [[2600, 4200], [1600, 2800], [900, 1600]];
     let mode = null, level = store.get('level', 1), result = null;
     let piles = ['', ''], hand = [], myDeck = 0, cpuHand = [], cpuDeck = 0, played = 0;
     let handM = [], cpuM = [], pileStacks = [[], []];
-    let stunUntil = 0, endAt = 0, cpuTimer = 0, stallTimer = 0, tick = 0, running = false;
+    let stunUntil = 0, startAt = 0, finishedAt = 0, cpuTimer = 0, stallTimer = 0, tick = 0, running = false;
 
     document.querySelectorAll('#lv button').forEach((b, i) => b.onclick = () => { level = i; store.set('level', i); applyLang(); });
 
@@ -430,24 +429,23 @@
       pileStacks = [[], []];
       piles = [pileWord(), pileWord()];
       piles.forEach((w, p) => aimPile(makeCard(w, 'pile', new THREE.Vector3(0, 3, -1)), p));
-      myDeck = m === 'ta' ? Infinity : DECK; cpuDeck = DECK;
+      myDeck = DECK; cpuDeck = DECK;
       hand = []; handM = []; cpuHand = []; cpuM = [];
       for (let i = 0; i < HAND; i++) {
-        hand[i] = draw(); if (m !== 'ta') myDeck--;
+        hand[i] = draw(); myDeck--;
         handM[i] = makeCard(hand[i], 'hand', myDeckPos); aimHand(handM[i], i);
         if (m === 'cpu') { cpuHand[i] = draw(); cpuDeck--; cpuM[i] = makeCard(null, 'back', cpuDeckPos); aimCpu(cpuM[i], i); }
       }
       opp.visible = m === 'cpu'; oppState.mood = 'idle';
       $('title').classList.add('hidden'); $('result').classList.add('hidden');
-      $('tbar').classList.toggle('hidden', m !== 'ta');
       clearTimeout(cpuTimer); clearTimeout(stallTimer); clearInterval(tick);
       if (m === 'cpu') scheduleCpu();
-      if (m === 'ta') { endAt = performance.now() + TA_TIME * 1000; tick = setInterval(taTick, 100); }
+      if (m === 'ta') { startAt = performance.now(); tick = setInterval(renderInfo, 100); }
       renderInfo(); checkStall();
     }
     const canPlay = w => piles.findIndex(p => w && w[0] === tailOf(p));
     const anyMove = h => h.some(w => canPlay(w) >= 0);
-    const myLeft = () => hand.filter(Boolean).length + (mode === 'ta' ? 0 : myDeck);
+    const myLeft = () => hand.filter(Boolean).length + myDeck;
     const cpuLeft = () => cpuHand.filter(Boolean).length + cpuDeck;
 
     function playerPlay(idx, pi) {
@@ -461,12 +459,12 @@
       }
       piles[pi] = w; aimPile(m, pi); sndPlay(); played++;
       hand[idx] = null; handM[idx] = null;
-      if (mode === 'ta' || myDeck > 0) {
-        hand[idx] = draw(); if (mode !== 'ta') myDeck--;
+      if (myDeck > 0) {
+        hand[idx] = draw(); myDeck--;
         handM[idx] = makeCard(hand[idx], 'hand', myDeckPos); aimHand(handM[idx], idx);
       }
       renderInfo();
-      if (mode === 'cpu' && myLeft() === 0) return finish(true), true;
+      if (myLeft() === 0) return finish(true), true;
       checkStall();
       return true;
     }
@@ -504,18 +502,12 @@
         checkStall();
       }, 1500);
     }
-    function taTick() {
-      const left = Math.max(0, endAt - performance.now());
-      $('tfill').style.width = (left / (TA_TIME * 1000) * 100) + '%';
-      renderInfo();
-      if (left <= 0) finish(null);
-    }
     function finish(win) {
-      running = false; clearTimeout(cpuTimer); clearTimeout(stallTimer); clearInterval(tick); cancelDrag();
+      running = false; finishedAt = performance.now(); clearTimeout(cpuTimer); clearTimeout(stallTimer); clearInterval(tick); cancelDrag();
       if (mode === 'ta') {
-        const best = store.get('best', 0);
-        result = { mode: 'ta', n: played, best };
-        if (played > best) store.set('best', played);
+        const ms = performance.now() - startAt, best = store.get('bestMs', null);
+        result = { mode: 'ta', n: fmtSec(ms), newBest: best === null || ms < best };
+        if (result.newBest) store.set('bestMs', ms);
         sndWin();
       } else {
         result = { mode: 'cpu', win, n: win ? cpuLeft() : myLeft(), level };
@@ -528,7 +520,7 @@
       if (!result) return;
       const r = result, lv = t('lv')(r.level ?? 0);
       let big, sub, text;
-      if (r.mode === 'ta') { big = t('taBig')(r.n); sub = t('taSub')(r.n, r.best); text = t('shareTa')(r.n); }
+      if (r.mode === 'ta') { big = t('taBig')(r.n); sub = t('taSub')(+r.n, r.newBest); text = t('shareTa')(r.n); }
       else if (r.win) { big = t('win'); sub = t('winSub')(r.n, lv); text = t('shareWin')(r.n, lv); }
       else { big = t('lose'); sub = t('loseSub')(r.n, lv); text = t('shareLose')(r.n, lv); }
       $('rBig').textContent = big; $('rSub').textContent = sub;
@@ -545,16 +537,17 @@
 
     function renderInfo() {
       if (!mode) return;
-      setDeck(decks[0], myDeck, mode === 'cpu');
+      setDeck(decks[0], myDeck, true);
       setDeck(decks[1], cpuDeck, mode === 'cpu');
       if (mode === 'cpu') {
         $('leftInfo').textContent = '';
         $('rightInfo').textContent = t('lv')(level);
         $('myDeck').textContent = '';
       } else {
-        $('leftInfo').innerHTML = t('played')(played);
-        $('rightInfo').textContent = t('time')(Math.ceil(Math.max(0, endAt - performance.now()) / 1000));
-        $('myDeck').textContent = t('best')(Math.max(store.get('best', 0), played));
+        const best = store.get('bestMs', null);
+        $('leftInfo').textContent = best === null ? '' : t('best')(fmtSec(best));
+        $('rightInfo').textContent = t('time')(fmtSec((running ? performance.now() : finishedAt) - startAt));
+        $('myDeck').textContent = '';
       }
     }
 
