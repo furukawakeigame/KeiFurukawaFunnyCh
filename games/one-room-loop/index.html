@@ -376,6 +376,15 @@
       }
     }
 
+    // 壁のマスのうち、まわり8マスがすべて壁か外のものは無駄なので描かない
+    function shown(x, z) {
+      if (layout[z][x] !== '#') return true;
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        const c = layout[z + dz]?.[x + dx];
+        if (c && c !== '#') return true;
+      }
+      return false;
+    }
     // 間取りから部屋を組み立て直す
     function buildRoom() {
       readLayout();
@@ -385,6 +394,7 @@
       const at = (x, z) => layout[z]?.[x];
       layout.forEach((row, z) => [...row].forEach((c, x) => {
         const tile = TILES[c];
+        if (!shown(x, z)) return; // まわりが全部壁の壁は描かない
         // 床（ラグ以外は市松のフローリング）
         box(1, 0.1, 1, c === ',' ? 0x8c9cb3 : (x + z) % 2 ? 0xc79a6b : 0xbf9163, x, -0.05, z, statics);
         if (tile.h > 0) {
@@ -611,8 +621,12 @@
       camera.updateProjectionMatrix();
       // 部屋の角（床と壁の上端）が画面いっぱいに収まるよう、距離と注視点を画面比率に合わせて詰める
       const ox = room.position.x, oz = room.position.z, corners = [];
-      for (const x of [-0.5, W - 0.5]) for (const z of [-0.5, H - 0.5]) for (const y of [0, 1.4])
-        corners.push(new THREE.Vector3(x + ox, y, z + oz));
+      // 描いているマスの角だけで画面に合わせる
+      layout.forEach((row, z) => [...row].forEach((_, x) => {
+        if (!shown(x, z)) return;
+        for (const cx of [x - 0.5, x + 0.5]) for (const cz of [z - 0.5, z + 0.5]) for (const y of [0, 1.4])
+          corners.push(new THREE.Vector3(cx + ox, y, cz + oz));
+      }));
       const dirv = new THREE.Vector3(Math.sin(CAM_YAW) * 0.62, 0.82, Math.cos(CAM_YAW) * 0.62).normalize();
       const target = new THREE.Vector3(0, 0, 0);
       const halfTan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
