@@ -39,20 +39,8 @@
     }
     #hud { display: flex; justify-content: space-between; align-items: center; padding: 0 16px; height: 40px; font-weight: bold; }
     #day { font-size: 22px; }
-    #steps { font-size: 18px; color: #ffd27a; }
-    #steps.low { color: #ff6b6b; }
-    #stage { position: relative; flex: 1; min-height: 0; }
+    #stage { position: relative; flex: 1; min-height: 0; touch-action: none; }
     #stage canvas { display: block; width: 100%; height: 100%; }
-    #pad { height: 150px; flex: none; position: relative; touch-action: none; cursor: pointer; }
-    #joy {
-      width: 128px; height: 128px; margin: -64px 0 0 -64px; border-radius: 50%; position: absolute; pointer-events: none;
-      background: radial-gradient(circle, #3a3f4c 0 55%, #30343f 56%); border: 3px solid #4a4f5e; box-sizing: border-box;
-    }
-    #knob {
-      position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%;
-      background: #f2f2f2; box-shadow: 0 3px 0 #9a9a9a; pointer-events: none;
-    }
-    #joy svg { position: absolute; inset: 0; pointer-events: none; }
     .ov {
       position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
       background: rgba(20, 22, 28, .78); text-align: center; padding: 16px; box-sizing: border-box;
@@ -82,7 +70,7 @@
     </div>
   </header>
   <main>
-    <div id="hud"><span id="day"></span><span id="steps"></span></div>
+    <div id="hud"><span id="day"></span></div>
     <div id="stage">
       <div id="dayCard" class="ov" hidden></div>
       <div id="titleOv" class="ov">
@@ -95,15 +83,6 @@
         <div id="rMsg"></div>
         <button id="retryBtn" class="big">もう一度</button>
         <a id="shareBtn" class="big x" href="#">Xに投稿</a>
-      </div>
-    </div>
-    <div id="pad">
-      <div id="joy">
-        <svg viewBox="0 0 128 128"><g fill="#6a7080">
-          <path d="M64 10 l8 10 h-16z"/><path d="M64 118 l8 -10 h-16z"/>
-          <path d="M10 64 l10 8 v-16z"/><path d="M118 64 l-10 8 v-16z"/>
-        </g></svg>
-        <div id="knob"></div>
       </div>
     </div>
   </main>
@@ -154,18 +133,16 @@
     const L = {
       ja: {
         title: '1Kループ', back: '← トップへ戻る', lang: 'EN', start: 'スタート', retry: 'もう一度', share: 'Xに投稿',
-        day: n => `${n}日目`, steps: n => `残り ${n}歩`, ghostDay: n => `${n}日目`,
+        day: n => `${n}日目`, ghostDay: n => `${n}日目`,
         days: n => `${n}日 生存`,
         msgHit: d => d <= 1 ? '昨日の自分は手強い' : d <= 4 ? '過去の自分に轢かれた' : d <= 8 ? '部屋が自分で渋滞している' : 'もはや自分の群れ',
-        msgLate: '遅刻した',
         shareText: n => `1Kループで${n}日生き延びた\n#1Kループ`,
       },
       en: {
         title: '1K Loop', back: '← Top', lang: '日本語', start: 'Start', retry: 'Retry', share: 'Post on X',
-        day: n => `Day ${n}`, steps: n => `${n} steps left`, ghostDay: n => `D${n}`,
+        day: n => `Day ${n}`, ghostDay: n => `D${n}`,
         days: n => `Survived ${n} day${n === 1 ? '' : 's'}`,
         msgHit: d => d <= 1 ? 'Yesterday\'s you is tough' : d <= 4 ? 'Run over by your past self' : d <= 8 ? 'Traffic jam of yourselves' : 'A herd of yous',
-        msgLate: 'You were late',
         shareText: n => `I survived ${n} day${n === 1 ? '' : 's'} in 1K Loop\n#1KLoop`,
       },
     };
@@ -190,7 +167,7 @@
 
     // ---- 部屋のマップ ----
     // 7×5マス。x: 0..6（左→右）, z: 0..4（奥→手前）
-    const W = 7, H = 5, MAX_STEPS = 30;
+    const W = 7, H = 5;
     const START = [5, 1], DOOR = [0, 4];
     const blocked = new Set(['0,0', '1,0', '3,0', '5,0', '6,0', '0,2', '3,2', '6,2', '0,3', '1,3']);
     const TASKS = [
@@ -331,27 +308,20 @@
     function updateHud() {
       const playing = state !== 'title';
       document.getElementById('day').textContent = playing ? t('day')(day) : '';
-      const st = document.getElementById('steps');
-      st.textContent = playing ? t('steps')(MAX_STEPS - turn) : '';
-      st.classList.toggle('low', MAX_STEPS - turn <= 5);
     }
 
     function step(dx, dz) {
       if (state !== 'play' || anim.t < 1) return;
-      // ジョイスティックの向きを、いまのカメラの向きに合わせて回す
-      const q = ((Math.round(camYaw / (Math.PI / 2)) % 4) + 4) % 4;
-      const sn = [0, 1, 0, -1][q], cs = [1, 0, -1, 0][q];
-      [dx, dz] = [dx * cs + dz * sn, -dx * sn + dz * cs];
       const np = [pos[0] + dx, pos[1] + dz];
-      if ((dx || dz) && !walkable(...np)) return;
+      if (!walkable(...np)) return;
       const prev = pos; pos = np; turn++; path.push([...np]);
-      if (dx || dz) player.rotation.y = Math.atan2(dx, dz);
+      player.rotation.y = Math.atan2(dx, dz);
       anim = { t: 0, prev, turn };
       sndStep();
       // 過去の自分とぶつかったか（同じマス or すれ違い）
       for (const g of ghosts) {
         const a = ghostPos(g.path, turn - 1), b = ghostPos(g.path, turn);
-        if (b && (same(b, pos) || (a && same(a, pos) && same(b, prev)))) return die('hit');
+        if (b && (same(b, pos) || (a && same(a, pos) && same(b, prev)))) return die();
       }
       const ti = tasks.findIndex(i => same(TASKS[i].pos, pos));
       if (ti >= 0) { markers[tasks[ti]].visible = false; tasks.splice(ti, 1); sndTask(); if (!tasks.length) doorRing.visible = true; }
@@ -361,20 +331,19 @@
         setTimeout(startDay, 450);
         return updateHud();
       }
-      if (turn >= MAX_STEPS) return die('late');
       updateHud();
     }
 
-    function die(why) {
+    function die() {
       state = 'dead'; sndDie(); updateHud();
-      result = { days: day - 1, why };
+      result = { days: day - 1 };
       player.userData.dieAt = performance.now();
       setTimeout(showResult, 900);
     }
 
     function showResult() {
       document.getElementById('rDays').textContent = t('days')(result.days);
-      document.getElementById('rMsg').textContent = result.why === 'late' ? t('msgLate') : t('msgHit')(result.days);
+      document.getElementById('rMsg').textContent = t('msgHit')(result.days);
       const url = 'https://keifurukawafunnych.com/games/one-room-loop/';
       const a = document.getElementById('shareBtn');
       a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('shareText')(result.days))}&url=${encodeURIComponent(url)}`;
@@ -410,32 +379,20 @@
         if (a[0] !== b[0] || a[1] !== b[1]) g.mesh.rotation.y = Math.atan2(b[0] - a[0], b[1] - a[1]);
       }
     }
-    // 部屋をドラッグして回す
-    let camYaw = 0, camDist = 10, rotPtr = null, rotX = 0;
+    // 斜め上から見下ろす固定カメラ
+    const CAM_YAW = Math.PI / 4;
+    let camDist = 10;
     function placeCamera() {
-      camera.position.set(Math.sin(camYaw) * camDist * 0.62, camDist * 0.82, Math.cos(camYaw) * camDist * 0.62);
+      camera.position.set(Math.sin(CAM_YAW) * camDist * 0.62, camDist * 0.82, Math.cos(CAM_YAW) * camDist * 0.62);
       camera.lookAt(0, 0, 0);
-      // カメラ側の壁は隠して中が見えるようにする
-      backWall.forEach(m => m.visible = camera.position.z > -1);
-      leftWall.forEach(m => m.visible = camera.position.x > -1);
     }
-    const cvs = renderer.domElement;
-    cvs.style.cursor = 'grab';
-    cvs.addEventListener('pointerdown', e => { rotPtr = e.pointerId; rotX = e.clientX; cvs.setPointerCapture(e.pointerId); cvs.style.cursor = 'grabbing'; });
-    cvs.addEventListener('pointermove', e => {
-      if (e.pointerId !== rotPtr) return;
-      camYaw -= (e.clientX - rotX) * 0.01; rotX = e.clientX; placeCamera();
-    });
-    const rotEnd = e => { if (e.pointerId === rotPtr) { rotPtr = null; cvs.style.cursor = 'grab'; } };
-    cvs.addEventListener('pointerup', rotEnd);
-    cvs.addEventListener('pointercancel', rotEnd);
     function resize() {
       const w = stage.clientWidth, h = stage.clientHeight;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       // 部屋全体が収まる距離にする
       const tan2 = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-      const dist = Math.max(8.6 / (tan2 * camera.aspect), 6.2 / tan2) + 0.5;
+      const dist = Math.max(9.8 / (tan2 * camera.aspect), 6.8 / tan2) + 0.5;
       camDist = dist; placeCamera();
       camera.updateProjectionMatrix();
     }
@@ -455,9 +412,9 @@
       renderer.render(scene, camera);
     });
 
-    // ---- 操作（仮想ジョイスティック＋キー） ----
-    const pad = document.getElementById('pad'), joy = document.getElementById('joy'), knob = document.getElementById('knob');
-    let jp = null, dir = null, nextRepeat = 0, downAt = 0, moved = false;
+    // ---- 操作（スワイプ＋キー） ----
+    // 押したところからの指の向きで進む。指を置いたままなら同じ向きに歩き続ける
+    let sp = null, sc = [0, 0], dir = null, nextRepeat = 0;
     function setDir(d, now) {
       if (d && (!dir || d[0] !== dir[0] || d[1] !== dir[1])) { dir = d; step(...d); nextRepeat = now + 220; }
       else if (!d) dir = null;
@@ -465,43 +422,35 @@
     function holdTick(now) {
       if (dir && now >= nextRepeat && anim.t >= 1) { step(...dir); nextRepeat = now + 170; }
     }
-    function joyMove(e) {
-      let dx = e.clientX - jc[0], dy = e.clientY - jc[1];
-      const len = Math.hypot(dx, dy), max = 40;
-      if (len > max) { dx *= max / len; dy *= max / len; }
-      knob.style.transform = `translate(${dx}px, ${dy}px)`;
-      if (len < 18) return setDir(null);
-      moved = true;
-      setDir(Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)], performance.now());
+    // 画面上の向きを、斜めに見ている部屋のマスの向きに直す
+    function screenToGrid(sx, sy) {
+      const c = Math.cos(CAM_YAW), s = Math.sin(CAM_YAW);
+      const wx = sx * c + sy * s, wz = -sx * s + sy * c;
+      return Math.abs(wx) > Math.abs(wz) ? [Math.sign(wx), 0] : [0, Math.sign(wz)];
     }
-    // 押したところを中心にスティックを出し、離したら消す
-    let jc = [0, 0];
-    joy.hidden = true;
-    pad.addEventListener('pointerdown', e => {
-      if (jp !== null) return;
-      e.preventDefault(); pad.setPointerCapture(e.pointerId);
-      const r = pad.getBoundingClientRect();
-      jc = [e.clientX, e.clientY];
-      joy.style.left = (e.clientX - r.left) + 'px'; joy.style.top = (e.clientY - r.top) + 'px'; joy.hidden = false;
-      jp = e.pointerId; downAt = performance.now(); moved = false; joyMove(e);
+    const zone = document.querySelector('main');
+    zone.addEventListener('pointerdown', e => {
+      if (sp !== null || e.target.closest('button, a')) return;
+      e.preventDefault(); zone.setPointerCapture(e.pointerId);
+      sp = e.pointerId; sc = [e.clientX, e.clientY];
     });
-    pad.addEventListener('pointermove', e => { if (e.pointerId === jp) joyMove(e); });
-    const joyEnd = e => {
-      if (e.pointerId !== jp) return;
-      jp = null; knob.style.transform = ''; joy.hidden = true; setDir(null);
-      if (!moved && performance.now() - downAt < 300) step(0, 0); // 軽くタップでその場で1歩待つ
-    };
-    pad.addEventListener('pointerup', joyEnd);
-    pad.addEventListener('pointercancel', joyEnd);
+    zone.addEventListener('pointermove', e => {
+      if (e.pointerId !== sp) return;
+      const dx = e.clientX - sc[0], dy = e.clientY - sc[1];
+      if (Math.hypot(dx, dy) < 24) return setDir(null);
+      setDir(screenToGrid(dx, dy), performance.now());
+    });
+    const swipeEnd = e => { if (e.pointerId === sp) { sp = null; setDir(null); } };
+    zone.addEventListener('pointerup', swipeEnd);
+    zone.addEventListener('pointercancel', swipeEnd);
 
-    const KEYS = { ArrowUp: [0, -1], KeyW: [0, -1], ArrowDown: [0, 1], KeyS: [0, 1], ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0], Space: [0, 0] };
+    const KEYS = { ArrowUp: [0, -1], KeyW: [0, -1], ArrowDown: [0, 1], KeyS: [0, 1], ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0] };
     addEventListener('keydown', e => {
       const d = KEYS[e.code]; if (!d) return;
-      e.preventDefault(); if (e.repeat) return;
-      if (state === 'title' || (state === 'dead' && result && e.code === 'Space')) return;
-      if (d[0] || d[1]) setDir(d, performance.now()); else step(0, 0);
+      e.preventDefault(); if (e.repeat || state === 'title') return;
+      setDir(d, performance.now()); // キーは部屋の壁に沿った向き
     });
-    addEventListener('keyup', e => { const d = KEYS[e.code]; if (d && dir && d[0] === dir[0] && d[1] === dir[1]) setDir(null); });
+    addEventListener('keyup', e => { if (KEYS[e.code]) setDir(null); });
 
     applyLang();
   </script>
