@@ -46,6 +46,9 @@
       background: #bc002d; color: #fff; text-decoration: none; font-family: inherit;
     }
     .btn.x { background: #111; }
+    #ctrl { display: flex; align-items: center; gap: 10px; padding: 8px 16px; max-width: 520px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+    #ctrl.hide { visibility: hidden; }
+    #size { flex: 1; min-width: 0; height: 32px; accent-color: #bc002d; touch-action: manipulation; }
   </style>
 </head>
 <body>
@@ -57,6 +60,12 @@
     </div>
   </header>
   <div id="stage"><canvas id="cv"></canvas></div>
+  <div id="ctrl">
+    <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="4" fill="#bc002d"/></svg>
+    <input id="size" type="range" step="1">
+    <svg width="26" height="26" viewBox="0 0 26 26"><circle cx="13" cy="13" r="12" fill="#bc002d"/></svg>
+    <button id="stick" class="btn"></button>
+  </div>
   <div id="result">
     <div id="score"></div>
     <div id="gap"></div>
@@ -78,16 +87,20 @@
       ja: {
         title: '日の丸職人', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English', sound: '音のオン/オフ',
         again: 'もう一度', post: 'Xにポスト',
-        score: s => `${s}点`, gap: mm => `中心から ${mm}mm ずれ`, out: '旗の外',
-        c: ['国旗検査官もうなる', '合格', '少し日が傾いている', '日没', 'それはもう国旗ではない', 'それはパラオ'],
-        share: (s, mm, palau) => mm === null ? '日の丸職人：日の丸を旗の外に貼りました' : palau ? '日の丸職人：パラオの国旗ができました' : `日の丸職人：中心から${mm}mmずれ（${s}点）`,
+        stick: '貼る', sizeLabel: '丸の大きさ',
+        score: s => `${s}点`, gap: (mm, sz) => `位置 ${mm}mm・大きさ ${sz}mm ずれ`, out: '旗の外',
+        c: ['国旗検査官もうなる', '合格', '少し日が傾いている', '日没', 'それはもう国旗ではない'],
+        is: n => `それは${n}`, palau: 'パラオ', laos: 'ラオス', niger: 'ニジェール',
+        share: r => '日の丸職人：' + (r.out ? '日の丸を旗の外に貼りました' : r.country ? `${L.ja[r.country]}の国旗ができました` : `位置${r.mm}mm・大きさ${r.sz}mmずれ（${r.score}点）`),
       },
       en: {
         title: 'Rising Sun Craftsman', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え', sound: 'Sound on/off',
         again: 'Again', post: 'Post on X',
-        score: s => `${s} pts`, gap: mm => `${mm}mm off center`, out: 'Off the flag',
-        c: ['The flag inspector is impressed', 'Approved', 'The sun is tilting a bit', 'Sunset', 'That is no longer a flag', 'That is Palau'],
-        share: (s, mm, palau) => mm === null ? 'Rising Sun Craftsman: I stuck the sun outside the flag' : palau ? 'Rising Sun Craftsman: I made the flag of Palau' : `Rising Sun Craftsman: ${mm}mm off center (${s} pts)`,
+        stick: 'Stick', sizeLabel: 'Circle size',
+        score: s => `${s} pts`, gap: (mm, sz) => `Position ${mm}mm, size ${sz}mm off`, out: 'Off the flag',
+        c: ['The flag inspector is impressed', 'Approved', 'The sun is tilting a bit', 'Sunset', 'That is no longer a flag'],
+        is: n => `That is ${n}`, palau: 'Palau', laos: 'Laos', niger: 'Niger',
+        share: r => 'Rising Sun Craftsman: ' + (r.out ? 'I stuck the sun outside the flag' : r.country ? `I made the flag of ${L.en[r.country]}` : `position ${r.mm}mm, size ${r.sz}mm off (${r.score} pts)`),
       },
     };
     let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
@@ -115,40 +128,55 @@
     }
 
     // ---- 盤面 ----
-    // 旗は 横:縦 = 3:2、丸の直径は縦の 3/5。横幅 900mm として採点する。
+    // 旗は横 900mm × 縦 600mm（3:2）。日本の丸は直径 360mm（縦の 3/5）。
+    // 丸の位置と大きさは mm で持ち、描くときに画面の大きさへ直す。
     const cv = $('cv'), ctx = cv.getContext('2d');
-    let W, H, dpr, flag, disc, state = 'ready', drag = null, result = null;
-    const LIFT = 40; // ドラッグ中、丸を指より少し上に出す
+    const FW = 900, FH = 600, JP = 360, DMIN = 100, DMAX = 540;
+    let W, H, dpr, flag, k, disc, state = 'ready', drag = null, result = null;
+    const LIFT = 40; // タッチのドラッグ中、丸を指より少し上に出す（px）
+    const size = $('size');
+    size.min = DMIN; size.max = DMAX;
+
+    function newDisc() {
+      const d = Math.round(200 + Math.random() * 300);
+      disc = { x: 0, y: 0, d }; size.value = d;
+    }
+    // 旗の中心からの mm ⇔ 画面の px
+    const sx = x => flag.x + flag.w / 2 + x * k, sy = y => flag.y + flag.h / 2 + y * k;
 
     function layout() {
       dpr = devicePixelRatio || 1;
       const r = cv.getBoundingClientRect(); W = r.width; H = r.height;
       cv.width = W * dpr; cv.height = H * dpr;
-      const fw = Math.min(W - 32, (H * 0.62) * 1.5, 600), fh = fw / 1.5;
-      const old = flag;
-      flag = { x: (W - fw) / 2, y: Math.max(12, H * 0.08), w: fw, h: fh };
-      const rad = fh * 0.3;
-      if (state === 'ready' || !disc) disc = { x: W / 2, y: Math.min(H - rad - 10, flag.y + fh + rad + 30), r: rad };
-      else if (old) { // 置いたあとに画面サイズが変わったら旗に合わせて動かす
-        const k = fw / old.w;
-        disc = { x: flag.x + (disc.x - old.x) * k, y: flag.y + (disc.y - old.y) * k, r: rad };
+      const fw = Math.max(60, Math.min(W - 32, H * 0.55 * 1.5, 600)), fh = fw / 1.5;
+      flag = { x: (W - fw) / 2, y: Math.max(12, H * 0.06), w: fw, h: fh };
+      k = fw / FW;
+      if (state === 'ready' && !disc.placed) { // 最初は旗の下に置いておく
+        disc.x = 0;
+        disc.y = Math.min((H - flag.y - fh / 2 - DMAX / 2 * k - 8) / k, FH / 2 + DMAX / 2 + 20);
       }
       draw();
     }
 
+    const STYLE = {
+      jp: { bg: [['#fff', 1]], disc: '#bc002d' },
+      palau: { bg: [['#4aadd6', 1]], disc: '#ffde00' },
+      laos: { bg: [['#ce1126', .25], ['#002868', .5], ['#ce1126', .25]], disc: '#fff' },
+      niger: { bg: [['#e05206', 1 / 3], ['#fff', 1 / 3], ['#0db02b', 1 / 3]], disc: '#e05206' },
+    };
     function draw() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, W, H);
-      const f = flag;
+      const f = flag, st = STYLE[(state === 'done' && result.country) || 'jp'];
       ctx.fillStyle = 'rgba(0,0,0,.12)'; ctx.fillRect(f.x + 3, f.y + 4, f.w, f.h);
-      const palau = state === 'done' && result && result.palau;
-      ctx.fillStyle = palau ? '#4aadd6' : '#fff'; ctx.fillRect(f.x, f.y, f.w, f.h);
+      let y = f.y;
+      for (const [c, h] of st.bg) { ctx.fillStyle = c; ctx.fillRect(f.x, y, f.w, f.h * h + 1); y += f.h * h; }
       ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1; ctx.strokeRect(f.x + .5, f.y + .5, f.w - 1, f.h - 1);
-      ctx.fillStyle = palau ? '#ffde00' : '#bc002d';
-      ctx.beginPath(); ctx.arc(disc.x, disc.y, disc.r, 0, Math.PI * 2); ctx.fill();
-      if (state === 'done' && !palau) {
+      ctx.fillStyle = st.disc;
+      ctx.beginPath(); ctx.arc(sx(disc.x), sy(disc.y), disc.d / 2 * k, 0, Math.PI * 2); ctx.fill();
+      if (state === 'done' && !result.country) { // 正解の位置と大きさ
         ctx.setLineDash([6, 5]); ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(f.x + f.w / 2, f.y + f.h / 2, disc.r, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(sx(0), sy(0), JP / 2 * k, 0, Math.PI * 2); ctx.stroke();
         ctx.setLineDash([]);
       }
     }
@@ -157,53 +185,61 @@
     cv.addEventListener('pointerdown', e => {
       if (state !== 'ready') return;
       const p = pos(e);
-      if (Math.hypot(p.x - disc.x, p.y - disc.y) > disc.r + 20) return;
+      if (Math.hypot(p.x - sx(disc.x), p.y - sy(disc.y)) > disc.d / 2 * k + 20) return;
       cv.setPointerCapture(e.pointerId);
-      // タッチは指で隠れないよう丸を少し上に出す
-      drag = { dx: disc.x - p.x, dy: disc.y - p.y - (e.pointerType === 'mouse' ? 0 : LIFT) };
+      drag = { dx: sx(disc.x) - p.x, dy: sy(disc.y) - p.y - (e.pointerType === 'mouse' ? 0 : LIFT) };
       state = 'drag';
     });
     cv.addEventListener('pointermove', e => {
       if (state !== 'drag') return;
       const p = pos(e);
-      disc.x = p.x + drag.dx; disc.y = p.y + drag.dy;
+      disc.x = (p.x + drag.dx - flag.x - flag.w / 2) / k;
+      disc.y = (p.y + drag.dy - flag.y - flag.h / 2) / k;
       draw();
     });
-    const drop = () => {
-      if (state !== 'drag') return;
-      state = 'done'; pita();
-      const f = flag, d = Math.hypot(disc.x - (f.x + f.w / 2), disc.y - (f.y + f.h / 2));
-      const inside = disc.x >= f.x && disc.x <= f.x + f.w && disc.y >= f.y && disc.y <= f.y + f.h;
-      if (!inside) result = { mm: null, score: 0 };
-      else {
-        const mm = Math.round(d / f.w * 900);
-        // パラオの国旗は丸が旗竿側（左）に少し寄っている
-        const dx = (disc.x - (f.x + f.w / 2)) / f.w * 900, dy = (disc.y - (f.y + f.h / 2)) / f.w * 900;
-        const palau = dx <= -30 && dx >= -110 && Math.abs(dy) <= 20;
-        result = { mm, palau, score: Math.max(0, Math.round(100 - mm * 0.8)) };
-      }
-      draw(); showResult();
-    };
+    const drop = () => { if (state === 'drag') { state = 'ready'; disc.placed = true; draw(); } };
     cv.addEventListener('pointerup', drop);
     cv.addEventListener('pointercancel', drop);
+    size.addEventListener('input', () => { disc.d = +size.value; draw(); });
+
+    // 中心から近く、丸の大きさが合っていれば別の国旗になる
+    function judge() {
+      const { x, y, d } = disc;
+      if (Math.abs(x) > FW / 2 || Math.abs(y) > FH / 2) return { out: true, score: 0 };
+      const mm = Math.round(Math.hypot(x, y)), sz = Math.round(Math.abs(d - JP));
+      const score = Math.max(0, Math.round(100 - (mm + sz) * 0.8));
+      const center = mm <= 25;
+      const country =
+        center && Math.abs(d - 150) <= 30 ? 'niger' :
+        center && Math.abs(d - 240) <= 30 ? 'laos' :
+        x <= -30 && x >= -110 && Math.abs(y) <= 20 && Math.abs(d - JP) <= 40 ? 'palau' : null; // パラオは丸が左寄り
+      return { mm, sz, score, country };
+    }
+    $('stick').onclick = () => {
+      if (state !== 'ready') return;
+      state = 'done'; pita();
+      result = judge();
+      $('ctrl').classList.add('hide');
+      draw(); showResult();
+    };
 
     function showResult() {
       if (!result) return;
-      const { mm, score } = result;
+      const { out, mm, sz, score, country } = result, c = t('c');
       $('score').textContent = t('score')(score);
-      $('gap').textContent = mm === null ? t('out') : t('gap')(mm);
-      const c = t('c');
-      $('comment').textContent = mm === null ? c[4] : result.palau ? c[5] : mm <= 2 ? c[0] : mm <= 10 ? c[1] : mm <= 30 ? c[2] : c[3];
+      $('gap').textContent = out ? t('out') : t('gap')(mm, sz);
+      const e = mm + sz;
+      $('comment').textContent = out ? c[4] : country ? t('is')(t(country)) : e <= 4 ? c[0] : e <= 20 ? c[1] : e <= 60 ? c[2] : c[3];
       const post = $('post');
-      post.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(score, mm, result.palau))}&url=${encodeURIComponent(SHARE_URL)}`;
+      post.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(result))}&url=${encodeURIComponent(SHARE_URL)}`;
       if (matchMedia('(pointer: coarse)').matches) { post.removeAttribute('target'); post.removeAttribute('rel'); }
       else { post.target = '_blank'; post.rel = 'noopener'; }
       $('result').classList.add('show');
     }
 
     $('again').onclick = () => {
-      state = 'ready'; result = null; disc = null;
-      $('result').classList.remove('show'); layout();
+      state = 'ready'; result = null; newDisc();
+      $('result').classList.remove('show'); $('ctrl').classList.remove('hide'); layout();
     };
 
     function applyLang() {
@@ -212,13 +248,13 @@
       $('back').textContent = t('back');
       $('lang').textContent = t('lang'); $('lang').setAttribute('aria-label', t('langLabel'));
       $('sound').setAttribute('aria-label', t('sound'));
-      $('again').textContent = t('again'); $('post').textContent = t('post');
+      $('again').textContent = t('again'); $('stick').textContent = t('stick'); size.setAttribute('aria-label', t('sizeLabel')); $('post').textContent = t('post');
       if (state === 'done') showResult();
     }
     $('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
 
     addEventListener('resize', layout);
-    updateSoundBtn(); applyLang(); layout();
+    newDisc(); updateSoundBtn(); applyLang(); layout();
   </script>
 </body>
 </html>
