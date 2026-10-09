@@ -76,6 +76,8 @@
     .big:active { transform: translateY(3px); box-shadow: 0 1px 0 #94321a; }
     .big.sub { background: #fff; color: #8a5a32; box-shadow: 0 4px 0 #e2c08f; border: 2px solid #e2c08f; }
     .big.x { background: #222; box-shadow: 0 4px 0 #000; }
+    /* 持っている動物を棚の上にも描くための、透明な3Dの層 */
+    #hold { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 3; }
     #err { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; font-weight: bold; z-index: 9; }
   </style>
   <script type="importmap">
@@ -96,6 +98,7 @@
     </div>
     <div id="ctrl"><button id="reset" class="big sub"></button><button id="finish" class="big"></button></div>
     <div id="tray"></div>
+    <canvas id="hold"></canvas>
     <div id="result" class="overlay" hidden>
       <div class="panel">
         <div id="rName"></div>
@@ -389,7 +392,7 @@
       return th;
     }
     function removeThing(th) {
-      scene.remove(th.mesh); world.removeBody(th.body);
+      th.mesh.parent?.remove(th.mesh); world.removeBody(th.body);
       things = things.filter(x => x !== th);
     }
     const inBowl = th => {
@@ -445,18 +448,24 @@
 
     // ---- スワイプで投げる ----
     const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-    const HOLD_Y = 1.0, holdPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -HOLD_Y);
+    // カウンターの手前の縦の面。指の真下に動物を出す
+    const HOLD_Z = 2.7, holdPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -HOLD_Z);
     let hold = null, seq = 0;
-    // 指の位置の手前側（カウンターの手前）に動物を持つ
     function holdPos(e) {
-      const r = renderer.domElement.getBoundingClientRect();
+      const r = holdCanvas.getBoundingClientRect();
       ndc.set((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-      ray.setFromCamera(ndc, camera);
+      ray.setFromCamera(ndc, holdCam);
       const p = new THREE.Vector3();
-      if (!ray.ray.intersectPlane(holdPlane, p)) p.set(0, HOLD_Y, 2.1);
-      p.x = THREE.MathUtils.clamp(p.x, -2.5, 2.5);
-      p.z = THREE.MathUtils.clamp(p.z, 1.9, 2.2);
+      if (!ray.ray.intersectPlane(holdPlane, p)) p.set(0, 0, HOLD_Z);
+      p.x = THREE.MathUtils.clamp(p.x, -3, 3);
       return p;
+    }
+    const aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.7);
+    function onPlane(x, y) {
+      const r = holdCanvas.getBoundingClientRect();
+      ndc.set((x - r.left) / r.width * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, holdCam);
+      return ray.ray.intersectPlane(aimPlane, new THREE.Vector3());
     }
     tray.addEventListener('pointerdown', e => {
       const id = e.target.dataset?.id;
@@ -464,7 +473,7 @@
       e.preventDefault();
       const [mesh, r] = BUILD[id]();
       mesh.position.copy(holdPos(e));
-      scene.add(mesh);
+      holdScene.add(mesh);
       hold = { id, mesh, r, pid: e.pointerId, hist: [{ x: e.clientX, y: e.clientY, t: performance.now() }] };
       sPick();
     });
@@ -477,7 +486,7 @@
     function release(e) {
       if (!hold || e.pointerId !== hold.pid) return;
       const h = hold; hold = null;
-      scene.remove(h.mesh);
+      holdScene.remove(h.mesh);
       // 離す直前 0.12 秒の指の速さ（画面の高さ／秒）で投げる
       const now = performance.now();
       // 0.12 秒より前の点のうち一番新しいものを起点にする（イベントがまばらでも速さが出るように）
@@ -485,13 +494,23 @@
       if (i < 0) i = h.hist.length - 1;
       const a = h.hist[Math.max(0, i - 1)], z = { x: e.clientX, y: e.clientY };
       const dts = Math.max(0.04, (now - a.t) / 1000), H = stage.clientHeight || 600;
-      const up = (a.y - z.y) / H / dts, side = (z.x - a.x) / H / dts;
+      const up = (a.y - z.y) / H / dts;
       const th = addThing(h.id, h.mesh.position);
       th.seq = seq++;
+      // カウンターの縁より上に出るまではすり抜ける
+      th.body.collisionResponse = false; th.ghost = performance.now();
+      scene.remove(th.mesh); holdScene.add(th.mesh);
       if (up > 0.3) {
-        const v = Math.min(11, 3.5 + up * 1.4);
-        th.body.velocity.set(side * 1.6, v * 0.7, -v * 0.75);
-        th.body.angularVelocity.set(-v, Math.random() * 4 - 2, Math.random() * 2 - 1);
+        // スワイプの速さで飛ぶ距離、スワイプの向きで左右が決まる。そこへ山なりに飛ばす
+        const p = th.body.position, T = 0.9;
+        const tz = 2.4 - Math.min(up, 6) * 1.15, ty = 1.4;
+        // 画面上のスワイプの線を丼の高さの面に写し、その線の延長に飛ばす（見た目どおりの向きになる）
+        const A = onPlane(a.x, a.y), Z = onPlane(z.x, z.y);
+        let tx = p.x;
+        if (A && Z && Math.abs(A.z - Z.z) > 0.01) tx = Z.x + (Z.x - A.x) * (tz - Z.z) / (Z.z - A.z);
+        tx = THREE.MathUtils.clamp(tx, p.x - 4, p.x + 4);
+        th.body.velocity.set((tx - p.x) / T, (ty - p.y) / T + 11 * T, (tz - p.z) / T);
+        th.body.angularVelocity.set(-6, Math.random() * 4 - 2, Math.random() * 2 - 1);
         sThrow();
       }
     }
@@ -499,6 +518,14 @@
     addEventListener('pointercancel', release);
     // ---- 画面サイズ ----
     const LOOK = new THREE.Vector3(0, 0, -0.2);
+    // 透明な層：同じカメラを、棚の下まで広げて描く
+    const holdCanvas = $('hold');
+    const holdRenderer = new THREE.WebGLRenderer({ canvas: holdCanvas, antialias: true, alpha: true });
+    holdRenderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    const holdScene = new THREE.Scene();
+    holdScene.add(new THREE.HemisphereLight('#fff8ee', '#a07850', 1.6));
+    { const l = new THREE.DirectionalLight('#ffffff', 1.6); l.position.set(3, 8, 5); holdScene.add(l); }
+    const holdCam = camera.clone();
     function resize() {
       if (ICON_MODE) return;
       const w = stage.clientWidth, h = stage.clientHeight;
@@ -511,6 +538,10 @@
       camera.position.copy(LOOK).addScaledVector(dir, dist);
       camera.lookAt(LOOK);
       camera.updateProjectionMatrix();
+      const hh = tray.offsetTop + tray.offsetHeight;
+      holdRenderer.setSize(w, hh);
+      holdCam.copy(camera);
+      holdCam.setViewOffset(w, h, 0, 0, w, hh);
     }
     new ResizeObserver(resize).observe(stage);
     resize();
@@ -539,10 +570,15 @@
       for (const th of [...things]) {
         th.mesh.position.copy(th.body.position);
         th.mesh.quaternion.copy(th.body.quaternion);
+        if (th.ghost && (th.body.position.y > th.body.shapes[0].radius + 0.05 || now - th.ghost > 900)) {
+          th.ghost = 0; th.body.collisionResponse = true;
+          holdScene.remove(th.mesh); scene.add(th.mesh);
+        }
         if (th.body.position.y < -3) removeThing(th);
       }
       hud();
       renderer.render(scene, camera);
+      holdRenderer.render(holdScene, holdCam);
     }
     applyLang();
     requestAnimationFrame(loop);
