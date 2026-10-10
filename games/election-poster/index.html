@@ -18,9 +18,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@700;900&display=swap" rel="stylesheet">
   <style>
     html, body { margin: 0; background: #e9e4dc; color: #333; }
+    /* スクロールさせず、ポスターを残りの高さいっぱいに収める */
     body {
-      font-family: "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
-      padding-bottom: calc(80px + env(safe-area-inset-bottom)); box-sizing: border-box; min-height: 100dvh;
+      font-family: "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif; display: flex; flex-direction: column;
+      height: 100dvh; overflow: hidden; padding-bottom: calc(80px + env(safe-area-inset-bottom)); box-sizing: border-box;
     }
     header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; }
     header a { color: #333; text-decoration: none; font-size: 14px; }
@@ -29,7 +30,8 @@
       height: 36px; min-width: 36px; border: 1px solid #bbb; border-radius: 18px; background: #fff;
       color: #333; font-size: 15px; padding: 0 10px; cursor: pointer; font-family: inherit;
     }
-    main { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 0 16px; }
+    main { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 0 16px; }
+    #stage { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
     #editbox {
       display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px;
       background: #fff; box-shadow: 0 0 0 3px #ffe33b, 0 4px 12px rgba(0,0,0,.2);
@@ -43,34 +45,36 @@
       background: #bc002d; color: #fff; cursor: pointer; font-family: inherit;
     }
     #poster {
-      display: block; height: min(60dvh, calc((100vw - 32px) * 1.5)); aspect-ratio: 2 / 3; width: auto;
-      box-shadow: 0 3px 14px rgba(0,0,0,.25); touch-action: none; cursor: grab; background: #fff;
+      display: block; box-shadow: 0 3px 14px rgba(0,0,0,.25); touch-action: none; cursor: grab; background: #fff;
     }
-    #panel { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 10px; }
+    #panel { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 8px; flex: none; }
+    #styles { display: flex; flex-direction: column; gap: 8px; }
+    #panel.editing #styles { display: none; }
     .row { display: flex; gap: 8px; align-items: center; }
     input[type=text], textarea {
       width: 100%; box-sizing: border-box; font-size: 16px; padding: 9px 10px; border: 1px solid #bbb;
       border-radius: 8px; background: #fff; font-family: inherit; color: #333; resize: none;
     }
     .colors button {
-      width: 36px; height: 36px; border-radius: 50%; border: 3px solid #fff; cursor: pointer; box-shadow: 0 0 0 1px #bbb;
+      width: 32px; height: 32px; border-radius: 50%; border: 3px solid #fff; cursor: pointer; box-shadow: 0 0 0 1px #bbb;
     }
     .colors button.on, .layouts button.on { box-shadow: 0 0 0 3px #333; }
-    .layouts button { width: 44px; height: 56px; padding: 3px; border: none; border-radius: 4px; background: #fff; cursor: pointer; box-shadow: 0 0 0 1px #bbb; }
+    .layouts button { width: 32px; height: 44px; padding: 3px; border: none; border-radius: 4px; background: #fff; cursor: pointer; box-shadow: 0 0 0 1px #bbb; }
     .layouts svg { width: 100%; height: 100%; display: block; }
-    #zoom { flex: 1; min-width: 0; height: 36px; accent-color: #333; }
     .btn {
       flex: 1; font-size: 16px; padding: 11px 12px; border-radius: 24px; border: none; cursor: pointer; text-align: center;
       background: #bc002d; color: #fff; text-decoration: none; font-family: inherit;
     }
     .btn.sub { background: #fff; color: #333; box-shadow: inset 0 0 0 1px #bbb; }
     .btn.x { background: #111; }
-    #saved { font-size: 13px; color: #777; text-align: center; margin: 0; }
+    #panel { position: relative; }
+    #saved { position: absolute; left: 0; right: 0; top: 100%; margin: 6px 0 0; font-size: 13px; color: #777; text-align: center; }
     #saved:empty { display: none; }
     #file { display: none; }
     @media (min-width: 760px) {
-      main { flex-direction: row; justify-content: center; align-items: flex-start; gap: 28px; }
-      #poster { height: min(78dvh, 900px); }
+      main { flex-direction: row; justify-content: center; align-items: stretch; gap: 28px; }
+      #stage { width: auto; flex: 0 1 auto; aspect-ratio: 2 / 3; max-width: 60vw; }
+      #panel { width: 320px; align-self: center; }
     }
   </style>
 </head>
@@ -80,7 +84,7 @@
     <div class="hbtns"><button id="lang" class="pill">EN</button></div>
   </header>
   <main>
-    <canvas id="poster" width="800" height="1200"></canvas>
+    <div id="stage"><canvas id="poster" width="800" height="1200"></canvas></div>
     <div id="panel">
       <div id="editbox" hidden>
         <div class="row"><textarea id="editor" rows="1" enterkeyhint="done"></textarea><button id="ok" type="button"></button></div>
@@ -90,13 +94,10 @@
           <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><text x="12" y="21" font-size="22" font-weight="bold" text-anchor="middle" fill="#333">A</text></svg>
         </div>
       </div>
-      <div class="row">
-        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="#333" stroke-width="2"/><path d="M12 12l6 6M5 8h6" stroke="#333" stroke-width="2"/></svg>
-        <input id="zoom" type="range" min="0.5" max="3" step="0.01" value="1">
-        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="#333" stroke-width="2"/><path d="M12 12l6 6M5 8h6M8 5v6" stroke="#333" stroke-width="2"/></svg>
+      <div id="styles">
+        <div class="row colors" id="colors"></div>
+        <div class="row layouts" id="layouts"></div>
       </div>
-      <div class="row colors" id="colors"></div>
-      <div class="row layouts" id="layouts"></div>
       <div class="row">
         <button id="save" class="btn sub"></button>
         <a id="post" class="btn x" href="#"></a>
@@ -118,7 +119,7 @@
     const L = {
       ja: {
         title: '選挙ポスター', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
-        ok: '決定', save: '画像を保存', post: 'Xにポスト', zoom: '写真の大きさ',
+        ok: '決定', save: '画像を保存', post: 'Xにポスト',
         saved: '画像を保存しました。ポストに添付してください',
         ph: { catch: 'キャッチコピー', name: '名前', kana: 'ふりがな', party: '政党名', slogan: 'ひとこと' },
         def: { catch: 'この町を\nもっと面白く', name: '山田太郎', kana: 'やまだ たろう', party: '面白党', slogan: '清き一票を、よろしくお願いします' },
@@ -126,7 +127,7 @@
       },
       en: {
         title: 'Election Poster', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
-        ok: 'Done', save: 'Save image', post: 'Post on X', zoom: 'Photo size',
+        ok: 'Done', save: 'Save image', post: 'Post on X',
         saved: 'Image saved. Attach it to your post.',
         ph: { catch: 'Catchphrase', name: 'Name', kana: 'Subtitle', party: 'Party', slogan: 'Slogan' },
         def: { catch: 'Make our town\nmore fun.', name: 'Taro Yamada', kana: 'FOR MAYOR', party: 'Fun Party', slogan: 'Your vote matters. Thank you!' },
@@ -295,14 +296,14 @@
     const ed = $('editor'), box = $('editbox');
     function openEditor(k, focus) {
       if (editing !== k) { editing = k; ed.value = fields[k]; }
-      box.hidden = false;
+      box.hidden = false; $('panel').classList.add('editing');
       ed.rows = k === 'catch' ? 3 : 1; ed.placeholder = t('ph')[k]; ed.setAttribute('aria-label', t('ph')[k]);
       $('tsize').value = T(k).s;
       // スマホはキーボードで画面が隠れるので、入力欄を触ったときだけ文字入力にする
       if (focus && !matchMedia('(pointer: coarse)').matches) { ed.focus(); ed.select(); }
       draw();
     }
-    function closeEditor() { if (!editing) return; editing = null; ed.blur(); box.hidden = true; draw(); }
+    function closeEditor() { if (!editing) return; editing = null; ed.blur(); box.hidden = true; $('panel').classList.remove('editing'); draw(); }
     ed.oninput = () => { if (editing) { fields[editing] = ed.value; save(); } };
     ed.onkeydown = e => { if ((e.key === 'Enter' && editing !== 'catch' && !e.isComposing) || e.key === 'Escape') { e.preventDefault(); closeEditor(); } };
     $('ok').onclick = closeEditor;
@@ -335,7 +336,6 @@
       [...$('layouts').children].forEach(b => b.classList.toggle('on', b.dataset.l === st.layout));
     }
 
-    $('zoom').oninput = e => { st.zoom = +e.target.value; save(); };
 
     // 写真は縮小して端末内（localStorage）にだけ保存する
     $('file').onchange = e => {
@@ -348,7 +348,7 @@
         URL.revokeObjectURL(url);
         const data = c.toDataURL('image/jpeg', 0.85);
         const small = new Image(); small.onload = () => { img = small; draw(); }; small.src = data;
-        st.ox = st.oy = 0; st.zoom = 1; $('zoom').value = 1;
+        st.ox = st.oy = 0; st.zoom = 1;
         store.set('photo', data); save();
       };
       im.src = url; e.target.value = '';
@@ -372,7 +372,7 @@
         const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
         if (pinch) {
           if (editing) { T(editing).s = clampS(T(editing).s * d / pinch); $('tsize').value = T(editing).s; }
-          else { st.zoom = Math.min(3, Math.max(0.5, st.zoom * d / pinch)); $('zoom').value = st.zoom; }
+          else { st.zoom = Math.min(3, Math.max(0.5, st.zoom * d / pinch)); }
         }
         pinch = d;
       } else {
@@ -399,7 +399,7 @@
       e.preventDefault();
       const f = Math.exp(-e.deltaY * 0.001);
       if (editing) { T(editing).s = clampS(T(editing).s * f); $('tsize').value = T(editing).s; }
-      else { st.zoom = Math.min(3, Math.max(0.5, st.zoom * f)); $('zoom').value = st.zoom; }
+      else { st.zoom = Math.min(3, Math.max(0.5, st.zoom * f)); }
       save();
     }, { passive: false });
 
@@ -438,7 +438,6 @@
       $('lang').textContent = t('lang'); $('lang').setAttribute('aria-label', t('langLabel'));
       $('ok').textContent = t('ok');
       $('save').textContent = t('save'); $('post').textContent = t('post');
-      $('zoom').setAttribute('aria-label', t('zoom'));
       if (matchMedia('(pointer: coarse)').matches) $('post').removeAttribute('target');
       else { $('post').target = '_blank'; $('post').rel = 'noopener'; }
       $('saved').textContent = '';
@@ -452,7 +451,13 @@
       fillInputs(); applyLang(); save();
     };
 
-    $('zoom').value = st.zoom;
+    // ポスターを、置き場所に収まる最大の 2:3 にする
+    function fitPoster() {
+      const sg = $('stage'), w = Math.min(sg.clientWidth, sg.clientHeight * 2 / 3);
+      cv.style.width = w + 'px'; cv.style.height = w * 1.5 + 'px';
+    }
+    new ResizeObserver(fitPoster).observe($('stage'));
+    fitPoster();
     fillInputs(); marks(); applyLang(); draw();
     // Webフォントは使う文字の分だけ読み込まれるので、文字が変わるたびに読み込んで描き直す
     let fontKey = '';
