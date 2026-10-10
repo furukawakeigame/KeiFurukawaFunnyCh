@@ -30,11 +30,12 @@
       color: #333; font-size: 15px; padding: 0 10px; cursor: pointer; font-family: inherit;
     }
     main { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 0 16px; }
-    #wrap { position: relative; }
     #editbox {
-      position: absolute; z-index: 2; display: flex; gap: 6px; padding: 6px; border-radius: 12px;
-      background: #fff; box-shadow: 0 4px 16px rgba(0,0,0,.35); box-sizing: border-box;
+      display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px;
+      background: #fff; box-shadow: 0 0 0 3px #ffe33b, 0 4px 12px rgba(0,0,0,.2);
     }
+    #ok { align-self: stretch; }
+    #tsize { flex: 1; min-width: 0; height: 36px; accent-color: #333; }
     #editbox[hidden] { display: none; }
     #editor { flex: 1; min-width: 0; font-size: 16px; padding: 8px 10px; border: 1px solid #bbb; border-radius: 8px; }
     #ok {
@@ -69,18 +70,7 @@
     #file { display: none; }
     @media (min-width: 760px) {
       main { flex-direction: row; justify-content: center; align-items: flex-start; gap: 28px; }
-      #wrap { position: relative; }
-    #editbox {
-      position: absolute; z-index: 2; display: flex; gap: 6px; padding: 6px; border-radius: 12px;
-      background: #fff; box-shadow: 0 4px 16px rgba(0,0,0,.35); box-sizing: border-box;
-    }
-    #editbox[hidden] { display: none; }
-    #editor { flex: 1; min-width: 0; font-size: 16px; padding: 8px 10px; border: 1px solid #bbb; border-radius: 8px; }
-    #ok {
-      flex: none; font-size: 16px; font-weight: bold; padding: 0 16px; border: none; border-radius: 8px;
-      background: #bc002d; color: #fff; cursor: pointer; font-family: inherit;
-    }
-    #poster { height: min(78dvh, 900px); }
+      #poster { height: min(78dvh, 900px); }
     }
   </style>
 </head>
@@ -90,8 +80,16 @@
     <div class="hbtns"><button id="lang" class="pill">EN</button></div>
   </header>
   <main>
-    <div id="wrap"><canvas id="poster" width="800" height="1200"></canvas><div id="editbox" hidden><textarea id="editor" rows="1" enterkeyhint="done"></textarea><button id="ok" type="button"></button></div></div>
+    <canvas id="poster" width="800" height="1200"></canvas>
     <div id="panel">
+      <div id="editbox" hidden>
+        <div class="row"><textarea id="editor" rows="1" enterkeyhint="done"></textarea><button id="ok" type="button"></button></div>
+        <div class="row">
+          <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><text x="10" y="16" font-size="12" font-weight="bold" text-anchor="middle" fill="#333">A</text></svg>
+          <input id="tsize" type="range" min="0.3" max="3" step="0.01" value="1">
+          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><text x="12" y="21" font-size="22" font-weight="bold" text-anchor="middle" fill="#333">A</text></svg>
+        </div>
+      </div>
       <div class="row">
         <button id="photo" class="btn sub"></button>
         <button id="random" class="btn sub"></button>
@@ -172,6 +170,7 @@
     const YELLOW = '#ffe33b';
     // 帯の色を暗くしてフチ取りに使う
     const dark = c => '#' + [1, 3, 5].map(i => Math.round(parseInt(c.slice(i, i + 2), 16) * 0.35).toString(16).padStart(2, '0')).join('');
+    const CA = () => { ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; };
     const CJK = /[　-鿿＀-￯]/;
 
     // 幅に収まるまで文字を小さくする
@@ -249,11 +248,25 @@
       naname: { party: [20, 20, 380, 110], catch: [450, 110, 320, 590], kana: [100, 770, 600, 70], name: [40, 845, 720, 150], slogan: [60, 1085, 680, 80] },
     };
     let editing = null;
+    // 文字ごとの移動量と拡大率（レイアウトごとに覚える）
+    const T = k => ((st.tx ||= {})[st.layout] ||= {})[k] ||= { x: 0, y: 0, s: 1 };
+    function tbox(k) {
+      const [x, y, w, h] = BOX[st.layout][k], t = T(k), cx = x + w / 2 + t.x, cy = y + h / 2 + t.y;
+      return [cx - w * t.s / 2, cy - h * t.s / 2, w * t.s, h * t.s];
+    }
+    function fx(k, fn) {
+      const [x, y, w, h] = BOX[st.layout][k], t = T(k), cx = x + w / 2, cy = y + h / 2;
+      ctx.save(); ctx.translate(cx + t.x, cy + t.y); ctx.scale(t.s, t.s); ctx.translate(-cx, -cy); fn(); ctx.restore();
+    }
+    function hitText(px, py) {
+      const inside = k => { const [x, y, w, h] = tbox(k); return px >= x && px <= x + w && py >= y && py <= y + h; };
+      if (editing && inside(editing)) return editing;
+      return [...FIELDS].reverse().find(inside);
+    }
     function guides() {
-      const b = BOX[st.layout];
       ctx.save(); ctx.lineWidth = 3; ctx.setLineDash([12, 8]);
       FIELDS.forEach(k => {
-        const [x, y, w, h] = b[k];
+        const [x, y, w, h] = tbox(k);
         ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.strokeRect(x + 1, y + 1, w, h);
         ctx.strokeStyle = k === editing ? '#ffe33b' : 'rgba(255,255,255,.9)'; ctx.strokeRect(x, y, w, h);
         if (!fields[k].trim()) {
@@ -269,46 +282,40 @@
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
       if (st.layout === 'yoko') {
         drawPhoto(0, 0, W, 830);
-        vertical(f.catch, 760, 120, 660, 110, YELLOW, dark(c), 300);
-        partyBox(30, 30, c);
         ctx.fillStyle = c; ctx.fillRect(0, 830, W, 260);
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        textOut(f.kana, W / 2, 885, fit(f.kana, 700, 38, 700), '#fff', null, 700);
-        textOut(f.name, W / 2, 1000, fit(f.name, 740, 160), '#fff');
-        textOut(f.slogan, W / 2, 1145, fit(f.slogan, 740, 46), c);
+        fx('catch', () => vertical(f.catch, 760, 120, 660, 110, YELLOW, dark(c), 300));
+        fx('party', () => partyBox(30, 30, c));
+        fx('kana', () => { CA(); textOut(f.kana, W / 2, 885, fit(f.kana, 700, 38, 700), '#fff', null, 700); });
+        fx('name', () => { CA(); textOut(f.name, W / 2, 1000, fit(f.name, 740, 160), '#fff'); });
+        fx('slogan', () => { CA(); textOut(f.slogan, W / 2, 1145, fit(f.slogan, 740, 46), c); });
       } else if (st.layout === 'tate') {
         // 見本：左に色の縦帯、白い極太の縦書きの名前、右下に黄色の横書きキャッチ
         drawPhoto(290, 0, W - 290, H);
         ctx.fillStyle = c; ctx.fillRect(0, 0, 290, H);
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        textOut(f.party, 145, 80, fit(f.party, 240, 60), '#fff');
+        fx('party', () => { CA(); textOut(f.party, 145, 80, fit(f.party, 240, 60), '#fff'); });
         const nm = CJK.test(f.name) ? f.name.replace(/[ 　]/g, '') : f.name;
-        vertical(nm, 270, 190, 980, 250, '#fff', null, 250);
-        textOut(f.kana, 145, 145, fit(f.kana, 250, 30, 700), '#fff', null, 700);
-        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-        textOut(f.slogan, 775, 50, fit(f.slogan, 460, 32, 700), '#fff', dark(c), 700);
-        const lines = f.catch.split('\n').filter(l => l.trim()).slice(-3);
-        let cs = 78; lines.forEach(l => { cs = Math.min(cs, fit(l, 450, 78)); });
-        ctx.textAlign = 'left';
-        const cx = 320 + (460 - Math.max(0, ...lines.map(l => (ctx.font = font(cs), ctx.measureText(l).width)))) / 2;
-        lines.forEach((l, i) => textOut(l, cx, 1140 - (lines.length - 1 - i) * cs * 1.25, cs, YELLOW, dark(c)));
+        fx('name', () => vertical(nm, 270, 190, 980, 250, '#fff', null, 250));
+        fx('kana', () => { CA(); textOut(f.kana, 145, 145, fit(f.kana, 250, 30, 700), '#fff', null, 700); });
+        fx('slogan', () => { ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; textOut(f.slogan, 775, 50, fit(f.slogan, 460, 32, 700), '#fff', dark(c), 700); });
+        fx('catch', () => {
+          const lines = f.catch.split('\n').filter(l => l.trim()).slice(-3);
+          let cs = 78; lines.forEach(l => { cs = Math.min(cs, fit(l, 450, 78)); });
+          ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+          const cx = 320 + (460 - Math.max(0, ...lines.map(l => (ctx.font = font(cs), ctx.measureText(l).width)))) / 2;
+          lines.forEach((l, i) => textOut(l, cx, 1140 - (lines.length - 1 - i) * cs * 1.25, cs, YELLOW, dark(c)));
+        });
       } else {
         drawPhoto(0, 0, W, H);
-        vertical(f.catch, 760, 120, 560, 110, YELLOW, dark(c), 300);
-        partyBox(30, 30, c);
         ctx.fillStyle = c;
         ctx.beginPath(); ctx.moveTo(0, 800); ctx.lineTo(W, 680); ctx.lineTo(W, 1020); ctx.lineTo(0, 1140); ctx.fill();
         ctx.fillStyle = '#fff';
         ctx.beginPath(); ctx.moveTo(0, 1140); ctx.lineTo(W, 1020); ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.fill();
-        ctx.save(); ctx.translate(W / 2, 910); ctx.rotate(-Math.atan2(120, W));
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        textOut(f.kana, 0, -105, fit(f.kana, 640, 36, 700), '#fff', null, 700);
-        textOut(f.name, 0, 15, fit(f.name, 720, 160), '#fff');
-        ctx.restore();
-        ctx.save(); ctx.translate(W / 2, 1128); ctx.rotate(-Math.atan2(120, W));
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        textOut(f.slogan, 0, 0, fit(f.slogan, 680, 36), c);
-        ctx.restore();
+        const tilt = (y, fn) => { ctx.translate(W / 2, y); ctx.rotate(-Math.atan2(120, W)); CA(); fn(); };
+        fx('kana', () => tilt(910, () => textOut(f.kana, 0, -105, fit(f.kana, 640, 36, 700), '#fff', null, 700)));
+        fx('name', () => tilt(910, () => textOut(f.name, 0, 15, fit(f.name, 720, 160), '#fff')));
+        fx('slogan', () => tilt(1128, () => textOut(f.slogan, 0, 0, fit(f.slogan, 680, 36), c)));
+        fx('catch', () => vertical(f.catch, 760, 120, 560, 110, YELLOW, dark(c), 300));
+        fx('party', () => partyBox(30, 30, c));
       }
       if (withGuides) guides();
     }
@@ -318,26 +325,25 @@
 
     // ---- 入力 ----
     const ed = $('editor'), box = $('editbox');
-    function openEditor(k) {
-      editing = k; box.hidden = false; ed.value = fields[k];
+    function openEditor(k, focus) {
+      if (editing !== k) { editing = k; ed.value = fields[k]; }
+      box.hidden = false;
       ed.rows = k === 'catch' ? 3 : 1; ed.placeholder = t('ph')[k]; ed.setAttribute('aria-label', t('ph')[k]);
-      const s = cv.getBoundingClientRect().width / W, [x, y, w, h] = BOX[st.layout][k];
-      const cw = cv.getBoundingClientRect().width, ew = Math.min(cw, Math.max(260, w * s));
-      box.style.width = ew + 'px';
-      box.style.left = Math.min(cw - ew, Math.max(0, x * s)) + 'px';
-      box.style.top = Math.min(cv.getBoundingClientRect().height - 50, Math.max(0, (y + h / 2) * s - 22)) + 'px';
-      ed.focus(); ed.select(); draw();
+      $('tsize').value = T(k).s;
+      // スマホはキーボードで画面が隠れるので、入力欄を触ったときだけ文字入力にする
+      if (focus && !matchMedia('(pointer: coarse)').matches) { ed.focus(); ed.select(); }
+      draw();
     }
-    function closeEditor() { if (!editing) return; editing = null; box.hidden = true; draw(); }
+    function closeEditor() { if (!editing) return; editing = null; ed.blur(); box.hidden = true; draw(); }
     ed.oninput = () => { if (editing) { fields[editing] = ed.value; save(); } };
-    ed.onkeydown = e => { if ((e.key === 'Enter' && editing !== 'catch' && !e.isComposing) || e.key === 'Escape') { e.preventDefault(); ed.blur(); } };
-    // 決定ボタンを押したときも、入力欄のフォーカスが外れて閉じる
-    ed.onblur = () => setTimeout(() => { if (!box.contains(document.activeElement)) closeEditor(); });
+    ed.onkeydown = e => { if ((e.key === 'Enter' && editing !== 'catch' && !e.isComposing) || e.key === 'Escape') { e.preventDefault(); closeEditor(); } };
     $('ok').onclick = closeEditor;
-    // 入力中に入力欄の外を触ったら編集を終える（スマホでは画像などを触ってもフォーカスが外れないため）
+    $('tsize').oninput = e => { if (editing) { T(editing).s = +e.target.value; save(); } };
+    // 編集中に、ポスターと編集欄の外を触ったら編集を終える
     document.addEventListener('pointerdown', e => {
-      if (editing && !box.contains(e.target)) { ed.blur(); closeEditor(); }
+      if (editing && !box.contains(e.target) && e.target !== cv) closeEditor();
     }, true);
+
     function fillInputs() { if (editing) ed.value = fields[editing]; }
 
     COLORS.forEach(c => {
@@ -353,7 +359,7 @@
     LAYOUTS.forEach(l => {
       const b = document.createElement('button'); b.dataset.l = l; b.setAttribute('aria-label', l);
       b.innerHTML = `<svg viewBox="0 0 30 45">${LAYOUT_SVG[l]}</svg>`;
-      b.onclick = () => { st.layout = l; save(); marks(); };
+      b.onclick = () => { closeEditor(); st.layout = l; save(); marks(); };
       $('layouts').append(b);
     });
     function marks() {
@@ -389,23 +395,31 @@
       im.src = url; e.target.value = '';
     };
 
-    // ---- 写真のドラッグ・ピンチ・ホイール ----
-    const pts = new Map(); let pinch = null;
+    // ---- ポスターの操作：文字をタップで編集、文字をドラッグで移動、それ以外は写真を動かす ----
+    const pts = new Map(); let pinch = null, tap = null, grab = null;
     const toPoster = () => W / cv.getBoundingClientRect().width;
-    let tap = null;
-    cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); pinch = null; tap = pts.size === 1 ? [e.clientX, e.clientY] : null; });
+    const posterXY = e => { const r = cv.getBoundingClientRect(), k = W / r.width; return [(e.clientX - r.left) * k, (e.clientY - r.top) * k]; };
+    const clampS = v => Math.min(3, Math.max(0.3, v));
+    cv.addEventListener('pointerdown', e => {
+      cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); pinch = null;
+      if (pts.size === 1) { tap = [e.clientX, e.clientY]; grab = hitText(...posterXY(e)) || null; } else tap = null;
+    });
     cv.addEventListener('pointermove', e => {
       if (!pts.has(e.pointerId)) return;
       const prev = pts.get(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]);
-      if (tap && Math.hypot(e.clientX - tap[0], e.clientY - tap[1]) > 8) tap = null;
+      if (tap && Math.hypot(e.clientX - tap[0], e.clientY - tap[1]) > 8) { tap = null; if (grab && editing !== grab) openEditor(grab); }
       if (tap) return;
       if (pts.size >= 2) {
         const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
-        if (pinch) st.zoom = Math.min(3, Math.max(0.5, st.zoom * d / pinch));
-        pinch = d; $('zoom').value = st.zoom;
+        if (pinch) {
+          if (editing) { T(editing).s = clampS(T(editing).s * d / pinch); $('tsize').value = T(editing).s; }
+          else { st.zoom = Math.min(3, Math.max(0.5, st.zoom * d / pinch)); $('zoom').value = st.zoom; }
+        }
+        pinch = d;
       } else {
-        const k = toPoster();
-        st.ox += (e.clientX - prev[0]) * k; st.oy += (e.clientY - prev[1]) * k;
+        const k = toPoster(), dx = (e.clientX - prev[0]) * k, dy = (e.clientY - prev[1]) * k;
+        if (grab) { T(grab).x += dx; T(grab).y += dy; }
+        else { st.ox += dx; st.oy += dy; }
       }
       draw();
     });
@@ -413,18 +427,19 @@
       if (!pts.delete(e.pointerId)) return;
       pinch = null;
       if (tap && e.type === 'pointerup') {
-        // 動かさずに離したらタップ。その場所の文字を編集する
-        const r = cv.getBoundingClientRect(), k = W / r.width, px = (e.clientX - r.left) * k, py = (e.clientY - r.top) * k;
-        const hit = FIELDS.find(f => { const [x, y, w, h] = BOX[st.layout][f]; return px >= x && px <= x + w && py >= y && py <= y + h; });
-        tap = null;
-        if (hit) { e.preventDefault(); openEditor(hit); return; }
+        // 動かさずに離したらタップ。文字なら編集、それ以外なら編集を終える
+        const hit = hitText(...posterXY(e));
+        if (hit) openEditor(hit, true); else closeEditor();
       }
-      tap = null; save();
+      tap = null; if (!pts.size) grab = null; save();
     };
     cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
     cv.addEventListener('wheel', e => {
       e.preventDefault();
-      st.zoom = Math.min(3, Math.max(0.5, st.zoom * Math.exp(-e.deltaY * 0.001))); $('zoom').value = st.zoom; save();
+      const f = Math.exp(-e.deltaY * 0.001);
+      if (editing) { T(editing).s = clampS(T(editing).s * f); $('tsize').value = T(editing).s; }
+      else { st.zoom = Math.min(3, Math.max(0.5, st.zoom * f)); $('zoom').value = st.zoom; }
+      save();
     }, { passive: false });
 
     // ---- 保存・ポスト ----
