@@ -287,12 +287,12 @@
     const G = 4.2, ws = walls(), SG = strawGeom(), TUBE_IN = SW / 2 - R;
     // the lower end of the tube is solid for pearls outside it, so they crowd around the opening
     const nx = -SG.uy * SW / 2, ny = SG.ux * SW / 2, LIP = 0.2;
-    for (const sgn of [1, -1]) {
+    if (sucking) for (const sgn of [1, -1]) {
       ws.push([SG.tx + nx * sgn, SG.ty + ny * sgn, SG.tx + nx * sgn + SG.ux * LIP, SG.ty + ny * sgn + SG.uy * LIP]);
     }
     for (const p of pearls) {
       p.tu = tubeCoord(p, SG).u;
-      p.vx += -ax * dt; p.vy += (G - ay) * dt;
+      p.vx += (G * grav.x - ax) * dt; p.vy += (G * grav.y - ay) * dt;
       if (p.tube) {
         if (sucking) { p.vx += SG.ux * FLOW * dt; p.vy += SG.uy * FLOW * dt; }
         const k = Math.pow(0.3, dt);         // drag from the drink in the tube
@@ -336,6 +336,7 @@
             const vn = p.vx * nx + p.vy * ny;
             if (vn > 0) { p.vx -= vn * nx; p.vy -= vn * ny; }
           }
+          if (p.y > CUP.h - R) { p.y = CUP.h - R; if (p.vy > 0) p.vy = 0; }
           continue;
         }
         for (const [x1, y1, x2, y2] of ws) {
@@ -349,7 +350,7 @@
             if (vn < 0) {
               if (!p.landed && vn < -0.6) { p.landed = true; plop(Math.min(1, -vn / 3)); }
               p.vx -= 1.15 * vn * nx; p.vy -= 1.15 * vn * ny;
-              p.vx *= 0.98; p.vy *= 0.98;
+              p.vx *= 0.997; p.vy *= 0.997;
             }
           }
         }
@@ -358,7 +359,7 @@
     let drunk = false;
     for (const p of pearls) {
       const c = tubeCoord(p, SG);
-      if (!p.tube && c.u > -R * 0.6 && c.u < R && Math.abs(c.v) < TUBE_IN + 0.03) p.tube = true;
+      if (!p.tube && sucking && c.u > -R * 0.6 && c.u < R && Math.abs(c.v) < TUBE_IN + 0.03) p.tube = true;
       else if (p.tube && c.u < -R) p.tube = false;
       if (p.tube && c.u > STRAW_LEN - R) { p.drunk = true; drunk = true; }
     }
@@ -399,7 +400,8 @@
       gr.addColorStop(0, d.top); gr.addColorStop(1, d.bot);
       g.fillStyle = gr;
       g.beginPath(); g.moveTo(-1, CUP.h + 1);
-      const tilt = Math.max(-0.08, Math.min(0.08, -opt.tilt * 0.04));
+      // the surface stays level with the real ground when the phone is tilted
+      const tilt = Math.max(-0.08, Math.min(0.08, -opt.tilt * 0.04)) + Math.max(-0.7, Math.min(0.7, -(opt.gx || 0) / Math.max(0.3, opt.gy || 1)));
       for (let x = -0.6; x <= 0.6; x += 0.05) g.lineTo(x, lev + x * tilt + Math.sin(x * 9 + opt.time * 3) * 0.008);
       g.lineTo(1, CUP.h + 1); g.closePath(); g.fill();
     }
@@ -505,7 +507,7 @@
     }
     const gm = cupGeom(W, H);
     drawDrink(ctx, gm.s, gm.cx + shakeX, gm.top, {
-      liquid: mode === 'drink' ? liquid : 0, color: colorIdx, pearls, sprite, time, tilt: shakeV, straw: '#e8763c',
+      liquid: mode === 'drink' ? liquid : 0, color: colorIdx, pearls, sprite, time, tilt: shakeV, gx: grav.x, gy: grav.y, straw: '#e8763c',
     });
   }
   let tmpC = null;
@@ -646,16 +648,38 @@
   };
   // phone shake: device acceleration (m/s^2) pushes the pearls the other way
   let mAx = 0, mAy = 0, motionOn = false;
-  function onMotion(e) {
-    const a = e.acceleration;
-    if (!a || a.x === null) return;
+  const grav = { x: 0, y: 1 };   // unit gravity direction on screen
+  // device axes -> screen axes (screen y points down), following the screen rotation
+  function toScreen(x, y) {
     const ang = ((screen.orientation && screen.orientation.angle) || window.orientation || 0) * Math.PI / 180;
-    // device axes -> screen axes (screen y points down)
-    const dx = a.x, dy = -a.y;
-    const sx = dx * Math.cos(ang) + dy * Math.sin(ang), sy = -dx * Math.sin(ang) + dy * Math.cos(ang);
-    const k = 0.9, lim = 18;
-    mAx = Math.max(-lim, Math.min(lim, sx * k));
-    mAy = Math.max(-lim, Math.min(lim, sy * k));
+    const dx = x, dy = -y;
+    return { x: dx * Math.cos(ang) + dy * Math.sin(ang), y: -dx * Math.sin(ang) + dy * Math.cos(ang) };
+  }
+  let gravSign = 0;
+  function onMotion(e) {
+    // tilt: gravity direction on the screen plane
+    const g = e.accelerationIncludingGravity;
+    if (g && g.x !== null) {
+      // the reading is the reaction to gravity, so gravity on screen is its opposite
+      let v = toScreen(-g.x, -g.y);
+      // some browsers report the opposite sign: the phone is held upright when this starts, so calibrate on that
+      if (!gravSign) gravSign = v.y < 0 ? -1 : 1;
+      v = { x: v.x * gravSign, y: v.y * gravSign };
+      const m = Math.hypot(v.x, v.y);
+      // lying flat: keep pointing down the screen
+      const t = Math.min(1, Math.max(0, (m - 2) / 3));
+      const tx = (v.x / (m || 1)) * t, ty = (v.y / (m || 1)) * t + (1 - t);
+      const n = Math.hypot(tx, ty) || 1;
+      grav.x += (tx / n - grav.x) * 0.3; grav.y += (ty / n - grav.y) * 0.3;
+      const gn = Math.hypot(grav.x, grav.y) || 1; grav.x /= gn; grav.y /= gn;
+    }
+    // shake: acceleration without gravity
+    const a = e.acceleration;
+    if (a && a.x !== null) {
+      const sv = toScreen(a.x, a.y), k = 0.9, lim = 18;
+      mAx = Math.max(-lim, Math.min(lim, sv.x * k));
+      mAy = Math.max(-lim, Math.min(lim, sv.y * k));
+    }
   }
   function startMotion() {
     if (motionOn || !window.DeviceMotionEvent) return;
