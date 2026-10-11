@@ -274,10 +274,10 @@
       [-bw, CUP.h, bw, CUP.h],
     ];
   };
-  function step(dt, ax) {
+  function step(dt, ax, ay) {
     const G = 4.2, ws = walls();
     for (const p of pearls) {
-      p.vx += -ax * dt; p.vy += G * dt;
+      p.vx += -ax * dt; p.vy += (G - ay) * dt;
       p.vx *= 0.995; p.vy *= 0.995;
       p.x += p.vx * dt; p.y += p.vy * dt;
       p.a += p.va * dt; p.va *= 0.94;
@@ -453,7 +453,9 @@
       prevShake = shakeX; prevShakeV = vel;
       axS += (Math.max(-15, Math.min(15, acc / gm.s)) - axS) * Math.min(1, dt * 10);
       const sub = 6;
-      for (let i = 0; i < sub; i++) step(dt / sub, axS * (liquid > 0.3 ? 0.6 : 1));
+      const damp = liquid > 0.3 ? 0.6 : 1;
+      mAx *= Math.pow(0.02, dt); mAy *= Math.pow(0.02, dt);  // fade if motion events stop
+      for (let i = 0; i < sub; i++) step(dt / sub, (axS + mAx) * damp, mAy * damp);
       render();
     }
     requestAnimationFrame(loop);
@@ -535,7 +537,28 @@
   $('undo').onclick = () => {
     const d = undoStack.pop(); if (d) { mctx.putImageData(d, 0, 0); render(); updateDone(); }
   };
+  // phone shake: device acceleration (m/s^2) pushes the pearls the other way
+  let mAx = 0, mAy = 0, motionOn = false;
+  function onMotion(e) {
+    const a = e.acceleration;
+    if (!a || a.x === null) return;
+    const ang = ((screen.orientation && screen.orientation.angle) || window.orientation || 0) * Math.PI / 180;
+    // device axes -> screen axes (screen y points down)
+    const dx = a.x, dy = -a.y;
+    const sx = dx * Math.cos(ang) + dy * Math.sin(ang), sy = -dx * Math.sin(ang) + dy * Math.cos(ang);
+    const k = 0.9, lim = 18;
+    mAx = Math.max(-lim, Math.min(lim, sx * k));
+    mAy = Math.max(-lim, Math.min(lim, sy * k));
+  }
+  function startMotion() {
+    if (motionOn || !window.DeviceMotionEvent) return;
+    const on = () => { motionOn = true; window.addEventListener('devicemotion', onMotion); };
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission().then(r => { if (r === 'granted') on(); }).catch(() => {});
+    } else on();
+  }
   $('done').onclick = () => {
+    startMotion();
     if (!makeSprite()) return;
     pearls = []; liquid = 0; spawnLeft = 30; spawnT = 0; shakeX = 0; shakeV = 0;
     setMode('drink');
