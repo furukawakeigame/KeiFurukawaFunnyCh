@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>フォトスライス</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <!-- X などにURLを貼ったときのカード表示（ここだけは https:// から書く） -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="フォトスライス">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/photo-slice/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/photo-slice/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    html, body { margin: 0; height: 100%; background: #f3efe8; color: #3a3530; }
+    body {
+      display: flex; flex-direction: column; height: 100dvh;
+      font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden; touch-action: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; width: 100%; max-width: 640px; margin: 0 auto; box-sizing: border-box;
+    }
+    header a { color: #b0503a; text-decoration: none; font-weight: bold; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill {
+      font: inherit; font-size: 15px; background: #fff; border: 2px solid #e2d6c6; border-radius: 999px;
+      min-width: 44px; height: 36px; padding: 0 10px; cursor: pointer; font-weight: bold; color: #8a5a40;
+      display: flex; align-items: center; justify-content: center;
+    }
+    main {
+      flex: 1; min-height: 0; width: 100%; max-width: 640px; margin: 0 auto;
+      display: flex; flex-direction: column; box-sizing: border-box; gap: 8px;
+      padding: 0 12px calc(80px + env(safe-area-inset-bottom));
+    }
+    #stage { position: relative; flex: 1; min-height: 0; border-radius: 16px; overflow: hidden; background: #e9e2d6; touch-action: none; }
+    #stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+    #gl { cursor: crosshair; }
+    #cut, #draw { cursor: crosshair; }
+    #hud { position: absolute; top: 10px; right: 12px; font-weight: bold; font-size: 20px; pointer-events: none; text-shadow: 0 1px 0 #fff; }
+    #pick { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+    #ctrl { min-height: 64px; display: flex; gap: 8px; align-items: center; }
+    #ctrl > * { flex: 1; }
+    .big {
+      font: inherit; font-size: 20px; font-weight: bold; padding: 14px 8px; border-radius: 16px;
+      border: none; cursor: pointer; color: #fff; background: #d0643f;
+      box-shadow: 0 4px 0 #94432a; touch-action: manipulation; text-align: center;
+    }
+    .big:active { transform: translateY(3px); box-shadow: 0 1px 0 #94432a; }
+    .sub { background: #fff; color: #94432a; box-shadow: 0 4px 0 #e2d6c6; }
+    #pick .big { width: 240px; max-width: 80%; }
+    [hidden] { display: none !important; }
+    #err { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <div class="hbtns">
+      <button id="lang" class="pill">EN</button>
+      <button id="sound" class="pill" aria-label="sound"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path id="wave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/><path id="mute" d="M16 9l6 6M22 9l-6 6"/></svg></button>
+    </div>
+  </header>
+  <main>
+    <div id="stage">
+      <canvas id="gl"></canvas>
+      <canvas id="draw"></canvas>
+      <canvas id="cut"></canvas>
+      <div id="hud" hidden></div>
+      <div id="pick">
+        <button id="choose" class="big"></button>
+        <button id="sample" class="big sub"></button>
+      </div>
+      <div id="err" hidden></div>
+    </div>
+    <div id="ctrl">
+      <button id="redo" class="big sub" hidden></button>
+      <button id="reset" class="big sub" hidden></button>
+      <button id="other" class="big" hidden></button>
+    </div>
+    <input id="file" type="file" accept="image/*" hidden>
+  </main>
+
+  <script>
+    // three.js が読めなかったときの一言
+    window.__threeTimer = setTimeout(() => {
+      if (!window.__threeOK) { const e = document.getElementById('err'); e.hidden = false; e.textContent = '3Dの読み込みに失敗しました / Failed to load 3D library'; }
+    }, 8000);
+  </script>
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+  <script type="module">
+    import * as THREE from 'three';
+    window.__threeOK = true;
+
+    const $ = id => document.getElementById(id);
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('photo-slice:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('photo-slice:' + k, JSON.stringify(v)); } catch {} },
+    };
+
+    // ---------- 言語 ----------
+    const L = {
+      ja: { title: 'フォトスライス', back: '← トップへ戻る', lang: 'EN', choose: '画像をえらぶ', sample: 'サンプル',
+            redo: 'なぞり直す', reset: '元に戻す', other: '別の画像', hud: (c, p) => `${c}回 / ${p}個` },
+      en: { title: 'Photo Slice', back: '← Top', lang: '日本語', choose: 'Choose image', sample: 'Sample',
+            redo: 'Redraw', reset: 'Restore', other: 'New image', hud: (c, p) => `${c} cuts / ${p} pcs` },
+    };
+    let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
+    if (!L[lang]) lang = 'ja';
+    const t = k => L[lang][k];
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      $('back').textContent = t('back');
+      $('lang').textContent = t('lang');
+      for (const k of ['choose', 'sample', 'redo', 'reset', 'other']) $(k).textContent = t(k);
+      updateHud();
+    }
+    $('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+
+    // ---------- 音 ----------
+    let soundOn = store.get('sound', true);
+    const updateSoundBtn = () => { $('wave').style.display = soundOn ? '' : 'none'; $('mute').style.display = soundOn ? 'none' : ''; };
+    $('sound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updateSoundBtn(); };
+    updateSoundBtn();
+    let ac = null;
+    function swish() {
+      if (!soundOn) return;
+      try {
+        ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+        const len = ac.sampleRate * 0.25, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+        const src = ac.createBufferSource(); src.buffer = buf;
+        const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 2;
+        f.frequency.setValueAtTime(1500, ac.currentTime); f.frequency.exponentialRampToValueAtTime(6000, ac.currentTime + 0.2);
+        const g = ac.createGain(); g.gain.value = 0.6;
+        src.connect(f).connect(g).connect(ac.destination); src.start();
+      } catch {}
+    }
+
+    // ---------- 状態 ----------
+    const stage = $('stage'), drawCv = $('draw'), cutCv = $('cut'), glCv = $('gl');
+    let mode = 'pick'; // pick | draw | slice
+    let img = null;    // 縮小済み canvas
+    let outline = null; // 画像座標の輪郭
+    let cuts = 0;
+    function updateHud() { $('hud').textContent = t('hud')(cuts, pieces.length); }
+
+    function setMode(m) {
+      mode = m;
+      $('pick').hidden = m !== 'pick';
+      drawCv.hidden = m !== 'draw';
+      cutCv.hidden = m !== 'slice';
+      glCv.style.visibility = m === 'slice' ? 'visible' : 'hidden';
+      $('hud').hidden = m !== 'slice';
+      $('redo').hidden = m !== 'slice';
+      $('reset').hidden = m !== 'slice';
+      $('other').hidden = m === 'pick';
+      resize();
+    }
+
+    // ---------- 画像読み込み ----------
+    function useImage(source) {
+      const max = 1024, s = Math.min(1, max / Math.max(source.width, source.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(source.width * s); c.height = Math.round(source.height * s);
+      c.getContext('2d').drawImage(source, 0, 0, c.width, c.height);
+      img = c; setMode('draw'); drawPath = []; renderDraw();
+    }
+    $('choose').onclick = () => $('file').click();
+    $('file').onchange = e => {
+      const f = e.target.files[0]; if (!f) return;
+      const im = new Image();
+      im.onload = () => { useImage(im); URL.revokeObjectURL(im.src); };
+      im.src = URL.createObjectURL(f);
+      e.target.value = '';
+    };
+    $('sample').onclick = () => useImage(makeSample());
+    $('other').onclick = () => { clearPieces(); setMode('pick'); };
+    $('redo').onclick = () => { clearPieces(); drawPath = []; setMode('draw'); renderDraw(); };
+    $('reset').onclick = () => build3D();
+
+    function makeSample() {
+      // コードで描いたサンプル（スイカ）
+      const c = document.createElement('canvas'); c.width = c.height = 800;
+      const g = c.getContext('2d');
+      g.fillStyle = '#bfe3f2'; g.fillRect(0, 0, 800, 800);
+      g.save(); g.translate(400, 430);
+      g.fillStyle = '#2f7d32'; g.beginPath(); g.arc(0, 0, 330, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#1b4d1e'; g.lineWidth = 26;
+      for (let a = -3; a <= 3; a++) { g.beginPath(); g.ellipse(a * 95, 0, 30, 320, 0, 0, Math.PI * 2); g.stroke(); }
+      g.restore();
+      g.fillStyle = '#f2f7e8'; g.beginPath(); g.arc(400, 430, 250, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#e8414b'; g.beginPath(); g.arc(400, 430, 230, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#222';
+      for (let i = 0; i < 26; i++) {
+        const a = i * 2.4, r = 60 + (i * 37) % 150;
+        g.beginPath(); g.ellipse(400 + Math.cos(a) * r, 430 + Math.sin(a) * r, 9, 15, a, 0, Math.PI * 2); g.fill();
+      }
+      return c;
+    }
+
+    // ---------- くり抜き ----------
+    let drawPath = [], drawing = false, fit = { x: 0, y: 0, s: 1 };
+    function renderDraw() {
+      if (!img) return;
+      const w = drawCv.width, h = drawCv.height, g = drawCv.getContext('2d');
+      const s = Math.min(w / img.width, h / img.height) * 0.94;
+      fit = { s, x: (w - img.width * s) / 2, y: (h - img.height * s) / 2 };
+      g.clearRect(0, 0, w, h);
+      g.drawImage(img, fit.x, fit.y, img.width * s, img.height * s);
+      if (drawPath.length) {
+        g.save();
+        g.beginPath();
+        drawPath.forEach((p, i) => { const X = fit.x + p[0] * s, Y = fit.y + p[1] * s; i ? g.lineTo(X, Y) : g.moveTo(X, Y); });
+        g.lineWidth = 4 * dpr; g.strokeStyle = '#fff'; g.setLineDash([10 * dpr, 8 * dpr]); g.stroke();
+        g.lineWidth = 2 * dpr; g.strokeStyle = '#d0643f'; g.setLineDash([]); g.stroke();
+        g.restore();
+      }
+    }
+    function toImg(e) {
+      const r = drawCv.getBoundingClientRect();
+      const X = (e.clientX - r.left) * dpr, Y = (e.clientY - r.top) * dpr;
+      return [Math.max(0, Math.min(img.width, (X - fit.x) / fit.s)), Math.max(0, Math.min(img.height, (Y - fit.y) / fit.s))];
+    }
+    drawCv.addEventListener('pointerdown', e => { drawing = true; drawCv.setPointerCapture(e.pointerId); drawPath = [toImg(e)]; renderDraw(); });
+    drawCv.addEventListener('pointermove', e => {
+      if (!drawing) return;
+      const p = toImg(e), q = drawPath[drawPath.length - 1];
+      if (Math.hypot(p[0] - q[0], p[1] - q[1]) > 3 / fit.s) { drawPath.push(p); renderDraw(); }
+    });
+    const endDraw = () => {
+      if (!drawing) return; drawing = false;
+      const pts = simplify(drawPath, Math.max(img.width, img.height) / 300);
+      if (pts.length < 3 || Math.abs(area2(pts)) < (img.width * img.height) * 0.002) { drawPath = []; renderDraw(); return; }
+      outline = pts; build3D();
+    };
+    drawCv.addEventListener('pointerup', endDraw);
+    drawCv.addEventListener('pointercancel', endDraw);
+
+    function area2(p) { let a = 0; for (let i = 0; i < p.length; i++) { const q = p[i], r = p[(i + 1) % p.length]; a += q[0] * r[1] - r[0] * q[1]; } return a / 2; }
+    function simplify(p, d) {
+      const out = [p[0]];
+      for (const q of p) { const l = out[out.length - 1]; if (Math.hypot(q[0] - l[0], q[1] - l[1]) >= d) out.push(q); }
+      return out;
+    }
+
+    // ---------- three.js ----------
+    let dpr = Math.min(2, window.devicePixelRatio || 1);
+    const renderer = new THREE.WebGLRenderer({ canvas: glCv, antialias: true });
+    renderer.setPixelRatio(dpr);
+    renderer.shadowMap.enabled = true;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#e9e2d6');
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0xb8a890, 1.6));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    sun.position.set(3, 8, 5); sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6 });
+    scene.add(sun);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(9, 0.3, 6), new THREE.MeshStandardMaterial({ color: '#f6f1e7', roughness: 0.9 }));
+    board.position.y = -0.15; board.receiveShadow = true; scene.add(board);
+
+    const cam = { yaw: 0, pitch: 0.28, dist: 7.5, target: new THREE.Vector3(0, 1.1, 0) };
+    function placeCamera() {
+      const c = Math.cos(cam.pitch);
+      camera.position.set(Math.sin(cam.yaw) * c * cam.dist, Math.sin(cam.pitch) * cam.dist + cam.target.y, Math.cos(cam.yaw) * c * cam.dist);
+      camera.lookAt(cam.target);
+    }
+
+    let material = null, texture = null;
+    const pieces = []; // { mesh, vel, ang, pinned }
+    function clearPieces() { for (const p of pieces) { scene.remove(p.mesh); p.mesh.geometry.dispose(); } pieces.length = 0; }
+
+    function build3D() {
+      clearPieces();
+      cuts = 0;
+      if (texture) texture.dispose();
+      texture = new THREE.CanvasTexture(img); texture.colorSpace = THREE.SRGBColorSpace;
+      material = material || new THREE.MeshStandardMaterial({ roughness: 0.7 });
+      material.map = texture; material.needsUpdate = true;
+
+      // 画像の長い辺 = 3 にそろえる
+      const S = 3 / Math.max(img.width, img.height);
+      let pts = outline.map(p => new THREE.Vector2(p[0] * S, -p[1] * S));
+      if (THREE.ShapeUtils.isClockWise(pts)) pts = pts.reverse();
+      const depth = 0.45;
+      const geo = new THREE.ExtrudeGeometry(new THREE.Shape(pts), { depth, bevelEnabled: false, curveSegments: 1 });
+      const pos = geo.attributes.position, uv = new Float32Array(pos.count * 2);
+      for (let i = 0; i < pos.count; i++) { uv[i * 2] = pos.getX(i) / S / img.width; uv[i * 2 + 1] = 1 + pos.getY(i) / S / img.height; }
+      geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      geo.deleteAttribute('normal');
+      geo.computeBoundingBox();
+      const bb = geo.boundingBox, c = new THREE.Vector3(); bb.getCenter(c);
+      geo.translate(-c.x, -c.y, -c.z);
+      const mesh = makeMesh(geo);
+      mesh.position.set(0, (bb.max.y - bb.min.y) / 2 + 0.002, 0);
+      scene.add(mesh);
+      pieces.push({ mesh, vel: new THREE.Vector3(), ang: new THREE.Vector3(), pinned: true });
+      const h = bb.max.y - bb.min.y;
+      cam.target.set(0, h / 2, 0); cam.yaw = 0; cam.pitch = 0.28; cam.dist = 4 + Math.max(h, bb.max.x - bb.min.x) * 1.3;
+      setMode('slice'); updateHud();
+    }
+    function makeMesh(geo) {
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, material);
+      m.castShadow = true; m.receiveShadow = true;
+      return m;
+    }
+
+    // ---------- スライス ----------
+    const EPS = 1e-7;
+    function key(x, y, z) { return Math.round(x * 1e5) + ',' + Math.round(y * 1e5) + ',' + Math.round(z * 1e5); }
+
+    // geo を局所平面 (n, d) で切り、[正側の三角形配列, 負側の三角形配列, 断面の線分] を返す
+    function slice(geo, plane) {
+      const P = geo.attributes.position.array, U = geo.attributes.uv.array;
+      const n = plane.normal, d0 = plane.constant;
+      const sides = [[], []]; // 各要素: [x,y,z,u,v] * 3
+      const segs = [];
+      const vert = i => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2], U[i * 2], U[i * 2 + 1]];
+      const dist = v => { let d = n.x * v[0] + n.y * v[1] + n.z * v[2] + d0; return Math.abs(d) < EPS ? EPS : d; };
+      const inter = (a, da, b, db) => {
+        // 辺の向きをそろえて、隣り合う三角形で同じ点になるようにする
+        if (key(a[0], a[1], a[2]) > key(b[0], b[1], b[2])) { [a, b] = [b, a]; [da, db] = [db, da]; }
+        const t = da / (da - db);
+        return a.map((x, k) => x + (b[k] - x) * t);
+      };
+      for (let i = 0; i < P.length / 3; i += 3) {
+        const v = [vert(i), vert(i + 1), vert(i + 2)], d = v.map(dist);
+        const pos = d.map(x => x > 0);
+        if (pos[0] === pos[1] && pos[1] === pos[2]) { sides[pos[0] ? 0 : 1].push(v); continue; }
+        // 一つだけ仲間はずれの頂点 k
+        const k = pos[0] === pos[1] ? 2 : pos[0] === pos[2] ? 1 : 0;
+        const a = v[k], b = v[(k + 1) % 3], c = v[(k + 2) % 3];
+        const da = d[k], db = d[(k + 1) % 3], dc = d[(k + 2) % 3];
+        const ab = inter(a, da, b, db), ac = inter(a, da, c, dc);
+        const lone = pos[k] ? 0 : 1, other = 1 - lone;
+        sides[lone].push([a, ab, ac]);
+        sides[other].push([ab, b, c], [ab, c, ac]);
+        segs.push([ab, ac]);
+      }
+      return { sides, segs };
+    }
+
+    // 断面の線分をつないでループにし、平面上で三角形分割する
+    function capTris(segs, n) {
+      const adj = new Map();
+      const add = (k, s) => { if (!adj.has(k)) adj.set(k, []); adj.get(k).push(s); };
+      segs.forEach((s, i) => { add(key(...s[0]), i); add(key(...s[1]), i); });
+      const used = new Uint8Array(segs.length), loops = [];
+      for (let i = 0; i < segs.length; i++) {
+        if (used[i]) continue;
+        used[i] = 1;
+        const loop = [segs[i][0]];
+        let cur = segs[i][1];
+        const startK = key(...segs[i][0]);
+        for (let guard = 0; guard < segs.length + 2; guard++) {
+          const ck = key(...cur);
+          if (ck === startK) break;
+          loop.push(cur);
+          const next = (adj.get(ck) || []).find(j => !used[j]);
+          if (next === undefined) break;
+          used[next] = 1;
+          cur = key(...segs[next][0]) === ck ? segs[next][1] : segs[next][0];
+        }
+        if (loop.length >= 3) loops.push(loop);
+      }
+      // 平面の2D座標系
+      const u = new THREE.Vector3(), w = new THREE.Vector3();
+      u.copy(Math.abs(n.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).cross(n).normalize();
+      w.copy(n).cross(u);
+      const L2 = loops.map(l => l.map(p => new THREE.Vector2(p[0] * u.x + p[1] * u.y + p[2] * u.z, p[0] * w.x + p[1] * w.y + p[2] * w.z)));
+      const inside = (pt, poly) => {
+        let c = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const a = poly[i], b = poly[j];
+          if ((a.y > pt.y) !== (b.y > pt.y) && pt.x < (b.x - a.x) * (pt.y - a.y) / (b.y - a.y) + a.x) c = !c;
+        }
+        return c;
+      };
+      // 入れ子の深さで外周と穴を分ける
+      const depthOf = L2.map((l, i) => L2.reduce((s, m, j) => s + (j !== i && inside(l[0], m) ? 1 : 0), 0));
+      const tris = [];
+      L2.forEach((outer, i) => {
+        if (depthOf[i] % 2) return;
+        const holesIdx = L2.map((_, j) => j).filter(j => depthOf[j] === depthOf[i] + 1 && inside(L2[j][0], outer));
+        let o = outer, oi = loops[i];
+        if (THREE.ShapeUtils.isClockWise(o)) { o = [...o].reverse(); oi = [...oi].reverse(); }
+        const hs = [], his = [];
+        for (const j of holesIdx) {
+          let h = L2[j], hi = loops[j];
+          if (!THREE.ShapeUtils.isClockWise(h)) { h = [...h].reverse(); hi = [...hi].reverse(); }
+          hs.push(h); his.push(hi);
+        }
+        const all = oi.concat(...his);
+        let faces;
+        try { faces = THREE.ShapeUtils.triangulateShape(o, hs); } catch { return; }
+        for (const f of faces) tris.push([all[f[0]], all[f[1]], all[f[2]]]);
+      });
+      return tris; // 2Dで反時計回り = 法線 n 向き
+    }
+
+    function trisToGeo(tris) {
+      const pos = new Float32Array(tris.length * 9), uv = new Float32Array(tris.length * 6);
+      tris.forEach((t, i) => t.forEach((v, j) => {
+        pos.set(v.slice(0, 3), i * 9 + j * 3); uv.set(v.slice(3, 5), i * 6 + j * 2);
+      }));
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      return g;
+    }
+
+    // つながっている三角形ごとに分ける
+    function components(tris) {
+      const parent = tris.map((_, i) => i);
+      const find = i => { while (parent[i] !== i) i = parent[i] = parent[parent[i]]; return i; };
+      const owner = new Map();
+      tris.forEach((t, i) => t.forEach(v => {
+        const k = key(v[0], v[1], v[2]);
+        if (owner.has(k)) { const a = find(owner.get(k)), b = find(i); if (a !== b) parent[a] = b; } else owner.set(k, i);
+      }));
+      const groups = new Map();
+      tris.forEach((t, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(t); });
+      return [...groups.values()];
+    }
+
+    function orient(tris, n) {
+      // 三角形の向きを法線 n にそろえる
+      const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+      return tris.map(t => {
+        a.fromArray(t[0]); b.fromArray(t[1]); c.fromArray(t[2]);
+        b.sub(a); c.sub(a); b.cross(c);
+        return b.dot(n) >= 0 ? t : [t[0], t[2], t[1]];
+      });
+    }
+
+    function cutWithWorldPlane(wplane) {
+      let any = false;
+      const newPieces = [];
+      for (const p of [...pieces]) {
+        p.mesh.updateMatrixWorld();
+        const inv = new THREE.Matrix4().copy(p.mesh.matrixWorld).invert();
+        const lp = wplane.clone().applyMatrix4(inv);
+        const { sides, segs } = slice(p.mesh.geometry, lp);
+        if (!sides[0].length || !sides[1].length || !segs.length) continue;
+        any = true;
+        const cap = capTris(segs, lp.normal);
+        const negN = lp.normal.clone().negate();
+        const parts = [
+          { tris: sides[0].concat(orient(cap, negN)), dir: 1 },
+          { tris: sides[1].concat(orient(cap, lp.normal)), dir: -1 },
+        ];
+        scene.remove(p.mesh);
+        pieces.splice(pieces.indexOf(p), 1);
+        const wn = wplane.normal;
+        for (const part of parts) {
+          for (const comp of components(part.tris)) {
+            if (comp.length < 2) continue;
+            const geo = trisToGeo(comp);
+            geo.computeBoundingBox();
+            const c = new THREE.Vector3(); geo.boundingBox.getCenter(c);
+            geo.translate(-c.x, -c.y, -c.z);
+            const m = makeMesh(geo);
+            m.position.copy(c).applyMatrix4(p.mesh.matrixWorld);
+            m.quaternion.copy(p.mesh.quaternion);
+            scene.add(m);
+            newPieces.push({ mesh: m, vel: p.vel.clone().addScaledVector(wn, part.dir * 1.2).add(new THREE.Vector3(0, 1.2, 0)), ang: p.ang.clone(), pinned: false });
+          }
+        }
+        p.mesh.geometry.dispose();
+      }
+      pieces.push(...newPieces);
+      if (any) { cuts++; swish(); }
+      updateHud();
+    }
+
+    // ---------- 物理（重力・床だけの簡単なもの） ----------
+    const G = -9.8, tmp = new THREE.Vector3(), q = new THREE.Quaternion();
+    function step(dt) {
+      for (const p of pieces) {
+        if (p.pinned) continue;
+        const m = p.mesh;
+        p.vel.y += G * dt;
+        m.position.addScaledVector(p.vel, dt);
+        const al = p.ang.length();
+        if (al > 1e-6) { q.setFromAxisAngle(tmp.copy(p.ang).divideScalar(al), al * dt); m.quaternion.premultiply(q); }
+        // 一番低い点を探す
+        m.updateMatrixWorld();
+        const P = m.geometry.attributes.position, e = m.matrixWorld.elements;
+        let minY = Infinity;
+        for (let i = 0; i < P.count; i++) { const y = e[1] * P.getX(i) + e[5] * P.getY(i) + e[9] * P.getZ(i) + e[13]; if (y < minY) minY = y; }
+        if (minY < 0) {
+          let cx = 0, cz = 0, cnt = 0;
+          for (let i = 0; i < P.count; i++) {
+            tmp.set(P.getX(i), P.getY(i), P.getZ(i)).applyMatrix4(m.matrixWorld);
+            if (tmp.y < minY + 0.03) { cx += tmp.x; cz += tmp.z; cnt++; }
+          }
+          cx /= cnt; cz /= cnt;
+          m.position.y -= minY;
+          const vy = p.vel.y;
+          if (vy < 0) p.vel.y = -vy * 0.25;
+          p.vel.x *= 0.9; p.vel.z *= 0.9;
+          // 接地点が重心からずれていれば倒れる向きに回す
+          const rx = cx - m.position.x, rz = cz - m.position.z;
+          p.ang.x += rz * 6 * dt * 8; p.ang.z -= rx * 6 * dt * 8;
+          p.ang.multiplyScalar(0.86);
+        } else {
+          p.ang.multiplyScalar(0.995);
+        }
+        // まな板の外へ行きすぎたら戻す
+        if (m.position.y < -5) { m.position.set(0, 2, 0); p.vel.set(0, 0, 0); }
+      }
+    }
+
+    // ---------- 入力（スライス・視点） ----------
+    let cutStart = null, cutEnd = null, orbit = null;
+    const touches = new Map();
+    function local(e) { const r = cutCv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+    cutCv.addEventListener('contextmenu', e => e.preventDefault());
+    cutCv.addEventListener('pointerdown', e => {
+      cutCv.setPointerCapture(e.pointerId);
+      touches.set(e.pointerId, local(e));
+      if (e.button === 2 || touches.size >= 2) {
+        cutStart = null; renderCut();
+        orbit = { pts: centroid() };
+      } else if (e.button === 0) {
+        cutStart = local(e); cutEnd = cutStart;
+      }
+    });
+    function centroid() { let x = 0, y = 0; for (const v of touches.values()) { x += v[0]; y += v[1]; } return [x / touches.size, y / touches.size]; }
+    cutCv.addEventListener('pointermove', e => {
+      if (!touches.has(e.pointerId)) return;
+      touches.set(e.pointerId, local(e));
+      if (orbit) {
+        const c = centroid();
+        cam.yaw -= (c[0] - orbit.pts[0]) * 0.01;
+        cam.pitch = Math.max(0.02, Math.min(1.45, cam.pitch + (c[1] - orbit.pts[1]) * 0.01));
+        orbit.pts = c;
+      } else if (cutStart) { cutEnd = local(e); renderCut(); }
+    });
+    const up = e => {
+      touches.delete(e.pointerId);
+      if (orbit) { if (touches.size === 0) orbit = null; else orbit.pts = centroid(); return; }
+      if (cutStart && cutEnd && Math.hypot(cutEnd[0] - cutStart[0], cutEnd[1] - cutStart[1]) > 12) doCut(cutStart, cutEnd);
+      cutStart = null; renderCut();
+    };
+    cutCv.addEventListener('pointerup', up);
+    cutCv.addEventListener('pointercancel', e => { touches.delete(e.pointerId); orbit = null; cutStart = null; renderCut(); });
+    cutCv.addEventListener('wheel', e => { e.preventDefault(); cam.dist = Math.max(3, Math.min(20, cam.dist * (1 + Math.sign(e.deltaY) * 0.1))); }, { passive: false });
+
+    function rayDir(p) {
+      const r = cutCv.getBoundingClientRect();
+      return new THREE.Vector3((p[0] / r.width) * 2 - 1, -(p[1] / r.height) * 2 + 1, 0.5).unproject(camera).sub(camera.position).normalize();
+    }
+    function doCut(a, b) {
+      const da = rayDir(a), db = rayDir(b);
+      const n = new THREE.Vector3().crossVectors(da, db).normalize();
+      if (!isFinite(n.x)) return;
+      cutWithWorldPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(n, camera.position));
+      flash = { a, b, t: 1 };
+    }
+    let flash = null;
+    function renderCut() {
+      const g = cutCv.getContext('2d');
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.clearRect(0, 0, cutCv.width, cutCv.height);
+      const line = (a, b, alpha, wd) => {
+        g.globalAlpha = alpha; g.lineCap = 'round';
+        g.strokeStyle = '#fff'; g.lineWidth = wd + 3; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
+        g.strokeStyle = '#d0643f'; g.lineWidth = wd; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
+        g.globalAlpha = 1;
+      };
+      if (cutStart && cutEnd) {
+        line(cutStart, cutEnd, 1, 3);
+        g.fillStyle = '#d0643f'; g.beginPath(); g.arc(...cutStart, 6, 0, Math.PI * 2); g.fill();
+      }
+      if (flash) line(flash.a, flash.b, flash.t, 3 + 6 * flash.t);
+    }
+
+    // ---------- 画面サイズ ----------
+    function resize() {
+      dpr = Math.min(2, window.devicePixelRatio || 1);
+      const r = stage.getBoundingClientRect();
+      const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
+      for (const c of [drawCv, cutCv]) { c.width = w * dpr; c.height = h * dpr; }
+      renderer.setPixelRatio(dpr); renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.fov = w < h ? 60 : 45;
+      camera.updateProjectionMatrix();
+      if (mode === 'draw') renderDraw();
+      renderCut();
+    }
+    window.addEventListener('resize', resize);
+
+    let last = performance.now();
+    function loop(now) {
+      const dt = Math.min(0.033, (now - last) / 1000); last = now;
+      if (mode === 'slice') {
+        for (let i = 0; i < 2; i++) step(dt / 2);
+        if (flash) { flash.t -= dt * 3; if (flash.t <= 0) flash = null; renderCut(); }
+        placeCamera();
+        renderer.render(scene, camera);
+      }
+      requestAnimationFrame(loop);
+    }
+
+    clearTimeout(window.__threeTimer);
+    applyLang();
+    setMode('pick');
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
