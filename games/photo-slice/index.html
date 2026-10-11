@@ -54,6 +54,9 @@
     .sub { background: #fff; color: #94432a; box-shadow: 0 4px 0 #e2d6c6; }
     #pick .big { width: 240px; max-width: 80%; }
     [hidden] { display: none !important; }
+    .dot { display: inline-block; background: currentColor; border-radius: 50%; }
+    .big.on { background: #d0643f; color: #fff; box-shadow: 0 4px 0 #94432a; }
+    .big:disabled { opacity: .4; cursor: default; }
     #err { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; }
   </style>
 </head>
@@ -78,6 +81,10 @@
       <div id="err" hidden></div>
     </div>
     <div id="ctrl">
+      <button id="brush" class="big sub tool" aria-label="brush"><span id="brushDot" class="dot"></span></button>
+      <button id="erase" class="big sub tool"></button>
+      <button id="undo" class="big sub tool"></button>
+      <button id="done" class="big tool" disabled></button>
       <button id="redo" class="big sub" hidden></button>
       <button id="reset" class="big sub" hidden></button>
       <button id="other" class="big" hidden></button>
@@ -105,9 +112,9 @@
     // ---------- 言語 ----------
     const L = {
       ja: { title: 'フォトスライス', back: '← トップへ戻る', lang: 'EN', choose: '画像をえらぶ', sample: 'サンプル',
-            redo: 'なぞり直す', reset: '元に戻す', other: '別の画像', hud: (c, p) => `${c}回 / ${p}個` },
+            erase: '消す', undo: '戻す', done: 'できた', redo: '塗り直す', reset: '元に戻す', other: '別の画像', hud: (c, p) => `${c}回 / ${p}個` },
       en: { title: 'Photo Slice', back: '← Top', lang: '日本語', choose: 'Choose image', sample: 'Sample',
-            redo: 'Redraw', reset: 'Restore', other: 'New image', hud: (c, p) => `${c} cuts / ${p} pcs` },
+            erase: 'Erase', undo: 'Undo', done: 'Done', redo: 'Repaint', reset: 'Restore', other: 'New image', hud: (c, p) => `${c} cuts / ${p} pcs` },
     };
     let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
     if (!L[lang]) lang = 'ja';
@@ -117,7 +124,7 @@
       document.title = t('title');
       $('back').textContent = t('back');
       $('lang').textContent = t('lang');
-      for (const k of ['choose', 'sample', 'redo', 'reset', 'other']) $(k).textContent = t(k);
+      for (const k of ['choose', 'sample', 'erase', 'undo', 'done', 'redo', 'reset', 'other']) $(k).textContent = t(k);
       updateHud();
     }
     $('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
@@ -159,7 +166,8 @@
       $('hud').hidden = m !== 'slice';
       $('redo').hidden = m !== 'slice';
       $('reset').hidden = m !== 'slice';
-      $('other').hidden = m === 'pick';
+      $('other').hidden = m !== 'slice';
+      for (const b of document.querySelectorAll('.tool')) b.hidden = m !== 'draw';
       resize();
     }
 
@@ -169,7 +177,7 @@
       const c = document.createElement('canvas');
       c.width = Math.round(source.width * s); c.height = Math.round(source.height * s);
       c.getContext('2d').drawImage(source, 0, 0, c.width, c.height);
-      img = c; setMode('draw'); drawPath = []; renderDraw();
+      img = c; newMask(); setMode('draw'); placeImage(); renderDraw();
     }
     $('choose').onclick = () => $('file').click();
     $('file').onchange = e => {
@@ -181,7 +189,7 @@
     };
     $('sample').onclick = () => useImage(makeSample());
     $('other').onclick = () => { clearPieces(); setMode('pick'); };
-    $('redo').onclick = () => { clearPieces(); drawPath = []; setMode('draw'); renderDraw(); };
+    $('redo').onclick = () => { clearPieces(); setMode('draw'); updatePaintBtns(); };
     $('reset').onclick = () => build3D();
 
     function makeSample() {
@@ -204,50 +212,175 @@
       return c;
     }
 
-    // ---------- くり抜き ----------
-    let drawPath = [], drawing = false, fit = { x: 0, y: 0, s: 1 };
+    // ---------- くり抜き（タピオカメーカーと同じ、指で塗る） ----------
+    let mask = null, mctx = null, view = { k: 1, fit: 1, x: 0, y: 0 };
+    let brushIdx = 1, erasing = false, undoStack = [], lastPt = null, pinch = null;
+    const ptouch = new Map();
+    const BRUSH = [8, 22, 50];
+    function newMask() {
+      mask = document.createElement('canvas'); mask.width = img.width; mask.height = img.height;
+      mctx = mask.getContext('2d'); undoStack = []; erasing = false; updatePaintBtns();
+    }
+    function placeImage() {
+      const W = drawCv.width / dpr, H = drawCv.height / dpr, pad = 12;
+      const k = Math.min((W - pad * 2) / img.width, (H - pad * 2) / img.height);
+      view = { k, fit: k, x: (W - img.width * k) / 2, y: (H - img.height * k) / 2 };
+    }
+    function snapFit() {
+      const W = drawCv.width / dpr, H = drawCv.height / dpr;
+      if (view.k <= view.fit * 1.001) { view.x = (W - img.width * view.k) / 2; view.y = (H - img.height * view.k) / 2; }
+    }
+    let tmpC = null;
     function renderDraw() {
-      if (!img) return;
-      const w = drawCv.width, h = drawCv.height, g = drawCv.getContext('2d');
-      const s = Math.min(w / img.width, h / img.height) * 0.94;
-      fit = { s, x: (w - img.width * s) / 2, y: (h - img.height * s) / 2 };
-      g.clearRect(0, 0, w, h);
-      g.drawImage(img, fit.x, fit.y, img.width * s, img.height * s);
-      if (drawPath.length) {
-        g.save();
-        g.beginPath();
-        drawPath.forEach((p, i) => { const X = fit.x + p[0] * s, Y = fit.y + p[1] * s; i ? g.lineTo(X, Y) : g.moveTo(X, Y); });
-        g.lineWidth = 4 * dpr; g.strokeStyle = '#fff'; g.setLineDash([10 * dpr, 8 * dpr]); g.stroke();
-        g.lineWidth = 2 * dpr; g.strokeStyle = '#d0643f'; g.setLineDash([]); g.stroke();
-        g.restore();
+      if (!img || !mask) return;
+      const g = drawCv.getContext('2d');
+      g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, drawCv.width, drawCv.height);
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const { k, x, y } = view;
+      g.fillStyle = '#3b2a20'; g.fillRect(x, y, img.width * k, img.height * k);
+      g.globalAlpha = 0.35; g.drawImage(img, x, y, img.width * k, img.height * k); g.globalAlpha = 1;
+      if (!tmpC || tmpC.width !== img.width || tmpC.height !== img.height) {
+        tmpC = document.createElement('canvas'); tmpC.width = img.width; tmpC.height = img.height;
       }
+      const t2 = tmpC.getContext('2d');
+      t2.globalCompositeOperation = 'source-over'; t2.clearRect(0, 0, tmpC.width, tmpC.height);
+      t2.drawImage(mask, 0, 0);
+      t2.globalCompositeOperation = 'source-in'; t2.drawImage(img, 0, 0);
+      t2.globalCompositeOperation = 'source-atop'; t2.fillStyle = 'rgba(60, 220, 110, 0.45)'; t2.fillRect(0, 0, tmpC.width, tmpC.height);
+      g.drawImage(tmpC, x, y, img.width * k, img.height * k);
     }
     function toImg(e) {
       const r = drawCv.getBoundingClientRect();
-      const X = (e.clientX - r.left) * dpr, Y = (e.clientY - r.top) * dpr;
-      return [Math.max(0, Math.min(img.width, (X - fit.x) / fit.s)), Math.max(0, Math.min(img.height, (Y - fit.y) / fit.s))];
+      return { x: (e.clientX - r.left - view.x) / view.k, y: (e.clientY - r.top - view.y) / view.k };
     }
-    drawCv.addEventListener('pointerdown', e => { drawing = true; drawCv.setPointerCapture(e.pointerId); drawPath = [toImg(e)]; renderDraw(); });
-    drawCv.addEventListener('pointermove', e => {
-      if (!drawing) return;
-      const p = toImg(e), q = drawPath[drawPath.length - 1];
-      if (Math.hypot(p[0] - q[0], p[1] - q[1]) > 3 / fit.s) { drawPath.push(p); renderDraw(); }
+    const brushPx = () => BRUSH[brushIdx] / view.k;
+    function paintStroke(a, b) {
+      mctx.save();
+      mctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
+      mctx.strokeStyle = '#000'; mctx.fillStyle = '#000';
+      mctx.lineCap = 'round'; mctx.lineJoin = 'round'; mctx.lineWidth = brushPx();
+      mctx.beginPath(); mctx.moveTo(a.x, a.y); mctx.lineTo(b.x, b.y); mctx.stroke();
+      mctx.beginPath(); mctx.arc(b.x, b.y, brushPx() / 2, 0, Math.PI * 2); mctx.fill();
+      mctx.restore();
+    }
+    function maskEmpty() {
+      const d = mctx.getImageData(0, 0, mask.width, mask.height).data;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 20) return false;
+      return true;
+    }
+    function updatePaintBtns() {
+      $('done').disabled = !mask || maskEmpty();
+      $('erase').classList.toggle('on', erasing);
+      $('undo').disabled = !undoStack.length;
+      const s = [9, 13, 18][brushIdx]; $('brushDot').style.width = $('brushDot').style.height = s + 'px';
+    }
+    const mid = (a, b) => { const r = drawCv.getBoundingClientRect(); return { x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top }; };
+    drawCv.addEventListener('pointerdown', e => {
+      e.preventDefault(); drawCv.setPointerCapture(e.pointerId);
+      ptouch.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (ptouch.size === 1 && !pinch) {
+        undoStack.push(mctx.getImageData(0, 0, mask.width, mask.height));
+        if (undoStack.length > 20) undoStack.shift();
+        lastPt = toImg(e); paintStroke(lastPt, lastPt); renderDraw();
+      } else if (ptouch.size === 2) {
+        // 2本目の指: 塗りはじめを取り消してズーム
+        if (lastPt) { const d = undoStack.pop(); if (d) mctx.putImageData(d, 0, 0); lastPt = null; }
+        const [a, b] = [...ptouch.values()];
+        pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: mid(a, b), k0: view.k, x0: view.x, y0: view.y };
+        renderDraw();
+      }
     });
-    const endDraw = () => {
-      if (!drawing) return; drawing = false;
-      const pts = simplify(drawPath, Math.max(img.width, img.height) / 300);
-      if (pts.length < 3 || Math.abs(area2(pts)) < (img.width * img.height) * 0.002) { drawPath = []; renderDraw(); return; }
-      outline = pts; build3D();
+    drawCv.addEventListener('pointermove', e => {
+      if (!ptouch.has(e.pointerId)) return;
+      ptouch.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && ptouch.size >= 2) {
+        const [a, b] = [...ptouch.values()], m = mid(a, b);
+        const k = Math.max(view.fit, Math.min(view.fit * 12, pinch.k0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0));
+        view.x = m.x - (pinch.m0.x - pinch.x0) / pinch.k0 * k;
+        view.y = m.y - (pinch.m0.y - pinch.y0) / pinch.k0 * k;
+        view.k = k; snapFit(); renderDraw();
+      } else if (lastPt) { const p = toImg(e); paintStroke(lastPt, p); lastPt = p; renderDraw(); }
+    });
+    const paintUp = e => {
+      ptouch.delete(e.pointerId);
+      if (ptouch.size === 0) pinch = null;
+      if (lastPt) lastPt = null;
+      updatePaintBtns();
     };
-    drawCv.addEventListener('pointerup', endDraw);
-    drawCv.addEventListener('pointercancel', endDraw);
+    drawCv.addEventListener('pointerup', paintUp);
+    drawCv.addEventListener('pointercancel', paintUp);
+    drawCv.addEventListener('wheel', e => {
+      e.preventDefault();
+      const r = drawCv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+      const k = Math.max(view.fit, Math.min(view.fit * 12, view.k * Math.exp(-e.deltaY * 0.0015)));
+      view.x = mx - (mx - view.x) / view.k * k; view.y = my - (my - view.y) / view.k * k; view.k = k; snapFit();
+      renderDraw();
+    }, { passive: false });
+    $('brush').onclick = () => { brushIdx = (brushIdx + 1) % 3; erasing = false; updatePaintBtns(); };
+    $('erase').onclick = () => { erasing = !erasing; updatePaintBtns(); };
+    $('undo').onclick = () => { const d = undoStack.pop(); if (d) mctx.putImageData(d, 0, 0); renderDraw(); updatePaintBtns(); };
+    $('done').onclick = () => { const o = maskOutlines(); if (o.length) { outline = o; build3D(); } };
 
-    function area2(p) { let a = 0; for (let i = 0; i < p.length; i++) { const q = p[i], r = p[(i + 1) % p.length]; a += q[0] * r[1] - r[0] * q[1]; } return a / 2; }
-    function simplify(p, d) {
-      const out = [p[0]];
-      for (const q of p) { const l = out[out.length - 1]; if (Math.hypot(q[0] - l[0], q[1] - l[1]) >= d) out.push(q); }
-      return out;
+    // 塗った範囲の輪郭を取り出す（外周と穴のループ、画像座標）
+    function maskOutlines() {
+      const N = 160, sc = Math.min(1, N / Math.max(mask.width, mask.height));
+      const gw = Math.max(2, Math.round(mask.width * sc)), gh = Math.max(2, Math.round(mask.height * sc));
+      const c = document.createElement('canvas'); c.width = gw; c.height = gh;
+      const g = c.getContext('2d'); g.drawImage(mask, 0, 0, gw, gh);
+      const d = g.getImageData(0, 0, gw, gh).data;
+      const on = (x, y) => x >= 0 && y >= 0 && x < gw && y < gh && d[(y * gw + x) * 4 + 3] > 127;
+      // 塗った側を左に見る向きの辺を集める
+      const out = new Map(), K = (x, y) => y * (gw + 1) + x;
+      const add = (x0, y0, x1, y1) => { const k = K(x0, y0); if (!out.has(k)) out.set(k, []); out.get(k).push([x1, y1]); };
+      for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+        if (!on(x, y)) continue;
+        if (!on(x, y - 1)) add(x + 1, y, x, y);
+        if (!on(x - 1, y)) add(x, y, x, y + 1);
+        if (!on(x, y + 1)) add(x, y + 1, x + 1, y + 1);
+        if (!on(x + 1, y)) add(x + 1, y + 1, x + 1, y);
+      }
+      const loops = [];
+      for (const [k0, list] of out) {
+        while (list.length) {
+          const sx = k0 % (gw + 1), sy = Math.floor(k0 / (gw + 1));
+          const loop = [[sx, sy]];
+          let [cx, cy] = list.pop(), px = sx, py = sy;
+          for (let guard = 0; guard < gw * gh * 4; guard++) {
+            if (cx === sx && cy === sy) break;
+            loop.push([cx, cy]);
+            const nl = out.get(K(cx, cy));
+            if (!nl || !nl.length) break;
+            // 分かれ道では右に曲がる方を選び、ループを分ける
+            let bi = 0;
+            if (nl.length > 1) {
+              const dx = cx - px, dy = cy - py;
+              bi = nl.findIndex(([nx, ny]) => dx * (ny - cy) - dy * (nx - cx) < 0);
+              if (bi < 0) bi = 0;
+            }
+            const [nx, ny] = nl.splice(bi, 1)[0];
+            px = cx; py = cy; cx = nx; cy = ny;
+          }
+          if (loop.length >= 8) loops.push(loop);
+        }
+      }
+      const k = mask.width / gw;
+      return loops.map(l => {
+        // 角を丸めてから間引く
+        let p = l;
+        for (let it = 0; it < 2; it++) {
+          const q = [];
+          for (let i = 0; i < p.length; i++) {
+            const a = p[i], b = p[(i + 1) % p.length];
+            q.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25], [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+          }
+          p = q;
+        }
+        const s = [p[0]];
+        for (const v of p) { const l2 = s[s.length - 1]; if (Math.hypot(v[0] - l2[0], v[1] - l2[1]) >= 0.9) s.push(v); }
+        return s.map(v => [v[0] * k, v[1] * k]);
+      }).filter(l => l.length >= 3 && Math.abs(area2(l)) > k * k * 4);
     }
+    function area2(p) { let a = 0; for (let i = 0; i < p.length; i++) { const q = p[i], r = p[(i + 1) % p.length]; a += q[0] * r[1] - r[0] * q[1]; } return a / 2; }
 
     // ---------- three.js ----------
     let dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -288,10 +421,22 @@
 
       // 画像の長い辺 = 3 にそろえる
       const S = 3 / Math.max(img.width, img.height);
-      let pts = outline.map(p => new THREE.Vector2(p[0] * S, -p[1] * S));
-      if (THREE.ShapeUtils.isClockWise(pts)) pts = pts.reverse();
+      // 外周（画像座標で負の面積）と穴に分ける
+      const loops = outline.map(l => ({ l, a: area2(l), v: l.map(p => new THREE.Vector2(p[0] * S, -p[1] * S)) }));
+      const inPoly = (pt, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; if ((a[1] > pt[1]) !== (b[1] > pt[1]) && pt[0] < (b[0] - a[0]) * (pt[1] - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
+      const outers = loops.filter(o => o.a < 0), shapes = [];
+      for (const o of outers) {
+        const sh = new THREE.Shape(THREE.ShapeUtils.isClockWise(o.v) ? [...o.v].reverse() : o.v);
+        for (const h of loops) {
+          if (h.a <= 0 || !inPoly(h.l[0], o.l)) continue;
+          // いちばん内側の外周にだけ穴をつける
+          if (outers.some(o2 => o2 !== o && Math.abs(o2.a) < Math.abs(o.a) && inPoly(h.l[0], o2.l) && inPoly(o2.l[0], o.l))) continue;
+          sh.holes.push(new THREE.Path(THREE.ShapeUtils.isClockWise(h.v) ? h.v : [...h.v].reverse()));
+        }
+        shapes.push(sh);
+      }
       const depth = 0.45;
-      const geo = new THREE.ExtrudeGeometry(new THREE.Shape(pts), { depth, bevelEnabled: false, curveSegments: 1 });
+      const geo = new THREE.ExtrudeGeometry(shapes, { depth, bevelEnabled: false, curveSegments: 1 });
       const pos = geo.attributes.position, uv = new Float32Array(pos.count * 2);
       for (let i = 0; i < pos.count; i++) { uv[i * 2] = pos.getX(i) / S / img.width; uv[i * 2 + 1] = 1 + pos.getY(i) / S / img.height; }
       geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
@@ -595,7 +740,7 @@
       camera.aspect = w / h;
       camera.fov = w < h ? 60 : 45;
       camera.updateProjectionMatrix();
-      if (mode === 'draw') renderDraw();
+      if (mode === 'draw' && img) { placeImage(); renderDraw(); }
       renderCut();
     }
     window.addEventListener('resize', resize);
