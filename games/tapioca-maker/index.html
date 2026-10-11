@@ -260,7 +260,7 @@
     if (pearls.length >= MAX_PEARLS) return;
     const lim = CUP.tw / 2 - R * 1.4;
     pearls.push({
-      x: x === undefined ? (Math.random() * 2 - 1) * lim * 0.8 : Math.max(-lim, Math.min(lim, x)),
+      x: Math.min(strawGeom().hx - SW, x === undefined ? (Math.random() * 2 - 1) * lim * 0.8 : Math.max(-lim, Math.min(lim, x))),
       y: -0.35 - Math.random() * 0.1, vx: (Math.random() - 0.5) * 0.3, vy: 0,
       a: Math.random() * Math.PI * 2, va: 0, landed: false,
     });
@@ -274,47 +274,32 @@
       [-bw, CUP.h, bw, CUP.h],
     ];
   };
-  const SUCK_R = 0.55, SUCK_F = 22;
-  // pearls inside the straw: 1D along the tube (d = distance from the tip, upward)
-  function stepStraw(dt, ax, ay) {
-    if (!sucked.length) return;
-    const SG = strawGeom(), G = 4.2;
-    // gravity and shake projected on the tube axis; suction pulls up while held
-    const along = (-ax) * SG.ux + (G - ay) * SG.uy;
-    for (const q of sucked) {
-      q.v += (along + (strawDrag ? 9 : 0)) * dt;
-      q.v *= Math.pow(0.4, dt);          // drag from the drink in the tube
-      q.d += q.v * dt; q.a += q.v * dt / R * 0.5;
-    }
-    // pearls can't pass each other in the tube
-    sucked.sort((a, b) => a.d - b.d);
-    for (let it = 0; it < 3; it++) {
-      for (let i = 0; i + 1 < sucked.length; i++) {
-        const a = sucked[i], b = sucked[i + 1], gap = b.d - a.d - R * 2;
-        if (gap < 0) {
-          a.d += gap / 2; b.d -= gap / 2;
-          if (a.v > b.v) { const m = (a.v + b.v) / 2; a.v = m; b.v = m; }
-        }
-      }
-    }
-    let changed = false;
-    for (const q of sucked) {
-      if (q.d < -R * 0.5) {
-        // slid out of the tip: back into the cup
-        pearls.push({ x: straw.tx, y: straw.ty + R * 0.5, vx: SG.ux * q.v, vy: SG.uy * q.v, a: q.a, va: 0, landed: true });
-        q.gone = true; changed = true;
-      } else if (q.d > STRAW_LEN + R) { q.gone = true; changed = true; }
-    }
-    if (changed) { sucked = sucked.filter(q => !q.gone); updateCount(); }
+  // The straw is a tube in the same physics world. Holding it makes a flow:
+  // pearls near the tip are pulled toward the opening, and pearls inside the tube are carried up.
+  // The opening fits one pearl at a time, so pearls arriving together jam at the tip.
+  const SUCK_R = 0.55, SUCK_F = 22, FLOW = 11;
+  function tubeCoord(p, SG) {
+    const dx = p.x - SG.tx, dy = p.y - SG.ty;
+    return { u: dx * SG.ux + dy * SG.uy, v: dx * -SG.uy + dy * SG.ux };
   }
   function step(dt, ax, ay) {
     const sucking = strawDrag && liquid > 0.3;
-    const G = 4.2, ws = walls();
+    const G = 4.2, ws = walls(), SG = strawGeom(), TUBE_IN = SW / 2 - R;
+    // the lower end of the tube is solid for pearls outside it, so they crowd around the opening
+    const nx = -SG.uy * SW / 2, ny = SG.ux * SW / 2, LIP = 0.2;
+    for (const sgn of [1, -1]) {
+      ws.push([SG.tx + nx * sgn, SG.ty + ny * sgn, SG.tx + nx * sgn + SG.ux * LIP, SG.ty + ny * sgn + SG.uy * LIP]);
+    }
     for (const p of pearls) {
+      p.tu = tubeCoord(p, SG).u;
       p.vx += -ax * dt; p.vy += (G - ay) * dt;
-      if (sucking) {
-        // suction: pull toward the straw tip, stronger when closer
-        const dx = straw.tx - p.x, dy = straw.ty - p.y, d = Math.hypot(dx, dy);
+      if (p.tube) {
+        if (sucking) { p.vx += SG.ux * FLOW * dt; p.vy += SG.uy * FLOW * dt; }
+        const k = Math.pow(0.3, dt);         // drag from the drink in the tube
+        p.vx *= k; p.vy *= k;
+      } else if (sucking) {
+        // flow into the opening, stronger when closer
+        const dx = SG.tx - SG.ux * R * 0.3 - p.x, dy = SG.ty - SG.uy * R * 0.3 - p.y, d = Math.hypot(dx, dy);
         if (d < SUCK_R && d > 1e-4) {
           const f = SUCK_F * (1 - d / SUCK_R) / Math.max(d, 0.12) * 0.12;
           p.vx += dx / d * f * dt; p.vy += dy / d * f * dt;
@@ -328,7 +313,10 @@
       for (let i = 0; i < pearls.length; i++) {
         const p = pearls[i];
         for (let j = i + 1; j < pearls.length; j++) {
-          const q = pearls[j], dx = q.x - p.x, dy = q.y - p.y, d2 = dx * dx + dy * dy, md = R * 2;
+          const q = pearls[j];
+          // a pearl in the tube only meets outside pearls below the opening (the rest pass in front of / behind the straw)
+          if (p.tube !== q.tube && (p.tube ? q.tu : p.tu) > 0) continue;
+          const dx = q.x - p.x, dy = q.y - p.y, d2 = dx * dx + dy * dy, md = R * 2;
           if (d2 < md * md && d2 > 1e-9) {
             const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, o = (md - d) * 0.25;
             p.x -= nx * o; p.y -= ny * o; q.x += nx * o; q.y += ny * o;
@@ -338,6 +326,17 @@
               p.vx -= nx * imp; p.vy -= ny * imp; q.vx += nx * imp; q.vy += ny * imp;
             }
           }
+        }
+        if (p.tube) {
+          const c = tubeCoord(p, SG);
+          if (Math.abs(c.v) > TUBE_IN) {
+            const nv = Math.sign(c.v), push = Math.abs(c.v) - TUBE_IN;
+            const nx = -SG.uy * nv, ny = SG.ux * nv;
+            p.x -= nx * push; p.y -= ny * push;
+            const vn = p.vx * nx + p.vy * ny;
+            if (vn > 0) { p.vx -= vn * nx; p.vy -= vn * ny; }
+          }
+          continue;
         }
         for (const [x1, y1, x2, y2] of ws) {
           const ex = x2 - x1, ey = y2 - y1, L2 = ex * ex + ey * ey;
@@ -356,6 +355,14 @@
         }
       }
     }
+    let drunk = false;
+    for (const p of pearls) {
+      const c = tubeCoord(p, SG);
+      if (!p.tube && c.u > -R * 0.6 && c.u < R && Math.abs(c.v) < TUBE_IN + 0.03) p.tube = true;
+      else if (p.tube && c.u < -R) p.tube = false;
+      if (p.tube && c.u > STRAW_LEN - R) { p.drunk = true; drunk = true; }
+    }
+    if (drunk) { pearls = pearls.filter(p => !p.drunk); updateCount(); slurp(); }
     for (const p of pearls) {
       const sp = Math.hypot(p.vx, p.vy);
       if (sp > 4) { p.vx *= 4 / sp; p.vy *= 4 / sp; }
@@ -400,6 +407,7 @@
     if (opt.sprite) {
       const sp = opt.sprite, k = (R * 2.3) / Math.max(sp.width, sp.height);
       for (const p of opt.pearls) {
+        if (p.tube) continue;
         g.save(); g.translate(p.x, p.y); g.rotate(p.a);
         g.drawImage(sp, -sp.width * k / 2, -sp.height * k / 2, sp.width * k, sp.height * k);
         g.restore();
@@ -422,10 +430,6 @@
     g.strokeStyle = opt.straw; g.lineWidth = SW; g.globalAlpha = 0.9;
     g.beginPath(); g.moveTo(SG.tx, SG.ty); g.lineTo(SG.hx, 0); g.stroke();
     g.globalAlpha = 1;
-    drawSucked(g, opt, 1);
-    g.strokeStyle = opt.straw; g.globalAlpha = 0.3;
-    g.beginPath(); g.moveTo(SG.tx, SG.ty); g.lineTo(SG.hx, 0); g.stroke();
-    g.globalAlpha = 1;
     g.restore();
     // cup outline + shine (under the lid so the lid stays clean)
     cupPath(g); g.strokeStyle = '#d9c2ae'; g.lineWidth = 4 * lw; g.stroke();
@@ -443,10 +447,18 @@
     g.lineCap = 'butt';
     g.strokeStyle = opt.straw; g.lineWidth = SW;
     g.beginPath(); g.moveTo(SG.hx, 0); g.lineTo(SG.ex, SG.ey); g.stroke();
-    // pearls travelling up the straw
-    drawSucked(g, opt, 0);
+    // pearls inside the straw, seen through its tinted wall
+    if (opt.sprite) {
+      const sp = opt.sprite, k = (R * 2.3) / Math.max(sp.width, sp.height);
+      for (const p of opt.pearls) {
+        if (!p.tube) continue;
+        g.save(); g.translate(p.x, p.y); g.rotate(p.a);
+        g.drawImage(sp, -sp.width * k / 2, -sp.height * k / 2, sp.width * k, sp.height * k);
+        g.restore();
+      }
+    }
     g.strokeStyle = opt.straw; g.lineWidth = SW; g.globalAlpha = 0.3;
-    g.beginPath(); g.moveTo(SG.hx, 0); g.lineTo(SG.ex, SG.ey); g.stroke();
+    g.beginPath(); g.moveTo(SG.tx, SG.ty); g.lineTo(SG.ex, SG.ey); g.stroke();
     g.globalAlpha = 1;
     g.strokeStyle = 'rgba(255,255,255,.45)'; g.lineWidth = SW * 0.25;
     g.beginPath(); g.moveTo(SG.hx - 0.025, 0); g.lineTo(SG.ex - 0.025, SG.ey); g.stroke();
@@ -454,24 +466,12 @@
   }
   // straw: a rigid tube from its tip (inside the cup) through a hole in the film
   const SW = 0.19, STRAW_LEN = 1.66, HOLE_Y = 0;
-  let straw = { tx: 0.24, ty: CUP.h - 0.1 }, sucked = [];
+  let straw = { tx: 0.24, ty: CUP.h - 0.1 };
   function strawGeom() {
     // hole slides with the tip so the straw keeps a natural slant
     const hx = Math.max(-0.36, Math.min(0.36, straw.tx * 0.4 + 0.16));
     const dx = hx - straw.tx, dy = HOLE_Y - straw.ty, d = Math.hypot(dx, dy);
     return { tx: straw.tx, ty: straw.ty, hx, ux: dx / d, uy: dy / d, ex: straw.tx + dx / d * STRAW_LEN, ey: straw.ty + dy / d * STRAW_LEN };
-  }
-  // part 1 = inside the cup (y > 0), part 0 = above the film
-  function drawSucked(g, opt, part) {
-    if (!opt.sprite || !opt.sucked) return;
-    const SG = strawGeom(), sp = opt.sprite, k = (R * 2.3) / Math.max(sp.width, sp.height);  // same size as in the cup
-    for (const q of opt.sucked) {
-      const x = SG.tx + SG.ux * q.d, y = SG.ty + SG.uy * q.d;
-      if ((y > 0) !== (part === 1)) continue;
-      g.save(); g.translate(x, y); g.rotate(q.a);
-      g.drawImage(sp, -sp.width * k / 2, -sp.height * k / 2, sp.width * k, sp.height * k);
-      g.restore();
-    }
   }
   function slurp() {
     if (!soundOn) return;
@@ -505,7 +505,7 @@
     }
     const gm = cupGeom(W, H);
     drawDrink(ctx, gm.s, gm.cx + shakeX, gm.top, {
-      liquid: mode === 'drink' ? liquid : 0, color: colorIdx, pearls, sprite, sucked, time, tilt: shakeV, straw: '#e8763c',
+      liquid: mode === 'drink' ? liquid : 0, color: colorIdx, pearls, sprite, time, tilt: shakeV, straw: '#e8763c',
     });
   }
   let tmpC = null;
@@ -531,16 +531,6 @@
     const dt = Math.min(0.033, (now - lastT) / 1000); lastT = now; time += dt;
     if (mode === 'drink') {
       // holding the straw sucks up a pearl touching its tip
-      // a pearl pulled right onto the tip enters the straw when there is room at the bottom
-      if (strawDrag && liquid > 0.3 && !sucked.some(q => q.d < R * 2.1)) {
-        const SG = strawGeom();
-        const i = pearls.findIndex(p => Math.hypot(p.x - straw.tx, p.y - straw.ty) < R * 0.9);
-        if (i >= 0) {
-          const p = pearls[i];
-          sucked.push({ d: 0, v: Math.max(0.3, p.vx * SG.ux + p.vy * SG.uy), a: p.a });
-          pearls.splice(i, 1); updateCount(); slurp();
-        }
-      }
       if (spawnLeft > 0) { spawnT -= dt; if (spawnT <= 0) { addPearl(); spawnLeft--; spawnT = 0.07; } }
       if (spawnLeft === 0 && liquid < 1) liquid = Math.min(1, liquid + dt * 0.7);
       if (!dragging) { shakeV += (-shakeX * 120 - shakeV * 10) * dt; shakeX += shakeV * dt; }
@@ -553,7 +543,6 @@
       mAx *= Math.pow(0.02, dt); mAy *= Math.pow(0.02, dt);  // fade if motion events stop
       for (let i = 0; i < sub; i++) {
         step(dt / sub, (axS + mAx) * damp, mAy * damp);
-        stepStraw(dt / sub, (axS + mAx) * damp, mAy * damp);
       }
       render();
     }
@@ -678,7 +667,7 @@
   $('done').onclick = () => {
     startMotion();
     if (!makeSprite()) return;
-    pearls = []; sucked = []; straw = { tx: 0.24, ty: CUP.h - 0.1 }; liquid = 0; spawnLeft = 30; spawnT = 0; shakeX = 0; shakeV = 0;
+    pearls = []; straw = { tx: 0.24, ty: CUP.h - 0.1 }; liquid = 0; spawnLeft = 30; spawnT = 0; shakeX = 0; shakeV = 0;
     setMode('drink');
   };
   document.querySelectorAll('.sw').forEach(b => b.onclick = () => {
