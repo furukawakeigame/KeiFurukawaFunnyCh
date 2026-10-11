@@ -266,6 +266,9 @@
     const DT = 1 / 120;
     const HOOP_EVERY = 12;  // この秒数ごとにフープが増える
     const MAX_HOOPS = 5;
+    const MAX_HIP_SPEED = 1.2;   // m/s
+    const MAX_HOOP_SPEED = 6;    // m/s
+    const MAX_HOOP_SPIN = 40;    // rad/s
     function quatMul(a, b) {
       return { w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z, x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
         y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x, z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w };
@@ -352,11 +355,19 @@
 
     function physicsStep(target, alive) {
       const q = torso.translation();
-      torso.setLinvel({ x: (target.x - q.x) / DT * 0.3, y: 0, z: (target.z - q.z) / DT * 0.3 }, true);
+      // 速すぎるとフープが体をすり抜けるので、腰とフープの速さに上限をつける
+      let vx = (target.x - q.x) / DT * 0.3, vz = (target.z - q.z) / DT * 0.3;
+      const vs = Math.hypot(vx, vz);
+      if (vs > MAX_HIP_SPEED) { vx *= MAX_HIP_SPEED / vs; vz *= MAX_HIP_SPEED / vs; }
+      torso.setLinvel({ x: vx, y: 0, z: vz }, true);
       placeLegs(false);
       for (const { body: hoop } of hoops) {
         const p = hoop.translation();
         hoop.resetForces(true); hoop.resetTorques(true);
+        const v = hoop.linvel(), sp = Math.hypot(v.x, v.y, v.z);
+        if (sp > MAX_HOOP_SPEED) hoop.setLinvel({ x: v.x * MAX_HOOP_SPEED / sp, y: v.y * MAX_HOOP_SPEED / sp, z: v.z * MAX_HOOP_SPEED / sp }, true);
+        const w = hoop.angvel(), ws = Math.hypot(w.x, w.y, w.z);
+        if (ws > MAX_HOOP_SPIN) hoop.setAngvel({ x: w.x * MAX_HOOP_SPIN / ws, y: w.y * MAX_HOOP_SPIN / ws, z: w.z * MAX_HOOP_SPIN / ws }, true);
         if (!alive) continue;
         // 摩擦で持ち上がる力：腰に押し付けられる力（遠心力）× 摩擦係数。重さの1.15倍まで
         const lv = hoop.linvel(), tv = torso.linvel();
