@@ -275,6 +275,38 @@
     ];
   };
   const SUCK_R = 0.55, SUCK_F = 22;
+  // pearls inside the straw: 1D along the tube (d = distance from the tip, upward)
+  function stepStraw(dt, ax, ay) {
+    if (!sucked.length) return;
+    const SG = strawGeom(), G = 4.2;
+    // gravity and shake projected on the tube axis; suction pulls up while held
+    const along = (-ax) * SG.ux + (G - ay) * SG.uy;
+    for (const q of sucked) {
+      q.v += (along + (strawDrag ? 9 : 0)) * dt;
+      q.v *= Math.pow(0.4, dt);          // drag from the drink in the tube
+      q.d += q.v * dt; q.a += q.v * dt / R * 0.5;
+    }
+    // pearls can't pass each other in the tube
+    sucked.sort((a, b) => a.d - b.d);
+    for (let it = 0; it < 3; it++) {
+      for (let i = 0; i + 1 < sucked.length; i++) {
+        const a = sucked[i], b = sucked[i + 1], gap = b.d - a.d - R * 2;
+        if (gap < 0) {
+          a.d += gap / 2; b.d -= gap / 2;
+          if (a.v > b.v) { const m = (a.v + b.v) / 2; a.v = m; b.v = m; }
+        }
+      }
+    }
+    let changed = false;
+    for (const q of sucked) {
+      if (q.d < -R * 0.5) {
+        // slid out of the tip: back into the cup
+        pearls.push({ x: straw.tx, y: straw.ty + R * 0.5, vx: SG.ux * q.v, vy: SG.uy * q.v, a: q.a, va: 0, landed: true });
+        q.gone = true; changed = true;
+      } else if (q.d > STRAW_LEN + R) { q.gone = true; changed = true; }
+    }
+    if (changed) { sucked = sucked.filter(q => !q.gone); updateCount(); }
+  }
   function step(dt, ax, ay) {
     const sucking = strawDrag && liquid > 0.3;
     const G = 4.2, ws = walls();
@@ -391,6 +423,9 @@
     g.beginPath(); g.moveTo(SG.tx, SG.ty); g.lineTo(SG.hx, 0); g.stroke();
     g.globalAlpha = 1;
     drawSucked(g, opt, 1);
+    g.strokeStyle = opt.straw; g.globalAlpha = 0.3;
+    g.beginPath(); g.moveTo(SG.tx, SG.ty); g.lineTo(SG.hx, 0); g.stroke();
+    g.globalAlpha = 1;
     g.restore();
     // cup outline + shine (under the lid so the lid stays clean)
     cupPath(g); g.strokeStyle = '#d9c2ae'; g.lineWidth = 4 * lw; g.stroke();
@@ -410,13 +445,16 @@
     g.beginPath(); g.moveTo(SG.hx, 0); g.lineTo(SG.ex, SG.ey); g.stroke();
     // pearls travelling up the straw
     drawSucked(g, opt, 0);
+    g.strokeStyle = opt.straw; g.lineWidth = SW; g.globalAlpha = 0.3;
+    g.beginPath(); g.moveTo(SG.hx, 0); g.lineTo(SG.ex, SG.ey); g.stroke();
+    g.globalAlpha = 1;
     g.strokeStyle = 'rgba(255,255,255,.45)'; g.lineWidth = SW * 0.25;
     g.beginPath(); g.moveTo(SG.hx - 0.025, 0); g.lineTo(SG.ex - 0.025, SG.ey); g.stroke();
     g.restore();
   }
   // straw: a rigid tube from its tip (inside the cup) through a hole in the film
-  const SW = 0.11, STRAW_LEN = 1.66, HOLE_Y = 0;
-  let straw = { tx: 0.24, ty: CUP.h - 0.1 }, sucked = [], suckT = 0;
+  const SW = 0.19, STRAW_LEN = 1.66, HOLE_Y = 0;
+  let straw = { tx: 0.24, ty: CUP.h - 0.1 }, sucked = [];
   function strawGeom() {
     // hole slides with the tip so the straw keeps a natural slant
     const hx = Math.max(-0.36, Math.min(0.36, straw.tx * 0.4 + 0.16));
@@ -426,10 +464,10 @@
   // part 1 = inside the cup (y > 0), part 0 = above the film
   function drawSucked(g, opt, part) {
     if (!opt.sprite || !opt.sucked) return;
-    const SG = strawGeom(), sp = opt.sprite, k = SW * 0.95 / Math.max(sp.width, sp.height);
+    const SG = strawGeom(), sp = opt.sprite, k = (R * 2.3) / Math.max(sp.width, sp.height);  // same size as in the cup
     for (const q of opt.sucked) {
       const x = SG.tx + SG.ux * q.d, y = SG.ty + SG.uy * q.d;
-      if ((y > 0) !== (part === 1) || q.d > STRAW_LEN - 0.03) continue;
+      if ((y > 0) !== (part === 1)) continue;
       g.save(); g.translate(x, y); g.rotate(q.a);
       g.drawImage(sp, -sp.width * k / 2, -sp.height * k / 2, sp.width * k, sp.height * k);
       g.restore();
@@ -493,25 +531,16 @@
     const dt = Math.min(0.033, (now - lastT) / 1000); lastT = now; time += dt;
     if (mode === 'drink') {
       // holding the straw sucks up a pearl touching its tip
-      suckT -= dt;
-      // a pearl pulled right onto the tip enters the straw (one at a time: the straw is narrow)
-      if (strawDrag && suckT <= 0 && liquid > 0.3) {
+      // a pearl pulled right onto the tip enters the straw when there is room at the bottom
+      if (strawDrag && liquid > 0.3 && !sucked.some(q => q.d < R * 2.1)) {
         const SG = strawGeom();
         const i = pearls.findIndex(p => Math.hypot(p.x - straw.tx, p.y - straw.ty) < R * 0.9);
         if (i >= 0) {
           const p = pearls[i];
-          sucked.push({ d: 0, v: Math.max(0.6, p.vx * SG.ux + p.vy * SG.uy), a: p.a });
-          pearls.splice(i, 1); updateCount(); slurp(); suckT = 0.18;
+          sucked.push({ d: 0, v: Math.max(0.3, p.vx * SG.ux + p.vy * SG.uy), a: p.a });
+          pearls.splice(i, 1); updateCount(); slurp();
         }
       }
-      // pearls in the straw accelerate while sucking, slide back down when released
-      for (const q of sucked) {
-        q.v += (strawDrag ? 7 : -5) * dt; q.v = Math.max(-2, Math.min(3, q.v));
-        q.d += q.v * dt; q.a += q.v * dt * 4;
-      }
-      for (const q of sucked) if (q.d < 0) { pearls.push({ x: straw.tx, y: straw.ty + R, vx: 0, vy: 0.5, a: q.a, va: 0, landed: true }); q.gone = true; }
-      if (sucked.some(q => q.gone)) updateCount();
-      sucked = sucked.filter(q => !q.gone && q.d < STRAW_LEN);
       if (spawnLeft > 0) { spawnT -= dt; if (spawnT <= 0) { addPearl(); spawnLeft--; spawnT = 0.07; } }
       if (spawnLeft === 0 && liquid < 1) liquid = Math.min(1, liquid + dt * 0.7);
       if (!dragging) { shakeV += (-shakeX * 120 - shakeV * 10) * dt; shakeX += shakeV * dt; }
@@ -522,7 +551,10 @@
       const sub = 6;
       const damp = liquid > 0.3 ? 0.6 : 1;
       mAx *= Math.pow(0.02, dt); mAy *= Math.pow(0.02, dt);  // fade if motion events stop
-      for (let i = 0; i < sub; i++) step(dt / sub, (axS + mAx) * damp, mAy * damp);
+      for (let i = 0; i < sub; i++) {
+        step(dt / sub, (axS + mAx) * damp, mAy * damp);
+        stepStraw(dt / sub, (axS + mAx) * damp, mAy * damp);
+      }
       render();
     }
     requestAnimationFrame(loop);
