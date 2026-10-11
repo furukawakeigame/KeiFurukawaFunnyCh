@@ -162,7 +162,7 @@
     { top: '#cfe4b4', bot: '#86b55e' },
     { top: '#fbd3dd', bot: '#ee9ab0' },
   ];
-  const MAX_PEARLS = 120, R = 0.075;
+  const MAX_PEARLS = 60, R = 0.075;
   const CUP = { tw: 1, bw: 0.76, h: 1.42 };
   let liquid = 0;                       // 0..1 fill animation
   let shakeX = 0, shakeV = 0, dragging = null, prevShake = 0, prevShakeV = 0;
@@ -288,14 +288,14 @@
         for (let j = i + 1; j < pearls.length; j++) {
           const q = pearls[j], dx = q.x - p.x, dy = q.y - p.y, d2 = dx * dx + dy * dy, md = R * 2;
           if (d2 < md * md && d2 > 1e-9) {
-            const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, o = (md - d) / 2;
+            const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, o = (md - d) * 0.25;
             p.x -= nx * o; p.y -= ny * o; q.x += nx * o; q.y += ny * o;
             const rv = (q.vx - p.vx) * nx + (q.vy - p.vy) * ny;
             if (rv < 0) {
-              const imp = -rv * 0.6;
+              const imp = -rv * 0.55;
               p.vx -= nx * imp; p.vy -= ny * imp; q.vx += nx * imp; q.vy += ny * imp;
               const tv = (q.vx - p.vx) * -ny + (q.vy - p.vy) * nx;
-              p.va -= tv * 4; q.va -= tv * 4;
+              p.va -= tv * 1.5; q.va -= tv * 1.5;
             }
           }
         }
@@ -309,13 +309,18 @@
             const vn = p.vx * nx + p.vy * ny;
             if (vn < 0) {
               if (!p.landed && vn < -0.6) { p.landed = true; plop(Math.min(1, -vn / 3)); }
-              p.vx -= 1.4 * vn * nx; p.vy -= 1.4 * vn * ny;
-              p.vx *= 0.9; p.vy *= 0.9;
+              p.vx -= 1.15 * vn * nx; p.vy -= 1.15 * vn * ny;
+              p.vx *= 0.85; p.vy *= 0.85;
               p.va = (p.vx * -ny + p.vy * nx) / R * 0.5;
             }
           }
         }
       }
+    }
+    for (const p of pearls) {
+      const sp = Math.hypot(p.vx, p.vy);
+      if (sp > 4) { p.vx *= 4 / sp; p.vy *= 4 / sp; }
+      p.va = Math.max(-12, Math.min(12, p.va));
     }
     for (const p of pearls) if (!p.landed && p.vy < 0.2 && p.y > 0.2) p.landed = true;
   }
@@ -427,11 +432,14 @@
     g.drawImage(mask, 0, 0);
     g.globalCompositeOperation = 'source-in';
     g.drawImage(img, 0, 0);
+    g.globalCompositeOperation = 'source-atop';
+    g.fillStyle = 'rgba(60, 220, 110, 0.45)';
+    g.fillRect(0, 0, tmpC.width, tmpC.height);
     return tmpC;
   }
 
   // ---------- loop ----------
-  let lastT = performance.now(), spawnLeft = 0, spawnT = 0;
+  let axS = 0, lastT = performance.now(), spawnLeft = 0, spawnT = 0;
   function loop(now) {
     const dt = Math.min(0.033, (now - lastT) / 1000); lastT = now; time += dt;
     if (mode === 'drink') {
@@ -441,9 +449,9 @@
       const gm = cupGeom(W, H);
       const vel = (shakeX - prevShake) / dt; const acc = (vel - prevShakeV) / dt;
       prevShake = shakeX; prevShakeV = vel;
-      const axLocal = Math.max(-40, Math.min(40, acc / gm.s));
-      const sub = 3;
-      for (let i = 0; i < sub; i++) step(dt / sub, axLocal * (liquid > 0.3 ? 0.6 : 1));
+      axS += (Math.max(-15, Math.min(15, acc / gm.s)) - axS) * Math.min(1, dt * 10);
+      const sub = 6;
+      for (let i = 0; i < sub; i++) step(dt / sub, axS * (liquid > 0.3 ? 0.6 : 1));
       render();
     }
     requestAnimationFrame(loop);
