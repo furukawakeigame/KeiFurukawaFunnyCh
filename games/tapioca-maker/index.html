@@ -294,8 +294,6 @@
             if (rv < 0) {
               const imp = -rv * 0.55;
               p.vx -= nx * imp; p.vy -= ny * imp; q.vx += nx * imp; q.vy += ny * imp;
-              const tv = (q.vx - p.vx) * -ny + (q.vy - p.vy) * nx;
-              
             }
           }
         }
@@ -310,8 +308,7 @@
             if (vn < 0) {
               if (!p.landed && vn < -0.6) { p.landed = true; plop(Math.min(1, -vn / 3)); }
               p.vx -= 1.15 * vn * nx; p.vy -= 1.15 * vn * ny;
-              p.vx *= 0.85; p.vy *= 0.85;
-              
+              p.vx *= 0.98; p.vy *= 0.98;
             }
           }
         }
@@ -357,12 +354,6 @@
       for (let x = -0.6; x <= 0.6; x += 0.05) g.lineTo(x, lev + x * tilt + Math.sin(x * 9 + opt.time * 3) * 0.008);
       g.lineTo(1, CUP.h + 1); g.closePath(); g.fill();
     }
-    // straw (back part)
-    const sx0 = 0.12, sy0 = CUP.h - 0.12, sx1 = 0.34, sy1 = -0.36, sw = 0.11;
-    g.save();
-    g.strokeStyle = opt.straw; g.lineWidth = sw; g.lineCap = 'butt'; g.globalAlpha = 0.9;
-    g.beginPath(); g.moveTo(sx0, sy0); g.lineTo(sx1 * 0.9 + sx0 * 0.1, 0); g.stroke();
-    g.restore();
     // pearls
     if (opt.sprite) {
       const sp = opt.sprite, k = (R * 2.3) / Math.max(sp.width, sp.height);
@@ -383,26 +374,66 @@
       }
       g.globalAlpha = 1;
     }
+    // straw inside the cup (drawn in front of the pearls)
+    const SG = strawGeom();
+    g.lineCap = 'butt';
+    g.strokeStyle = opt.straw; g.lineWidth = SW; g.globalAlpha = 0.9;
+    g.beginPath(); g.moveTo(SG.tx, SG.ty); g.lineTo(SG.hx, 0); g.stroke();
+    g.globalAlpha = 1;
+    drawSucked(g, opt, 1);
     g.restore();
-    // sealed film + cup outline + shine
-    g.fillStyle = 'rgba(255,255,255,.5)';
+    // sealed film (opaque) + cup outline + shine
+    g.fillStyle = '#fbf6f0';
     g.beginPath(); g.ellipse(0, 0, CUP.tw / 2 + 0.02, 0.045, 0, 0, Math.PI * 2); g.fill();
     g.strokeStyle = '#d9c2ae'; g.lineWidth = 3 * lw; g.stroke();
     // puncture in the film where the straw goes through
-    const ex = sx1 * 0.9 + sx0 * 0.1;
     g.fillStyle = 'rgba(120,80,50,.35)';
-    g.beginPath(); g.ellipse(ex, 0, sw * 0.75, 0.02, 0, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.ellipse(SG.hx, 0, SW * 0.75, 0.02, 0, 0, Math.PI * 2); g.fill();
     // straw sticking out through the film
-    g.save();
-    g.strokeStyle = opt.straw; g.lineWidth = sw;
-    g.beginPath(); g.moveTo(sx1 * 0.9 + sx0 * 0.1, 0); g.lineTo(sx1, sy1); g.stroke();
-    g.strokeStyle = 'rgba(255,255,255,.45)'; g.lineWidth = sw * 0.25;
-    g.beginPath(); g.moveTo(sx1 * 0.9 + sx0 * 0.1 - 0.025, 0); g.lineTo(sx1 - 0.025, sy1); g.stroke();
-    g.restore();
+    g.lineCap = 'butt';
+    g.strokeStyle = opt.straw; g.lineWidth = SW;
+    g.beginPath(); g.moveTo(SG.hx, 0); g.lineTo(SG.ex, SG.ey); g.stroke();
+    // pearls travelling up the straw
+    drawSucked(g, opt, 0);
+    g.strokeStyle = 'rgba(255,255,255,.45)'; g.lineWidth = SW * 0.25;
+    g.beginPath(); g.moveTo(SG.hx - 0.025, 0); g.lineTo(SG.ex - 0.025, SG.ey); g.stroke();
     cupPath(g); g.strokeStyle = '#d9c2ae'; g.lineWidth = 4 * lw; g.stroke();
     g.fillStyle = 'rgba(255,255,255,.35)';
     g.beginPath(); g.moveTo(-0.4, 0.08); g.lineTo(-0.33, 0.08); g.lineTo(-0.26, CUP.h - 0.1); g.lineTo(-0.31, CUP.h - 0.1); g.closePath(); g.fill();
     g.restore();
+  }
+  // straw: a rigid tube from its tip (inside the cup) through a hole in the film
+  const SW = 0.11, STRAW_LEN = 1.66, HOLE_Y = 0;
+  let straw = { tx: 0.24, ty: CUP.h - 0.1 }, sucked = [], suckT = 0;
+  function strawGeom() {
+    // hole slides with the tip so the straw keeps a natural slant
+    const hx = Math.max(-0.36, Math.min(0.36, straw.tx * 0.4 + 0.16));
+    const dx = hx - straw.tx, dy = HOLE_Y - straw.ty, d = Math.hypot(dx, dy);
+    return { tx: straw.tx, ty: straw.ty, hx, ux: dx / d, uy: dy / d, ex: straw.tx + dx / d * STRAW_LEN, ey: straw.ty + dy / d * STRAW_LEN };
+  }
+  // part 1 = inside the cup (y > 0), part 0 = above the film
+  function drawSucked(g, opt, part) {
+    if (!opt.sprite || !opt.sucked) return;
+    const SG = strawGeom(), sp = opt.sprite, k = SW * 0.95 / Math.max(sp.width, sp.height);
+    for (const q of opt.sucked) {
+      const x = SG.tx + SG.ux * q.d, y = SG.ty + SG.uy * q.d;
+      if ((y > 0) !== (part === 1) || q.d > STRAW_LEN - 0.03) continue;
+      g.save(); g.translate(x, y); g.rotate(q.a);
+      g.drawImage(sp, -sp.width * k / 2, -sp.height * k / 2, sp.width * k, sp.height * k);
+      g.restore();
+    }
+  }
+  function slurp() {
+    if (!soundOn) return;
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = actx.createOscillator(), g = actx.createGain(), now = actx.currentTime;
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(120, now); o.frequency.exponentialRampToValueAtTime(520, now + 0.12);
+      g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+      o.connect(g).connect(actx.destination); o.start(now); o.stop(now + 0.17);
+    } catch {}
   }
   function roundRect(g, x, y, w, h, r) {
     g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
@@ -424,7 +455,7 @@
     }
     const gm = cupGeom(W, H);
     drawDrink(ctx, gm.s, gm.cx + shakeX, gm.top, {
-      liquid: mode === 'drink' ? liquid : 0, color: colorIdx, pearls, sprite, time, tilt: shakeV, straw: '#e8763c',
+      liquid: mode === 'drink' ? liquid : 0, color: colorIdx, pearls, sprite, sucked, time, tilt: shakeV, straw: '#e8763c',
     });
   }
   let tmpC = null;
@@ -449,6 +480,18 @@
   function loop(now) {
     const dt = Math.min(0.033, (now - lastT) / 1000); lastT = now; time += dt;
     if (mode === 'drink') {
+      // holding the straw sucks up a pearl touching its tip
+      suckT -= dt;
+      if (strawDrag && suckT <= 0 && liquid > 0.3) {
+        const reach = R + SW / 2 + 0.03;
+        const i = pearls.findIndex(p => Math.hypot(p.x - straw.tx, p.y - straw.ty) < reach);
+        if (i >= 0) {
+          sucked.push({ d: 0, a: pearls[i].a });
+          pearls.splice(i, 1); updateCount(); slurp(); suckT = 0.25;
+        }
+      }
+      for (const q of sucked) { q.d += dt * 1.8; q.a += dt * 6; }
+      sucked = sucked.filter(q => q.d < STRAW_LEN);
       if (spawnLeft > 0) { spawnT -= dt; if (spawnT <= 0) { addPearl(); spawnLeft--; spawnT = 0.07; } }
       if (spawnLeft === 0 && liquid < 1) liquid = Math.min(1, liquid + dt * 0.7);
       if (!dragging) { shakeV += (-shakeX * 120 - shakeV * 10) * dt; shakeX += shakeV * dt; }
@@ -485,7 +528,14 @@
       }
       return;
     }
-    if (mode === 'drink') dragging = { x0: e.clientX, s0: shakeX, moved: false, t: performance.now() };
+    if (mode === 'drink') {
+      const L = toCup(e), SG = strawGeom();
+      const ex = SG.ex - SG.tx, ey = SG.ey - SG.ty;
+      const u = Math.max(0, Math.min(1, ((L.x - SG.tx) * ex + (L.y - SG.ty) * ey) / (ex * ex + ey * ey)));
+      if (Math.hypot(L.x - (SG.tx + ex * u), L.y - (SG.ty + ey * u)) < 0.14) {
+        strawDrag = { ox: L.x - straw.tx, oy: L.y - straw.ty };
+      } else dragging = { x0: e.clientX, s0: shakeX, moved: false, t: performance.now() };
+    }
   });
   cv.addEventListener('pointermove', e => {
     if (mode === 'paint' && touches.has(e.pointerId)) {
@@ -498,13 +548,25 @@
         view.k = k; snapFit(); render();
       } else if (lastPt) { const p = toImg(e); stroke(lastPt, p); lastPt = p; render(); }
     }
+    if (mode === 'drink' && strawDrag) {
+      const L = toCup(e);
+      const ty = Math.max(0.3, Math.min(CUP.h - SW / 2 - 0.02, L.y - strawDrag.oy));
+      const hw = CUP.tw / 2 - (CUP.tw - CUP.bw) / 2 * ty / CUP.h - SW / 2 - 0.02;
+      straw.tx = Math.max(-hw, Math.min(hw, L.x - strawDrag.ox)); straw.ty = ty;
+    }
     if (mode === 'drink' && dragging) {
       const dx = e.clientX - dragging.x0;
       if (Math.abs(dx) > 6) dragging.moved = true;
       if (dragging.moved) shakeX = Math.max(-W * 0.3, Math.min(W * 0.3, dragging.s0 + dx));
     }
   });
+  let strawDrag = null;
+  function toCup(e) {
+    const gm = cupGeom(W, H), r = cv.getBoundingClientRect();
+    return { x: (e.clientX - r.left - gm.cx - shakeX) / gm.s, y: (e.clientY - r.top - gm.top) / gm.s };
+  }
   const up = e => {
+    strawDrag = null;
     if (mode === 'paint') {
       touches.delete(e.pointerId);
       if (touches.size === 0) pinch = null;
@@ -564,7 +626,7 @@
   $('done').onclick = () => {
     startMotion();
     if (!makeSprite()) return;
-    pearls = []; liquid = 0; spawnLeft = 30; spawnT = 0; shakeX = 0; shakeV = 0;
+    pearls = []; sucked = []; straw = { tx: 0.24, ty: CUP.h - 0.1 }; liquid = 0; spawnLeft = 30; spawnT = 0; shakeX = 0; shakeV = 0;
     setMode('drink');
   };
   document.querySelectorAll('.sw').forEach(b => b.onclick = () => {
