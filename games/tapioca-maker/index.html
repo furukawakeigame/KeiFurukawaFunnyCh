@@ -87,7 +87,7 @@
       <button id="pick" class="btn"></button>
     </div>
     <div id="barPaint" class="bar hide">
-      <button id="brush" class="btn sub" aria-label="brush"><span class="dot" style="width:10px;height:10px"></span></button>
+      <button id="brush" class="btn sub" aria-label="brush"><span class="dot" style="width:11px;height:11px"></span></button>
       <button id="erase" class="btn sub"></button>
       <button id="undo" class="btn sub"></button>
       <button id="done" class="btn" disabled></button>
@@ -153,7 +153,7 @@
   let img = null;                       // source canvas (downscaled)
   let mask = null, mctx = null;         // paint mask
   let view = null;                      // image placement on screen in paint mode
-  let brushBig = false, erasing = false, undoStack = [];
+  let brushIdx = 1, erasing = false, undoStack = [];
   let sprite = null;                    // cut-out image
   let pearls = [];
   let colorIdx = store.get('color', 0);
@@ -190,13 +190,13 @@
     const im = new Image();
     im.onload = () => {
       URL.revokeObjectURL(url);
-      const k = Math.min(1, 1024 / Math.max(im.width, im.height));
+      const k = Math.min(1, 1600 / Math.max(im.width, im.height));
       img = document.createElement('canvas');
       img.width = Math.max(1, Math.round(im.width * k)); img.height = Math.max(1, Math.round(im.height * k));
       img.getContext('2d').drawImage(im, 0, 0, img.width, img.height);
       mask = document.createElement('canvas'); mask.width = img.width; mask.height = img.height;
       mctx = mask.getContext('2d');
-      undoStack = []; erasing = false;
+      undoStack = []; erasing = false; touches.clear(); pinch = null;
       placeImage();
       setMode('paint');
     };
@@ -207,18 +207,22 @@
     const d = document.createElement('div'); d.id = 'err'; d.textContent = t('err');
     $('stage').appendChild(d); setTimeout(() => d.remove(), 2000);
   }
+  function snapFit() { if (view.k <= view.fit * 1.001) { view.x = (W - img.width * view.k) / 2; view.y = (H - img.height * view.k) / 2; } }
   function placeImage() {
     const pad = 12, k = Math.min((W - pad * 2) / img.width, (H - pad * 2) / img.height);
-    view = { k, x: (W - img.width * k) / 2, y: (H - img.height * k) / 2 };
+    view = { k, fit: k, x: (W - img.width * k) / 2, y: (H - img.height * k) / 2 };
   }
 
   // ---------- painting ----------
-  let lastPt = null;
+  let lastPt = null, pinch = null;
+  const touches = new Map();
+  const mid = (a, b) => { const r = cv.getBoundingClientRect(); return { x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top }; };
   function toImg(e) {
     const r = cv.getBoundingClientRect();
     return { x: (e.clientX - r.left - view.x) / view.k, y: (e.clientY - r.top - view.y) / view.k };
   }
-  function brushPx() { return (brushBig ? 60 : 24) / view.k; }
+  const BRUSH = [8, 22, 50];
+  function brushPx() { return BRUSH[brushIdx] / view.k; }
   function stroke(a, b) {
     mctx.save();
     mctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
@@ -451,15 +455,33 @@
     cv.setPointerCapture(e.pointerId);
     if (mode === 'start') { $('file').click(); return; }
     if (mode === 'paint') {
-      undoStack.push(mctx.getImageData(0, 0, mask.width, mask.height));
-      if (undoStack.length > 20) undoStack.shift();
-      lastPt = toImg(e); stroke(lastPt, lastPt); render();
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 1 && !pinch) {
+        undoStack.push(mctx.getImageData(0, 0, mask.width, mask.height));
+        if (undoStack.length > 20) undoStack.shift();
+        lastPt = toImg(e); stroke(lastPt, lastPt); render();
+      } else if (touches.size === 2) {
+        // second finger: cancel the stroke just started and zoom instead
+        if (lastPt) { const d = undoStack.pop(); if (d) mctx.putImageData(d, 0, 0); lastPt = null; }
+        const [a, b] = [...touches.values()];
+        pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: mid(a, b), k0: view.k, x0: view.x, y0: view.y };
+        render();
+      }
       return;
     }
     if (mode === 'drink') dragging = { x0: e.clientX, s0: shakeX, moved: false, t: performance.now() };
   });
   cv.addEventListener('pointermove', e => {
-    if (mode === 'paint' && lastPt) { const p = toImg(e); stroke(lastPt, p); lastPt = p; render(); }
+    if (mode === 'paint' && touches.has(e.pointerId)) {
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && touches.size >= 2) {
+        const [a, b] = [...touches.values()], m = mid(a, b);
+        const k = Math.max(view.fit, Math.min(view.fit * 12, pinch.k0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0));
+        view.x = m.x - (pinch.m0.x - pinch.x0) / pinch.k0 * k;
+        view.y = m.y - (pinch.m0.y - pinch.y0) / pinch.k0 * k;
+        view.k = k; snapFit(); render();
+      } else if (lastPt) { const p = toImg(e); stroke(lastPt, p); lastPt = p; render(); }
+    }
     if (mode === 'drink' && dragging) {
       const dx = e.clientX - dragging.x0;
       if (Math.abs(dx) > 6) dragging.moved = true;
@@ -467,7 +489,11 @@
     }
   });
   const up = e => {
-    if (mode === 'paint' && lastPt) { lastPt = null; updateDone(); }
+    if (mode === 'paint') {
+      touches.delete(e.pointerId);
+      if (touches.size === 0) pinch = null;
+      if (lastPt) { lastPt = null; updateDone(); }
+    }
     if (mode === 'drink' && dragging) {
       if (!dragging.moved) {
         const gm = cupGeom(W, H), r = cv.getBoundingClientRect();
@@ -477,14 +503,23 @@
     }
   };
   cv.addEventListener('pointerup', up);
+  // PC: wheel zooms around the cursor
+  cv.addEventListener('wheel', e => {
+    if (mode !== 'paint') return;
+    e.preventDefault();
+    const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    const k = Math.max(view.fit, Math.min(view.fit * 12, view.k * Math.exp(-e.deltaY * 0.0015)));
+    view.x = mx - (mx - view.x) / view.k * k; view.y = my - (my - view.y) / view.k * k; view.k = k; snapFit();
+    render();
+  }, { passive: false });
   cv.addEventListener('pointercancel', up);
 
   $('pick').onclick = () => $('file').click();
   $('again').onclick = () => $('file').click();
   $('file').onchange = e => { loadFile(e.target.files[0]); e.target.value = ''; };
   $('brush').onclick = () => {
-    brushBig = !brushBig;
-    const d = $('brush').firstChild; d.style.width = d.style.height = brushBig ? '20px' : '10px';
+    brushIdx = (brushIdx + 1) % BRUSH.length;
+    const d = $('brush').firstChild; d.style.width = d.style.height = [5, 11, 20][brushIdx] + 'px';
   };
   $('erase').onclick = () => { erasing = !erasing; $('erase').classList.toggle('on', erasing); };
   $('undo').onclick = () => {
