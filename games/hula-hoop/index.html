@@ -63,7 +63,7 @@
     /* ドラッグで円を描く見本 */
     #hint { width: 120px; height: 120px; pointer-events: none; }
     #hint .dot { animation: spin 0.7s linear infinite; transform-origin: 60px 60px; }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes spin { to { transform: rotate(-360deg); } }
   </style>
 </head>
 <body>
@@ -75,12 +75,11 @@
     <div id="stage"></div>
     <div id="hud"><div id="count"></div><div id="best"></div></div>
     <div id="msg"></div>
-    <div id="title" class="overlay">
+    <div id="title" class="overlay" style="pointer-events: none;">
       <svg id="hint" viewBox="0 0 120 120">
         <circle cx="60" cy="60" r="36" fill="none" stroke="#fff" stroke-width="4" stroke-dasharray="6 8" opacity="0.9"/>
         <g class="dot"><circle cx="96" cy="60" r="12" fill="#e0469b" stroke="#fff" stroke-width="4"/></g>
       </svg>
-      <button id="start" class="big"></button>
     </div>
     <div id="result" class="overlay" hidden>
       <div class="panel">
@@ -105,14 +104,14 @@
       ja: {
         title: 'フラフープ', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
         n: n => `${n}回`, best: n => `ベスト ${n}回`, newBest: 'ベスト更新！',
-        start: 'スタート', retry: 'もう一度', share: 'Xに投稿', loadErr: '読み込みに失敗しました。通信状況を確かめて再読み込みしてください。',
+        retry: 'もう一度', share: 'Xに投稿', loadErr: '読み込みに失敗しました。通信状況を確かめて再読み込みしてください。',
         msgs: [[0, '腰、動いてた？'], [10, 'フープに遊ばれてる'], [30, 'なかなかの腰つき'], [60, '腰がプロペラ'], [120, 'もはや人間ではない']],
         shareText: n => `フラフープを ${n}回 回した！ #フラフープ`,
       },
       en: {
         title: 'Hula Hoop', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
         n: n => `${n} spins`, best: n => `Best ${n} spins`, newBest: 'New best!',
-        start: 'Start', retry: 'Play again', share: 'Post on X', loadErr: 'Failed to load. Check your connection and reload.',
+        retry: 'Play again', share: 'Post on X', loadErr: 'Failed to load. Check your connection and reload.',
         msgs: [[0, 'Did your hips even move?'], [10, 'The hoop is playing you'], [30, 'Nice hip action'], [60, 'Your hips are a propeller'], [120, 'No longer human']],
         shareText: n => `I spun the hula hoop ${n} times! #HulaHoop`,
       },
@@ -126,7 +125,7 @@
       document.title = t('title');
       $('back').textContent = t('back');
       $('lang').textContent = t('lang'); $('lang').setAttribute('aria-label', t('langLabel'));
-      $('start').textContent = t('start'); $('retry').textContent = t('retry');
+      $('retry').textContent = t('retry');
       if ($('msg').dataset.err) $('msg').textContent = t('loadErr');
       hud();
       if (result) showResult();
@@ -173,7 +172,6 @@
     } catch (e) {
       console.error(e);
       $('msg').dataset.err = '1'; $('msg').textContent = t('loadErr'); $('msg').style.color = '#4a2b5e';
-      $('start').disabled = true;
       throw e;
     }
 
@@ -330,6 +328,7 @@
     stage.addEventListener('pointerdown', e => {
       e.preventDefault();
       audio();
+      if (state === 'title') start();
       if (state !== 'play') return;
       stage.setPointerCapture(e.pointerId);
       drag = { id: e.pointerId, x: e.clientX - target.x / SCALE(), y: e.clientY - target.z / SCALE(), px: e.clientX, py: e.clientY };
@@ -356,17 +355,21 @@
 
     // ---- 流れ ----
     let angPrev = 0, angTot = 0, endT = 0, fallT = 0, newBest = false;
+    // 最初は見本として腰が回っていて、画面に触れたらそのまま交代する
     function start() {
-      audio();
-      state = 'play'; count = 0; angPrev = 0; angTot = 0; result = null; drag = null;
-      target.x = 0; target.z = 0;
-      buildWorld(); resetHoop();
+      state = 'play'; count = 0; angTot = 0; result = null; drag = null;
+      const p = hoop.translation(), q = torso.translation();
+      angPrev = Math.atan2(p.z - q.z, p.x - q.x);
       $('title').hidden = true; $('result').hidden = true;
       hud();
       tone(660, 0.12, 'triangle', 0.12, 1.5);
     }
-    $('start').onclick = start;
-    $('retry').onclick = start;
+    $('retry').onclick = () => {
+      state = 'title'; result = null; drag = null;
+      buildWorld(); resetHoop();
+      $('result').hidden = true; $('title').hidden = false;
+      hud();
+    };
     function fail() {
       state = 'fall'; fallT = 0; drag = null;
       newBest = count > best;
