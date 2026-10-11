@@ -250,63 +250,114 @@
     for (const l of legs) scene.add(l.th, l.sh, l.foot);
 
     // フープ（しま模様）
-    const hoopMesh = (() => {
+    const PALETTES = [['#ff3d8b', '#ffd23d', '#3dd6ff', '#7d4dff'], ['#22c55e', '#ffffff'], ['#ff7a1a', '#1a1a1a'], ['#ff4d4d', '#ffe14d', '#4dff88'], ['#4d7cff', '#ff9ccf']];
+    function makeHoopMesh(cols) {
       const c = document.createElement('canvas'); c.width = 256; c.height = 4;
-      const g = c.getContext('2d'), cols = ['#ff3d8b', '#ffd23d', '#3dd6ff', '#7d4dff'];
-      for (let i = 0; i < 16; i++) { g.fillStyle = cols[i % 4]; g.fillRect(i * 16, 0, 16, 4); }
+      const g = c.getContext('2d');
+      for (let i = 0; i < 16; i++) { g.fillStyle = cols[i % cols.length]; g.fillRect(i * 16, 0, 16, 4); }
       const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
       const m = shadowed(new THREE.Mesh(new THREE.TorusGeometry(HR, 0.016, 10, 96), new THREE.MeshLambertMaterial({ map: tex })));
       const grp = new THREE.Group(); m.rotation.x = Math.PI / 2; grp.add(m); scene.add(grp);
       return grp;
-    })();
+    }
 
     // ---- 物理（Rapier）----
-    let world, hoop, torso, eq;
+    let world, torso, legBodies = [], hoops = [];
     const DT = 1 / 120;
+    const HOOP_EVERY = 12;  // この秒数ごとにフープが増える
+    const MAX_HOOPS = 5;
     function quatMul(a, b) {
       return { w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z, x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
         y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x, z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w };
     }
+    // y軸向きのカプセルを a→b の向きに合わせる回転
+    function quatFromY(dx, dy, dz) {
+      const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l;
+      const w = 1 + dy;
+      if (w < 1e-6) return { x: 1, y: 0, z: 0, w: 0 };
+      const n = Math.hypot(dz, w, -dx);
+      return { x: dz / n, y: 0, z: -dx / n, w: w / n };
+    }
+    function capsuleBetween(a, b, r) {
+      const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], len = Math.hypot(dx, dy, dz);
+      return RAPIER.ColliderDesc.capsule(Math.max(len / 2 - r, 0.01), r)
+        .setTranslation((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2).setRotation(quatFromY(dx, dy, dz)).setFriction(0.8);
+    }
+    // 脚の関節（腰の位置 q から）
+    function legJoints(s, q) {
+      const hip = [q.x + s * 0.1, q.y - 0.42, q.z], ankle = [s * 0.14, 0.06, 0];
+      const knee = [(hip[0] + ankle[0]) / 2 + s * 0.02, (hip[1] + ankle[1]) / 2, (hip[2] + ankle[2]) / 2 + 0.04];
+      return [hip, knee, ankle];
+    }
     function buildWorld() {
       if (world) world.free();
+      for (const h of hoops) scene.remove(h.mesh);
+      hoops = [];
       world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
       world.integrationParameters.dt = DT;
       world.createCollider(RAPIER.ColliderDesc.cuboid(5, 0.05, 5).setTranslation(0, -0.05, 0).setFriction(0.8));
-      // 胴体：指で動かす（速度で動かすキネマティック）
+      // 胴体・頭・腕：指で動かす（速度で動かすキネマティック）
       torso = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicVelocityBased().setTranslation(0, WAIST, 0));
       for (const [y0, r0, y1, r1] of SHAPE) {
         const p = [];
         for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2; p.push(r0 * Math.cos(a), y0, r0 * Math.sin(a), r1 * Math.cos(a), y1, r1 * Math.sin(a)); }
         world.createCollider(RAPIER.ColliderDesc.convexHull(new Float32Array(p)).setFriction(0.8), torso);
       }
-      // フープ：細いカプセルを輪に並べる
-      hoop = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setCcdEnabled(true).setLinearDamping(0.3).setAngularDamping(0.3));
+      world.createCollider(RAPIER.ColliderDesc.ball(0.13).setTranslation(0, 0.66, 0).setFriction(0.8), torso);
+      for (const s of [-1, 1]) {
+        world.createCollider(capsuleBetween([s * 0.21, 0.4, 0], [s * 0.3, 0.75, 0.05], 0.04), torso);
+        world.createCollider(capsuleBetween([s * 0.3, 0.75, 0.05], [s * 0.12, 1.0, 0.06], 0.04), torso);
+      }
+      // 脚：もも・すねを関節の位置に合わせて毎ステップ動かす
+      legBodies = [];
+      for (const s of [-1, 1]) {
+        const [hip, knee, ankle] = legJoints(s, { x: 0, y: WAIST, z: 0 });
+        for (const [a, b, r] of [[hip, knee, 0.065], [knee, ankle, 0.055]]) {
+          const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
+          const len = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+          world.createCollider(RAPIER.ColliderDesc.capsule(len / 2 - r, r).setFriction(0.8), body);
+          legBodies.push({ body, s, seg: a === hip ? 0 : 1 });
+        }
+      }
+      placeLegs(true);
+      addHoop(0, 0, 0);
+    }
+    function placeLegs(now) {
+      const q = torso.translation();
+      for (const l of legBodies) {
+        const j = legJoints(l.s, q), a = j[l.seg], b = j[l.seg + 1];
+        const pos = { x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2, z: (a[2] + b[2]) / 2 }, rot = quatFromY(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+        if (now) { l.body.setTranslation(pos, true); l.body.setRotation(rot, true); }
+        else { l.body.setNextKinematicTranslation(pos); l.body.setNextKinematicRotation(rot); }
+      }
+    }
+    // フープ：細いカプセルを輪に並べる。腰の高さ+dy、角度 phase の側で胴体に当たった状態で、2回転/秒で回し始める
+    function addHoop(dy, phase, idx) {
+      const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setCcdEnabled(true).setLinearDamping(0.3).setAngularDamping(0.3));
       const N = 48, segL = Math.PI * HR / N * 1.02;
       for (let i = 0; i < N; i++) {
         const th = (i + 0.5) / N * Math.PI * 2;
         const q = quatMul({ x: 0, y: Math.sin(-th / 2), z: 0, w: Math.cos(-th / 2) }, { x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 });
         world.createCollider(RAPIER.ColliderDesc.capsule(segL, 0.012).setTranslation(HR * Math.cos(th), 0, HR * Math.sin(th))
-          .setRotation(q).setDensity(0).setFriction(0.8).setRestitution(0.05), hoop);
+          .setRotation(q).setDensity(0).setFriction(0.8).setRestitution(0.05), body);
       }
-      hoop.setAdditionalMassProperties(HM, { x: 0, y: 0, z: 0 }, { x: HM * HR * HR / 2, y: HM * HR * HR, z: HM * HR * HR / 2 }, { x: 0, y: 0, z: 0, w: 1 }, true);
+      body.setAdditionalMassProperties(HM, { x: 0, y: 0, z: 0 }, { x: HM * HR * HR / 2, y: HM * HR * HR, z: HM * HR * HR / 2 }, { x: 0, y: 0, z: 0, w: 1 }, true);
+      const t = torso.translation(), d = HR - torsoRadiusAt(dy), w = Math.PI * 4;
+      body.setTranslation({ x: t.x + d * Math.cos(phase), y: t.y + dy, z: t.z + d * Math.sin(phase) }, true);
+      body.setLinvel({ x: d * w * Math.sin(phase), y: 0, z: -d * w * Math.cos(phase) }, true);
+      body.setAngvel({ x: 0, y: w * d / HR, z: 0 }, true);
+      hoops.push({ body, mesh: makeHoopMesh(PALETTES[idx % PALETTES.length]), angPrev: phase, angTot: 0 });
     }
-    function resetHoop() {
-      // 腰の左側に当たった状態で、反時計回りに 2回転/秒
-      const d = HR - torsoRadiusAt(0), w = Math.PI * 4;
-      hoop.setTranslation({ x: d, y: WAIST, z: 0 }, true);
-      hoop.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
-      hoop.setLinvel({ x: 0, y: 0, z: -d * w }, true);
-      hoop.setAngvel({ x: 0, y: w * d / HR, z: 0 }, true);
-      torso.setTranslation({ x: 0, y: WAIST, z: 0 }, true);
-      torso.setLinvel({ x: 0, y: 0, z: 0 }, true);
-    }
-    buildWorld(); resetHoop();
+    buildWorld();
 
     function physicsStep(target, alive) {
-      const p = hoop.translation(), q = torso.translation();
+      const q = torso.translation();
       torso.setLinvel({ x: (target.x - q.x) / DT * 0.3, y: 0, z: (target.z - q.z) / DT * 0.3 }, true);
-      hoop.resetForces(true); hoop.resetTorques(true);
-      if (alive) {
+      placeLegs(false);
+      for (const { body: hoop } of hoops) {
+        const p = hoop.translation();
+        hoop.resetForces(true); hoop.resetTorques(true);
+        if (!alive) continue;
         // 摩擦で持ち上がる力：腰に押し付けられる力（遠心力）× 摩擦係数。重さの1.15倍まで
         const lv = hoop.linvel(), tv = torso.linvel();
         const dx = p.x - q.x, dz = p.z - q.z, d = Math.hypot(dx, dz) || 1e-6;
@@ -354,19 +405,20 @@
     stage.addEventListener('pointercancel', endDrag);
 
     // ---- 流れ ----
-    let angPrev = 0, angTot = 0, endT = 0, fallT = 0, newBest = false;
+    let playT = 0, endT = 0, fallT = 0, newBest = false;
     // 最初は見本として腰が回っていて、画面に触れたらそのまま交代する
     function start() {
-      state = 'play'; count = 0; angTot = 0; result = null; drag = null;
-      const p = hoop.translation(), q = torso.translation();
-      angPrev = Math.atan2(p.z - q.z, p.x - q.x);
+      state = 'play'; count = 0; result = null; drag = null;
+      playT = 0;
+      const q = torso.translation();
+      for (const h of hoops) { const p = h.body.translation(); h.angPrev = Math.atan2(p.z - q.z, p.x - q.x); h.angTot = 0; }
       $('title').hidden = true; $('result').hidden = true;
       hud();
       tone(660, 0.12, 'triangle', 0.12, 1.5);
     }
     $('retry').onclick = () => {
       state = 'title'; result = null; drag = null;
-      buildWorld(); resetHoop();
+      buildWorld();
       $('result').hidden = true; $('title').hidden = false;
       hud();
     };
@@ -429,8 +481,10 @@
         placeLimb(l.th, hip, knee); placeLimb(l.sh, knee, ankle);
         l.foot.position.set(l.s * 0.14, 0.03, 0.04);
       }
-      const p = hoop.translation(), r = hoop.rotation();
-      hoopMesh.position.set(p.x, p.y, p.z); hoopMesh.quaternion.set(r.x, r.y, r.z, r.w);
+      for (const h of hoops) {
+        const p = h.body.translation(), r = h.body.rotation();
+        h.mesh.position.set(p.x, p.y, p.z); h.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+      }
     }
 
     let last = performance.now(), acc = 0;
@@ -440,8 +494,8 @@
         // タイトル：見本としてゆっくり腰を回す
         const a = now / 1000 * Math.PI * 4;
         target.x = Math.cos(a) * 0.06; target.z = -Math.sin(a) * 0.06;
-        const p = hoop.translation();
-        if (p.y < KNEE + 0.1 || p.y > 1.3) resetHoop();
+        const p = hoops[0].body.translation();
+        if (p.y < KNEE + 0.1 || p.y > 1.3) buildWorld();
       } else if (drag && state === 'play') {
         const f = 1 - Math.exp(-dt * 1.5);
         drag.x += (drag.px - drag.x) * f; drag.y += (drag.py - drag.y) * f;
@@ -454,13 +508,25 @@
         acc -= DT;
         physicsStep(target, state === 'play' || state === 'title');
         if (state === 'play') {
-          const p = hoop.translation(), q = torso.translation();
-          const a = Math.atan2(p.z - q.z, p.x - q.x);
-          let d = a - angPrev; d = (d + Math.PI * 3) % (Math.PI * 2) - Math.PI;
-          angPrev = a; angTot += d;
-          const n = Math.floor(Math.abs(angTot) / (Math.PI * 2));
+          const q = torso.translation();
+          let n = 0, down = false;
+          for (const h of hoops) {
+            const p = h.body.translation();
+            const a = Math.atan2(p.z - q.z, p.x - q.x);
+            let d = a - h.angPrev; d = (d + Math.PI * 3) % (Math.PI * 2) - Math.PI;
+            h.angPrev = a; h.angTot += d;
+            n += Math.floor(Math.abs(h.angTot) / (Math.PI * 2));
+            if (p.y < KNEE || Math.hypot(p.x - q.x, p.z - q.z) > HR + 0.1) down = true;
+          }
           if (n > count) { count = n; hud(); tone(520 + Math.min(count, 60) * 8, 0.06, 'triangle', 0.06); }
-          if (p.y < KNEE || Math.hypot(p.x - q.x, p.z - q.z) > HR + 0.1) fail();
+          if (down) { fail(); continue; }
+          // しばらくするとフープが増える。胸の高さ、いちばん新しいフープの反対側に入れる
+          playT += DT;
+          if (playT >= HOOP_EVERY * hoops.length && hoops.length < MAX_HOOPS) {
+            const last = hoops[hoops.length - 1];
+            addHoop(0.3, last.angPrev + Math.PI, hoops.length);
+            tone(880, 0.25, 'triangle', 0.12, 1.5);
+          }
         }
       }
       if (state === 'fall') {
