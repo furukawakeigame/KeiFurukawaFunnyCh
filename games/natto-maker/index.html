@@ -145,6 +145,20 @@
     } catch {}
   }
 
+  // "boing": a stretched string snapping
+  function twang(vol) {
+    if (!soundOn) return;
+    try {
+      const a = audio(), o = a.createOscillator(), lfo = a.createOscillator(), lg = a.createGain(), g = a.createGain(), now = a.currentTime;
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(700 + Math.random() * 300, now); o.frequency.exponentialRampToValueAtTime(180, now + 0.25);
+      lfo.frequency.value = 28; lg.gain.value = 60; lfo.connect(lg).connect(o.frequency);
+      g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.2 * vol, now + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+      o.connect(g).connect(a.destination); o.start(now); lfo.start(now); o.stop(now + 0.3); lfo.stop(now + 0.3);
+    } catch {}
+  }
+
   // ---------- state ----------
   const cv = $('cv'), ctx = cv.getContext('2d');
   let W = 0, H = 0, DPR = 1;
@@ -168,8 +182,9 @@
     render();
   }
   function packGeom(w, h) {
-    const s = Math.min((w - 24) / (PW + 0.16), (h - 24) / (PH + 0.16));
-    return { s, cx: w / 2, cy: h / 2 };
+    const s = Math.min((w - 24) / (PW + 0.16), (h - 24) / (PH + 0.16) * 0.8);
+    // sits low, leaving room above to pull the strings up
+    return { s, cx: w / 2, cy: h - 12 - (PH / 2 + 0.08) * s };
   }
 
   // ---------- image loading ----------
@@ -262,7 +277,7 @@
       for (let j = 0; j < 4; j++) foam.push({ a: Math.random() * Math.PI * 2, d: R * (0.6 + Math.random() * 0.7), r: R * (0.18 + Math.random() * 0.22), th: Math.random() });
       beans.push({
         x: (Math.random() - 0.5) * (PW - R * 4), y: (Math.random() - 0.5) * (PH - R * 4),
-        vx: 0, vy: 0, a: Math.random() * Math.PI * 2, va: 0, foam,
+        i, vx: 0, vy: 0, a: Math.random() * Math.PI * 2, va: 0, foam, carry: false, fall: 0,
       });
     }
     setMode('stir');
@@ -270,11 +285,40 @@
   const SR = 0.13, STICK_R = 0.022;
   const key = (i, j) => i * 1000 + j;
   let nechaT = 0;
+  // pulling the chopstick up out of the tray: a few beans come with it and many strings stretch
+  function liftOff() {
+    const near = beans.map(b => ({ b, d: Math.hypot(b.x - stick.x, b.y - stick.y) })).filter(o => o.d < 0.35).sort((a, b) => a.d - b.d);
+    stick.holds.clear();
+    near.forEach((o, n) => {
+      if (n < 3) {
+        o.b.carry = true;
+        o.b.ox = (Math.random() - 0.5) * R * 2; o.b.oy = R * (0.6 + n * 1.3);
+      }
+      if (n < 16) stick.holds.set(o.b.i, n < 4 ? 9 : (0.5 + neba * 1.6) * (0.5 + Math.random()));
+    });
+    necha(0.5);
+  }
+  function drop() {
+    for (const b of beans) if (b.carry) { b.carry = false; b.fall = 0.4; }
+  }
   function step(dt) {
     const fr = Math.pow(0.08, dt);                 // tray friction
     const pull = 2 + neba * 10;                    // how strongly the chopstick drags nearby beans
+    const lifted = stick && stick.lifted;
     for (const b of beans) {
-      if (stick) {
+      if (b.carry) {
+        // beans hanging from the lifted chopstick
+        const tx = stick.x + b.ox, ty = stick.y + b.oy, k = Math.min(1, dt * 18);
+        b.vx = (tx - b.x) * k / dt; b.vy = (ty - b.y) * k / dt;
+        b.x += (tx - b.x) * k; b.y += (ty - b.y) * k;
+        continue;
+      }
+      if (lifted && stick.holds.has(b.i)) {
+        // a stretched string tugs the bean toward the chopstick
+        const dx = stick.x - b.x, dy = stick.y - b.y, d = Math.hypot(dx, dy) || 1;
+        b.vx += dx / d * (0.6 + neba) * dt; b.vy += dy / d * (0.6 + neba) * dt;
+      }
+      if (stick && !lifted) {
         const dx = b.x - stick.x, dy = b.y - stick.y, d = Math.hypot(dx, dy);
         if (d < SR) {
           const w = (1 - d / SR) * Math.min(1, pull * dt);
@@ -291,9 +335,10 @@
     for (const [k, s] of strings) {
       const p = beans[s.i], q = beans[s.j];
       const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy) || 1e-6;
-      if (d > rest + maxLen) { strings.delete(k); continue; }
+      const up = p.carry || q.carry;
+      if (d > rest + (up ? 0.25 + neba * 0.9 : maxLen)) { strings.delete(k); if (up) twang(0.3); continue; }
       if (d > rest) {
-        const f = (d - rest) * (1 + neba * 8) * dt;
+        const f = (d - rest) * (up ? 0.5 : 1 + neba * 8) * dt;
         p.vx += dx / d * f; p.vy += dy / d * f; q.vx -= dx / d * f; q.vy -= dy / d * f;
       }
     }
@@ -304,6 +349,7 @@
         const p = beans[i];
         for (let j = i + 1; j < beans.length; j++) {
           const q = beans[j];
+          if (p.carry !== q.carry) continue;
           const dx = q.x - p.x, dy = q.y - p.y, d2 = dx * dx + dy * dy, md = R * 2;
           if (d2 < md * md && d2 > 1e-9) {
             const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, o = (md - d) * 0.5;
@@ -317,7 +363,15 @@
             }
           }
         }
-        if (stick) {
+        if (p.carry) continue;
+        if (p.fall > 0) {
+          // dropping back into the tray
+          const k = Math.min(1, dt * 10);
+          p.x += (Math.max(-hx, Math.min(hx, p.x)) - p.x) * k; p.y += (Math.max(-hy, Math.min(hy, p.y)) - p.y) * k;
+          if (it === 0) p.fall -= dt;
+          continue;
+        }
+        if (stick && !lifted) {
           const dx = p.x - stick.x, dy = p.y - stick.y, d = Math.hypot(dx, dy), md = R + STICK_R;
           if (d < md && d > 1e-9) { p.x = stick.x + dx / d * md; p.y = stick.y + dy / d * md; }
         }
@@ -328,15 +382,20 @@
       }
     }
     // chopstick strings: beans it touched stay hooked and stretch when you pull away
-    if (stick) {
+    if (lifted) {
+      for (const [i, lim] of stick.holds) {
+        const b = beans[i];
+        if (!b.carry && Math.hypot(b.x - stick.x, b.y - stick.y) > lim) { stick.holds.delete(i); twang(0.5); }
+      }
+    } else if (stick) {
       const sp = Math.hypot(stick.vx, stick.vy);
       let near = 0;
       for (let i = 0; i < beans.length; i++) {
         const b = beans[i], d = Math.hypot(b.x - stick.x, b.y - stick.y);
         if (d < SR) near++;
-        if (neba > 0.15 && d < R + STICK_R + 0.01 && stick.holds.size < 8) stick.holds.add(i);
+        if (neba > 0.15 && d < R + STICK_R + 0.01 && stick.holds.size < 8) stick.holds.set(i, 0);
       }
-      for (const i of stick.holds) {
+      for (const i of stick.holds.keys()) {
         const b = beans[i], d = Math.hypot(b.x - stick.x, b.y - stick.y);
         if (d > 0.08 + neba * 0.45) stick.holds.delete(i);
       }
@@ -372,21 +431,18 @@
     for (let y = -PH / 2; y <= PH / 2; y += 0.1) { g.beginPath(); g.moveTo(-PW / 2, y); g.lineTo(PW / 2, y); g.stroke(); }
     // beans
     const sp = opt.sprite, k = (R * 2.4) / Math.max(sp.width, sp.height);
-    for (const b of opt.beans) {
+    const inTray = opt.beans.filter(b => !b.carry && !(b.fall > 0)), up = opt.beans.filter(b => b.carry || b.fall > 0);
+    for (const b of inTray) {
       g.fillStyle = 'rgba(70,40,15,.18)';
       g.beginPath(); g.arc(b.x + R * 0.12, b.y + R * 0.2, R * 0.95, 0, Math.PI * 2); g.fill();
     }
     // strings between beans (under the beans, so they look like they run between them)
-    drawStrings(g, opt, lw, 0.35);
-    for (const b of opt.beans) {
-      g.save(); g.translate(b.x, b.y); g.rotate(b.a);
-      g.drawImage(sp, -sp.width * k / 2, -sp.height * k / 2, sp.width * k, sp.height * k);
-      g.restore();
-    }
+    drawStrings(g, opt, lw, 0.35, false);
+    for (const b of inTray) drawBean(g, b, sp, k);
     // slime gloss and foam, stronger as it gets sticky
     if (opt.neba > 0.05) {
       g.globalAlpha = Math.min(0.85, opt.neba * 1.1);
-      for (const b of opt.beans) for (const f of b.foam) {
+      for (const b of inTray) for (const f of b.foam) {
         if (f.th > opt.neba * 1.3) continue;
         const x = b.x + Math.cos(f.a + b.a * 0.2) * f.d, y = b.y + Math.sin(f.a + b.a * 0.2) * f.d;
         g.fillStyle = 'rgba(255,253,245,.75)';
@@ -397,30 +453,51 @@
       }
       g.globalAlpha = 1;
     }
-    drawStrings(g, opt, lw, 0.6);
+    drawStrings(g, opt, lw, 0.6, false);
     g.restore();
     // chopstick strings above everything
     if (opt.stick) {
-      g.strokeStyle = 'rgba(255,255,250,.8)';
-      for (const i of opt.stick.holds) {
-        const b = opt.beans[i], d = Math.hypot(b.x - opt.stick.x, b.y - opt.stick.y);
-        g.lineWidth = Math.max(0.6, 2.4 - d * 10) * lw;
-        g.beginPath(); g.moveTo(opt.stick.x, opt.stick.y);
-        g.quadraticCurveTo((b.x + opt.stick.x) / 2, (b.y + opt.stick.y) / 2 + d * 0.15, b.x, b.y); g.stroke();
+      const st = opt.stick;
+      g.lineCap = 'round';
+      for (const [i, lim] of st.holds) {
+        const b = opt.beans[i], d = Math.hypot(b.x - st.x, b.y - st.y);
+        // long thin strands that thin out as they stretch, swaying a little
+        for (let n = 0; n < (st.lifted ? 3 : 1); n++) {
+          const sway = Math.sin(opt.time * 3 + i + n * 2) * d * 0.06 + (n - 1) * d * 0.04;
+          g.strokeStyle = `rgba(255,255,250,${st.lifted ? 0.7 + 0.25 * (1 - d / (lim || 1)) : 0.8})`;
+          g.lineWidth = Math.max(0.9, (st.lifted ? 3.2 - d * 4 : 2.4 - d * 10) * (n ? 0.6 : 1)) * lw;
+          g.beginPath(); g.moveTo(st.x, st.y);
+          g.quadraticCurveTo((b.x + st.x) / 2 + sway, (b.y + st.y) / 2 + d * 0.12, b.x, b.y); g.stroke();
+        }
       }
+    }
+    // beans lifted out of the tray float above it, with strings back down to the tray
+    drawStrings(g, opt, lw, 0.75, true);
+    for (const b of up) {
+      g.fillStyle = 'rgba(70,40,15,.15)';
+      g.beginPath(); g.arc(b.x + R * 0.5, b.y + R * 0.9, R * 0.9, 0, Math.PI * 2); g.fill();
+    }
+    for (const b of up) drawBean(g, b, opt.sprite, k);
+    if (opt.stick) {
       // the chopstick tip seen from above
       g.fillStyle = '#c99a5e'; g.strokeStyle = '#8a6030'; g.lineWidth = 1.5 * lw;
       g.beginPath(); g.arc(opt.stick.x, opt.stick.y, STICK_R, 0, Math.PI * 2); g.fill(); g.stroke();
     }
     g.restore();
   }
-  function drawStrings(g, opt, lw, alpha) {
+  function drawBean(g, b, sp, k) {
+    g.save(); g.translate(b.x, b.y); g.rotate(b.a);
+    g.drawImage(sp, -sp.width * k / 2, -sp.height * k / 2, sp.width * k, sp.height * k);
+    g.restore();
+  }
+  function drawStrings(g, opt, lw, alpha, lifted) {
     g.lineCap = 'round';
     for (const s of opt.strings.values()) {
       const p = opt.beans[s.i], q = opt.beans[s.j], d = Math.hypot(q.x - p.x, q.y - p.y);
+      if (!!(p.carry || q.carry) !== lifted) continue;
       const stretch = Math.max(0, d - R * 2);
       g.strokeStyle = `rgba(255,255,250,${alpha})`;
-      g.lineWidth = Math.max(0.5, (2.2 - stretch * 18) * s.w) * lw;
+      g.lineWidth = Math.max(0.5, (2.2 - stretch * (lifted ? 4 : 18)) * s.w) * lw;
       g.beginPath(); g.moveTo(p.x, p.y);
       g.quadraticCurveTo((p.x + q.x) / 2 + (q.y - p.y) * 0.15 * s.w, (p.y + q.y) / 2 - (q.x - p.x) * 0.15 * s.w, q.x, q.y); g.stroke();
     }
@@ -442,7 +519,7 @@
       return;
     }
     const gm = packGeom(W, H);
-    drawPack(ctx, gm.s, gm.cx, gm.cy, { beans, strings, sprite, neba, stick });
+    drawPack(ctx, gm.s, gm.cx, gm.cy, { beans, strings, sprite, neba, stick, time });
   }
   const startSprite = sampleSprite();
   let tmpC = null;
@@ -463,15 +540,18 @@
   }
 
   // ---------- loop ----------
-  let lastT = performance.now();
+  let lastT = performance.now(), time = 0;
   function loop(now) {
-    const dt = Math.min(0.033, (now - lastT) / 1000); lastT = now;
+    const dt = Math.min(0.033, (now - lastT) / 1000); lastT = now; time += dt;
     if (mode === 'stir') {
       if (stick) {
         // chopstick velocity from the pointer movement
         const vx = (stick.tx - stick.x) / dt, vy = (stick.ty - stick.y) / dt;
         stick.vx += (vx - stick.vx) * 0.5; stick.vy += (vy - stick.vy) * 0.5;
         stick.x = stick.tx; stick.y = stick.ty;
+        const out = stick.y < -PH / 2 - R * 0.5;
+        if (out && !stick.lifted) { stick.lifted = true; liftOff(); }
+        else if (!out && stick.lifted) { stick.lifted = false; drop(); stick.holds.clear(); }
       }
       for (let i = 0; i < 4; i++) step(dt / 4);
       render();
@@ -484,7 +564,8 @@
     const gm = packGeom(W, H), r = cv.getBoundingClientRect();
     return {
       x: Math.max(-PW / 2, Math.min(PW / 2, (e.clientX - r.left - gm.cx) / gm.s)),
-      y: Math.max(-PH / 2, Math.min(PH / 2, (e.clientY - r.top - gm.cy) / gm.s)),
+      // above the tray is allowed: that lifts the chopstick out
+      y: Math.max(-(gm.cy - 8) / gm.s, Math.min(PH / 2, (e.clientY - r.top - gm.cy) / gm.s)),
     };
   }
   cv.addEventListener('pointerdown', e => {
@@ -507,7 +588,7 @@
     }
     if (mode === 'stir' && !stick) {
       const p = toPack(e);
-      stick = { id: e.pointerId, x: p.x, y: p.y, tx: p.x, ty: p.y, vx: 0, vy: 0, holds: new Set() };
+      stick = { id: e.pointerId, x: p.x, y: p.y, tx: p.x, ty: p.y, vx: 0, vy: 0, holds: new Map(), lifted: false };
     }
   });
   cv.addEventListener('pointermove', e => {
@@ -532,7 +613,8 @@
       if (lastPt) { lastPt = null; updateDone(); }
     }
     if (mode === 'stir' && stick && e.pointerId === stick.id) {
-      if (stick.holds.size) necha(0.3 + neba * 0.4);
+      if (stick.lifted) { if (stick.holds.size) twang(0.8); drop(); }
+      else if (stick.holds.size) necha(0.3 + neba * 0.4);
       stick = null;
     }
   };
