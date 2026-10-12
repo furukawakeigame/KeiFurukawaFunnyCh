@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>痛バッグメーカー</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <!-- X などにURLを貼ったときのカード表示（ここだけは https:// から書く） -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="痛バッグメーカー">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/ita-bag/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/ita-bag/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    html, body { margin: 0; height: 100%; background: #fbeef3; color: #5b2f45; }
+    body {
+      display: flex; flex-direction: column; height: 100dvh;
+      font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden; touch-action: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; width: 100%; max-width: 640px; margin: 0 auto; box-sizing: border-box;
+    }
+    header a { color: #c2185b; text-decoration: none; font-weight: bold; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill {
+      font: inherit; font-size: 15px; background: #fff; border: 2px solid #f1c6d6; border-radius: 999px;
+      min-width: 44px; height: 36px; cursor: pointer; font-weight: bold; color: #b0386a; padding: 0 10px;
+      display: flex; align-items: center; justify-content: center; text-decoration: none; box-sizing: border-box;
+    }
+    main {
+      flex: 1; min-height: 0; display: flex; flex-direction: column;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom));
+    }
+    #stage { flex: 1; min-height: 0; position: relative; touch-action: none; }
+    #stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    #ed { background: #3a2530; }
+    #corner { position: absolute; top: 6px; right: 10px; display: flex; gap: 6px; }
+    #tabs {
+      display: flex; gap: 4px; margin: 4px auto 0; padding: 4px; background: #f6d6e2; border-radius: 999px;
+      width: calc(100% - 24px); max-width: 420px; box-sizing: border-box;
+    }
+    #tabs button {
+      flex: 1; font: inherit; font-weight: bold; font-size: 15px; border: none; border-radius: 999px;
+      height: 38px; background: transparent; color: #a0466e; cursor: pointer; white-space: nowrap; padding: 0 4px;
+    }
+    #tabs button.on { background: #fff; color: #c2185b; box-shadow: 0 2px 0 #e8b4c8; }
+    .bar {
+      display: flex; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap;
+      padding: 8px 12px; min-height: 50px;
+    }
+    .btn {
+      font: inherit; font-weight: bold; font-size: 16px; border: none; border-radius: 999px;
+      background: #d81b60; color: #fff; height: 44px; padding: 0 18px; cursor: pointer;
+      box-shadow: 0 4px 0 #8e0f3e; text-decoration: none; display: inline-flex; align-items: center; justify-content: center;
+    }
+    .btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #8e0f3e; }
+    .btn.sub { background: #fff; color: #c2185b; box-shadow: 0 4px 0 #ecc0d0; }
+    .btn.on { background: #ffd54f; color: #6a4300; box-shadow: 0 4px 0 #c9a227; }
+    .btn:disabled { opacity: .4; cursor: default; }
+    .btn.sq { width: 44px; padding: 0; }
+    .sw {
+      width: 34px; height: 34px; border-radius: 50%; border: 3px solid #fff; cursor: pointer; padding: 0;
+      box-shadow: 0 0 0 2px #ecc0d0;
+    }
+    .sw.on { box-shadow: 0 0 0 3px #c2185b; }
+    .dot { display: inline-block; background: currentColor; border-radius: 50%; }
+    input[type=range] { width: 140px; accent-color: #d81b60; }
+    .hide { display: none !important; }
+    #msg {
+      position: absolute; top: 42%; left: 0; right: 0; text-align: center; font-weight: bold; pointer-events: none;
+      color: #fff; text-shadow: 0 0 6px #000, 0 0 2px #000;
+    }
+    #err { position: fixed; top: 50%; left: 0; right: 0; text-align: center; padding: 0 16px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <div class="hbtns">
+      <button id="lang" class="pill">EN</button>
+      <button id="snd" class="pill" aria-label="sound"></button>
+    </div>
+  </header>
+  <main>
+    <div id="stage">
+      <canvas id="cv"></canvas>
+      <canvas id="ed" class="hide"></canvas>
+      <div id="corner">
+        <button id="save" class="pill"></button>
+        <a id="post" class="pill"></a>
+      </div>
+      <div id="msg"></div>
+    </div>
+    <div id="tabs">
+      <button data-m="print" class="on"></button>
+      <button data-m="strap"></button>
+      <button data-m="badge"></button>
+    </div>
+    <!-- プリント -->
+    <div id="barPrint" class="bar">
+      <button class="sw on" data-c="#222222" style="background:#222"></button>
+      <button class="sw" data-c="#e91e63" style="background:#e91e63"></button>
+      <button class="sw" data-c="#2979ff" style="background:#2979ff"></button>
+      <button class="sw" data-c="#ffca28" style="background:#ffca28"></button>
+      <button class="sw" data-c="#ffffff" style="background:#fff"></button>
+      <button id="pSize" class="btn sub sq" aria-label="size"><span class="dot" style="width:12px;height:12px"></span></button>
+      <button id="pErase" class="btn sub" data-t="erase"></button>
+      <button id="pUndo" class="btn sub" data-t="undo"></button>
+      <button id="pImg" class="btn" data-t="image"></button>
+    </div>
+    <div id="barPlace" class="bar hide">
+      <input id="pScale" type="range" min="10" max="200" value="80" aria-label="size">
+      <button id="pCancel" class="btn sub" data-t="cancel"></button>
+      <button id="pOk" class="btn" data-t="ok"></button>
+    </div>
+    <!-- ストラップ -->
+    <div id="barStrap" class="bar hide">
+      <button id="sPick" class="btn" data-t="pick"></button>
+      <button id="sRemove" class="btn sub" data-t="remove"></button>
+    </div>
+    <div id="barCut" class="bar hide">
+      <button id="cBrush" class="btn sub sq" aria-label="brush"><span class="dot" style="width:12px;height:12px"></span></button>
+      <button id="cErase" class="btn sub" data-t="erase"></button>
+      <button id="cUndo" class="btn sub" data-t="undo"></button>
+      <button id="cCancel" class="btn sub" data-t="cancel"></button>
+      <button id="cDone" class="btn" data-t="done" disabled></button>
+    </div>
+    <!-- バッジ -->
+    <div id="barBadge" class="bar hide">
+      <button id="bPick" class="btn" data-t="pick"></button>
+    </div>
+    <div id="barCrop" class="bar hide">
+      <button class="btn sub sq bs" data-s="0" aria-label="S"><span class="dot" style="width:12px;height:12px"></span></button>
+      <button class="btn sub sq bs on" data-s="1" aria-label="M"><span class="dot" style="width:18px;height:18px"></span></button>
+      <button class="btn sub sq bs" data-s="2" aria-label="L"><span class="dot" style="width:24px;height:24px"></span></button>
+      <button id="kCancel" class="btn sub" data-t="cancel"></button>
+      <button id="kDone" class="btn" data-t="done"></button>
+    </div>
+    <input id="file" type="file" accept="image/*" class="hide">
+  </main>
+  <div id="err"></div>
+
+<script>
+setTimeout(() => { if (!window.__ok) { document.getElementById('err').textContent = (navigator.language || '').startsWith('ja') ? '読み込みに失敗しました。通信状況を確認して再読み込みしてください。' : 'Failed to load. Please check your connection and reload.'; } }, 8000);
+</script>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+window.__ok = true;
+
+const SHARE_URL = 'https://keifurukawafunnych.com/games/ita-bag/';
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('itabag:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('itabag:' + k, JSON.stringify(v)); } catch {} },
+};
+const DICT = {
+  ja: {
+    title: '痛バッグメーカー', back: '← トップへ戻る', print: 'プリント', strap: 'ストラップ', badge: 'バッジ',
+    erase: '消す', undo: '戻す', image: '画像', cancel: 'やめる', ok: '決定', pick: '画像をえらぶ', remove: '外す',
+    done: 'できた', save: '保存', post: 'Xに投稿', full: '置く場所がありません', err: '画像を読み込めませんでした',
+    shareText: '痛バッグを作りました\n#痛バッグメーカー',
+  },
+  en: {
+    title: 'Ita-Bag Maker', back: '← Back to top', print: 'Print', strap: 'Charm', badge: 'Badge',
+    erase: 'Erase', undo: 'Undo', image: 'Image', cancel: 'Cancel', ok: 'OK', pick: 'Choose image', remove: 'Remove',
+    done: 'Done', save: 'Save', post: 'Post', full: 'No room left', err: 'Could not load the image',
+    shareText: 'I made my ita-bag\n#ItaBagMaker',
+  },
+};
+let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
+const t = k => DICT[lang][k];
+const coarse = matchMedia('(pointer: coarse)').matches;
+
+// ---------- sound ----------
+let soundOn = store.get('sound', true), actx = null;
+const SPK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>';
+function drawSnd() {
+  $('snd').innerHTML = SPK + (soundOn ? '<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>') + '</svg>';
+}
+function beep(f0, f1, dur, type = 'sine', vol = 0.25) {
+  if (!soundOn) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain(), now = actx.currentTime;
+    o.type = type;
+    o.frequency.setValueAtTime(f0, now); o.frequency.exponentialRampToValueAtTime(f1, now + dur);
+    g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(vol, now + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    o.connect(g).connect(actx.destination); o.start(now); o.stop(now + dur + 0.01);
+  } catch {}
+}
+const clickSnd = () => { beep(2400, 1800, 0.05, 'square', 0.08); beep(900, 500, 0.08); };
+const ngSnd = () => beep(180, 140, 0.18, 'square', 0.08);
+const chainSnd = () => { beep(3200, 2600, 0.06, 'triangle', 0.1); setTimeout(() => beep(2800, 2200, 0.06, 'triangle', 0.08), 70); };
+
+function flash(text) {
+  $('msg').textContent = text;
+  clearTimeout(flash.t); flash.t = setTimeout(() => { $('msg').textContent = ''; }, 1600);
+}
+
+// ---------- image loading ----------
+let fileCb = null;
+function pickImage(cb) { fileCb = cb; $('file').value = ''; $('file').click(); }
+$('file').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f || !f.type.startsWith('image/')) return;
+  const url = URL.createObjectURL(f), im = new Image();
+  im.onload = () => {
+    URL.revokeObjectURL(url);
+    const k = Math.min(1, 1600 / Math.max(im.width, im.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(im.width * k)); c.height = Math.max(1, Math.round(im.height * k));
+    c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+    if (fileCb) fileCb(c);
+  };
+  im.onerror = () => { URL.revokeObjectURL(url); flash(t('err')); };
+  im.src = url;
+});
+
+// ---------- three.js scene ----------
+const cv = $('cv');
+const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xfbeef3);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xd9c4cc, 1.7));
+const sun = new THREE.DirectionalLight(0xffffff, 1.5); sun.position.set(-3, 5, 8); scene.add(sun);
+const rim = new THREE.DirectionalLight(0xffffff, 0.5); rim.position.set(4, 2, -6); scene.add(rim);
+
+const BW = 3.2, BH = 3.6, BD = 0.55, BULGE = 0.14, HANDLE = 1.35;
+const CW = 1024, CH = 1152;            // front print canvas (same ratio as BW:BH)
+const bz = (x, y) => BULGE * Math.cos(Math.PI * x / BW) * Math.cos(Math.PI * y / BH);
+
+// fabric pattern
+function weave(c, base) {
+  const g = c.getContext('2d');
+  g.fillStyle = base; g.fillRect(0, 0, c.width, c.height);
+  for (let y = 0; y < c.height; y += 3) { g.fillStyle = `rgba(120,95,60,${0.04 + Math.random() * 0.04})`; g.fillRect(0, y, c.width, 1); }
+  for (let x = 0; x < c.width; x += 3) { g.fillStyle = `rgba(255,255,255,${0.05 + Math.random() * 0.05})`; g.fillRect(x, 0, 1, c.height); }
+  for (let i = 0; i < c.width * c.height / 400; i++) {
+    g.fillStyle = `rgba(110,80,50,${Math.random() * 0.08})`; g.fillRect(Math.random() * c.width, Math.random() * c.height, 2, 1);
+  }
+  return c;
+}
+const FABRIC = '#efe5d0';
+const baseFront = weave(Object.assign(document.createElement('canvas'), { width: CW, height: CH }), FABRIC);
+// stitch line near the top
+{
+  const g = baseFront.getContext('2d');
+  g.strokeStyle = 'rgba(120,95,60,.45)'; g.lineWidth = 3; g.setLineDash([14, 10]);
+  g.beginPath(); g.moveTo(0, 46); g.lineTo(CW, 46); g.stroke();
+}
+const printC = Object.assign(document.createElement('canvas'), { width: CW, height: CH });
+const pctx = printC.getContext('2d');
+const frontC = Object.assign(document.createElement('canvas'), { width: CW, height: CH });
+const fctx = frontC.getContext('2d');
+const frontTex = new THREE.CanvasTexture(frontC);
+frontTex.colorSpace = THREE.SRGBColorSpace; frontTex.anisotropy = 4;
+const sideTex = new THREE.CanvasTexture(weave(Object.assign(document.createElement('canvas'), { width: 256, height: 256 }), FABRIC));
+sideTex.colorSpace = THREE.SRGBColorSpace; sideTex.wrapS = sideTex.wrapT = THREE.RepeatWrapping; sideTex.repeat.set(3, 3);
+
+const bag = new THREE.Group();
+scene.add(bag);
+const boxG = new THREE.BoxGeometry(BW, BH, BD, 24, 24, 2);
+{
+  const p = boxG.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    p.setZ(i, z + Math.sign(z) * bz(x, y) * Math.abs(z) / (BD / 2));
+    // 下に向かって少しすぼまる
+    p.setX(i, x * (1 - 0.03 * (0.5 - y / BH)));
+  }
+  boxG.computeVertexNormals();
+}
+const fabricMat = new THREE.MeshStandardMaterial({ map: sideTex, roughness: 1 });
+const frontMat = new THREE.MeshStandardMaterial({ map: frontTex, roughness: 1 });
+const bagMesh = new THREE.Mesh(boxG, [fabricMat, fabricMat, fabricMat, fabricMat, frontMat, fabricMat]);
+bag.add(bagMesh);
+// handles
+const handleCurve = z => new THREE.CatmullRomCurve3([
+  new THREE.Vector3(-0.85, BH / 2 - 0.35, z), new THREE.Vector3(-0.85, BH / 2 + 0.3, z),
+  new THREE.Vector3(-0.55, BH / 2 + HANDLE, z), new THREE.Vector3(0.55, BH / 2 + HANDLE, z),
+  new THREE.Vector3(0.85, BH / 2 + 0.3, z), new THREE.Vector3(0.85, BH / 2 - 0.35, z),
+]);
+const frontHandle = handleCurve(BD / 2 + 0.02);
+for (const c of [frontHandle, handleCurve(-BD / 2 - 0.02)]) {
+  const m = new THREE.Mesh(new THREE.TubeGeometry(c, 64, 0.07, 10), fabricMat);
+  m.scale.set(1, 1, 0.45); m.position.z = c.points[0].z * 0.55;
+  bag.add(m);
+}
+
+function compose() {
+  fctx.drawImage(baseFront, 0, 0);
+  fctx.drawImage(printC, 0, 0);
+  if (placing) {
+    const { img, x, y } = placing, w = placingW(), h = w * img.height / img.width;
+    fctx.drawImage(img, x - w / 2, y - h / 2, w, h);
+    fctx.save(); fctx.strokeStyle = '#d81b60'; fctx.lineWidth = 4; fctx.setLineDash([16, 10]);
+    fctx.strokeRect(x - w / 2, y - h / 2, w, h); fctx.restore();
+  }
+  frontTex.needsUpdate = true;
+}
+
+// ---------- layout ----------
+let W = 1, H = 1;
+const CAM_Y = 0.55;
+function resize() {
+  const r = $('stage').getBoundingClientRect();
+  W = Math.max(1, r.width); H = Math.max(1, r.height);
+  renderer.setSize(W, H, false);
+  camera.aspect = W / H;
+  const th = Math.tan(THREE.MathUtils.degToRad(20));
+  const dist = Math.max(5.6 / (2 * th), 4.3 / (2 * th * camera.aspect)) + BD;
+  camera.position.set(0, CAM_Y, dist); camera.lookAt(0, CAM_Y, 0);
+  camera.updateProjectionMatrix();
+  if (ed) edLayout();
+}
+
+// ---------- modes ----------
+let mode = 'print';   // print | strap | badge
+let sub = null;       // null | place | cut | crop
+function setMode(m) {
+  if (sub) return;
+  mode = m;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+  showBars();
+}
+function showBars() {
+  $('barPrint').classList.toggle('hide', !(mode === 'print' && !sub));
+  $('barPlace').classList.toggle('hide', sub !== 'place');
+  $('barStrap').classList.toggle('hide', !(mode === 'strap' && !sub));
+  $('barCut').classList.toggle('hide', sub !== 'cut');
+  $('barBadge').classList.toggle('hide', !(mode === 'badge' && !sub));
+  $('barCrop').classList.toggle('hide', sub !== 'crop');
+  $('tabs').style.visibility = sub ? 'hidden' : '';
+  $('ed').classList.toggle('hide', !(sub === 'cut' || sub === 'crop'));
+  $('corner').classList.toggle('hide', !!sub);
+  $('sRemove').disabled = !straps.length;
+}
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => setMode(b.dataset.m));
+
+// ---------- print ----------
+let penColor = '#222222', penSize = 1, penErase = false, pUndo = [];
+const PEN = [8, 20, 48];
+document.querySelectorAll('.sw').forEach(b => b.onclick = () => {
+  penColor = b.dataset.c; penErase = false; markPen();
+});
+function markPen() {
+  document.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', !penErase && b.dataset.c === penColor));
+  $('pErase').classList.toggle('on', penErase);
+  const d = $('pSize').firstChild, s = [8, 14, 22][penSize]; d.style.width = d.style.height = s + 'px';
+}
+$('pSize').onclick = () => { penSize = (penSize + 1) % 3; markPen(); };
+$('pErase').onclick = () => { penErase = !penErase; markPen(); };
+function pushUndo() { pUndo.push(pctx.getImageData(0, 0, CW, CH)); if (pUndo.length > 12) pUndo.shift(); }
+$('pUndo').onclick = () => { const d = pUndo.pop(); if (d) { pctx.putImageData(d, 0, 0); compose(); } };
+function penStroke(a, b) {
+  pctx.save();
+  pctx.globalCompositeOperation = penErase ? 'destination-out' : 'source-over';
+  pctx.strokeStyle = pctx.fillStyle = penColor; pctx.lineCap = pctx.lineJoin = 'round'; pctx.lineWidth = PEN[penSize];
+  pctx.beginPath(); pctx.moveTo(a.x, a.y); pctx.lineTo(b.x, b.y); pctx.stroke();
+  pctx.beginPath(); pctx.arc(b.x, b.y, PEN[penSize] / 2, 0, Math.PI * 2); pctx.fill();
+  pctx.restore();
+}
+let placing = null;
+const placingW = () => CW * $('pScale').value / 100;
+$('pImg').onclick = () => pickImage(img => {
+  const fit = Math.min(0.8, 0.8 * (CH / CW) * img.width / img.height);
+  $('pScale').value = Math.round(fit * 100);
+  placing = { img, x: CW / 2, y: CH / 2 };
+  sub = 'place'; showBars(); compose();
+});
+$('pScale').oninput = compose;
+$('pCancel').onclick = () => { placing = null; sub = null; showBars(); compose(); };
+$('pOk').onclick = () => {
+  pushUndo();
+  const { img, x, y } = placing, w = placingW(), h = w * img.height / img.width;
+  pctx.drawImage(img, x - w / 2, y - h / 2, w, h);
+  placing = null; sub = null; showBars(); compose(); clickSnd();
+};
+
+// ---------- badges ----------
+const BADGE_R = [0.28, 0.38, 0.5], BADGE_T = 0.08;
+const badges = [];
+const rimMat = new THREE.MeshStandardMaterial({ color: 0xeeeef2, metalness: 0.35, roughness: 0.3 });
+function capGeometry(r) {
+  const RS = 14, SS = 56, pos = [], uv = [], idx = [];
+  pos.push(0, 0, BADGE_T + 0.05); uv.push(0.5, 0.5);
+  for (let i = 1; i <= RS; i++) {
+    const rho = r * i / RS, q = rho / r;
+    const z = BADGE_T + 0.05 * Math.sqrt(Math.max(0, 1 - q * q * q * q));
+    for (let s = 0; s < SS; s++) {
+      const a = s / SS * Math.PI * 2;
+      pos.push(Math.cos(a) * rho, Math.sin(a) * rho, z); uv.push(0.5 + Math.cos(a) * q / 2, 0.5 + Math.sin(a) * q / 2);
+    }
+  }
+  for (let s = 0; s < SS; s++) idx.push(0, 1 + s, 1 + (s + 1) % SS);
+  for (let i = 0; i < RS - 1; i++) for (let s = 0; s < SS; s++) {
+    const a = 1 + i * SS + s, b = 1 + i * SS + (s + 1) % SS, c = a + SS, d = b + SS;
+    idx.push(a, c, d, a, d, b);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+function makeBadge(canvas, size) {
+  const r = BADGE_R[size];
+  const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const capMat = new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.08 });
+  const grp = new THREE.Group();
+  const cap = new THREE.Mesh(capGeometry(r), capMat);
+  const side = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.02, BADGE_T, 56, 1, true), rimMat);
+  side.rotation.x = Math.PI / 2; side.position.z = BADGE_T / 2;
+  grp.add(cap, side);
+  const b = { grp, r, capMat, x: 0, y: 0 };
+  cap.userData.badge = side.userData.badge = b;
+  return b;
+}
+function setBadgePos(b, x, y) {
+  b.x = x; b.y = y;
+  const e = 0.01;
+  const dzx = (bz(x + e, y) - bz(x - e, y)) / (2 * e), dzy = (bz(x, y + e) - bz(x, y - e)) / (2 * e);
+  b.grp.position.set(x, y, BD / 2 + bz(x, y) - 0.01);
+  b.grp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(-dzx, -dzy, 1).normalize());
+}
+const inFace = (x, y, r) => Math.abs(x) <= BW / 2 - r - 0.05 && y <= BH / 2 - r - 0.12 && y >= -BH / 2 + r + 0.05;
+const clampFace = (x, y, r) => ({
+  x: Math.max(-BW / 2 + r + 0.05, Math.min(BW / 2 - r - 0.05, x)),
+  y: Math.max(-BH / 2 + r + 0.05, Math.min(BH / 2 - r - 0.12, y)),
+});
+const freeAt = (x, y, r, self) => badges.every(o => o === self || Math.hypot(o.x - x, o.y - y) >= o.r + r - 1e-6);
+function findSpot(r) {
+  let best = null;
+  for (let y = BH / 2 - r - 0.12; y >= -BH / 2 + r + 0.05; y -= 0.04) {
+    for (let x = -BW / 2 + r + 0.05; x <= BW / 2 - r - 0.05; x += 0.04) {
+      if (freeAt(x, y, r)) { const d = Math.hypot(x, y - 0.2); if (!best || d < best.d) best = { x, y, d }; }
+    }
+  }
+  return best;
+}
+$('bPick').onclick = () => pickImage(img => openEditor('crop', img));
+
+// ---------- straps (image-balloon style puffy charm) ----------
+const straps = [];
+const SLOTS = [0.5, 0.36, 0.64, 0.22, 0.78];
+const chainMat = new THREE.MeshStandardMaterial({ color: 0xf0d070, metalness: 0.5, roughness: 0.3 });
+const linkGeo = new THREE.TorusGeometry(0.055, 0.014, 8, 20);
+function buildCharm(canvas) {
+  const W = canvas.width, H = canvas.height, N = 72;
+  const alpha = canvas.getContext('2d').getImageData(0, 0, W, H).data;
+  const S2 = Math.SQRT2;
+  const dist = (on, edgeIsOff) => {
+    const D = new Float32Array(W * H);
+    for (let i = 0; i < W * H; i++) D[i] = on(i) ? 1e9 : 0;
+    const m = edgeIsOff ? 1 : 1e9;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x; if (!D[i]) continue;
+      let v = D[i];
+      v = Math.min(v, x > 0 ? D[i - 1] + 1 : m);
+      if (y > 0) { v = Math.min(v, D[i - W] + 1); if (x > 0) v = Math.min(v, D[i - W - 1] + S2); if (x < W - 1) v = Math.min(v, D[i - W + 1] + S2); } else v = Math.min(v, m);
+      D[i] = v;
+    }
+    for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) {
+      const i = y * W + x; if (!D[i]) continue;
+      let v = D[i];
+      v = Math.min(v, x < W - 1 ? D[i + 1] + 1 : m);
+      if (y < H - 1) { v = Math.min(v, D[i + W] + 1); if (x < W - 1) v = Math.min(v, D[i + W + 1] + S2); if (x > 0) v = Math.min(v, D[i + W - 1] + S2); } else v = Math.min(v, m);
+      D[i] = v;
+    }
+    return D;
+  };
+  const Din = dist(i => alpha[i * 4 + 3] > 127, true), Dout = dist(i => alpha[i * 4 + 3] <= 127, false);
+  const sdist = (x, y) => { const i = Math.min(H - 1, Math.round(y)) * W + Math.min(W - 1, Math.round(x)); return Din[i] ? Din[i] - 0.5 : -(Math.min(Dout[i], 1e4) - 0.5); };
+  const size = 1.15, w = W >= H ? size : size * W / H, h = W >= H ? size * H / W : size;
+  const k = w / W;
+  const ds = [];
+  let dmax = 0;
+  for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+    const d = sdist(i / N * W, (1 - j / N) * H); ds.push(d); dmax = Math.max(dmax, d);
+  }
+  const R = Math.min(dmax * k, 0.3);
+  const cellPx = W / N, t1 = Math.min(1, cellPx / dmax), zEdge = R * Math.sqrt(1 - (1 - t1) * (1 - t1));
+  const pos = [], uv = [], idx = [], V = (N + 1) * (N + 1);
+  let top = null;
+  for (const side of [1, -1]) for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+    const d = ds[j * (N + 1) + i], tt = Math.max(0, Math.min(1, d / dmax));
+    const z = d > 0 ? side * R * Math.sqrt(1 - (1 - tt) * (1 - tt)) : side * Math.max(-2 * zEdge, zEdge * d / cellPx);
+    const x = (i / N - 0.5) * w, y = (j / N - 0.5) * h;
+    pos.push(x, y, z); uv.push(i / N, j / N);
+    if (side === 1 && d > 2 && (!top || y > top.y + 1e-6 || (Math.abs(y - top.y) < 1e-6 && Math.abs(x) < Math.abs(top.x)))) top = { x, y };
+  }
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const a = j * (N + 1) + i, b = a + 1, c = a + N + 1, e = c + 1;
+    idx.push(a, b, e, a, e, c);
+    idx.push(V + a, V + e, V + b, V + a, V + c, V + e);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  // 透明部分に色をにじませる（ふちの黒ずみ対策）。canvas を通さず上下反転してテクスチャにする
+  const px = new Uint8ClampedArray(alpha), has = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) has[i] = px[i * 4 + 3] >= 128 ? 1 : 0;
+  for (let pass = 0; pass < 6; pass++) {
+    const add = [];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x; if (has[i]) continue;
+      let r = 0, gg = 0, bb = 0, n = 0;
+      for (const j of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1]) {
+        if (j >= 0 && has[j]) { r += px[j * 4]; gg += px[j * 4 + 1]; bb += px[j * 4 + 2]; n++; }
+      }
+      if (n) add.push(i, r / n, gg / n, bb / n);
+    }
+    for (let q = 0; q < add.length; q += 4) { const i = add[q]; px[i * 4] = add[q + 1]; px[i * 4 + 1] = add[q + 2]; px[i * 4 + 2] = add[q + 3]; has[i] = 1; }
+  }
+  const flipped = new Uint8Array(W * H * 4);
+  for (let y = 0; y < H; y++) flipped.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
+  const tex = new THREE.DataTexture(flipped, W, H); tex.needsUpdate = true;
+  tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.generateMipmaps = true;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return { g, tex, top: top || { x: 0, y: h / 2 } };
+}
+function addStrap(sprite) {
+  const slot = SLOTS.find(s => !straps.some(o => o.slot === s));
+  if (slot === undefined) { flash(t('full')); return; }
+  const shape = buildCharm(sprite);
+  const pivot = new THREE.Group();
+  pivot.position.copy(frontHandle.getPointAt(slot)); pivot.position.z += 0.05;
+  const swing = new THREE.Group(); pivot.add(swing);
+  const LINKS = 4, LL = 0.085;
+  for (let i = 0; i < LINKS; i++) {
+    const l = new THREE.Mesh(linkGeo, chainMat);
+    l.position.y = -i * LL - 0.03; l.rotation.x = Math.PI / 2 * 0; l.rotation.y = i % 2 ? Math.PI / 2 : 0;
+    l.scale.set(0.8, 1, 1);
+    swing.add(l);
+  }
+  const mat = new THREE.MeshPhysicalMaterial({ map: shape.tex, alphaTest: 0.5, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.1, side: THREE.DoubleSide });
+  const charm = new THREE.Mesh(shape.g, mat);
+  const ring = new THREE.Mesh(linkGeo, chainMat);
+  const endY = -LINKS * LL - 0.03;
+  ring.position.y = endY; ring.rotation.y = LINKS % 2 ? Math.PI / 2 : 0;
+  swing.add(ring);
+  charm.position.set(-shape.top.x, endY - 0.04 - shape.top.y, 0.05);
+  swing.add(charm);
+  bag.add(pivot);
+  const s = { slot, pivot, swing, ax: 0, az: 0.5, vx: 0, vz: 0, L: 0.4 + shape.top.y + 0.6 };
+  straps.push(s); showBars(); chainSnd();
+}
+$('sPick').onclick = () => pickImage(img => openEditor('cut', img));
+$('sRemove').onclick = () => {
+  const s = straps.pop(); if (!s) return;
+  bag.remove(s.pivot); s.pivot.traverse(o => { if (o.geometry && o.geometry !== linkGeo) o.geometry.dispose(); });
+  showBars(); chainSnd();
+};
+
+// ---------- 2D editor (strap cut-out / badge crop) ----------
+const edc = $('ed'), ectx = edc.getContext('2d');
+let ed = null, EW = 1, EH = 1, EDPR = 1;
+const BRUSH = [8, 22, 50];
+let brushIdx = 1, cutErase = false;
+function openEditor(kind, img) {
+  ed = { kind, img, undo: [], size: 1 };
+  if (kind === 'cut') {
+    ed.mask = document.createElement('canvas'); ed.mask.width = img.width; ed.mask.height = img.height;
+    ed.mctx = ed.mask.getContext('2d');
+    cutErase = false; markCut(); $('cDone').disabled = true;
+  } else markSize();
+  sub = kind; showBars();
+  edLayout();
+}
+function closeEditor() { ed = null; sub = null; edTouches.clear(); edPinch = null; edLast = null; showBars(); }
+const cropR = () => Math.min(EW, EH) * 0.4;
+function edLayout() {
+  const r = $('stage').getBoundingClientRect();
+  EDPR = Math.min(devicePixelRatio || 1, 2); EW = Math.max(1, r.width); EH = Math.max(1, r.height);
+  edc.width = Math.round(EW * EDPR); edc.height = Math.round(EH * EDPR);
+  const { img } = ed;
+  if (ed.kind === 'cut') {
+    const k = Math.min((EW - 24) / img.width, (EH - 24) / img.height);
+    ed.view = { k, fit: k, x: (EW - img.width * k) / 2, y: (EH - img.height * k) / 2 };
+  } else {
+    const k = 2 * cropR() / Math.min(img.width, img.height);
+    ed.view = { k, fit: k, x: (EW - img.width * k) / 2, y: (EH - img.height * k) / 2 };
+  }
+  edRender();
+}
+function clampCrop() {
+  const v = ed.view, R = cropR(), cx = EW / 2, cy = EH / 2, iw = ed.img.width * v.k, ih = ed.img.height * v.k;
+  v.x = Math.min(cx - R, Math.max(cx + R - iw, v.x)); v.y = Math.min(cy - R, Math.max(cy + R - ih, v.y));
+}
+function snapFit() { const v = ed.view; if (ed.kind === 'cut' && v.k <= v.fit * 1.001) { v.x = (EW - ed.img.width * v.k) / 2; v.y = (EH - ed.img.height * v.k) / 2; } }
+let tmpC = null;
+function edRender() {
+  if (!ed) return;
+  const g = ectx, { img, view: v } = ed;
+  g.setTransform(EDPR, 0, 0, EDPR, 0, 0);
+  g.clearRect(0, 0, EW, EH);
+  if (ed.kind === 'cut') {
+    g.fillStyle = '#1e1218'; g.fillRect(v.x, v.y, img.width * v.k, img.height * v.k);
+    g.globalAlpha = 0.35; g.drawImage(img, v.x, v.y, img.width * v.k, img.height * v.k); g.globalAlpha = 1;
+    if (!tmpC || tmpC.width !== img.width || tmpC.height !== img.height) {
+      tmpC = document.createElement('canvas'); tmpC.width = img.width; tmpC.height = img.height;
+    }
+    const tg = tmpC.getContext('2d');
+    tg.globalCompositeOperation = 'source-over'; tg.clearRect(0, 0, tmpC.width, tmpC.height);
+    tg.drawImage(ed.mask, 0, 0);
+    tg.globalCompositeOperation = 'source-in'; tg.drawImage(img, 0, 0);
+    tg.globalCompositeOperation = 'source-atop'; tg.fillStyle = 'rgba(60, 220, 110, 0.45)'; tg.fillRect(0, 0, tmpC.width, tmpC.height);
+    g.drawImage(tmpC, v.x, v.y, img.width * v.k, img.height * v.k);
+  } else {
+    g.drawImage(img, v.x, v.y, img.width * v.k, img.height * v.k);
+    const R = cropR() * [0.62, 0.8, 1][ed.size];
+    g.fillStyle = 'rgba(30,18,24,.72)';
+    g.beginPath(); g.rect(0, 0, EW, EH); g.arc(EW / 2, EH / 2, R, 0, Math.PI * 2, true); g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); g.arc(EW / 2, EH / 2, R, 0, Math.PI * 2); g.stroke();
+  }
+}
+function markCut() {
+  $('cErase').classList.toggle('on', cutErase);
+  const d = $('cBrush').firstChild, s = [8, 14, 22][brushIdx]; d.style.width = d.style.height = s + 'px';
+}
+$('cBrush').onclick = () => { brushIdx = (brushIdx + 1) % 3; markCut(); };
+$('cErase').onclick = () => { cutErase = !cutErase; markCut(); };
+$('cUndo').onclick = () => { const d = ed && ed.undo.pop(); if (d) { ed.mctx.putImageData(d, 0, 0); edRender(); updateCutDone(); } };
+$('cCancel').onclick = closeEditor;
+$('kCancel').onclick = closeEditor;
+function markSize() { document.querySelectorAll('.bs').forEach(b => b.classList.toggle('on', +b.dataset.s === ed.size)); }
+document.querySelectorAll('.bs').forEach(b => b.onclick = () => { ed.size = +b.dataset.s; markSize(); edRender(); });
+function maskBox() {
+  const { mask, mctx } = ed, d = mctx.getImageData(0, 0, mask.width, mask.height).data;
+  let x0 = mask.width, y0 = mask.height, x1 = -1, y1 = -1;
+  for (let y = 0; y < mask.height; y++) for (let x = 0; x < mask.width; x++) {
+    if (d[(y * mask.width + x) * 4 + 3] > 20) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+function updateCutDone() { $('cDone').disabled = !maskBox(); }
+$('cDone').onclick = () => {
+  const b = maskBox(); if (!b) return;
+  const k = Math.min(1, 256 / Math.max(b.w, b.h)), pad = 4;
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(b.w * k)) + pad * 2; c.height = Math.max(1, Math.round(b.h * k)) + pad * 2;
+  const g = c.getContext('2d');
+  g.drawImage(ed.img, b.x, b.y, b.w, b.h, pad, pad, c.width - pad * 2, c.height - pad * 2);
+  g.globalCompositeOperation = 'destination-in';
+  g.drawImage(ed.mask, b.x, b.y, b.w, b.h, pad, pad, c.width - pad * 2, c.height - pad * 2);
+  closeEditor();
+  setTimeout(() => addStrap(c), 30);
+};
+$('kDone').onclick = () => {
+  const v = ed.view, R = cropR() * [0.62, 0.8, 1][ed.size] / v.k;
+  const ix = (EW / 2 - v.x) / v.k, iy = (EH / 2 - v.y) / v.k;
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 512, 512);
+  g.drawImage(ed.img, ix - R, iy - R, R * 2, R * 2, 0, 0, 512, 512);
+  const size = ed.size;
+  closeEditor();
+  const spot = findSpot(BADGE_R[size]);
+  if (!spot) { flash(t('full')); ngSnd(); return; }
+  const b = makeBadge(c, size);
+  bag.add(b.grp); setBadgePos(b, spot.x, spot.y); badges.push(b);
+  b.pop = 0; clickSnd();
+};
+
+let edLast = null, edPinch = null;
+const edTouches = new Map();
+const edPt = e => { const r = edc.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+function cutStroke(a, b) {
+  const { mctx } = ed, w = BRUSH[brushIdx] / ed.view.k;
+  mctx.save();
+  mctx.globalCompositeOperation = cutErase ? 'destination-out' : 'source-over';
+  mctx.strokeStyle = mctx.fillStyle = '#000'; mctx.lineCap = mctx.lineJoin = 'round'; mctx.lineWidth = w;
+  mctx.beginPath(); mctx.moveTo(a.x, a.y); mctx.lineTo(b.x, b.y); mctx.stroke();
+  mctx.beginPath(); mctx.arc(b.x, b.y, w / 2, 0, Math.PI * 2); mctx.fill();
+  mctx.restore();
+}
+const toImg = p => ({ x: (p.x - ed.view.x) / ed.view.k, y: (p.y - ed.view.y) / ed.view.k });
+function zoomAt(m, k) {
+  const v = ed.view;
+  k = Math.max(v.fit, Math.min(v.fit * 10, k));
+  v.x = m.x - (m.x - v.x) / v.k * k; v.y = m.y - (m.y - v.y) / v.k * k; v.k = k;
+  if (ed.kind === 'crop') clampCrop(); else snapFit();
+}
+edc.addEventListener('pointerdown', e => {
+  if (!ed) return;
+  e.preventDefault(); edc.setPointerCapture(e.pointerId);
+  edTouches.set(e.pointerId, edPt(e));
+  if (edTouches.size === 1 && !edPinch) {
+    if (ed.kind === 'cut') {
+      ed.undo.push(ed.mctx.getImageData(0, 0, ed.mask.width, ed.mask.height)); if (ed.undo.length > 20) ed.undo.shift();
+      edLast = toImg(edPt(e)); cutStroke(edLast, edLast);
+    } else edLast = edPt(e);
+  } else if (edTouches.size === 2) {
+    if (ed.kind === 'cut' && edLast) { const d = ed.undo.pop(); if (d) ed.mctx.putImageData(d, 0, 0); }
+    edLast = null;
+    const [a, b] = [...edTouches.values()];
+    edPinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, k0: ed.view.k, x0: ed.view.x, y0: ed.view.y };
+  }
+  edRender();
+});
+edc.addEventListener('pointermove', e => {
+  if (!ed || !edTouches.has(e.pointerId)) return;
+  const p = edPt(e); edTouches.set(e.pointerId, p);
+  if (edPinch && edTouches.size >= 2) {
+    const [a, b] = [...edTouches.values()], m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, v = ed.view;
+    const k = Math.max(v.fit, Math.min(v.fit * 10, edPinch.k0 * Math.hypot(a.x - b.x, a.y - b.y) / edPinch.d0));
+    v.x = m.x - (edPinch.m0.x - edPinch.x0) / edPinch.k0 * k; v.y = m.y - (edPinch.m0.y - edPinch.y0) / edPinch.k0 * k; v.k = k;
+    if (ed.kind === 'crop') clampCrop(); else snapFit();
+  } else if (edLast) {
+    if (ed.kind === 'cut') { const q = toImg(p); cutStroke(edLast, q); edLast = q; }
+    else { ed.view.x += p.x - edLast.x; ed.view.y += p.y - edLast.y; clampCrop(); edLast = p; }
+  }
+  edRender();
+});
+const edUp = e => {
+  if (!ed) return;
+  edTouches.delete(e.pointerId);
+  if (edTouches.size === 0) edPinch = null;
+  if (edLast) { edLast = null; if (ed.kind === 'cut') updateCutDone(); }
+};
+edc.addEventListener('pointerup', edUp);
+edc.addEventListener('pointercancel', edUp);
+edc.addEventListener('wheel', e => {
+  if (!ed) return;
+  e.preventDefault(); zoomAt(edPt(e), ed.view.k * Math.exp(-e.deltaY * 0.0015)); edRender();
+}, { passive: false });
+
+// ---------- 3D input ----------
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function setRay(e) {
+  const r = cv.getBoundingClientRect();
+  ndc.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+}
+function hitFront(e) {
+  setRay(e);
+  const h = ray.intersectObject(bagMesh)[0];
+  if (!h || h.face.materialIndex !== 4) return null;
+  return { x: h.uv.x * CW, y: (1 - h.uv.y) * CH };
+}
+const localRay = new THREE.Ray(), inv = new THREE.Matrix4(), plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -BD / 2 - 0.05);
+function facePoint(e) {
+  setRay(e);
+  bag.updateMatrixWorld(); inv.copy(bag.matrixWorld).invert();
+  localRay.copy(ray.ray).applyMatrix4(inv);
+  const p = new THREE.Vector3();
+  return localRay.intersectPlane(plane, p) ? p : null;
+}
+let yaw = 0, pitch = 0, vyaw = 0, vpitch = 0;
+let drag = null;
+cv.addEventListener('pointerdown', e => {
+  if (sub === 'cut' || sub === 'crop') return;
+  e.preventDefault(); cv.setPointerCapture(e.pointerId);
+  if (drag) return;
+  const nearFront = Math.abs(yaw) < 0.35 && Math.abs(pitch) < 0.35;
+  if (sub === 'place') {
+    const p = hitFront(e);
+    if (p) { drag = { kind: 'move', last: p }; return; }
+  } else if (mode === 'print' && nearFront) {
+    const p = hitFront(e);
+    if (p) { pushUndo(); drag = { kind: 'pen', last: p }; penStroke(p, p); compose(); return; }
+  } else if (mode === 'badge' && nearFront) {
+    setRay(e);
+    const h = ray.intersectObjects(badges.map(b => b.grp), true)[0];
+    if (h) {
+      const b = h.object.userData.badge, p = facePoint(e);
+      drag = { kind: 'badge', b, ox: b.x - p.x, oy: b.y - p.y, home: { x: b.x, y: b.y }, x0: e.clientX, y0: e.clientY, moved: false };
+      drag.timer = setTimeout(() => {
+        if (drag && drag.b === b && !drag.moved) {
+          bag.remove(b.grp); badges.splice(badges.indexOf(b), 1); ngSnd(); drag = null;
+        }
+      }, 600);
+      b.grp.position.z += 0.06;
+      return;
+    }
+  }
+  if (mode === 'strap') {
+    setRay(e);
+    const h = ray.intersectObjects(straps.map(s => s.swing), true)[0];
+    if (h) { const s = straps.find(s => s.swing.getObjectById(h.object.id)); if (s) { s.vz += (Math.random() < 0.5 ? -1 : 1) * 6; s.vx += 3; chainSnd(); } }
+  }
+  drag = { kind: 'rot', x: e.clientX, y: e.clientY, t: performance.now() };
+});
+cv.addEventListener('pointermove', e => {
+  if (!drag) return;
+  if (drag.kind === 'pen') {
+    const p = hitFront(e); if (p) { penStroke(drag.last, p); drag.last = p; compose(); }
+  } else if (drag.kind === 'move') {
+    const p = hitFront(e); if (p) { placing.x += p.x - drag.last.x; placing.y += p.y - drag.last.y; drag.last = p; compose(); }
+  } else if (drag.kind === 'badge') {
+    if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) > 6) drag.moved = true;
+    if (!drag.moved) return;
+    const p = facePoint(e); if (!p) return;
+    const b = drag.b, q = clampFace(p.x + drag.ox, p.y + drag.oy, b.r);
+    setBadgePos(b, q.x, q.y); b.grp.position.z += 0.06;
+    const ok = freeAt(q.x, q.y, b.r, b);
+    b.capMat.color.set(ok ? 0xffffff : 0xff6070);
+  } else if (drag.kind === 'rot') {
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y, now = performance.now(), dt = Math.max(1, now - drag.t) / 1000;
+    const nyaw = yaw + dx * 0.012, npitch = Math.max(-0.5, Math.min(0.5, pitch + dy * 0.006));
+    vyaw = vyaw * 0.5 + (nyaw - yaw) / dt * 0.5; vpitch = (npitch - pitch) / dt;
+    yaw = nyaw; pitch = npitch; drag.x = e.clientX; drag.y = e.clientY; drag.t = now;
+  }
+});
+const up = () => {
+  if (!drag) return;
+  if (drag.kind === 'badge') {
+    clearTimeout(drag.timer);
+    const b = drag.b;
+    if (!freeAt(b.x, b.y, b.r, b) || !inFace(b.x, b.y, b.r)) { setBadgePos(b, drag.home.x, drag.home.y); ngSnd(); }
+    else { setBadgePos(b, b.x, b.y); if (drag.moved) clickSnd(); }
+    b.capMat.color.set(0xffffff);
+  }
+  if (drag.kind === 'rot' && performance.now() - drag.t > 80) vyaw = 0;
+  drag = null;
+};
+cv.addEventListener('pointerup', up);
+cv.addEventListener('pointercancel', up);
+cv.addEventListener('wheel', e => {
+  if (sub !== 'place') return;
+  e.preventDefault();
+  const s = $('pScale'); s.value = Math.max(+s.min, Math.min(+s.max, +s.value * Math.exp(-e.deltaY * 0.0015))); compose();
+}, { passive: false });
+
+// ---------- loop ----------
+let last = performance.now(), prevYaw = 0, prevW = 0, time = 0;
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now; time += dt;
+  if (!drag || drag.kind !== 'rot') {
+    const toFront = mode !== 'strap' || sub;
+    if (toFront) {
+      // 正面に一番近い向きへ戻す
+      const target = Math.round(yaw / (Math.PI * 2)) * Math.PI * 2;
+      vyaw += ((target - yaw) * 40 - vyaw * 9) * dt;
+    } else vyaw *= Math.pow(0.15, dt);
+    yaw += vyaw * dt;
+    vpitch += (-pitch * 40 - vpitch * 9) * dt; pitch += vpitch * dt;
+  }
+  bag.rotation.set(pitch, yaw, 0);
+  // 吊り下げたストラップの揺れ（バッグの回転加速度で振られる）
+  const w = (yaw - prevYaw) / Math.max(dt, 1e-3), al = (w - prevW) / Math.max(dt, 1e-3);
+  prevYaw = yaw; prevW = w;
+  for (const s of straps) {
+    const px = s.pivot.position.x, pz = s.pivot.position.z;
+    const axl = al * pz - w * w * px, azl = -al * px - w * w * pz;
+    const g = 9.8 / s.L;
+    s.vz += (-g * Math.sin(s.az) - axl * 0.12 / s.L - s.vz * 1.2) * dt;
+    s.vx += (-g * Math.sin(s.ax) + azl * 0.12 / s.L - s.vx * 1.2 + Math.sin(time * 1.3 + s.slot * 9) * 0.05) * dt;
+    s.az += s.vz * dt; s.ax += s.vx * dt;
+    // 前に振れすぎてバッグに刺さらないよう、後ろ側には振れないようにする
+    if (s.ax < -0.05) { s.ax = -0.05; s.vx = Math.abs(s.vx) * 0.3; }
+    s.swing.rotation.set(s.ax, 0, s.az);
+  }
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+// ---------- save / post ----------
+$('save').onclick = async () => {
+  renderer.render(scene, camera);
+  cv.toBlob(async blob => {
+    if (!blob) return;
+    const file = new File([blob], 'itabag.png', { type: 'image/png' });
+    if (coarse && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); return; } catch (err) { if (err && err.name === 'AbortError') return; }
+    }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'itabag.png';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }, 'image/png');
+};
+function updatePost() {
+  const a = $('post');
+  a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('shareText'))}&url=${encodeURIComponent(SHARE_URL)}`;
+  if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
+}
+
+// ---------- language ----------
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = t('title');
+  $('back').textContent = t('back');
+  $('lang').textContent = lang === 'ja' ? 'EN' : '日本語';
+  document.querySelectorAll('#tabs button').forEach(b => b.textContent = t(b.dataset.m));
+  document.querySelectorAll('[data-t]').forEach(b => b.textContent = t(b.dataset.t));
+  $('save').textContent = t('save'); $('post').textContent = t('post');
+  updatePost();
+}
+$('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+$('snd').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); drawSnd(); };
+
+drawSnd(); applyLang(); markPen(); compose(); showBars();
+new ResizeObserver(resize).observe($('stage'));
+resize();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
