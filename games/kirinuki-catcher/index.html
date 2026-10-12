@@ -360,24 +360,24 @@
     if (b.parts.length > 1) Body.setInertia(b, I);
     return b;
   }
-  const ARM_L = 84, PIV = 24;
+  const ARM_L = 63, PIV = 17;
   const claw = { x: HOME, wire: 44, state: 'idle', t: 0, close: 0, dir: 0, target: null, armed: 0 };
-  const head = Bodies.rectangle(HOME, RAIL + claw.wire, 46, 26, { isStatic: true, collisionFilter: { group: CLAW }, label: 'head', chamfer: { radius: 6 } });
+  const head = Bodies.rectangle(HOME, RAIL + claw.wire, 34, 20, { isStatic: true, collisionFilter: { group: CLAW }, label: 'head', chamfer: { radius: 5 } });
   function makeArm(side) {
-    const px = HOME + side * PIV, py = RAIL + claw.wire + 10;
+    const px = HOME + side * PIV, py = RAIL + claw.wire + 7;
     // drawn in the closed pose: two pieces, out from the pivot then a claw bending in, its tip pointing nearly straight down
-    const P = [[0, 0], [-20, 44], [0, 88]].map(([x, y]) => ({ x: px - side * x, y: py + y }));
+    const P = [[0, 0], [-15, 33], [0, 66]].map(([x, y]) => ({ x: px - side * x, y: py + y }));
     const seg = (a, b, w) => {
       const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy), nx = -dy / L * w / 2, ny = dx / L * w / 2;
       const ex = dx / L * w / 2, ey = dy / L * w / 2;   // overlap the joints a little
       const vs = [{ x: a.x + nx - ex, y: a.y + ny - ey }, { x: b.x + nx + ex, y: b.y + ny + ey }, { x: b.x - nx + ex, y: b.y - ny + ey }, { x: a.x - nx - ex, y: a.y - ny - ey }];
       return Body.create({ position: Vertices.centre(vs), vertices: Vertices.clockwiseSort(vs) });
     };
-    const parts = [seg(P[0], P[1], 8), seg(P[1], P[2], 8)];
+    const parts = [seg(P[0], P[1], 6), seg(P[1], P[2], 6)];
     const arm = Body.create({ parts, collisionFilter: { group: CLAW }, friction: 1, frictionStatic: 2, density: 0.004, label: 'arm' });
     fixInertia(arm);
-    Body.setMass(arm, 4);   // heavy metal arms
-    const c = Constraint.create({ bodyA: head, pointA: { x: side * PIV, y: 10 }, bodyB: arm, pointB: { x: px - arm.position.x, y: py - arm.position.y }, stiffness: 0.7, length: 0 });
+    Body.setMass(arm, 2.5);   // heavy metal arms
+    const c = Constraint.create({ bodyA: head, pointA: { x: side * PIV, y: 7 }, bodyB: arm, pointB: { x: px - arm.position.x, y: py - arm.position.y }, stiffness: 0.7, length: 0 });
     arm.side = side;
     Composite.add(world, [arm, c]);
     return arm;
@@ -450,7 +450,7 @@
         else if (claw.armed) { claw.armed = 0; claw.target = null; grab(); }
       } else if (claw.dir) { claw.x = Math.max(HOME, Math.min(WW - 72, claw.x + claw.dir * SPEED)); hum(); }
     } else if (st === 'down') {
-      claw.wire += 2.4;
+      claw.wire += 4.5;
       // stop once the arm tips are pressed on something
       const pp = prizes.flatMap(b => b.parts.slice(1));
       const hit = arms.some(a => a.parts.slice(1).some(q => Query.collides(q, pp).length));
@@ -461,7 +461,7 @@
       claw.close = 1;
       if (claw.t > 45) { go('up'); tone(300, 500, 0.2, 'sawtooth', 0.05); }
     } else if (st === 'up') {
-      claw.wire -= 1.6;
+      claw.wire -= 3.5;
       if (claw.wire <= WIRE_TOP) { claw.wire = WIRE_TOP; go('home'); }
       hum();
     } else if (st === 'home') {
@@ -517,7 +517,8 @@
     ctx.fillStyle = '#f7a8c9'; ctx.fillRect(CHUTE, FLOOR, WW - CHUTE, 6);
     // rail
     ctx.fillStyle = '#c9c9d6'; ctx.fillRect(0, RAIL - 8, WW, 8);
-    // prizes
+    // prizes (hidden once they fall below the cabinet)
+    ctx.save(); ctx.beginPath(); ctx.rect(-12, -14, WW + 24, VIEW_H + 10); ctx.clip();
     for (const b of prizes) {
       const sp = b.spr;
       ctx.save(); ctx.translate(b.position.x, b.position.y); ctx.rotate(b.angle);
@@ -525,6 +526,7 @@
       ctx.drawImage(sp.item.sprite, sp.ox, sp.oy, sp.item.sprite.width * sp.f, sp.item.sprite.height * sp.f);
       ctx.restore();
     }
+    ctx.restore();
     // wire + claw
     ctx.strokeStyle = '#8b8b9c'; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.moveTo(claw.x, RAIL); ctx.lineTo(head.position.x, head.position.y); ctx.stroke();
@@ -537,7 +539,7 @@
     }
     ctx.beginPath(); head.vertices.forEach((v, i) => i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)); ctx.closePath();
     ctx.fillStyle = '#e0e2ec'; ctx.fill(); ctx.strokeStyle = '#6e7286'; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = '#ff7eb0'; ctx.beginPath(); ctx.arc(head.position.x, head.position.y, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ff7eb0'; ctx.beginPath(); ctx.arc(head.position.x, head.position.y, 4, 0, Math.PI * 2); ctx.fill();
     // glass shine
     ctx.fillStyle = 'rgba(255,255,255,0.25)';
     ctx.beginPath(); ctx.moveTo(WW - 70, 0); ctx.lineTo(WW - 40, 0); ctx.lineTo(WW - 130, FLOOR); ctx.lineTo(WW - 160, FLOOR); ctx.fill();
