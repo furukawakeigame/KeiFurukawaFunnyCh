@@ -314,8 +314,10 @@ const caseMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.0
 const world = new RAPIER.World({ x: 0, y: -G, z: 0 });
 const STEP = 1 / 120;
 world.timestep = STEP;
+world.numSolverIterations = 8;   // a pile pressing down must not squeeze stickers into each other
 const ZM = (Z0 + Z1) / 2;   // sticker plane
-const CT = 2;               // collider depth: much thicker than any overlap, so contacts always push sideways
+const CT = 2;
+const PAD_COL = 1 + 0.07 / (SZ / 2);   // collider grows ~0.7 mm at the edge               // collider depth: much thicker than any overlap, so contacts always push sideways
 const caseBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
 {
   const add = d => world.createCollider(d.setFriction(0.3).setRestitution(0.2), caseBody);
@@ -443,7 +445,8 @@ function buildRuntime(tp) {
       const parts = [];
       for (const p of tp.polys) for (const c of convexParts(p)) {
         const arr = [];
-        for (const [x, y] of c) arr.push(x, y, -CT / 2, x, y, CT / 2);
+        // slightly larger than the drawn sticker: the solver lets a pile sink in a little, and this hides it
+        for (const [x, y] of c) arr.push(x * PAD_COL, y * PAD_COL, -CT / 2, x * PAD_COL, y * PAD_COL, CT / 2);
         parts.push(new Float32Array(arr));
       }
       const hulls = parts.map(p => RAPIER.ColliderDesc.convexHull(p)).filter(Boolean).map(d => d.shape);
