@@ -153,6 +153,7 @@
     <!-- バッジ -->
     <div id="stockB" class="stock hide"></div>
     <div id="barBadge" class="bar hide">
+      <input id="bSize" type="range" min="18" max="70" value="38" aria-label="size" class="hide">
       <button id="bPick" class="btn" data-t="pick"></button>
     </div>
     <div id="barCrop" class="bar hide">
@@ -419,6 +420,7 @@ let sub = null;       // null | place | cut | crop
 function setMode(m) {
   if (sub) return;
   mode = m;
+  if (typeof selectBadge === 'function') selectBadge(null);
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
   showBars();
 }
@@ -514,7 +516,7 @@ function makeBadge(canvas, size) {
   const side = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.02, BADGE_T, 56, 1, true), rimMat);
   side.rotation.x = Math.PI / 2; side.position.z = BADGE_T / 2;
   grp.add(cap, side);
-  const b = { grp, r, capMat, x: 0, y: 0 };
+  const b = { grp, r, r0: r, capMat, x: 0, y: 0 };
   cap.userData.badge = side.userData.badge = b;
   return b;
 }
@@ -540,6 +542,41 @@ function findSpot(r) {
   }
   return best;
 }
+// 置いたバッジをタップで選び、スライダーで大きさを変える（重なる・はみ出す大きさにはならない）
+let selBadge = null;
+function selectBadge(b) {
+  if (selBadge) selBadge.capMat.emissive.set(0x000000);
+  selBadge = b;
+  $('bSize').classList.toggle('hide', !b);
+  if (b) { b.capMat.emissive.set(0x332200); $('bSize').value = Math.round(b.r * 100); }
+}
+$('bSize').oninput = () => {
+  const b = selBadge; if (!b) return;
+  const want = $('bSize').value / 100;
+  const ok = (x, y, r) => inFace(x, y, r) && freeAt(x, y, r, b);
+  // その場で入らなければ、近くの空いている位置にずらして入れる
+  const fits = r => {
+    const q = clampFace(b.x, b.y, r);
+    if (ok(q.x, q.y, r)) return q;
+    for (let d = 0.03; d <= 0.9; d += 0.03) {
+      const n = Math.max(8, Math.round(d * 40));
+      for (let k = 0; k < n; k++) {
+        const a = k / n * Math.PI * 2, c = clampFace(q.x + Math.cos(a) * d, q.y + Math.sin(a) * d, r);
+        if (ok(c.x, c.y, r)) return c;
+      }
+    }
+    return null;
+  };
+  // 指定の大きさが入らなければ、入る範囲でいちばん近い大きさにする
+  let r = want;
+  if (!fits(r)) {
+    let lo = Math.min(b.r, want), hi = want;
+    for (let i = 0; i < 20; i++) { const m = (lo + hi) / 2; if (fits(m)) lo = m; else hi = m; }
+    r = lo; $('bSize').value = Math.round(r * 100);
+  }
+  const q = fits(r); if (!q) return;
+  b.r = r; b.grp.scale.setScalar(r / b.r0); setBadgePos(b, q.x, q.y);
+};
 $('bPick').onclick = () => pickImage(img => openEditor('crop', img));
 
 // ---------- straps (image-balloon style puffy charm) ----------
@@ -998,7 +1035,7 @@ cv.addEventListener('pointerdown', e => {
       drag = { kind: 'badge', b, ox: b.x - p.x, oy: b.y - p.y, home: { x: b.x, y: b.y }, x0: e.clientX, y0: e.clientY, moved: false };
       drag.timer = setTimeout(() => {
         if (drag && drag.b === b && !drag.moved) {
-          bag.remove(b.grp); badges.splice(badges.indexOf(b), 1); ngSnd(); drag = null;
+          bag.remove(b.grp); badges.splice(badges.indexOf(b), 1); if (selBadge === b) selectBadge(null); ngSnd(); drag = null;
         }
       }, 600);
       b.grp.position.z += 0.06;
@@ -1044,6 +1081,7 @@ const up = e => {
     const b = drag.b;
     if (!freeAt(b.x, b.y, b.r, b) || !inFace(b.x, b.y, b.r)) { setBadgePos(b, drag.home.x, drag.home.y); ngSnd(); }
     else { setBadgePos(b, b.x, b.y); if (drag.moved) clickSnd(); }
+    if (!drag.moved) selectBadge(selBadge === b ? null : b);
     b.capMat.color.set(0xffffff);
   }
   if (drag.kind === 'rot' && performance.now() - drag.t > 80) vyaw = vpitch = 0;
