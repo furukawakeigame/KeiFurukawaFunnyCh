@@ -272,7 +272,7 @@ function spawn(shape, delay = 0) {
   const s = (0.75 + Math.random() * 0.4) * Math.min(1, viewW / 8);
   const home = pickHome();
   const b = {
-    shape, group, mesh, line, s, home, r: 0.42 * Math.max(shape.w, shape.h) * s,
+    shape, group, mesh, line, s, home, rx: 0.46 * shape.w * s, ry: 0.46 * shape.h * s, inf: 0,
     pos: new THREE.Vector3(home.x, -viewH / 2 - 3, home.z), vel: new THREE.Vector3(0, 5, 0),
     phase: Math.random() * 10, born: performance.now() / 1000 + delay, hold: -1
   };
@@ -298,11 +298,12 @@ function tear(shape) {
   const seeds = [];
   for (let n = 0; n < K; n++) seeds.push(cells[Math.random() * cells.length | 0]);
   const groups = seeds.map(() => []);
+  const f1 = 0.3 + Math.random() * 0.3, f2 = 0.3 + Math.random() * 0.3, o1 = Math.random() * 9, o2 = Math.random() * 9;
   for (const [i, j] of cells) {
     let bi = 0, bd = Infinity;
     for (let n = 0; n < K; n++) {
       // ゆがんだ距離で切れ目をギザギザに
-      const d = Math.hypot(i - seeds[n][0], (j - seeds[n][1]) * 1.3) + Math.random() * 3;
+      const d = Math.hypot(i - seeds[n][0], (j - seeds[n][1]) * 1.3) * (1 + 0.35 * Math.sin(i * f1 + o1 + n) * Math.cos(j * f2 + o2 - n));
       if (d < bd) { bd = d; bi = n; }
     }
     groups[bi].push([i, j]);
@@ -331,7 +332,6 @@ function tear(shape) {
 function burst(b) {
   const grp = b.group; grp.updateMatrixWorld();
   const sc = grp.scale.x, q = grp.quaternion, mat = b.mesh.material;
-  mat.transparent = true;
   const pieces = tear(b.shape);
   const life = { mat, left: pieces.length };
   for (const pc of pieces) {
@@ -351,7 +351,7 @@ function burst(b) {
   // まわりの風船は爆風で押される
   for (const o of balloons) {
     if (o === b) continue;
-    const d = o.pos.clone().sub(b.pos), l = d.length();
+    const d = o.pos.clone().sub(b.pos); d.z = 0; const l = d.length();
     if (l < 6) o.vel.addScaledVector(d.normalize(), 7 * sc / (l + 0.6));
   }
   shards.push({ line: b.line, lp: b.line.geometry.attributes.position.array.slice(), t: 0 });
@@ -385,7 +385,7 @@ cvEl.addEventListener('pointerdown', e => {
   if (!h) return;
   controls.enabled = false;
   press = { ...h, id: e.pointerId, x: e.clientX, y: e.clientY, t0: performance.now() / 1000 };
-  h.b.hold = press.t0; stretchStart(h.b);
+  h.b.hold = press.t0 - h.b.inf * HOLD; stretchStart(h.b);
 }, { capture: true });
 function release(e, cancel) {
   if (!press || e.pointerId !== press.id) return;
@@ -432,34 +432,46 @@ function loop() {
   for (const b of live) {
     const tgt = tmp.set(b.home.x + Math.sin(now * 0.4 + b.phase) * 0.4, b.home.y + Math.sin(now * 0.9 + b.phase) * 0.25, b.home.z);
     b.vel.addScaledVector(tgt.sub(b.pos), 1.4 * dt).multiplyScalar(1 - 1.1 * dt);
+    if (b.vel.length() > 12) b.vel.setLength(12);
     b.pos.addScaledVector(b.vel, dt);
   }
   // 風船どうしがぶつかる
+  const rad = (b, nx, ny) => { const rx = b.rx * (b.cur || 1), ry = b.ry * (b.cur || 1); return rx * ry / Math.hypot(ry * nx, rx * ny); };
   for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
     const a = live[i], c = live[j];
-    n3.subVectors(c.pos, a.pos);
-    const d = n3.length(), rs = a.r + c.r;
-    if (d >= rs || d < 1e-4) continue;
-    n3.divideScalar(d);
-    const push = (rs - d) / 2;
+    n3.set(c.pos.x - a.pos.x, c.pos.y - a.pos.y, 0);
+    const d = n3.length();
+    if (d < 1e-4) { n3.set(1, 0, 0); } else n3.divideScalar(d);
+    const rs = rad(a, n3.x, n3.y) + rad(c, n3.x, n3.y);
+    if (d >= rs) continue;
+    const push = Math.min(rs - d, 0.5) * 0.25;
     a.pos.addScaledVector(n3, -push); c.pos.addScaledVector(n3, push);
+    a.home.addScaledVector(n3, -push * 0.3); c.home.addScaledVector(n3, push * 0.3);
     const rel = tmp.subVectors(c.vel, a.vel).dot(n3);
-    if (rel < 0) { const jj = -1.6 * rel / 2; a.vel.addScaledVector(n3, -jj); c.vel.addScaledVector(n3, jj); }
+    if (rel < 0) { const jj = -1.3 * rel / 2; a.vel.addScaledVector(n3, -jj); c.vel.addScaledVector(n3, jj); }
   }
   for (const b of [...live]) {
     // 画面の端で跳ね返る
-    const lim = viewW / 2 - b.r * 0.8;
-    if (Math.abs(b.pos.x) > lim) { b.pos.x = Math.sign(b.pos.x) * lim; b.vel.x *= -0.6; }
-    const top = viewH / 2 - b.r - 0.6;
+    const lim = Math.max(0, viewW / 2 - b.rx * 0.8);
+    if (Math.abs(b.pos.x) > lim) { b.pos.x = Math.sign(b.pos.x) * lim; b.vel.x = -Math.sign(b.pos.x) * Math.abs(b.vel.x) * 0.6; }
+    b.home.x = Math.max(-lim, Math.min(lim, b.home.x));
+    b.home.y = Math.max(-viewH * 0.2, Math.min(viewH * 0.35, b.home.y));
+    const top = viewH / 2 - b.ry - 0.6;
     if (b.pos.y > top && now - b.born > 1) { b.pos.y = top; b.vel.y = -Math.abs(b.vel.y) * 0.6; }
     const age = now - b.born;
     let sc = b.s * Math.min(1, age * 3), shake = 0;
     if (b.hold > 0) {
-      const ht = (now - b.hold) / HOLD;
-      sc *= 1 + 0.35 * Math.pow(Math.min(ht, 1), 1.6);
-      shake = 0.04 * ht;
-      if (ht >= 1) { b.group.scale.setScalar(sc); burst(b); press = null; controls.enabled = true; continue; }
+      b.inf = (now - b.hold) / HOLD; b.infV = 0;
+      shake = 0.04 * b.inf;
+    } else if (b.inf > 0 || b.infV) {
+      // ゴムが戻るように、少しぷるんと揺れながらしぼむ
+      b.infV = (b.infV || 0) + (-b.inf * 9 - b.infV * 4.5) * dt;
+      b.inf += b.infV * dt;
+      if (Math.abs(b.inf) < 0.002 && Math.abs(b.infV) < 0.01) b.inf = b.infV = 0;
     }
+    sc *= 1 + 0.35 * Math.sign(b.inf) * Math.pow(Math.min(Math.abs(b.inf), 1), 1.6);
+    b.cur = sc / b.s;
+    if (b.hold > 0 && b.inf >= 1) { b.group.scale.setScalar(sc); burst(b); press = null; controls.enabled = true; continue; }
     b.group.visible = b.line.visible = true;
     b.group.position.copy(b.pos).add(tmp.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, 0));
     b.group.scale.setScalar(Math.max(sc, 0.01));
@@ -480,8 +492,8 @@ function loop() {
     s.t += dt;
     if (s.m) {
       // ゴムがパチンと縮む
-      const k = Math.min(1, s.t / 0.08);
-      s.m.scale.setScalar(s.sc * (1 + (s.snap - 1) * k));
+      const k = Math.min(1, s.t / 0.08), fade = Math.min(1, (s.end - s.t) / 0.5);
+      s.m.scale.setScalar(s.sc * (1 + (s.snap - 1) * k) * Math.max(fade, 0.001));
       s.v.y -= 5 * dt;
       // 空気抵抗（速いほど強い）とひらひら
       const sp = s.v.length();
@@ -495,7 +507,7 @@ function loop() {
       if (s.t > s.end) {
         scene.remove(s.m); s.m.geometry.dispose(); shards.splice(shards.indexOf(s), 1);
         if (--s.life.left === 0) s.life.mat.dispose();
-      } else if (s.t > s.end - 0.5) s.m.visible = Math.random() < (s.end - s.t) / 0.5 + 0.3;
+      }
     } else {
       const arr = s.line.geometry.attributes.position.array;
       for (let i = 0; i < 16; i++) arr[i * 3 + 1] = s.lp[i * 3 + 1] - 4 * s.t * s.t * (1 + i * 0.015);
