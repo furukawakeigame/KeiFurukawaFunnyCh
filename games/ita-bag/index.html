@@ -552,7 +552,7 @@ function buildCharm(canvas) {
   return { g, tex, top: top || { x: 0, y: h / 2 }, w, h };
 }
 // 鎖は質点をつないだ紐（Verlet 法）で、ワールド座標で動かす。バッグが回ったり揺れたりすると引っぱられて揺れる
-const GRAV = 26, LL = 0.085;
+const GRAV = 48, LL = 0.085;   // 重力を強め・空気抵抗を大きくして、重くておとなしい揺れにする
 const tmpV = new THREE.Vector3(), tmpL = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0), invBag = new THREE.Matrix4();
 // 取り付け位置: 正面の持ち手の根本（左右交互）。同じ側に付けるときは少しずつずらす
@@ -608,7 +608,8 @@ function stepStraps(dt) {
       anchorWorld(s, P[0]); Q[0].copy(P[0]);
       for (let i = 1; i < N; i++) {
         const p = P[i], q = Q[i];
-        const vx = (p.x - q.x) * 0.992, vy = (p.y - q.y) * 0.992, vz = (p.z - q.z) * 0.992;
+        const damp = i === N - 1 ? 0.965 : 0.975;
+        const vx = (p.x - q.x) * damp, vy = (p.y - q.y) * damp, vz = (p.z - q.z) * damp;
         q.copy(p); p.x += vx; p.y += vy - GRAV * h * h; p.z += vz;
       }
     }
@@ -620,6 +621,7 @@ function stepStraps(dt) {
           const a = P[i], b = P[i + 1], rest = i === N - 2 ? s.cd : LL;
           const d = tmpV.subVectors(b, a), L = d.length() || 1e-6, diff = (L - rest) / L;
           if (i === 0) b.addScaledVector(d, -diff);
+          else if (i === N - 2) { a.addScaledVector(d, diff * 0.85); b.addScaledVector(d, -diff * 0.15); }  // チャームは鎖より重い
           else { a.addScaledVector(d, diff * 0.5); b.addScaledVector(d, -diff * 0.5); }
         }
         // バッグの本体にめり込まないよう前に押し出す
