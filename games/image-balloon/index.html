@@ -185,27 +185,33 @@ addEventListener('resize', resize); resize();
 
 // 切り抜き済み（透過）の canvas から風船のジオメトリを作る
 function buildShape(canvas) {
-  const W = canvas.width, H = canvas.height, N = 64;
+  const W = canvas.width, H = canvas.height, N = 96;
   const alpha = canvas.getContext('2d').getImageData(0, 0, W, H).data;
-  // 内側の各点から、いちばん近い透明な点までの距離（px）
-  const D = new Float32Array(W * H);
-  for (let i = 0; i < W * H; i++) D[i] = alpha[i * 4 + 3] > 127 ? 1e9 : 0;
+  // 距離変換: 印のない点から、いちばん近い印のある点までの距離（px）
   const S2 = Math.SQRT2;
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const i = y * W + x; if (!D[i]) continue;
-    let v = D[i];
-    if (x > 0) v = Math.min(v, D[i - 1] + 1); else v = Math.min(v, 1);
-    if (y > 0) { v = Math.min(v, D[i - W] + 1); if (x > 0) v = Math.min(v, D[i - W - 1] + S2); if (x < W - 1) v = Math.min(v, D[i - W + 1] + S2); } else v = Math.min(v, 1);
-    D[i] = v;
-  }
-  for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) {
-    const i = y * W + x; if (!D[i]) continue;
-    let v = D[i];
-    if (x < W - 1) v = Math.min(v, D[i + 1] + 1); else v = Math.min(v, 1);
-    if (y < H - 1) { v = Math.min(v, D[i + W] + 1); if (x < W - 1) v = Math.min(v, D[i + W + 1] + S2); if (x > 0) v = Math.min(v, D[i + W - 1] + S2); } else v = Math.min(v, 1);
-    D[i] = v;
-  }
-  const sdist = (x, y) => D[Math.min(H - 1, Math.round(y)) * W + Math.min(W - 1, Math.round(x))];
+  const dist = (on, edgeIsOff) => {
+    const D = new Float32Array(W * H);
+    for (let i = 0; i < W * H; i++) D[i] = on(i) ? 1e9 : 0;
+    const m = edgeIsOff ? 1 : 1e9;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x; if (!D[i]) continue;
+      let v = D[i];
+      v = Math.min(v, x > 0 ? D[i - 1] + 1 : m);
+      if (y > 0) { v = Math.min(v, D[i - W] + 1); if (x > 0) v = Math.min(v, D[i - W - 1] + S2); if (x < W - 1) v = Math.min(v, D[i - W + 1] + S2); } else v = Math.min(v, m);
+      D[i] = v;
+    }
+    for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) {
+      const i = y * W + x; if (!D[i]) continue;
+      let v = D[i];
+      v = Math.min(v, x < W - 1 ? D[i + 1] + 1 : m);
+      if (y < H - 1) { v = Math.min(v, D[i + W] + 1); if (x < W - 1) v = Math.min(v, D[i + W + 1] + S2); if (x > 0) v = Math.min(v, D[i + W - 1] + S2); } else v = Math.min(v, m);
+      D[i] = v;
+    }
+    return D;
+  };
+  const Din = dist(i => alpha[i * 4 + 3] > 127, true), Dout = dist(i => alpha[i * 4 + 3] <= 127, false);
+  // 符号付き距離（内側が正、外側が負）
+  const sdist = (x, y) => { const i = Math.min(H - 1, Math.round(y)) * W + Math.min(W - 1, Math.round(x)); return Din[i] ? Din[i] - 0.5 : -(Math.min(Dout[i], 1e4) - 0.5); };
   const size = 3.2, w = W >= H ? size : size * W / H, h = W >= H ? size * H / W : size;
   const k = w / W; // px → world
   const ds = [];
@@ -214,11 +220,13 @@ function buildShape(canvas) {
     const d = sdist(i / N * W, (1 - j / N) * H); ds.push(d); dmax = Math.max(dmax, d);
   }
   const R = Math.min(dmax * k, 1.1);
+  const cellPx = W / N, t1 = Math.min(1, cellPx / dmax), zEdge = R * Math.sqrt(1 - (1 - t1) * (1 - t1));
   const pos = [], uv = [], idx = [], V = (N + 1) * (N + 1);
   let low = null;
   for (const side of [1, -1]) for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
     const d = ds[j * (N + 1) + i], tt = Math.max(0, Math.min(1, d / dmax));
-    const z = side * R * Math.sqrt(1 - (1 - tt) * (1 - tt));
+    // 外側の点は、ふちで前後がちょうど閉じるよう内側の傾きを延長する（つなぎ目のギザギザ対策）
+    const z = d > 0 ? side * R * Math.sqrt(1 - (1 - tt) * (1 - tt)) : side * Math.max(-2 * zEdge, zEdge * d / cellPx);
     const x = (i / N - 0.5) * w, y = (j / N - 0.5) * h;
     pos.push(x, y, z); uv.push(i / N, j / N);
     if (side === 1 && d > 2 && (!low || y < low.y)) low = { x, y };
@@ -244,7 +252,29 @@ function buildShape(canvas) {
   gm.setAttribute('position', new THREE.BufferAttribute(pos2, 3)); gm.setIndex(idx); gm.computeVertexNormals();
   g.morphAttributes.position = [gm.attributes.position];
   g.morphAttributes.normal = [gm.attributes.normal];
-  const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const flipped = new Uint8Array(W * H * 4);
+  {
+    const id = new ImageData(new Uint8ClampedArray(alpha), W, H), px = id.data;
+    const has = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) has[i] = px[i * 4 + 3] >= 128 ? 1 : 0;
+    for (let pass = 0; pass < 8; pass++) {
+      const add = [];
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const i = y * W + x; if (has[i]) continue;
+        let r = 0, gg = 0, bb = 0, n = 0;
+        for (const j of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1]) {
+          if (j >= 0 && has[j]) { r += px[j * 4]; gg += px[j * 4 + 1]; bb += px[j * 4 + 2]; n++; }
+        }
+        if (n) add.push(i, r / n, gg / n, bb / n);
+      }
+      for (let q = 0; q < add.length; q += 4) { const i = add[q]; px[i * 4] = add[q + 1]; px[i * 4 + 1] = add[q + 2]; px[i * 4 + 2] = add[q + 3]; has[i] = 1; }
+    }
+    // canvas に戻すと透明部分の色が消えるので、上下を反転してそのままテクスチャにする
+    for (let y = 0; y < H; y++) flipped.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
+  }
+  const tex = new THREE.DataTexture(flipped, W, H); tex.needsUpdate = true;
+  tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.generateMipmaps = true;
+  tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
   // 破片の色
   const colors = [];
   for (let n = 0; n < 200 && colors.length < 24; n++) {
@@ -395,7 +425,7 @@ cvEl.addEventListener('pointerdown', e => {
   const h = pick(e);
   if (!h) return;
   controls.enabled = false;
-  press = { ...h, id: e.pointerId, x: e.clientX, y: e.clientY, t0: performance.now() / 1000 };
+  press = { ...h, id: e.pointerId, x: e.clientX, y: e.clientY, t0: performance.now() / 1000, off: h.point.clone().sub(h.b.pos), drag: false };
   h.b.hold = press.t0 - h.b.inf * HOLD; stretchStart(h.b);
 }, { capture: true });
 function release(e, cancel) {
@@ -403,14 +433,29 @@ function release(e, cancel) {
   const b = press.b;
   if (balloons.includes(b)) {
     b.hold = -1; stretchStop(b);
-    if (!cancel && performance.now() / 1000 - press.t0 < 0.3) {
+    if (b.dragTo) { b.home.copy(b.pos); b.home.z = 0; b.dragTo = null; }
+    else if (!cancel && performance.now() / 1000 - press.t0 < 0.3) {
       const push = b.pos.clone().sub(press.point); push.z = 0;
       b.vel.addScaledVector(push.normalize(), 3).add(new THREE.Vector3(0, 1, 0));
     }
   }
   press = null; controls.enabled = true;
 }
-cvEl.addEventListener('pointermove', e => { if (press && e.pointerId === press.id && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 14) release(e, true); });
+const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+cvEl.addEventListener('pointermove', e => {
+  if (!press || e.pointerId !== press.id) return;
+  const b = press.b;
+  if (!press.drag) {
+    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < 14) return;
+    // 動かしたら膨らむのをやめて、指についてくる
+    press.drag = true; b.hold = -1; stretchStop(b);
+  }
+  ndc.set(e.clientX / innerWidth * 2 - 1, -e.clientY / innerHeight * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  dragPlane.constant = -b.pos.z;
+  const p = new THREE.Vector3();
+  if (ray.ray.intersectPlane(dragPlane, p)) b.dragTo = p.sub(press.off).setZ(b.pos.z);
+});
 cvEl.addEventListener('pointerup', e => release(e, false));
 cvEl.addEventListener('pointercancel', e => release(e, true));
 cvEl.addEventListener('contextmenu', e => e.preventDefault());
@@ -449,7 +494,8 @@ function loop() {
   // ふわふわ浮かぶ（バネで定位置へ）
   for (const b of live) {
     const tgt = tmp.set(b.home.x + Math.sin(now * 0.4 + b.phase) * 0.4, b.home.y + Math.sin(now * 0.9 + b.phase) * 0.25, b.home.z);
-    b.vel.addScaledVector(tgt.sub(b.pos), 1.4 * dt).multiplyScalar(1 - 1.1 * dt);
+    if (b.dragTo) b.vel.addScaledVector(tmp.subVectors(b.dragTo, b.pos), 40 * dt).multiplyScalar(1 - Math.min(0.5, 7 * dt));
+    else b.vel.addScaledVector(tgt.sub(b.pos), 1.4 * dt).multiplyScalar(1 - 1.1 * dt);
     if (b.vel.length() > 12) b.vel.setLength(12);
     b.pos.addScaledVector(b.vel, dt);
   }
