@@ -306,22 +306,22 @@ const caseMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.0
 
 // ---------- physics ----------
 const world = new RAPIER.World({ x: 0, y: -G, z: 0 });
-const STEP = 1 / 120;
+const STEP = 1 / 240;
 world.timestep = STEP;
 try { world.integrationParameters.numSolverIterations = 8; } catch {}
 const caseBody = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
 {
   const add = d => world.createCollider(d.setFriction(0.3).setRestitution(0.2), caseBody);
-  add(RAPIER.ColliderDesc.cuboid(PW / 2 + 1, PH / 2 + 1, 0.5).setTranslation(0, 0, Z0 - 0.5));          // phone back
-  add(RAPIER.ColliderDesc.cuboid(PW / 2 + 1, PH / 2 + 1, 0.5).setTranslation(0, 0, Z1 + 0.5));          // clear plate
+  add(RAPIER.ColliderDesc.cuboid(PW / 2 + 3, PH / 2 + 3, 3).setTranslation(0, 0, Z0 - 3));          // phone back
+  add(RAPIER.ColliderDesc.cuboid(PW / 2 + 3, PH / 2 + 3, 3).setTranslation(0, 0, Z1 + 3));          // clear plate
   // side walls along the rounded outline
-  const pts = rrect(0, 0, PW, PH, PR, 6), hz = GAP / 2 + 0.3;
+  const pts = rrect(0, 0, PW, PH, PR, 6), hz = GAP / 2 + 3, TH = 3;   // thick walls so fast spins cannot tunnel
   for (let i = 0; i < pts.length; i++) {
     const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
     const ex = x2 - x1, ey = y2 - y1, len = Math.hypot(ex, ey); if (len < 1e-6) continue;
     const nx = ey / len, ny = -ex / len, a = Math.atan2(ey, ex);
-    add(RAPIER.ColliderDesc.cuboid(len / 2 + 0.06, 0.5, hz)
-      .setTranslation((x1 + x2) / 2 + nx * 0.5, (y1 + y2) / 2 + ny * 0.5, (Z0 + Z1) / 2)
+    add(RAPIER.ColliderDesc.cuboid(len / 2 + 0.06, TH, hz)
+      .setTranslation((x1 + x2) / 2 + nx * TH, (y1 + y2) / 2 + ny * TH, (Z0 + Z1) / 2)
       .setRotation({ x: 0, y: 0, z: Math.sin(a / 2), w: Math.cos(a / 2) }));
   }
   // camera module
@@ -729,13 +729,15 @@ markSw();
 
 // ---------- spinning the phone ----------
 const omega = new THREE.Vector3();     // angular velocity (rad/s, world)
+const MAX_W = 6;                       // speed limit of the phone (rad/s)
+const targetQ = new THREE.Quaternion(); // where the finger wants the phone; the phone follows at most MAX_W
 let drag = null, flip = null;
 const rd = renderer.domElement;
 rd.addEventListener('pointerdown', e => {
   e.preventDefault(); unlock();
   rd.setPointerCapture(e.pointerId);
   drag = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
-  flip = null; omega.set(0, 0, 0);
+  flip = null; omega.set(0, 0, 0); targetQ.copy(phoneQ);
 });
 rd.addEventListener('pointermove', e => {
   if (!drag || e.pointerId !== drag.id) return;
@@ -745,8 +747,8 @@ rd.addEventListener('pointermove', e => {
   const k = 3.2 / Math.max(240, Math.min(W, H));     // radians per px
   const ang = Math.hypot(dx, dy) * k; if (ang < 1e-6) return;
   const axis = new THREE.Vector3(dy, dx, 0).normalize();
-  phoneQ.premultiply(tmpQ.setFromAxisAngle(axis, ang)).normalize();
-  const w = axis.multiplyScalar(Math.min(30, ang / dt));
+  targetQ.premultiply(tmpQ.setFromAxisAngle(axis, ang)).normalize();
+  const w = axis.multiplyScalar(Math.min(MAX_W, ang / dt));
   omega.lerp(w, 0.5);
 });
 const endDrag = e => { if (drag && e.pointerId === drag.id) { drag = null; if (Math.abs(omega.length()) < 0.5) omega.set(0, 0, 0); } };
@@ -812,17 +814,21 @@ function loop(now) {
       const e = flip.t < 0.5 ? 2 * flip.t * flip.t : 1 - Math.pow(-2 * flip.t + 2, 2) / 2;
       phoneQ.slerpQuaternions(flip.from, flip.to, e);
       if (flip.t >= 1) flip = null;
-    } else if (!drag && omega.lengthSq() > 1e-6) {
+      targetQ.copy(phoneQ);
+    } else if (drag) {
+      phoneQ.rotateTowards(targetQ, MAX_W * dt);
+    } else if (omega.lengthSq() > 1e-6) {
       const w = omega.length();
       phoneQ.premultiply(qa.setFromAxisAngle(tmpV.copy(omega).divideScalar(w), w * dt)).normalize();
       omega.multiplyScalar(Math.exp(-2.5 * dt));
       if (w < 0.05) omega.set(0, 0, 0);
+      targetQ.copy(phoneQ);
     }
     if (!motionOn) grav.set(0, -G, 0);
     world.gravity = { x: grav.x, y: grav.y, z: grav.z };
     acc += dt;
-    const n = Math.min(6, Math.floor(acc / STEP));
-    acc -= n * STEP; if (n === 6) acc = 0;
+    const n = Math.min(12, Math.floor(acc / STEP));
+    acc -= n * STEP; if (n === 12) acc = 0;
     const from = physQ.clone();
     for (let i = 0; i < n; i++) {
       qa.slerpQuaternions(from, phoneQ, (i + 1) / n);
@@ -837,7 +843,11 @@ function loop(now) {
       // safety: anything that slipped out of the compartment goes back in
       const l = tmpV.set(p.x, p.y, p.z).applyQuaternion(inv);
       if (Math.abs(l.x) > PW / 2 + 0.3 || Math.abs(l.y) > PH / 2 + 0.3 || l.z < Z0 - 0.3 || l.z > Z1 + 0.3) {
-        const np = tmpV.set(0, 0, (Z0 + Z1) / 2).applyQuaternion(physQ);
+        // put it back at the nearest spot inside, lying flat
+        l.x = Math.max(-PW / 2 + 1, Math.min(PW / 2 - 1, l.x));
+        l.y = Math.max(-PH / 2 + 1, Math.min(PH / 2 - 1, l.y));
+        l.z = (Z0 + Z1) / 2;
+        const np = l.applyQuaternion(physQ);
         s.body.setTranslation({ x: np.x, y: np.y, z: np.z }, true);
         s.body.setRotation({ x: physQ.x, y: physQ.y, z: physQ.z, w: physQ.w }, true);
         s.body.setLinvel({ x: 0, y: 0, z: 0 }, true); s.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
