@@ -209,7 +209,7 @@ try {
 
 // ---------- sizes (cm) ----------
 const PW = 7.2, PH = 15, PD = 0.8, PR = 1.0;       // phone
-const GAP = 0.75;                                   // sticker compartment depth (behind the phone)
+const GAP = 0.24;                                   // sticker compartment depth: one sticker thick, so they never overlap
 const Z0 = PD / 2, Z1 = Z0 + GAP;                   // compartment z range (phone local)
 const PLATE = 0.14;                                 // clear back plate thickness
 const RIM = 0.25;                                   // case rim width
@@ -445,7 +445,8 @@ function buildRuntime(tp) {
         for (const [x, y] of c) arr.push(x, y, -ST / 2, x, y, ST / 2);
         parts.push(new Float32Array(arr));
       }
-      const r = { geo, mats, parts, img: im };
+      const hulls = parts.map(p => RAPIER.ColliderDesc.convexHull(p)).filter(Boolean).map(d => d.shape);
+      const r = { geo, mats, parts, hulls, img: im };
       runtime.set(tp.id, r); res(r);
     };
     im.onerror = () => res(null);
@@ -458,18 +459,24 @@ const stickers = [];   // { id, body, mesh, v }
 const phoneQ = new THREE.Quaternion();
 let physQ = phoneQ.clone();
 const tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
-function spawn(id) {
-  const r = runtime.get(id); if (!r) return false;
-  if (stickers.length >= MAX) { toast(t('full')); return false; }
-  // drop it somewhere inside the compartment, lying flat
-  let lx = 0, ly = 0;
-  for (let k = 0; k < 20; k++) {
-    lx = (Math.random() * 2 - 1) * (PW / 2 - 1.4); ly = (Math.random() * 2 - 1) * (PH / 2 - 1.6);
-    if (Math.hypot(lx - CAM.x, ly - CAM.y) > CAM.s) break;
+// a free spot for the sticker in the compartment (not touching other stickers, the walls or the camera), or null when it is full
+function findSpot(r) {
+  world.updateSceneQueries();
+  const Z = new THREE.Vector3(0, 0, 1), Y = new THREE.Vector3(0, 1, 0);
+  for (let k = 0; k < 400; k++) {
+    const p = new THREE.Vector3((Math.random() * 2 - 1) * PW / 2, (Math.random() * 2 - 1) * PH / 2, (Z0 + Z1) / 2).applyQuaternion(physQ);
+    const q = physQ.clone().multiply(tmpQ.setFromAxisAngle(Z, Math.random() * Math.PI * 2));
+    if (Math.random() < 0.5) q.multiply(tmpQ.setFromAxisAngle(Y, Math.PI));
+    const pv = { x: p.x, y: p.y, z: p.z }, qv = { x: q.x, y: q.y, z: q.z, w: q.w };
+    if (r.hulls.every(sh => !world.intersectionWithShape(pv, qv, sh))) return { p, q };
   }
-  const p = tmpV.set(lx, ly, Z0 + ST / 2 + Math.random() * (GAP - ST)).applyQuaternion(physQ);
-  const q = physQ.clone().multiply(tmpQ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.random() * Math.PI * 2));
-  if (Math.random() < 0.5) q.multiply(tmpQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI));
+  return null;
+}
+function spawn(id, quiet) {
+  const r = runtime.get(id); if (!r) return false;
+  const spot = stickers.length < MAX && findSpot(r);
+  if (!spot) { if (!quiet) toast(t('full')); return false; }
+  const { p, q } = spot;
   const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
     .setTranslation(p.x, p.y, p.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
     .setLinearDamping(0.2).setAngularDamping(0.4));
@@ -911,7 +918,7 @@ renderTray();
 (async () => {
   const queue = [];
   for (const tp of types) { if (await buildRuntime(tp)) for (let i = 0; i < (tp.n || 0); i++) queue.push(tp.id); }
-  for (const id of queue) { spawn(id); await new Promise(r => setTimeout(r, 40)); }
+  for (const id of queue) { if (!spawn(id, true)) break; await new Promise(r => setTimeout(r, 40)); }
 })();
 requestAnimationFrame(loop);
 </script>
