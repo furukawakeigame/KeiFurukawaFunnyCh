@@ -269,13 +269,28 @@
     roots.forEach((_, i) => setV(i, 0));
 
     // ---------- 画面サイズ ----------
+    // 拡大縮小：zoom 倍に寄り、tx/ty で見る場所をずらす
+    let zoom = 1, tx = 0, ty = 0, baseDist = 5, tf = 1;
+    const camD = z => 1.3 + (baseDist - 1.3) / z;  // 頭の表面からの距離で寄る
+    function placeCam() {
+      const lim = 1.4 * (1 - 1 / zoom);
+      tx = THREE.MathUtils.clamp(tx, -lim, lim); ty = THREE.MathUtils.clamp(ty, -lim, lim);
+      camera.position.set(tx, ty + 0.05, camD(zoom)); camera.lookAt(tx, ty - 0.15, 0);
+    }
+    function zoomAt(cx, cy, z) {  // 画面上の (cx, cy) の位置を動かさずに寄る
+      const r = renderer.domElement.getBoundingClientRect();
+      const nx = (cx - r.left) / r.width * 2 - 1, ny = -((cy - r.top) / r.height) * 2 + 1;
+      const z2 = THREE.MathUtils.clamp(z, 1, 4), d1 = camD(zoom), d2 = camD(z2);
+      tx += nx * tf * camera.aspect * (d1 - d2); ty += ny * tf * (d1 - d2);
+      zoom = z2; placeCam();
+    }
     function resize() {
       const w = stage.clientWidth, h = stage.clientHeight;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
-      const tf = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-      const dist = Math.max(1.45 / tf, 1.3 / (tf * camera.aspect));
-      camera.position.set(0, 0.05, dist); camera.lookAt(0, -0.15, 0);
+      tf = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      baseDist = Math.max(1.45 / tf, 1.3 / (tf * camera.aspect));
+      placeCam();
       camera.updateProjectionMatrix();
     }
     addEventListener('resize', resize); resize();
@@ -312,9 +327,13 @@
       if (!prev) return;
       const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (rot) {
-        const k = pointers.size >= 2 ? 0.5 : 1;
-        rotY += dx * 0.01 * k; rotX = THREE.MathUtils.clamp(rotX + dy * 0.006 * k, -0.5, 0.6);
+      if (pointers.size >= 2) {  // 2本指：ピンチで拡大縮小、動かすと回転
+        const [a, b] = [...pointers.values()], o = a === pointers.get(e.pointerId) ? b : a;
+        const d0 = Math.hypot(prev.x - o.x, prev.y - o.y), d1 = Math.hypot(e.clientX - o.x, e.clientY - o.y);
+        if (d0 > 10) zoomAt((e.clientX + o.x) / 2, (e.clientY + o.y) / 2, zoom * d1 / d0);
+        rotY += dx * 0.005; rotX = THREE.MathUtils.clamp(rotX + dy * 0.003, -0.5, 0.6);
+      } else if (rot) {
+        rotY += dx * 0.01; rotX = THREE.MathUtils.clamp(rotX + dy * 0.006, -0.5, 0.6);
       } else if (brush && brush.id === e.pointerId) {
         brush.e = e;
         const p = hitAt(e);
@@ -325,12 +344,14 @@
         } else brush.p = null;
       }
     });
+    cv.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, zoom * Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
     const up_ = e => { pointers.delete(e.pointerId); if (pointers.size === 0) { brush = null; rot = null; } };
     cv.addEventListener('pointerup', up_); cv.addEventListener('pointercancel', up_);
 
-    const BR = 0.15;
+    const BR0 = 0.15;
     function applyBrush(p, amt) {
       let changed = false;
+      const BR = BR0 / Math.sqrt(zoom);  // 寄るほど細かく塗れる
       for (let i = 0; i < roots.length; i++) {
         const d = roots[i].distanceTo(p);
         if (d > BR) continue;
