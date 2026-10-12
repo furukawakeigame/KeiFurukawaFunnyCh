@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>切り抜きキャッチー</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <!-- X などにURLを貼ったときのカード表示（ここだけは https:// から書く） -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="切り抜きキャッチー">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/kirinuki-catcher/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/kirinuki-catcher/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    html, body { margin: 0; height: 100%; background: #fbe9f0; color: #5a2a44; }
+    body {
+      display: flex; flex-direction: column; height: 100dvh;
+      font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden; touch-action: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; width: 100%; max-width: 560px; margin: 0 auto; box-sizing: border-box;
+    }
+    header a { color: #c2306e; text-decoration: none; font-weight: bold; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill {
+      font-size: 15px; background: #fff; border: 2px solid #f0c6d8; border-radius: 999px;
+      min-width: 44px; height: 36px; cursor: pointer; font-weight: bold; color: #a0285c; padding: 0 10px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    main {
+      flex: 1; min-height: 0; display: flex; flex-direction: column;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom));
+    }
+    #stage { flex: 1; min-height: 0; position: relative; touch-action: none; }
+    #stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    .bar {
+      display: flex; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap;
+      padding: 8px 12px; min-height: 52px;
+    }
+    .btn {
+      font: inherit; font-weight: bold; font-size: 17px; border: none; border-radius: 999px;
+      background: #c2306e; color: #fff; height: 46px; padding: 0 20px; cursor: pointer;
+      box-shadow: 0 4px 0 #861a49; display: inline-flex; align-items: center; justify-content: center;
+      touch-action: none;
+    }
+    .btn:active, .btn.down { transform: translateY(2px); box-shadow: 0 2px 0 #861a49; }
+    .btn.sub { background: #fff; color: #c2306e; box-shadow: 0 4px 0 #ecc2d4; }
+    .btn.on { background: #ff8a3c; color: #fff; box-shadow: 0 4px 0 #b85414; }
+    .btn:disabled { opacity: .4; cursor: default; }
+    .btn.big { height: 60px; min-width: 64px; font-size: 20px; }
+    .dot { display: inline-block; background: currentColor; border-radius: 50%; }
+    #stock {
+      display: flex; gap: 8px; justify-content: flex-start; overflow-x: auto; flex-wrap: nowrap;
+      max-width: 560px; margin: 0 auto; width: 100%; box-sizing: border-box; touch-action: pan-x;
+    }
+    #stock > :first-child { margin-left: auto; } #stock > :last-child { margin-right: auto; }
+    #stock button {
+      flex: 0 0 auto; width: 56px; height: 56px; border-radius: 14px; border: 2px solid #f0c6d8;
+      background: #fff; cursor: pointer; padding: 3px; display: flex; align-items: center; justify-content: center;
+    }
+    #stock button canvas { max-width: 100%; max-height: 100%; }
+    #stock #add { font-size: 30px; color: #c2306e; font-weight: bold; }
+    .hide { display: none !important; }
+    #drop {
+      position: absolute; inset: 10px; border: 4px dashed #c2306e; border-radius: 20px;
+      background: rgba(255, 255, 255, .5); pointer-events: none;
+    }
+    #msg { position: absolute; top: 40%; left: 0; right: 0; text-align: center; color: #b03020; padding: 0 16px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <div class="hbtns">
+      <button id="lang" class="pill">EN</button>
+      <button id="snd" class="pill" aria-label="sound"></button>
+    </div>
+  </header>
+  <main>
+    <div id="stage">
+      <canvas id="cv"></canvas>
+      <div id="drop" class="hide"></div>
+    </div>
+    <div id="barStart" class="bar">
+      <button id="pick" class="btn"></button>
+    </div>
+    <div id="barPaint" class="bar hide">
+      <button id="brush" class="btn sub" aria-label="brush"><span class="dot" style="width:11px;height:11px"></span></button>
+      <button id="erase" class="btn sub"></button>
+      <button id="undo" class="btn sub"></button>
+      <button id="cancel" class="btn sub hide"></button>
+      <button id="done" class="btn" disabled></button>
+    </div>
+    <div id="barPlay" class="hide">
+      <div class="bar">
+        <button id="left" class="btn big sub" aria-label="left"><svg width="26" height="26" viewBox="0 0 24 24"><path d="M15 4L7 12l8 8" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button id="grab" class="btn big"></button>
+        <button id="right" class="btn big sub" aria-label="right"><svg width="26" height="26" viewBox="0 0 24 24"><path d="M9 4l8 8-8 8" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
+      <div class="bar" style="padding-top:0"><div id="stock"><button id="add" aria-label="add">+</button></div></div>
+    </div>
+    <input id="file" type="file" accept="image/*" class="hide">
+  </main>
+<script src="https://cdn.jsdelivr.net/npm/poly-decomp@0.3.0/build/decomp.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
+<script>
+(() => {
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('kirinuki:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem('kirinuki:' + k, JSON.stringify(v)); } catch {} },
+  };
+  const DICT = {
+    ja: {
+      title: '切り抜きキャッチー', back: '← トップへ戻る', pick: '画像をえらぶ', erase: '消す', undo: '戻す',
+      done: 'できた', cancel: 'やめる', grab: 'つかむ', count: n => `${n}個`,
+      err: '画像を読み込めませんでした', cdn: 'ライブラリを読み込めませんでした。通信を確認して再読み込みしてください',
+    },
+    en: {
+      title: 'Cutout Catcher', back: '← Back to top', pick: 'Choose image', erase: 'Erase', undo: 'Undo',
+      done: 'Done', cancel: 'Cancel', grab: 'Grab', count: n => `${n} won`,
+      err: 'Could not load the image', cdn: 'Could not load a library. Check your connection and reload.',
+    },
+  };
+  let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
+  const t = k => DICT[lang][k];
+  const $ = id => document.getElementById(id);
+  function showMsg(text, ms) {
+    const d = document.createElement('div'); d.id = 'msg'; d.textContent = text;
+    $('stage').appendChild(d); if (ms) setTimeout(() => d.remove(), ms);
+  }
+  if (!window.Matter || !window.decomp) {
+    showMsg(t('cdn'));
+    $('back').textContent = t('back');
+    return;
+  }
+  const { Engine, Composite, Bodies, Body, Constraint, Events, Vertices, Query } = Matter;
+
+  // ---------- sound ----------
+  let soundOn = store.get('sound', true), actx = null;
+  const SPK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>';
+  function drawSnd() {
+    $('snd').innerHTML = SPK + (soundOn ? '<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>') + '</svg>';
+  }
+  function tone(f0, f1, dur, type = 'sine', vol = 0.2, delay = 0) {
+    if (!soundOn) return;
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = actx.createOscillator(), g = actx.createGain(), now = actx.currentTime + delay;
+      o.type = type;
+      o.frequency.setValueAtTime(f0, now); o.frequency.exponentialRampToValueAtTime(f1, now + dur);
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(vol, now + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      o.connect(g).connect(actx.destination); o.start(now); o.stop(now + dur + 0.02);
+    } catch {}
+  }
+  let humT = 0;
+  function hum() { if (humT <= 0) { tone(220, 200, 0.12, 'square', 0.03); humT = 0.13; } }
+  const winSound = () => [523, 659, 784, 1047].forEach((f, i) => tone(f, f, 0.16, 'triangle', 0.18, i * 0.09));
+
+  // ---------- state ----------
+  const cv = $('cv'), ctx = cv.getContext('2d');
+  let W = 0, H = 0, DPR = 1;
+  let mode = 'start', played = false;
+  let img = null, mask = null, mctx = null, view = null;
+  let brushIdx = 1, erasing = false, undoStack = [];
+  const items = [];        // stock: { sprite, pieces }
+  let won = 0;
+
+  // ---------- layout ----------
+  function resize() {
+    const r = $('stage').getBoundingClientRect();
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = r.width; H = r.height;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    if (img && mode === 'paint') placeImage();
+    render();
+  }
+
+  // ---------- image loading / painting (same as Tapioca Maker) ----------
+  function loadFile(f) {
+    if (!f || !f.type.startsWith('image/')) return;
+    const url = URL.createObjectURL(f);
+    const im = new Image();
+    im.onload = () => {
+      URL.revokeObjectURL(url);
+      const k = Math.min(1, 1600 / Math.max(im.width, im.height));
+      img = document.createElement('canvas');
+      img.width = Math.max(1, Math.round(im.width * k)); img.height = Math.max(1, Math.round(im.height * k));
+      img.getContext('2d').drawImage(im, 0, 0, img.width, img.height);
+      mask = document.createElement('canvas'); mask.width = img.width; mask.height = img.height;
+      mctx = mask.getContext('2d');
+      undoStack = []; erasing = false; touches.clear(); pinch = null;
+      placeImage();
+      setMode('paint');
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); showMsg(t('err'), 2000); };
+    im.src = url;
+  }
+  function snapFit() { if (view.k <= view.fit * 1.001) { view.x = (W - img.width * view.k) / 2; view.y = (H - img.height * view.k) / 2; } }
+  function placeImage() {
+    const pad = 12, k = Math.min((W - pad * 2) / img.width, (H - pad * 2) / img.height);
+    view = { k, fit: k, x: (W - img.width * k) / 2, y: (H - img.height * k) / 2 };
+  }
+  let lastPt = null, pinch = null;
+  const touches = new Map();
+  const mid = (a, b) => { const r = cv.getBoundingClientRect(); return { x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top }; };
+  function toImg(e) {
+    const r = cv.getBoundingClientRect();
+    return { x: (e.clientX - r.left - view.x) / view.k, y: (e.clientY - r.top - view.y) / view.k };
+  }
+  const BRUSH = [8, 22, 50];
+  const brushPx = () => BRUSH[brushIdx] / view.k;
+  function stroke(a, b) {
+    mctx.save();
+    mctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
+    mctx.strokeStyle = '#000'; mctx.fillStyle = '#000';
+    mctx.lineCap = 'round'; mctx.lineJoin = 'round'; mctx.lineWidth = brushPx();
+    mctx.beginPath(); mctx.moveTo(a.x, a.y); mctx.lineTo(b.x, b.y); mctx.stroke();
+    mctx.beginPath(); mctx.arc(b.x, b.y, brushPx() / 2, 0, Math.PI * 2); mctx.fill();
+    mctx.restore();
+  }
+  function maskBox() {
+    const d = mctx.getImageData(0, 0, mask.width, mask.height).data;
+    let x0 = mask.width, y0 = mask.height, x1 = -1, y1 = -1;
+    for (let y = 0; y < mask.height; y++) for (let x = 0; x < mask.width; x++) {
+      if (d[(y * mask.width + x) * 4 + 3] > 20) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+    return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  }
+  const updateDone = () => { $('done').disabled = !maskBox(); };
+  function makeSprite() {
+    const b = maskBox(); if (!b) return null;
+    const k = Math.min(1, 256 / Math.max(b.w, b.h));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(b.w * k)); c.height = Math.max(1, Math.round(b.h * k));
+    const g = c.getContext('2d');
+    g.drawImage(img, b.x, b.y, b.w, b.h, 0, 0, c.width, c.height);
+    g.globalCompositeOperation = 'destination-in';
+    g.drawImage(mask, b.x, b.y, b.w, b.h, 0, 0, c.width, c.height);
+    return c;
+  }
+
+  // ---------- collider: trace the cutout outline, then split into convex pieces ----------
+  function outline(sprite) {
+    const GRID = 64, cell = Math.max(sprite.width, sprite.height) / GRID;
+    const gw = Math.max(1, Math.ceil(sprite.width / cell)), gh = Math.max(1, Math.ceil(sprite.height / cell));
+    const sc = document.createElement('canvas'); sc.width = gw; sc.height = gh;
+    const sg = sc.getContext('2d'); sg.drawImage(sprite, 0, 0, gw, gh);
+    const a = sg.getImageData(0, 0, gw, gh).data;
+    const lab = new Int32Array(gw * gh);
+    for (let i = 0; i < gw * gh; i++) lab[i] = a[i * 4 + 3] > 110 ? -1 : 0;
+    const D = [[-1, 0], [-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1]];
+    const polys = [];
+    let id = 0;
+    for (let s = 0; s < gw * gh; s++) {
+      if (lab[s] !== -1) continue;
+      // label one 8-connected region
+      id++; let area = 0; const q = [s]; lab[s] = id;
+      while (q.length) {
+        const c = q.pop(), cx = c % gw, cy = (c / gw) | 0; area++;
+        for (const [dx, dy] of D) {
+          const x = cx + dx, y = cy + dy;
+          if (x >= 0 && y >= 0 && x < gw && y < gh && lab[y * gw + x] === -1) { lab[y * gw + x] = id; q.push(y * gw + x); }
+        }
+      }
+      if (area < 6) continue;
+      // Moore-neighbour trace from the first (top-left) pixel of the region
+      const on = (x, y) => x >= 0 && y >= 0 && x < gw && y < gh && lab[y * gw + x] === id;
+      const sx = s % gw, sy = (s / gw) | 0;
+      let cx = sx, cy = sy, back = 0, first = -1;
+      const pts = [];
+      for (let n = 0; n < gw * gh * 4; n++) {
+        pts.push([cx, cy]);
+        let found = -1;
+        for (let k = 1; k <= 8; k++) {
+          const i = (back + k) % 8;
+          if (on(cx + D[i][0], cy + D[i][1])) { found = i; break; }
+        }
+        if (found < 0) break;
+        if (cx === sx && cy === sy) { if (first === found && n > 0) { pts.pop(); break; } if (first < 0) first = found; }
+        const px = cx + D[(found + 7) % 8][0], py = cy + D[(found + 7) % 8][1];
+        cx += D[found][0]; cy += D[found][1];
+        const bx = px - cx, by = py - cy;
+        back = D.findIndex(d => d[0] === bx && d[1] === by);
+      }
+      let poly = rdp(pts, 0.9).map(([x, y]) => [(x + 0.5) * cell, (y + 0.5) * cell]);
+      if (poly.length < 3) continue;
+      polys.push(poly);
+    }
+    // convex pieces
+    const pieces = [];
+    for (const poly of polys) {
+      let parts = null;
+      try {
+        decomp.makeCCW(poly);
+        decomp.removeCollinearPoints(poly, 0.05);
+        if (poly.length >= 3 && decomp.isSimple(poly)) parts = decomp.quickDecomp(poly);
+      } catch { parts = null; }
+      if (!parts || !parts.length) parts = [Vertices.hull(poly.map(([x, y]) => ({ x, y }))).map(v => [v.x, v.y])];
+      for (const p of parts) {
+        if (p.length < 3) continue;
+        let ar = 0;
+        for (let i = 0; i < p.length; i++) { const u = p[i], v = p[(i + 1) % p.length]; ar += u[0] * v[1] - v[0] * u[1]; }
+        if (Math.abs(ar) / 2 < cell * cell * 0.6) continue;
+        pieces.push(p.map(([x, y]) => ({ x, y })));
+      }
+    }
+    if (!pieces.length) {
+      const w = sprite.width, h = sprite.height;
+      pieces.push([{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }]);
+    }
+    return pieces;
+  }
+  function rdp(pts, eps) {
+    // closed polygon: split at the farthest point from the start, simplify both halves
+    if (pts.length < 4) return pts;
+    let far = 0, fd = -1;
+    for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[0][0], pts[i][1] - pts[0][1]); if (d > fd) { fd = d; far = i; } }
+    const open = arr => {
+      if (arr.length < 3) return arr;
+      const [a, b] = [arr[0], arr[arr.length - 1]];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      let mi = 0, md = 0;
+      for (let i = 1; i < arr.length - 1; i++) {
+        const d = Math.abs((b[0] - a[0]) * (a[1] - arr[i][1]) - (a[0] - arr[i][0]) * (b[1] - a[1])) / L;
+        if (d > md) { md = d; mi = i; }
+      }
+      if (md <= eps) return [a, b];
+      const l = open(arr.slice(0, mi + 1)), r = open(arr.slice(mi));
+      return l.slice(0, -1).concat(r);
+    };
+    const h1 = open(pts.slice(0, far + 1)), h2 = open(pts.slice(far).concat([pts[0]]));
+    return h1.slice(0, -1).concat(h2.slice(0, -1));
+  }
+
+  // ---------- world (units: machine is 400 x 640) ----------
+  const WW = 400, WH = 640, FLOOR = 540, CHUTE = 104, RAIL = 36, HOME = 52;
+  const engine = Engine.create({ positionIterations: 10, velocityIterations: 8, constraintIterations: 4 });
+  engine.gravity.y = 1;
+  const world = engine.world;
+  const CLAW = Body.nextGroup(true);
+  const wall = (x, y, w, h, o = {}) => Bodies.rectangle(x, y, w, h, Object.assign({ isStatic: true, friction: 0.6, label: 'wall' }, o));
+  Composite.add(world, [
+    wall(-20, WH / 2, 40, WH * 2),                    // left
+    wall(WW + 20, WH / 2, 40, WH * 2),                // right
+    wall(WW / 2, -20, WW, 40),                        // ceiling
+    wall((CHUTE + WW) / 2, FLOOR + 20, WW - CHUTE, 40), // floor (open above the chute)
+    wall(CHUTE + 5, FLOOR - 45, 10, 90, { chamfer: { radius: 4 } }),   // fence around the chute
+    wall(CHUTE / 2, WH + 40, CHUTE + 40, 40),         // chute bottom (far below; things leave via the sensor)
+  ]);
+  const sensor = Bodies.rectangle(CHUTE / 2, FLOOR + 60, CHUTE - 4, 20, { isStatic: true, isSensor: true, label: 'sensor' });
+  Composite.add(world, sensor);
+
+  // claw: static head moved by the motor, two hinged arms pushed by a limited torque
+  // Matter sums part inertias without the parallel-axis term, so compound bodies spin far too easily
+  function fixInertia(b) {
+    let I = 0;
+    for (const p of b.parts.slice(1)) I += p.inertia + p.mass * ((p.position.x - b.position.x) ** 2 + (p.position.y - b.position.y) ** 2);
+    if (b.parts.length > 1) Body.setInertia(b, I);
+    return b;
+  }
+  const ARM_L = 112, PIV = 18;
+  const claw = { x: HOME, wire: 44, state: 'idle', t: 0, close: 0, dir: 0 };
+  const head = Bodies.rectangle(HOME, RAIL + claw.wire, 46, 26, { isStatic: true, collisionFilter: { group: CLAW }, label: 'head', chamfer: { radius: 6 } });
+  function makeArm(side) {
+    const px = HOME + side * PIV, py = RAIL + claw.wire + 10;
+    const bar = Bodies.rectangle(px + side * 3, py + ARM_L / 2, 8, ARM_L, { chamfer: { radius: 3 } });
+    const tip = Bodies.fromVertices(0, 0, [Vertices.clockwiseSort([{ x: 0, y: 0 }, { x: -side * 30, y: 10 }, { x: -side * 30, y: 16 }, { x: 0, y: 16 }])]);
+    Body.setPosition(tip, { x: px + side * 3 - side * 11, y: py + ARM_L - 4 });
+    const arm = Body.create({ parts: [bar, tip], collisionFilter: { group: CLAW }, friction: 1, frictionStatic: 2, density: 0.004, label: 'arm' });
+    fixInertia(arm);
+    const c = Constraint.create({ bodyA: head, pointA: { x: side * PIV, y: 10 }, bodyB: arm, pointB: { x: px - arm.position.x, y: py - arm.position.y }, stiffness: 0.7, length: 0 });
+    arm.side = side;
+    Composite.add(world, [arm, c]);
+    return arm;
+  }
+  const arms = [makeArm(-1), makeArm(1)];
+  Composite.add(world, head);
+  const OPEN = 0.6, SHUT = -0.3;
+  function driveArms() {
+    const target = claw.close ? SHUT : OPEN;
+    for (const a of arms) {
+      // relative angle, positive = open for both arms
+      const ang = -a.side * a.angle, av = -a.side * a.angularVelocity;
+      const lim = claw.close ? 0.0016 : 0.004;     // weak grip, like the real thing
+      const acc = Math.max(-lim, Math.min(lim, (target - ang) * 0.01 - av * 0.25));
+      a.torque += -a.side * acc * a.inertia / 16.67 ** 2;
+      // hinge stops
+      if ((ang > OPEN + 0.15 && av > 0) || (ang < SHUT - 0.25 && av < 0)) Body.setAngularVelocity(a, a.angularVelocity * -0.2);
+    }
+  }
+
+  // prizes
+  let prizes = [];
+  function spawn(item, x, y, scale) {
+    const f = scale * 72 / Math.max(item.sprite.width, item.sprite.height);
+    const cx = item.sprite.width / 2, cy = item.sprite.height / 2;
+    const parts = item.pieces.map(p => {
+      const vs = p.map(v => ({ x: x + (v.x - cx) * f, y: y + (v.y - cy) * f }));
+      return Body.create({ position: Vertices.centre(vs), vertices: Vertices.clockwiseSort(vs) });
+    });
+    const b = Body.create({ parts, friction: 0.7, frictionStatic: 1, restitution: 0.05, density: 0.0012, label: 'prize' });
+    fixInertia(b);
+    Body.setAngle(b, 0);
+    b.spr = { item, f, ox: x - cx * f - b.position.x, oy: y - cy * f - b.position.y };
+    Body.rotate(b, (Math.random() - 0.5) * 0.8);
+    Composite.add(world, b);
+    prizes.push(b);
+    while (prizes.length > 40) removePrize(prizes[0]);
+    return b;
+  }
+  function removePrize(b) { Composite.remove(world, b); prizes = prizes.filter(p => p !== b); }
+  function dropIn(item, scale) {
+    spawn(item, CHUTE + 60 + Math.random() * (WW - CHUTE - 100), 70, scale || 0.75 + Math.random() * 0.45);
+    tone(700, 300, 0.15, 'triangle', 0.12);
+  }
+  Events.on(engine, 'collisionStart', ev => {
+    for (const p of ev.pairs) {
+      const a = p.bodyA.parent, b = p.bodyB.parent;
+      const prize = a.label === 'prize' ? a : b.label === 'prize' ? b : null;
+      if (prize && (a === sensor || b === sensor) && !prize.got) {
+        prize.got = 1; won++; updateCount(); winSound();
+      }
+    }
+  });
+
+  // claw sequence
+  const SPEED = 2.2, WIRE_TOP = 44, WIRE_MAX = FLOOR - RAIL - ARM_L - 22;
+  function clawStep() {
+    const st = claw.state;
+    claw.t++;
+    if (st === 'idle') {
+      if (claw.dir) { claw.x = Math.max(HOME, Math.min(WW - 40, claw.x + claw.dir * SPEED)); hum(); }
+    } else if (st === 'down') {
+      claw.wire += 2.4;
+      // stop once the arm tips are pressed on something
+      const pp = prizes.flatMap(b => b.parts.slice(1));
+      const hit = arms.some(a => a.parts.slice(1).some(q => Query.collides(q, pp).length));
+      if (hit) claw.hitT = (claw.hitT || 0) + 1;
+      if (claw.wire >= WIRE_MAX || claw.hitT > 24) { claw.wire = Math.min(claw.wire, WIRE_MAX); go('close'); }
+      hum();
+    } else if (st === 'close') {
+      claw.close = 1;
+      if (claw.t > 45) { go('up'); tone(300, 500, 0.2, 'sawtooth', 0.05); }
+    } else if (st === 'up') {
+      claw.wire -= 1.6;
+      if (claw.wire <= WIRE_TOP) { claw.wire = WIRE_TOP; go('home'); }
+      hum();
+    } else if (st === 'home') {
+      claw.x = Math.max(HOME, claw.x - SPEED);
+      hum();
+      if (claw.x <= HOME && claw.t > 20) go('open');
+    } else if (st === 'open') {
+      claw.close = 0;
+      if (claw.t === 1) tone(500, 300, 0.2, 'sawtooth', 0.05);
+      if (claw.t > 50) go('idle');
+    }
+    Body.setPosition(head, { x: claw.x, y: RAIL + claw.wire });
+    updateGrab();
+  }
+  function go(s) { claw.state = s; claw.t = 0; claw.hitT = 0; }
+  function grab() { if (claw.state === 'idle' && mode === 'play') { claw.dir = 0; go('down'); tone(600, 400, 0.1, 'square', 0.06); } }
+  function updateGrab() {
+    const busy = claw.state !== 'idle';
+    if ($('grab').disabled !== busy) { $('grab').disabled = busy; $('left').disabled = busy; $('right').disabled = busy; }
+  }
+
+  // ---------- drawing ----------
+  function roundRect(g, x, y, w, h, r) {
+    g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  }
+  const VIEW_H = FLOOR + 70;
+  function render() {
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    if (mode === 'paint' && img) {
+      const { k, x, y } = view;
+      ctx.fillStyle = '#3b2030'; ctx.fillRect(x, y, img.width * k, img.height * k);
+      ctx.globalAlpha = 0.35; ctx.drawImage(img, x, y, img.width * k, img.height * k); ctx.globalAlpha = 1;
+      ctx.drawImage(paintTmp(), x, y, img.width * k, img.height * k);
+      return;
+    }
+    const s = Math.min((W - 16) / (WW + 24), (H - 8) / (VIEW_H + 16));
+    const ox = (W - WW * s) / 2, oy = (H - VIEW_H * s) / 2 + 8 * s;
+    ctx.setTransform(DPR * s, 0, 0, DPR * s, DPR * ox, DPR * oy);
+    // cabinet
+    ctx.fillStyle = '#ff7eb0'; roundRect(ctx, -12, -14, WW + 24, VIEW_H + 14, 18); ctx.fill();
+    ctx.fillStyle = '#fff6fa'; ctx.fillRect(0, 0, WW, FLOOR);
+    const grd = ctx.createLinearGradient(0, 0, 0, FLOOR);
+    grd.addColorStop(0, '#e9f4ff'); grd.addColorStop(1, '#fde8f1');
+    ctx.fillStyle = grd; ctx.fillRect(0, 0, WW, FLOOR);
+    // chute
+    ctx.fillStyle = '#5a2a44'; ctx.fillRect(0, FLOOR, CHUTE, VIEW_H - FLOOR - 4);
+    ctx.fillStyle = '#ffd34d'; ctx.fillRect(CHUTE + 1, FLOOR - 90, 9, 90);
+    ctx.fillStyle = '#d9417f'; ctx.fillRect(CHUTE, FLOOR, WW - CHUTE, VIEW_H - FLOOR - 4);
+    ctx.fillStyle = '#f7a8c9'; ctx.fillRect(CHUTE, FLOOR, WW - CHUTE, 6);
+    // rail
+    ctx.fillStyle = '#c9c9d6'; ctx.fillRect(0, RAIL - 8, WW, 8);
+    // prizes
+    for (const b of prizes) {
+      const sp = b.spr;
+      ctx.save(); ctx.translate(b.position.x, b.position.y); ctx.rotate(b.angle);
+      if (b.got) ctx.globalAlpha = 0.9;
+      ctx.drawImage(sp.item.sprite, sp.ox, sp.oy, sp.item.sprite.width * sp.f, sp.item.sprite.height * sp.f);
+      ctx.restore();
+    }
+    // wire + claw
+    ctx.strokeStyle = '#8b8b9c'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(claw.x, RAIL); ctx.lineTo(head.position.x, head.position.y); ctx.stroke();
+    ctx.fillStyle = '#9a9aac'; ctx.fillRect(claw.x - 16, RAIL - 12, 32, 12);
+    for (const a of arms) {
+      for (const p of a.parts.slice(1)) {
+        ctx.beginPath(); p.vertices.forEach((v, i) => i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)); ctx.closePath();
+        ctx.fillStyle = '#c8ccd8'; ctx.fill(); ctx.strokeStyle = '#6e7286'; ctx.lineWidth = 1.5; ctx.stroke();
+      }
+    }
+    ctx.beginPath(); head.vertices.forEach((v, i) => i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)); ctx.closePath();
+    ctx.fillStyle = '#e0e2ec'; ctx.fill(); ctx.strokeStyle = '#6e7286'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#ff7eb0'; ctx.beginPath(); ctx.arc(head.position.x, head.position.y, 5, 0, Math.PI * 2); ctx.fill();
+    // glass shine
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.beginPath(); ctx.moveTo(WW - 70, 0); ctx.lineTo(WW - 40, 0); ctx.lineTo(WW - 130, FLOOR); ctx.lineTo(WW - 160, FLOOR); ctx.fill();
+    // count
+    if (won) {
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 22px system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(t('count')(won), CHUTE / 2, VIEW_H - 18);
+    }
+    if (DEBUG) {
+      ctx.strokeStyle = '#0a0'; ctx.lineWidth = 1;
+      for (const b of prizes) for (const p of b.parts.slice(1)) {
+        ctx.beginPath(); p.vertices.forEach((v, i) => i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)); ctx.closePath(); ctx.stroke();
+      }
+    }
+  }
+  const DEBUG = /debug/.test(location.hash);
+  let tmpC = null;
+  function paintTmp() {
+    if (!tmpC || tmpC.width !== img.width || tmpC.height !== img.height) {
+      tmpC = document.createElement('canvas'); tmpC.width = img.width; tmpC.height = img.height;
+    }
+    const g = tmpC.getContext('2d');
+    g.globalCompositeOperation = 'source-over';
+    g.clearRect(0, 0, tmpC.width, tmpC.height);
+    g.drawImage(mask, 0, 0);
+    g.globalCompositeOperation = 'source-in';
+    g.drawImage(img, 0, 0);
+    g.globalCompositeOperation = 'source-atop';
+    g.fillStyle = 'rgba(60, 220, 110, 0.45)';
+    g.fillRect(0, 0, tmpC.width, tmpC.height);
+    return tmpC;
+  }
+  function updateCount() { /* drawn on the canvas */ }
+
+  // ---------- loop ----------
+  let lastT = performance.now(), acc = 0, queue = [];
+  function tick() {
+    clawStep();
+    driveArms();
+    Engine.update(engine, 1000 / 60);
+    if (queue.length && --queue[0].wait <= 0) { const q = queue.shift(); dropIn(q.item, q.scale); }
+    for (const b of prizes.slice()) {
+      if (b.got && ++b.got > 70) removePrize(b);
+      else if (b.position.y > WH + 200) removePrize(b);
+    }
+  }
+  function loop(now) {
+    const dt = Math.min(100, now - lastT); lastT = now;
+    humT -= dt / 1000;
+    if (mode !== 'paint') {
+      acc += dt;
+      while (acc >= 1000 / 60) { tick(); acc -= 1000 / 60; }
+      render();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // ---------- input ----------
+  cv.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (mode === 'start') { $('file').click(); return; }
+    if (mode !== 'paint') return;
+    cv.setPointerCapture(e.pointerId);
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size === 1 && !pinch) {
+      undoStack.push(mctx.getImageData(0, 0, mask.width, mask.height));
+      if (undoStack.length > 20) undoStack.shift();
+      lastPt = toImg(e); stroke(lastPt, lastPt); render();
+    } else if (touches.size === 2) {
+      if (lastPt) { const d = undoStack.pop(); if (d) mctx.putImageData(d, 0, 0); lastPt = null; }
+      const [a, b] = [...touches.values()];
+      pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: mid(a, b), k0: view.k, x0: view.x, y0: view.y };
+      render();
+    }
+  });
+  cv.addEventListener('pointermove', e => {
+    if (mode !== 'paint' || !touches.has(e.pointerId)) return;
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && touches.size >= 2) {
+      const [a, b] = [...touches.values()], m = mid(a, b);
+      const k = Math.max(view.fit, Math.min(view.fit * 12, pinch.k0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0));
+      view.x = m.x - (pinch.m0.x - pinch.x0) / pinch.k0 * k;
+      view.y = m.y - (pinch.m0.y - pinch.y0) / pinch.k0 * k;
+      view.k = k; snapFit(); render();
+    } else if (lastPt) { const p = toImg(e); stroke(lastPt, p); lastPt = p; render(); }
+  });
+  const up = e => {
+    if (mode !== 'paint') return;
+    touches.delete(e.pointerId);
+    if (touches.size === 0) pinch = null;
+    if (lastPt) { lastPt = null; updateDone(); }
+  };
+  cv.addEventListener('pointerup', up);
+  cv.addEventListener('pointercancel', up);
+  cv.addEventListener('wheel', e => {
+    if (mode !== 'paint') return;
+    e.preventDefault();
+    const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    const k = Math.max(view.fit, Math.min(view.fit * 12, view.k * Math.exp(-e.deltaY * 0.0015)));
+    view.x = mx - (mx - view.x) / view.k * k; view.y = my - (my - view.y) / view.k * k; view.k = k; snapFit();
+    render();
+  }, { passive: false });
+
+  $('pick').onclick = () => $('file').click();
+  $('add').onclick = () => $('file').click();
+  $('file').onchange = e => { loadFile(e.target.files[0]); e.target.value = ''; };
+  $('brush').onclick = () => {
+    brushIdx = (brushIdx + 1) % BRUSH.length;
+    const d = $('brush').firstChild; d.style.width = d.style.height = [5, 11, 20][brushIdx] + 'px';
+  };
+  $('erase').onclick = () => { erasing = !erasing; $('erase').classList.toggle('on', erasing); };
+  $('undo').onclick = () => { const d = undoStack.pop(); if (d) { mctx.putImageData(d, 0, 0); render(); updateDone(); } };
+  $('cancel').onclick = () => setMode('play');
+  $('done').onclick = () => {
+    const sprite = makeSprite(); if (sprite) addItem(sprite);
+  };
+  function addItem(sprite) {
+    const item = { sprite, pieces: outline(sprite) };
+    items.push(item); addStock(item);
+    const n = played ? 2 : 6;
+    for (let i = 0; i < n; i++) queue.push({ item, wait: i ? 22 : 10, scale: 0.7 + Math.random() * 0.5 });
+    played = true;
+    setMode('play');
+  }
+  function addStock(item) {
+    const b = document.createElement('button');
+    const c = document.createElement('canvas'); c.width = item.sprite.width; c.height = item.sprite.height;
+    c.getContext('2d').drawImage(item.sprite, 0, 0);
+    b.appendChild(c);
+    b.onclick = () => dropIn(item);
+    $('stock').insertBefore(b, $('add'));
+  }
+  // hold-to-move buttons
+  for (const [id, d] of [['left', -1], ['right', 1]]) {
+    const el = $(id);
+    el.addEventListener('pointerdown', e => { e.preventDefault(); if (claw.state === 'idle') claw.dir = d; el.classList.add('down'); });
+    const stop = () => { if (claw.dir === d) claw.dir = 0; el.classList.remove('down'); };
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => el.addEventListener(ev, stop));
+  }
+  $('grab').onclick = grab;
+  const keys = {};
+  window.addEventListener('keydown', e => {
+    if (mode !== 'play') return;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault(); keys[e.key] = 1;
+      if (claw.state === 'idle') claw.dir = e.key === 'ArrowLeft' ? -1 : 1;
+    }
+    if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); grab(); }
+  });
+  window.addEventListener('keyup', e => {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      delete keys[e.key];
+      claw.dir = keys.ArrowLeft ? -1 : keys.ArrowRight ? 1 : 0;
+    }
+  });
+
+  ['dragenter', 'dragover'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('hide'); }));
+  ['dragleave', 'drop'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); $('drop').classList.add('hide'); }));
+  window.addEventListener('drop', e => { const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) loadFile(f); });
+
+  function setMode(m) {
+    mode = m;
+    $('barStart').classList.toggle('hide', m !== 'start');
+    $('barPaint').classList.toggle('hide', m !== 'paint');
+    $('barPlay').classList.toggle('hide', m !== 'play');
+    $('cancel').classList.toggle('hide', !played);
+    if (m === 'paint') { $('erase').classList.remove('on'); updateDone(); }
+    lastT = performance.now(); acc = 0;
+    render();
+  }
+  function applyLang() {
+    document.documentElement.lang = lang;
+    document.title = t('title');
+    $('back').textContent = t('back');
+    $('lang').textContent = lang === 'ja' ? 'EN' : '日本語';
+    for (const k of ['pick', 'erase', 'undo', 'done', 'cancel', 'grab']) $(k).textContent = t(k);
+    render();
+  }
+  $('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+  $('snd').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); drawSnd(); };
+
+  drawSnd(); applyLang();
+  new ResizeObserver(resize).observe($('stage'));
+  resize();
+  requestAnimationFrame(loop);
+  window.__kc = { engine, arms, claw, prizes: () => prizes, items, addItem, grab, setMode, get won() { return won; } };
+})();
+</script>
+</body>
+</html>
