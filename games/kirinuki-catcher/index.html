@@ -370,11 +370,18 @@
   const head = Bodies.rectangle(HOME, RAIL + claw.wire, 46, 26, { isStatic: true, collisionFilter: { group: CLAW }, label: 'head', chamfer: { radius: 6 } });
   function makeArm(side) {
     const px = HOME + side * PIV, py = RAIL + claw.wire + 10;
-    const bar = Bodies.rectangle(px + side * 3, py + ARM_L / 2, 8, ARM_L, { chamfer: { radius: 3 } });
-    const tip = Bodies.fromVertices(0, 0, [Vertices.clockwiseSort([{ x: 0, y: 0 }, { x: -side * 30, y: 10 }, { x: -side * 30, y: 16 }, { x: 0, y: 16 }])]);
-    Body.setPosition(tip, { x: px + side * 3 - side * 11, y: py + ARM_L - 4 });
-    const arm = Body.create({ parts: [bar, tip], collisionFilter: { group: CLAW }, friction: 1, frictionStatic: 2, density: 0.004, label: 'arm' });
+    // drawn in the closed pose: out from the pivot, bend in, then a claw tip pointing straight down
+    const P = [[0, 0], [-16, 62], [8, 100], [8, 118]].map(([x, y]) => ({ x: px - side * x, y: py + y }));
+    const seg = (a, b, w) => {
+      const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy), nx = -dy / L * w / 2, ny = dx / L * w / 2;
+      const ex = dx / L * w / 2, ey = dy / L * w / 2;   // overlap the joints a little
+      const vs = [{ x: a.x + nx - ex, y: a.y + ny - ey }, { x: b.x + nx + ex, y: b.y + ny + ey }, { x: b.x - nx + ex, y: b.y - ny + ey }, { x: a.x - nx - ex, y: a.y - ny - ey }];
+      return Body.create({ position: Vertices.centre(vs), vertices: Vertices.clockwiseSort(vs) });
+    };
+    const parts = [seg(P[0], P[1], 8), seg(P[1], P[2], 8), seg(P[2], P[3], 7)];
+    const arm = Body.create({ parts, collisionFilter: { group: CLAW }, friction: 1, frictionStatic: 2, density: 0.004, label: 'arm' });
     fixInertia(arm);
+    Body.setMass(arm, 4);   // heavy metal arms
     const c = Constraint.create({ bodyA: head, pointA: { x: side * PIV, y: 10 }, bodyB: arm, pointB: { x: px - arm.position.x, y: py - arm.position.y }, stiffness: 0.7, length: 0 });
     arm.side = side;
     Composite.add(world, [arm, c]);
@@ -382,9 +389,12 @@
   }
   const arms = [makeArm(-1), makeArm(1)];
   Composite.add(world, head);
-  const OPEN = 0.6, SHUT = -0.3;
+  const OPEN = 0.55, SHUT = -0.12;
   function driveArms() {
-    const target = claw.close ? SHUT : OPEN;
+    const target = claw.close ? SHUT : claw.wide ? OPEN + 0.3 : OPEN;
+    // slippery while letting go, so prizes don't hang on the arms over the chute
+    const fr = claw.close ? 1 : 0.02;
+    for (const a of arms) for (const p of a.parts) { p.friction = fr; p.frictionStatic = claw.close ? 2 : 0; }
     for (const a of arms) {
       // relative angle, positive = open for both arms
       const ang = -a.side * a.angle, av = -a.side * a.angularVelocity;
@@ -392,7 +402,9 @@
       const acc = Math.max(-lim, Math.min(lim, (target - ang) * 0.01 - av * 0.25));
       a.torque += -a.side * acc * a.inertia / 16.67 ** 2;
       // hinge stops
-      if ((ang > OPEN + 0.15 && av > 0) || (ang < SHUT - 0.25 && av < 0)) Body.setAngularVelocity(a, a.angularVelocity * -0.2);
+      const hi = OPEN + (claw.wide ? 0.45 : 0.15), lo = SHUT - 0.25;
+      if (ang > hi) Body.setAngularVelocity(a, -a.side * Math.min(av, (hi - ang) * 0.3));
+      else if (ang < lo) Body.setAngularVelocity(a, -a.side * Math.max(av, (lo - ang) * 0.3));
     }
   }
 
@@ -457,9 +469,9 @@
       hum();
       if (claw.x <= HOME && claw.t > 20) go('open');
     } else if (st === 'open') {
-      claw.close = 0;
+      claw.close = 0; claw.wide = 1;
       if (claw.t === 1) tone(500, 300, 0.2, 'sawtooth', 0.05);
-      if (claw.t > 50) go('idle');
+      if (claw.t > 70) { claw.wide = 0; go('idle'); }
     }
     Body.setPosition(head, { x: claw.x, y: RAIL + claw.wire });
     updateGrab();
