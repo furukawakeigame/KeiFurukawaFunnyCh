@@ -157,12 +157,11 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 
-const MAX = 300, COOL = 1.0;
+const COOL = 1.0;
 let balls = [];
-const targetR = () => R * Math.min(0.11, 0.6 / Math.sqrt(Math.max(balls.length, 1)));
-function addBall(x, y, vx = 0, vy = 0, rad) {
-  if (balls.length >= MAX) return null;
-  const b = { x, y, vx, vy, r: rad || targetR(), cool: COOL, a: Math.random() * 6.28, va: 0 };
+const targetR = () => R * 0.045;
+function addBall(x, y, vx = 0, vy = 0) {
+  const b = { x, y, vx, vy, r: targetR(), cool: COOL, a: Math.random() * 6.28, va: 0 };
   balls.push(b); return b;
 }
 function updateCount() { $('count').textContent = balls.length + t('unit'); }
@@ -172,7 +171,7 @@ cv.addEventListener('pointerdown', e => {
   let x = e.clientX - r.left, y = e.clientY - r.top;
   const dx = x - CX, dy = y - CY, d = Math.hypot(dx, dy), lim = R * 0.85;
   if (d > lim) { x = CX + dx / d * lim; y = CY + dy / d * lim; }
-  const b = addBall(x, y); if (b) b.cool = 0.3;
+  addBall(x, y).cool = 0.3;
   pop(); updateCount();
 });
 $('reset').onclick = () => { balls = []; updateCount(); };
@@ -180,7 +179,7 @@ $('reset').onclick = () => { balls = []; updateCount(); };
 function step(dt) {
   const g = R * 2.2, tr = targetR();
   for (const b of balls) {
-    b.r += (tr - b.r) * Math.min(1, dt * 3);
+    b.r = tr;
     b.vy += g * dt;
     b.vx *= 0.995; b.vy *= 0.995;
     b.x += b.vx * dt; b.y += b.vy * dt;
@@ -189,9 +188,17 @@ function step(dt) {
   }
   const born = [];
   for (let it = 0; it < 3; it++) {
+    const cell = tr * 2, grid = new Map();
     for (let i = 0; i < balls.length; i++) {
-      const a = balls[i];
-      for (let j = i + 1; j < balls.length; j++) {
+      const b = balls[i], k = Math.floor(b.x / cell) * 65536 + Math.floor(b.y / cell);
+      (grid.get(k) || grid.set(k, []).get(k)).push(i);
+    }
+    for (let i = 0; i < balls.length; i++) {
+      const a = balls[i], gx = Math.floor(a.x / cell), gy = Math.floor(a.y / cell);
+      for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+      const list = grid.get((gx + ox) * 65536 + gy + oy); if (!list) continue;
+      for (const j of list) {
+        if (j <= i) continue;
         const b = balls[j];
         const dx = b.x - a.x, dy = b.y - a.y, rr = a.r + b.r;
         if (Math.abs(dx) > rr || Math.abs(dy) > rr) continue;
@@ -206,10 +213,11 @@ function step(dt) {
           a.va -= rv * 0.01; b.va += rv * 0.01;
         }
         // 増殖
-        if (it === 0 && a.cool <= 0 && b.cool <= 0 && balls.length + born.length < MAX) {
+        if (it === 0 && a.cool <= 0 && b.cool <= 0) {
           a.cool = b.cool = COOL;
-          born.push([(a.x + b.x) / 2 - ny * rr * 0.5, (a.y + b.y) / 2 + nx * rr * 0.5, Math.min(a.r, b.r) * 0.3]);
+          born.push([(a.x + b.x) / 2 - ny * rr * 0.5, (a.y + b.y) / 2 + nx * rr * 0.5]);
         }
+      }
       }
     }
     // 器の壁
@@ -223,7 +231,7 @@ function step(dt) {
       }
     }
   }
-  for (const [x, y, r] of born) { const n = addBall(x, y, (Math.random()-.5) * 60, -60, r); if (n) n.cool = COOL; }
+  for (const [x, y] of born) addBall(x, y, (Math.random()-.5) * 60, -60);
   if (born.length) { pop(); updateCount(); }
 }
 
