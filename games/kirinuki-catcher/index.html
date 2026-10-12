@@ -97,12 +97,7 @@
       <button id="done" class="btn" disabled></button>
     </div>
     <div id="barPlay" class="hide">
-      <div class="bar">
-        <button id="left" class="btn big sub" aria-label="left"><svg width="26" height="26" viewBox="0 0 24 24"><path d="M15 4L7 12l8 8" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        <button id="grab" class="btn big"></button>
-        <button id="right" class="btn big sub" aria-label="right"><svg width="26" height="26" viewBox="0 0 24 24"><path d="M9 4l8 8-8 8" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      </div>
-      <div class="bar" style="padding-top:0"><div id="stock"><button id="add" aria-label="add">+</button></div></div>
+      <div class="bar"><div id="stock"><button id="add" aria-label="add">+</button></div></div>
     </div>
     <input id="file" type="file" accept="image/*" class="hide">
   </main>
@@ -117,12 +112,12 @@
   const DICT = {
     ja: {
       title: '切り抜きキャッチー', back: '← トップへ戻る', pick: '画像をえらぶ', erase: '消す', undo: '戻す',
-      done: 'できた', cancel: 'やめる', grab: 'つかむ', count: n => `${n}個`,
+      done: 'できた', cancel: 'やめる', count: n => `${n}個`,
       err: '画像を読み込めませんでした', cdn: 'ライブラリを読み込めませんでした。通信を確認して再読み込みしてください',
     },
     en: {
       title: 'Cutout Catcher', back: '← Back to top', pick: 'Choose image', erase: 'Erase', undo: 'Undo',
-      done: 'Done', cancel: 'Cancel', grab: 'Grab', count: n => `${n} won`,
+      done: 'Done', cancel: 'Cancel', count: n => `${n} won`,
       err: 'Could not load the image', cdn: 'Could not load a library. Check your connection and reload.',
     },
   };
@@ -366,7 +361,7 @@
     return b;
   }
   const ARM_L = 112, PIV = 18;
-  const claw = { x: HOME, wire: 44, state: 'idle', t: 0, close: 0, dir: 0 };
+  const claw = { x: HOME, wire: 44, state: 'idle', t: 0, close: 0, dir: 0, target: null, armed: 0 };
   const head = Bodies.rectangle(HOME, RAIL + claw.wire, 46, 26, { isStatic: true, collisionFilter: { group: CLAW }, label: 'head', chamfer: { radius: 6 } });
   function makeArm(side) {
     const px = HOME + side * PIV, py = RAIL + claw.wire + 10;
@@ -448,7 +443,12 @@
     const st = claw.state;
     claw.t++;
     if (st === 'idle') {
-      if (claw.dir) { claw.x = Math.max(HOME, Math.min(WW - 72, claw.x + claw.dir * SPEED)); hum(); }
+      if (claw.target !== null) {
+        // drag: the motor follows the finger, letting go drops the claw where it stops
+        const d = claw.target - claw.x;
+        if (Math.abs(d) > 0.5) { claw.x += Math.max(-SPEED * 1.6, Math.min(SPEED * 1.6, d)); hum(); }
+        else if (claw.armed) { claw.armed = 0; claw.target = null; grab(); }
+      } else if (claw.dir) { claw.x = Math.max(HOME, Math.min(WW - 72, claw.x + claw.dir * SPEED)); hum(); }
     } else if (st === 'down') {
       claw.wire += 2.4;
       // stop once the arm tips are pressed on something
@@ -480,7 +480,7 @@
   function grab() { if (claw.state === 'idle' && mode === 'play') { claw.dir = 0; go('down'); tone(600, 400, 0.1, 'square', 0.06); } }
   function updateGrab() {
     const busy = claw.state !== 'idle';
-    if ($('grab').disabled !== busy) { $('grab').disabled = busy; $('left').disabled = busy; $('right').disabled = busy; }
+    cv.style.cursor = mode === 'play' ? (busy ? 'default' : 'ew-resize') : '';
   }
 
   // ---------- drawing ----------
@@ -489,6 +489,7 @@
     g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
   }
   const VIEW_H = FLOOR + 70;
+  let scr = { s: 1, ox: 0 };
   function render() {
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.clearRect(0, 0, W, H);
@@ -501,6 +502,7 @@
     }
     const s = Math.min((W - 16) / (WW + 24), (H - 8) / (VIEW_H + 16));
     const ox = (W - WW * s) / 2, oy = (H - VIEW_H * s) / 2 + 8 * s;
+    scr = { s, ox };
     ctx.setTransform(DPR * s, 0, 0, DPR * s, DPR * ox, DPR * oy);
     // cabinet
     ctx.fillStyle = '#ff7eb0'; roundRect(ctx, -12, -14, WW + 24, VIEW_H + 14, 18); ctx.fill();
@@ -597,6 +599,13 @@
   cv.addEventListener('pointerdown', e => {
     e.preventDefault();
     if (mode === 'start') { $('file').click(); return; }
+    if (mode === 'play') {
+      if (claw.state !== 'idle' || drag) return;
+      cv.setPointerCapture(e.pointerId);
+      drag = { id: e.pointerId, x0: e.clientX, c0: claw.target ?? claw.x };
+      claw.armed = 0; claw.dir = 0;
+      return;
+    }
     if (mode !== 'paint') return;
     cv.setPointerCapture(e.pointerId);
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -611,7 +620,12 @@
       render();
     }
   });
+  let drag = null;
   cv.addEventListener('pointermove', e => {
+    if (drag && e.pointerId === drag.id) {
+      claw.target = Math.max(HOME, Math.min(WW - 72, drag.c0 + (e.clientX - drag.x0) / scr.s));
+      return;
+    }
     if (mode !== 'paint' || !touches.has(e.pointerId)) return;
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pinch && touches.size >= 2) {
@@ -623,6 +637,12 @@
     } else if (lastPt) { const p = toImg(e); stroke(lastPt, p); lastPt = p; render(); }
   });
   const up = e => {
+    if (drag && e.pointerId === drag.id) {
+      drag = null;
+      if (claw.target === null) claw.target = claw.x;
+      claw.armed = 1;
+      return;
+    }
     if (mode !== 'paint') return;
     touches.delete(e.pointerId);
     if (touches.size === 0) pinch = null;
@@ -668,14 +688,6 @@
     b.onclick = () => dropIn(item);
     $('stock').insertBefore(b, $('add'));
   }
-  // hold-to-move buttons
-  for (const [id, d] of [['left', -1], ['right', 1]]) {
-    const el = $(id);
-    el.addEventListener('pointerdown', e => { e.preventDefault(); if (claw.state === 'idle') claw.dir = d; el.classList.add('down'); });
-    const stop = () => { if (claw.dir === d) claw.dir = 0; el.classList.remove('down'); };
-    ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => el.addEventListener(ev, stop));
-  }
-  $('grab').onclick = grab;
   const keys = {};
   window.addEventListener('keydown', e => {
     if (mode !== 'play') return;
@@ -711,7 +723,7 @@
     document.title = t('title');
     $('back').textContent = t('back');
     $('lang').textContent = lang === 'ja' ? 'EN' : '日本語';
-    for (const k of ['pick', 'erase', 'undo', 'done', 'cancel', 'grab']) $(k).textContent = t(k);
+    for (const k of ['pick', 'erase', 'undo', 'done', 'cancel']) $(k).textContent = t(k);
     render();
   }
   $('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
