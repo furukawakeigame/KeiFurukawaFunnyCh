@@ -502,14 +502,14 @@ function buildCharm(canvas) {
   };
   const Din = dist(i => alpha[i * 4 + 3] > 127, true), Dout = dist(i => alpha[i * 4 + 3] <= 127, false);
   const sdist = (x, y) => { const i = Math.min(H - 1, Math.round(y)) * W + Math.min(W - 1, Math.round(x)); return Din[i] ? Din[i] - 0.5 : -(Math.min(Dout[i], 1e4) - 0.5); };
-  const size = 0.9, w = W >= H ? size : size * W / H, h = W >= H ? size * H / W : size;
+  const size = 0.55, w = W >= H ? size : size * W / H, h = W >= H ? size * H / W : size;
   const k = w / W;
   const ds = [];
   let dmax = 0;
   for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
     const d = sdist(i / N * W, (1 - j / N) * H); ds.push(d); dmax = Math.max(dmax, d);
   }
-  const R = Math.min(dmax * k, 0.3);
+  const R = Math.min(dmax * k, 0.16);
   const cellPx = W / N, t1 = Math.min(1, cellPx / dmax), zEdge = R * Math.sqrt(1 - (1 - t1) * (1 - t1));
   const pos = [], uv = [], idx = [], V = (N + 1) * (N + 1);
   let top = null;
@@ -549,23 +549,22 @@ function buildCharm(canvas) {
   const tex = new THREE.DataTexture(flipped, W, H); tex.needsUpdate = true;
   tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.generateMipmaps = true;
   tex.colorSpace = THREE.SRGBColorSpace;
-  return { g, tex, top: top || { x: 0, y: h / 2 } };
+  return { g, tex, top: top || { x: 0, y: h / 2 }, w, h };
 }
 // 鎖は質点をつないだ紐（Verlet 法）で、ワールド座標で動かす。バッグが回ったり揺れたりすると引っぱられて揺れる
 const GRAV = 26, LL = 0.085;
 const tmpV = new THREE.Vector3(), tmpL = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0), invBag = new THREE.Matrix4();
-// 取り付け位置: バッグの口のふち（正面側）に左右から順に並べる
-function strapSlot(n) {
-  const base = [-1.15, 1.15, -0.55, 0.55, 0, -0.85, 0.85, -0.27, 0.27];
-  return n < base.length ? base[n] : -1.3 + ((n * 0.618) % 1) * 2.6;
+// 取り付け位置: 正面の持ち手の根本（左右交互）。同じ側に付けるときは少しずつずらす
+function strapAnchor(n) {
+  const side = n % 2 ? 1 : -1, k = Math.floor(n / 2);
+  return new THREE.Vector3(side * (0.85 + ((k % 3) - 1) * 0.05), BH / 2 - 0.02, BD / 2 + 0.07);
 }
 function anchorWorld(s, out) { return out.copy(s.anchor).applyMatrix4(bag.matrixWorld); }
 function addStrap(sprite) {
   const shape = buildCharm(sprite);
-  const n = straps.length, slot = strapSlot(n);
-  const anchor = new THREE.Vector3(slot, BH / 2 - 0.08, BD / 2 + 0.04);
-  const LINKS = 3 + (n % 3) * 2;
+  const n = straps.length, anchor = strapAnchor(n);
+  const LINKS = 2 + (Math.floor(n / 2) % 4) * 2;
   const links = [];
   for (let i = 0; i < LINKS; i++) { const l = new THREE.Mesh(linkGeo, chainMat); l.scale.set(0.8, 1, 1); scene.add(l); links.push(l); }
   const mat = new THREE.MeshPhysicalMaterial({ map: shape.tex, alphaTest: 0.5, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.1, side: THREE.DoubleSide });
@@ -574,7 +573,7 @@ function addStrap(sprite) {
   mesh.position.set(-shape.top.x, -0.03 - shape.top.y, 0);
   charm.add(mesh); scene.add(charm);
   bag.updateMatrixWorld();
-  const s = { anchor, links, charm, mesh, cd: shape.top.y + 0.03, sprite, p: [], q: [] };
+  const s = { anchor, links, charm, mesh, cd: shape.top.y + 0.03, rad: Math.max(shape.w, shape.h) * 0.42, sprite, p: [], q: [] };
   anchorWorld(s, tmpV);
   // 質点: 0 = 取り付け位置（固定）, 1..LINKS = 鎖, LINKS+1 = チャームの中心
   for (let i = 0; i <= LINKS + 1; i++) {
@@ -583,6 +582,22 @@ function addStrap(sprite) {
     s.p.push(v); s.q.push(v.clone());
   }
   straps.push(s); showBars(); chainSnd();
+}
+// ストラップどうしの衝突: チャームは円、鎖は小さな玉として押し合う
+function collideStraps() {
+  for (let a = 0; a < straps.length; a++) for (let b = a + 1; b < straps.length; b++) {
+    const A = straps[a], B = straps[b];
+    const ca = A.p.at(-1), cb = B.p.at(-1);
+    push(ca, cb, A.rad + B.rad);
+    for (let i = 1; i < A.p.length - 1; i++) push(A.p[i], cb, B.rad + 0.03);
+    for (let i = 1; i < B.p.length - 1; i++) push(B.p[i], ca, A.rad + 0.03);
+  }
+}
+function push(pa, pb, R) {
+  const d = tmpV.subVectors(pa, pb), L = d.length();
+  if (L >= R) return;
+  if (L < 1e-5) { pa.x += 0.01; return; }
+  d.multiplyScalar((R - L) / L * 0.5); pa.add(d); pb.sub(d);
 }
 function stepStraps(dt) {
   bag.updateMatrixWorld(); invBag.copy(bag.matrixWorld).invert();
@@ -597,15 +612,10 @@ function stepStraps(dt) {
         q.copy(p); p.x += vx; p.y += vy - GRAV * h * h; p.z += vz;
       }
     }
-    // チャームどうしが重ならないよう押し合う
-    for (let a = 0; a < straps.length; a++) for (let b = a + 1; b < straps.length; b++) {
-      const pa = straps[a].p.at(-1), pb = straps[b].p.at(-1);
-      const d = tmpV.subVectors(pa, pb), L = d.length(), R = 0.36;
-      if (L < R && L > 1e-5) { d.multiplyScalar((R - L) / L * 0.5); pa.add(d); pb.sub(d); }
-    }
-    for (const s of straps) {
-      const P = s.p, N = P.length;
-      for (let it = 0; it < 6; it++) {
+    for (let it = 0; it < 6; it++) {
+      collideStraps();
+      for (const s of straps) {
+        const P = s.p, N = P.length;
         for (let i = 0; i < N - 1; i++) {
           const a = P[i], b = P[i + 1], rest = i === N - 2 ? s.cd : LL;
           const d = tmpV.subVectors(b, a), L = d.length() || 1e-6, diff = (L - rest) / L;
@@ -614,7 +624,7 @@ function stepStraps(dt) {
         }
         // バッグの本体にめり込まないよう前に押し出す
         for (let i = 1; i < N; i++) {
-          const m = i === N - 1 ? 0.26 : 0.05;
+          const m = i === N - 1 ? 0.12 : 0.04;
           tmpL.copy(P[i]).applyMatrix4(invBag);
           if (Math.abs(tmpL.x) < BW / 2 + m && tmpL.y < BH / 2 + 0.02 && tmpL.y > -BH / 2 - m && tmpL.z > -BD / 2) {
             const zf = BD / 2 + bz(tmpL.x, Math.min(tmpL.y, BH / 2)) + m + (i === N - 1 ? 0.06 : 0);
