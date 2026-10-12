@@ -104,7 +104,7 @@
     <input id="file" type="file" accept="image/*" class="hide">
   </main>
 <script src="https://cdn.jsdelivr.net/npm/poly-decomp@0.3.0/build/decomp.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/planck@1.4.3/dist/planck.min.js"></script>
 <script>
 (() => {
   const store = {
@@ -130,12 +130,11 @@
     const d = document.createElement('div'); d.id = 'msg'; d.textContent = text;
     $('stage').appendChild(d); if (ms) setTimeout(() => d.remove(), ms);
   }
-  if (!window.Matter || !window.decomp) {
+  if (!window.planck || !window.decomp) {
     showMsg(t('cdn'));
     $('back').textContent = t('back');
     return;
   }
-  const { Engine, Composite, Bodies, Body, Constraint, Events, Vertices, Query } = Matter;
 
   // ---------- sound ----------
   let soundOn = store.get('sound', true), actx = null;
@@ -299,7 +298,7 @@
         decomp.removeCollinearPoints(poly, 0.05);
         if (poly.length >= 3 && decomp.isSimple(poly)) parts = decomp.quickDecomp(poly);
       } catch { parts = null; }
-      if (!parts || !parts.length) parts = [Vertices.hull(poly.map(([x, y]) => ({ x, y }))).map(v => [v.x, v.y])];
+      if (!parts || !parts.length) parts = [hull(poly)];
       for (const p of parts) {
         if (p.length < 3) continue;
         let ar = 0;
@@ -313,6 +312,14 @@
       pieces.push([{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }]);
     }
     return pieces;
+  }
+  function hull(pts) {
+    const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const lo = [], up = [];
+    for (const q of p) { while (lo.length > 1 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+    for (const q of p.reverse()) { while (up.length > 1 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+    return lo.slice(0, -1).concat(up.slice(0, -1));
   }
   function rdp(pts, eps) {
     // closed polygon: split at the farthest point from the start, simplify both halves
@@ -336,108 +343,110 @@
     return h1.slice(0, -1).concat(h2.slice(0, -1));
   }
 
-  // ---------- world (units: machine is 400 x 640) ----------
-  const WW = 400, WH = 640, FLOOR = 540, CHUTE = 104, RAIL = 36, HOME = 52;
-  const engine = Engine.create({ positionIterations: 10, velocityIterations: 8, constraintIterations: 4 });
-  engine.gravity.y = 1;
-  const world = engine.world;
-  const CLAW = Body.nextGroup(true);
-  const wall = (x, y, w, h, o = {}) => Bodies.rectangle(x, y, w, h, Object.assign({ isStatic: true, friction: 0.6, label: 'wall' }, o));
-  Composite.add(world, [
-    wall(-20, WH / 2, 40, WH * 2),                    // left
-    wall(WW + 20, WH / 2, 40, WH * 2),                // right
-    wall(WW / 2, -20, WW, 40),                        // ceiling
-    wall((CHUTE + WW) / 2, FLOOR + 20, WW - CHUTE, 40), // floor (open above the chute)
-    wall(CHUTE + 5, FLOOR - 45, 10, 90, { chamfer: { radius: 4 } }),   // fence around the chute
-    wall(CHUTE / 2, WH + 40, CHUTE + 40, 40),         // chute bottom (far below; things leave via the sensor)
-  ]);
-  const sensor = Bodies.rectangle(CHUTE / 2, FLOOR + 60, CHUTE - 4, 20, { isStatic: true, isSensor: true, label: 'sensor' });
-  Composite.add(world, sensor);
-
-  // claw: static head moved by the motor, two hinged arms pushed by a limited torque
-  // Matter sums part inertias without the parallel-axis term, so compound bodies spin far too easily
-  function fixInertia(b) {
-    let I = 0;
-    for (const p of b.parts.slice(1)) I += p.inertia + p.mass * ((p.position.x - b.position.x) ** 2 + (p.position.y - b.position.y) ** 2);
-    if (b.parts.length > 1) Body.setInertia(b, I);
-    return b;
+  // ---------- world (units: machine is 400 x 640; planck works in metres, 30 units = 1 m) ----------
+  const WW = 400, WH = 640, FLOOR = 540, CHUTE = 104, RAIL = 36, HOME = 52, SC = 30, DT = 1 / 60, SUB = 3;
+  const V = (x, y) => planck.Vec2(x / SC, y / SC);
+  const world = planck.World({ gravity: planck.Vec2(0, 10) });
+  const ground = world.createBody();
+  const box = (x, y, w, h) => ground.createFixture(planck.Box(w / 2 / SC, h / 2 / SC, V(x, y), 0), { friction: 0.6 });
+  box(-20, WH / 2, 40, WH * 2);                       // left
+  box(WW + 20, WH / 2, 40, WH * 2);                   // right
+  box(WW / 2, -20, WW, 40);                           // ceiling
+  box((CHUTE + WW) / 2, FLOOR + 20, WW - CHUTE, 40);  // floor (open above the chute)
+  box(CHUTE + 5, FLOOR - 45, 10, 90);                 // fence around the chute
+  box(CHUTE / 2, WH + 40, CHUTE + 40, 40);            // chute bottom (things leave via the sensor)
+  const sensor = ground.createFixture(planck.Box((CHUTE - 4) / 2 / SC, 10 / SC, V(CHUTE / 2, FLOOR + 60), 0), { isSensor: true });
+  world.on('begin-contact', c => {
+    const a = c.getFixtureA(), b = c.getFixtureB();
+    const other = a === sensor ? b : b === sensor ? a : null;
+    const p = other && other.getBody();
+    if (p && p.spr && !p.got) { p.got = 1; won++; winSound(); }
+  });
+  // world-unit bounding box of a body
+  function aabb(b) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let f = b.getFixtureList(); f; f = f.getNext()) {
+      const bb = f.getAABB(0);
+      x0 = Math.min(x0, bb.lowerBound.x); y0 = Math.min(y0, bb.lowerBound.y);
+      x1 = Math.max(x1, bb.upperBound.x); y1 = Math.max(y1, bb.upperBound.y);
+    }
+    return { x0: x0 * SC, y0: y0 * SC, x1: x1 * SC, y1: y1 * SC };
   }
-  const ARM_L = 63, PIV = 17;
-  const claw = { x: HOME, wire: 44, state: 'idle', t: 0, close: 0, dir: 0, target: null, armed: 0 };
-  const head = Bodies.rectangle(HOME, RAIL + claw.wire, 34, 20, { isStatic: true, collisionFilter: { group: CLAW }, label: 'head', chamfer: { radius: 5 } });
+
+  // claw: kinematic head driven by the motor, two arms on hinge joints whose motors have limited torque
+  const ARM_L = 63, PIV = 17, CLAW = -1;
+  const OPEN = 0.72, SHUT = -0.2;
+  const GRIP = 90, OPEN_T = 120;   // motor torque (N m): how hard the arms squeeze / open
+  const claw = { x: HOME, wire: 44, state: 'idle', t: 0, close: 0, wide: 0, dir: 0, target: null };
+  const head = world.createKinematicBody({ position: V(HOME, RAIL + claw.wire) });
+  head.createFixture(planck.Box(17 / SC, 10 / SC), { filterGroupIndex: CLAW });
   function makeArm(side) {
-    const px = HOME + side * PIV, py = RAIL + claw.wire + 7;
-    // drawn in the closed pose: two pieces, out from the pivot then a claw bending in, its tip pointing nearly straight down
-    const P = [[0, 0], [-26, 30], [-4, 64]].map(([x, y]) => ({ x: px - side * x, y: py + y }));
-    const seg = (a, b, w) => {
-      const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy), nx = -dy / L * w / 2, ny = dx / L * w / 2;
-      const ex = dx / L * w / 2, ey = dy / L * w / 2;   // overlap the joints a little
-      const vs = [{ x: a.x + nx - ex, y: a.y + ny - ey }, { x: b.x + nx + ex, y: b.y + ny + ey }, { x: b.x - nx + ex, y: b.y - ny + ey }, { x: a.x - nx - ex, y: a.y - ny - ey }];
-      return Body.create({ position: Vertices.centre(vs), vertices: Vertices.clockwiseSort(vs) });
-    };
-    const parts = [seg(P[0], P[1], 6), seg(P[1], P[2], 6)];
-    const arm = Body.create({ parts, collisionFilter: { group: CLAW }, friction: 1, frictionStatic: 2, density: 0.004, label: 'arm' });
-    fixInertia(arm);
-    Body.setMass(arm, 2.5);   // heavy metal arms
-    const c = Constraint.create({ bodyA: head, pointA: { x: side * PIV, y: 7 }, bodyB: arm, pointB: { x: px - arm.position.x, y: py - arm.position.y }, stiffness: 0.7, length: 0 });
-    arm.side = side;
-    Composite.add(world, [arm, c]);
+    const pv = V(HOME + side * PIV, RAIL + claw.wire + 7);
+    const arm = world.createDynamicBody({ position: pv, bullet: true, angularDamping: 1 });
+    // drawn in the closed pose: out from the pivot, then a claw bending in (a "<" shape) with room for a prize inside
+    const P = [[0, 0], [-26, 30], [-4, 64]].map(([x, y]) => ({ x: -side * x, y }));
+    for (const [a, b] of [[P[0], P[1]], [P[1], P[2]]]) {
+      const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy), w = 6;
+      const nx = -dy / L * w / 2, ny = dx / L * w / 2, ex = dx / L * w / 2, ey = dy / L * w / 2;
+      const vs = [[a.x + nx - ex, a.y + ny - ey], [b.x + nx + ex, b.y + ny + ey], [b.x - nx + ex, b.y - ny + ey], [a.x - nx - ex, a.y - ny - ey]];
+      arm.createFixture(planck.Polygon(vs.map(([x, y]) => planck.Vec2(x / SC, y / SC))), { density: 8, friction: 1, filterGroupIndex: CLAW });
+    }
+    // angles: positive = open for the left arm, so the right arm is mirrored
+    const lo = SHUT - 0.25, hi = OPEN + 0.3;
+    const joint = world.createJoint(planck.RevoluteJoint({
+      enableMotor: true, maxMotorTorque: OPEN_T, enableLimit: true,
+      lowerAngle: side < 0 ? lo : -hi, upperAngle: side < 0 ? hi : -lo,
+    }, head, arm, pv));
+    arm.side = side; arm.joint = joint;
     return arm;
   }
   const arms = [makeArm(-1), makeArm(1)];
-  Composite.add(world, head);
-  const OPEN = 0.72, SHUT = -0.2;
+  let lastFr = -1;
   function driveArms() {
-    const target = claw.close ? SHUT : claw.wide ? OPEN + 0.15 : OPEN;
-    // slippery while letting go, so prizes don't hang on the arms over the chute
-    const fr = claw.close ? 1 : 0.02;
-    for (const a of arms) for (const p of a.parts) { p.friction = fr; p.frictionStatic = claw.close ? 2 : 0; }
+    const target = claw.close ? SHUT : claw.wide ? OPEN + 0.25 : OPEN;
     for (const a of arms) {
-      // relative angle, positive = open for both arms
-      const ang = -a.side * a.angle, av = -a.side * a.angularVelocity;
-      const lim = claw.close ? 0.009 : 0.006;     // weak grip, like the real thing
-      const acc = Math.max(-lim, Math.min(lim, (target - ang) * 0.035 - av * 0.3));
-      a.torque += -a.side * acc * a.inertia / 16.67 ** 2;
-      // hinge stops
-      const hi = OPEN + (claw.wide ? 0.3 : 0.15), lo = SHUT - 0.25;
-      if (ang > hi) Body.setAngularVelocity(a, -a.side * Math.min(av, (hi - ang) * 0.3));
-      else if (ang < lo) Body.setAngularVelocity(a, -a.side * Math.max(av, (lo - ang) * 0.3));
+      const ang = -a.side * a.joint.getJointAngle();
+      a.joint.setMotorSpeed(-a.side * Math.max(-5, Math.min(5, (target - ang) * 10)));
+      a.joint.setMaxMotorTorque(claw.close ? GRIP : OPEN_T);
+    }
+    // slippery while letting go, so prizes don't hang on the arms over the chute
+    const fr = claw.close ? 1 : 0.05;
+    if (fr !== lastFr) {
+      lastFr = fr;
+      for (const a of arms) {
+        for (let f = a.getFixtureList(); f; f = f.getNext()) f.setFriction(fr);
+        for (let ce = a.getContactList(); ce; ce = ce.next) ce.contact.resetFriction();
+      }
     }
   }
 
   // prizes
   let prizes = [];
+  const area = vs => { let s = 0; for (let i = 0; i < vs.length; i++) { const u = vs[i], v = vs[(i + 1) % vs.length]; s += u.x * v.y - v.x * u.y; } return Math.abs(s) / 2; };
   function spawn(item, x, y, scale) {
     const f = scale * 72 / Math.max(item.sprite.width, item.sprite.height);
     const cx = item.sprite.width / 2, cy = item.sprite.height / 2;
-    const parts = item.pieces.map(p => {
-      const vs = p.map(v => ({ x: x + (v.x - cx) * f, y: y + (v.y - cy) * f }));
-      return Body.create({ position: Vertices.centre(vs), vertices: Vertices.clockwiseSort(vs) });
-    });
-    const b = Body.create({ parts, friction: 0.7, frictionStatic: 1, restitution: 0.05, density: 0.0012, label: 'prize' });
-    fixInertia(b);
-    Body.setAngle(b, 0);
-    b.spr = { item, f, ox: x - cx * f - b.position.x, oy: y - cy * f - b.position.y };
-    Body.rotate(b, (Math.random() - 0.5) * 0.8);
-    Composite.add(world, b);
+    const b = world.createDynamicBody({ position: V(x, y), angle: (Math.random() - 0.5) * 0.8, bullet: true });
+    for (const p of item.pieces) {
+      // planck polygons hold at most 12 points: fan a bigger convex piece into chunks
+      for (let i = 1; i < p.length - 1; i += 10) {
+        const chunk = [p[0]].concat(p.slice(i, i + 11));
+        const vs = chunk.map(v => planck.Vec2((v.x - cx) * f / SC, (v.y - cy) * f / SC));
+        if (vs.length < 3 || area(vs) < 0.01) continue;
+        b.createFixture(planck.Polygon(vs), { density: 1, friction: 0.7, restitution: 0.05 });
+      }
+    }
+    if (!b.getFixtureList()) b.createFixture(planck.Box(cx * f / SC, cy * f / SC), { density: 1, friction: 0.7 });
+    b.spr = { item, f, ox: -cx * f, oy: -cy * f };
     prizes.push(b);
     while (prizes.length > 40) removePrize(prizes[0]);
     return b;
   }
-  function removePrize(b) { Composite.remove(world, b); prizes = prizes.filter(p => p !== b); }
+  function removePrize(b) { world.destroyBody(b); prizes = prizes.filter(p => p !== b); }
   function dropIn(item, scale) {
     spawn(item, CHUTE + 60 + Math.random() * (WW - CHUTE - 100), 70, scale || 0.75 + Math.random() * 0.45);
     tone(700, 300, 0.15, 'triangle', 0.12);
   }
-  Events.on(engine, 'collisionStart', ev => {
-    for (const p of ev.pairs) {
-      const a = p.bodyA.parent, b = p.bodyB.parent;
-      const prize = a.label === 'prize' ? a : b.label === 'prize' ? b : null;
-      if (prize && (a === sensor || b === sensor) && !prize.got) {
-        prize.got = 1; won++; updateCount(); winSound();
-      }
-    }
-  });
 
   // claw sequence
   const SPEED = 4.5, WIRE_TOP = 44, WIRE_MAX = FLOOR - RAIL - ARM_L - 22;
@@ -446,26 +455,23 @@
     claw.t++;
     if (st === 'idle') {
       if (claw.target !== null) {
-        // drag: the motor follows the finger, letting go drops the claw where it stops
+        // drag: the motor follows the finger
         const d = claw.target - claw.x;
         if (Math.abs(d) > 0.5) { claw.x += Math.max(-SPEED * 1.6, Math.min(SPEED * 1.6, d)); hum(); }
-        else if (claw.armed) { claw.armed = 0; claw.target = null; grab(); }
       } else if (claw.dir) { claw.x = Math.max(HOME, Math.min(WW - 72, claw.x + claw.dir * SPEED)); hum(); }
     } else if (st === 'down') {
-      // fast in the air, slow near the prizes so the arms push them instead of passing through
-      const lo = Math.max(arms[0].bounds.max.y, arms[1].bounds.max.y);
-      const x0 = Math.min(arms[0].bounds.min.x, arms[1].bounds.min.x), x1 = Math.max(arms[0].bounds.max.x, arms[1].bounds.max.x);
-      const near = prizes.some(b => b.bounds.max.x > x0 && b.bounds.min.x < x1 && b.bounds.min.y - lo < 24);
-      claw.wire += claw.hitT ? 2 : near ? 2.5 : 7;
-      // stop once the arm tips are pressed on something
-      const pp = prizes.flatMap(b => b.parts.slice(1));
-      const hit = arms.some(a => a.parts.slice(1).some(q => Query.collides(q, pp).length));
+      // fast in the air, slower near the prizes so they get pushed rather than hit
+      const A = arms.map(aabb), lo = Math.max(A[0].y1, A[1].y1), x0 = Math.min(A[0].x0, A[1].x0), x1 = Math.max(A[0].x1, A[1].x1);
+      const near = prizes.some(b => { const B = aabb(b); return B.x1 > x0 && B.x0 < x1 && B.y0 - lo < 24; });
+      claw.wire += claw.hitT ? 2.5 : near ? 4 : 7;
+      // stop once the arms are pressed on something
+      const hit = arms.some(a => { for (let ce = a.getContactList(); ce; ce = ce.next) if (ce.contact.isTouching() && ce.other.spr) return true; return false; });
       if (hit) claw.hitT = (claw.hitT || 0) + 1;
-      if (claw.wire >= WIRE_MAX || claw.hitT > 18) { claw.wire = Math.min(claw.wire, WIRE_MAX); go('close'); }
+      if (claw.wire >= WIRE_MAX || claw.hitT > 14) { claw.wire = Math.min(claw.wire, WIRE_MAX); go('close'); }
       hum();
     } else if (st === 'close') {
       claw.close = 1;
-      if (claw.t > 45) { go('up'); tone(300, 500, 0.2, 'sawtooth', 0.05); }
+      if (claw.t > 35) { go('up'); tone(300, 500, 0.2, 'sawtooth', 0.05); }
     } else if (st === 'up') {
       claw.wire -= 6;
       if (claw.wire <= WIRE_TOP) { claw.wire = WIRE_TOP; go('home'); }
@@ -479,7 +485,9 @@
       if (claw.t === 1) tone(500, 300, 0.2, 'sawtooth', 0.05);
       if (claw.t > 70) { claw.wide = 0; go('idle'); }
     }
-    Body.setPosition(head, { x: claw.x, y: RAIL + claw.wire });
+    // the head is moved with a velocity, so the solver sees the motion and pushes things properly
+    const p = head.getPosition();
+    head.setLinearVelocity(planck.Vec2((claw.x / SC - p.x) / DT, ((RAIL + claw.wire) / SC - p.y) / DT));
     updateGrab();
   }
   function go(s) { claw.state = s; claw.t = 0; claw.hitT = 0; }
@@ -527,8 +535,8 @@
     // prizes (hidden once they fall below the cabinet)
     ctx.save(); ctx.beginPath(); ctx.rect(-12, -14, WW + 24, VIEW_H + 10); ctx.clip();
     for (const b of prizes) {
-      const sp = b.spr;
-      ctx.save(); ctx.translate(b.position.x, b.position.y); ctx.rotate(b.angle);
+      const sp = b.spr, q = b.getPosition();
+      ctx.save(); ctx.translate(q.x * SC, q.y * SC); ctx.rotate(b.getAngle());
       if (b.got) ctx.globalAlpha = 0.9;
       ctx.drawImage(sp.item.sprite, sp.ox, sp.oy, sp.item.sprite.width * sp.f, sp.item.sprite.height * sp.f);
       ctx.restore();
@@ -536,17 +544,16 @@
     ctx.restore();
     // wire + claw
     ctx.strokeStyle = '#8b8b9c'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(claw.x, RAIL); ctx.lineTo(head.position.x, head.position.y); ctx.stroke();
-    ctx.fillStyle = '#9a9aac'; ctx.fillRect(claw.x - 16, RAIL - 12, 32, 12);
+    const hp = head.getPosition(), hx = hp.x * SC, hy = hp.y * SC;
+    ctx.beginPath(); ctx.moveTo(hx, RAIL); ctx.lineTo(hx, hy); ctx.stroke();
+    ctx.fillStyle = '#9a9aac'; ctx.fillRect(hx - 16, RAIL - 12, 32, 12);
     for (const a of arms) {
-      for (const p of a.parts.slice(1)) {
-        ctx.beginPath(); p.vertices.forEach((v, i) => i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)); ctx.closePath();
-        ctx.fillStyle = '#c8ccd8'; ctx.fill(); ctx.strokeStyle = '#6e7286'; ctx.lineWidth = 1.5; ctx.stroke();
-      }
+      ctx.fillStyle = '#c8ccd8'; ctx.strokeStyle = '#6e7286'; ctx.lineWidth = 1.5;
+      fixturePaths(a, () => { ctx.fill(); ctx.stroke(); });
     }
-    ctx.beginPath(); head.vertices.forEach((v, i) => i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)); ctx.closePath();
-    ctx.fillStyle = '#e0e2ec'; ctx.fill(); ctx.strokeStyle = '#6e7286'; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = '#ff7eb0'; ctx.beginPath(); ctx.arc(head.position.x, head.position.y, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#e0e2ec'; ctx.strokeStyle = '#6e7286'; ctx.lineWidth = 2;
+    roundRect(ctx, hx - 17, hy - 10, 34, 20, 5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ff7eb0'; ctx.beginPath(); ctx.arc(hx, hy, 4, 0, Math.PI * 2); ctx.fill();
     // glass shine
     ctx.fillStyle = 'rgba(255,255,255,0.25)';
     ctx.beginPath(); ctx.moveTo(WW - 70, 0); ctx.lineTo(WW - 40, 0); ctx.lineTo(WW - 130, FLOOR); ctx.lineTo(WW - 160, FLOOR); ctx.fill();
@@ -557,12 +564,17 @@
     }
     if (DEBUG) {
       ctx.strokeStyle = '#0a0'; ctx.lineWidth = 1;
-      for (const b of prizes) for (const p of b.parts.slice(1)) {
-        ctx.beginPath(); p.vertices.forEach((v, i) => i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)); ctx.closePath(); ctx.stroke();
-      }
+      for (const b of prizes) fixturePaths(b, () => ctx.stroke());
     }
   }
   const DEBUG = /debug/.test(location.hash);
+  function fixturePaths(b, paint) {
+    for (let f = b.getFixtureList(); f; f = f.getNext()) {
+      ctx.beginPath();
+      f.getShape().m_vertices.forEach((v, i) => { const w = b.getWorldPoint(v); i ? ctx.lineTo(w.x * SC, w.y * SC) : ctx.moveTo(w.x * SC, w.y * SC); });
+      ctx.closePath(); paint();
+    }
+  }
   let tmpC = null;
   function paintTmp() {
     if (!tmpC || tmpC.width !== img.width || tmpC.height !== img.height) {
@@ -579,18 +591,16 @@
     g.fillRect(0, 0, tmpC.width, tmpC.height);
     return tmpC;
   }
-  function updateCount() { /* drawn on the canvas */ }
 
   // ---------- loop ----------
   let lastT = performance.now(), acc = 0, queue = [];
   function tick() {
     clawStep();
-    driveArms();
-    Engine.update(engine, 1000 / 60);
+    for (let i = 0; i < SUB; i++) { driveArms(); world.step(DT / SUB, 10, 4); }
     if (queue.length && --queue[0].wait <= 0) { const q = queue.shift(); dropIn(q.item, q.scale); }
     for (const b of prizes.slice()) {
       if (b.got && ++b.got > 70) removePrize(b);
-      else if (b.position.y > WH + 200) removePrize(b);
+      else if (b.getPosition().y * SC > WH + 200) removePrize(b);
     }
   }
   function loop(now) {
@@ -612,7 +622,7 @@
       if (claw.state !== 'idle' || drag) return;
       cv.setPointerCapture(e.pointerId);
       drag = { id: e.pointerId, x0: e.clientX, c0: claw.target ?? claw.x };
-      claw.armed = 0; claw.dir = 0;
+      claw.dir = 0;
       return;
     }
     if (mode !== 'paint') return;
@@ -760,7 +770,7 @@
   new ResizeObserver(resize).observe($('stage'));
   resize();
   requestAnimationFrame(loop);
-  window.__kc = { engine, arms, claw, prizes: () => prizes, items, addItem, grab, setMode, get won() { return won; } };
+  window.__kc = { world, arms, claw, prizes: () => prizes, items, addItem, grab, setMode, get won() { return won; } };
 })();
 </script>
 </body>
