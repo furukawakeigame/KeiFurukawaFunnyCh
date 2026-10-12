@@ -38,6 +38,18 @@
     .bar .pill svg { width: 26px; height: 26px; }
     .main { background: #6a3348 !important; color: #fff6f8 !important; }
     #file { display: none; }
+    #crop {
+      position: fixed; inset: 0; background: rgba(60,25,40,.88); display: none;
+      flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom)); box-sizing: border-box;
+    }
+    #crop.on { display: flex; }
+    #cropcv { touch-action: none; cursor: crosshair; }
+    #crop .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; padding: 0 8px; }
+    #crop .pill { height: 44px; border-radius: 22px; padding: 0 16px; font-size: 16px; }
+    #crop .pill.on { background: #ff6f91; border-color: #ff6f91; color: #fff; }
+    #crop .pill:disabled { opacity: .4; }
+    .dot { display: block; border-radius: 50%; background: currentColor; }
     #err { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 20px; }
   </style>
 </head>
@@ -55,6 +67,16 @@
     <button id="reset" class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.5-5.8"/><path d="M4 4v5h5"/></svg></button>
   </div>
   <input type="file" id="file" accept="image/*">
+  <div id="crop">
+    <canvas id="cropcv"></canvas>
+    <div class="row">
+      <button id="brush" class="pill" aria-label="brush"><span class="dot"></span></button>
+      <button id="erase" class="pill"></button>
+      <button id="undo" class="pill"></button>
+      <button id="all" class="pill"></button>
+    </div>
+    <div class="row"><button id="cancel" class="pill"></button><button id="ok" class="pill main" disabled></button></div>
+  </div>
 
 <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
 <script>
@@ -72,8 +94,8 @@ const store = {
 
 // ---- 言語 ----
 const L = {
-  ja: { title: 'ぷにぷに画像', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English', pick: '画像をえらぶ', reset: '元に戻す', sound: '音のオン/オフ' },
-  en: { title: 'Squishy Image', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え', pick: 'Pick image', reset: 'Reset', sound: 'Sound on/off' }
+  ja: { title: 'ぷにぷに画像', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English', pick: '画像をえらぶ', reset: '元に戻す', ok: 'できた', cancel: 'やめる', erase: '消す', undo: '戻す', all: '全体', sound: '音のオン/オフ' },
+  en: { title: 'Squishy Image', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え', pick: 'Pick image', reset: 'Reset', ok: 'Done', cancel: 'Cancel', erase: 'Erase', undo: 'Undo', all: 'All', sound: 'Sound on/off' }
 };
 let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
 if (!L[lang]) lang = 'ja';
@@ -85,6 +107,7 @@ function applyLang() {
   $('sound').setAttribute('aria-label', t('sound'));
   $('pick').setAttribute('aria-label', t('pick')); $('pick').title = t('pick');
   $('reset').setAttribute('aria-label', t('reset')); $('reset').title = t('reset');
+  for (const k of ['ok', 'cancel', 'erase', 'undo', 'all']) $(k).textContent = t(k);
 }
 $('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
 applyLang();
@@ -148,42 +171,146 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0xffc4d2, 1.6));
 const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(2, 3, 5); scene.add(sun);
 const group = new THREE.Group(); scene.add(group);
 
-const SEG = 48, DEPTH = 0.55;
-let mesh, geo, rest, disp, vel, normals, tex;
-const sideMat = new THREE.MeshStandardMaterial({ color: 0xfff1f4, roughness: .55 });
-const faceMat = new THREE.MeshStandardMaterial({ roughness: .45 });
-const backMat = new THREE.MeshStandardMaterial({ roughness: .5, color: 0xffd9e2 });
+let nbStart, nbList, mesh, geo, rest, restN, disp, vel, tex, size = 3;
+const mat = new THREE.MeshStandardMaterial({ roughness: .45 });
+
+// 透明部分に周りの色をにじませる（ふちの継ぎ目が黒くならないように）
+function bleed(img) {
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff1f4'; g.fillRect(0, 0, c.width, c.height);
+  for (const r of [16, 8, 3]) { g.filter = `blur(${r * c.width / 512}px)`; g.drawImage(img, 0, 0); g.drawImage(img, 0, 0); }
+  g.filter = 'none'; g.drawImage(img, 0, 0);
+  return c;
+}
+
+// 画像の形（透明でない部分）に沿って、ふくらんだメッシュを作る
+function makeShape(img) {
+  const aspect = img.width / img.height;
+  const W = aspect >= 1 ? 3 : 3 * aspect, H = aspect >= 1 ? 3 / aspect : 3;
+  const G = 72, nx = Math.max(4, Math.round(aspect >= 1 ? G : G * aspect)), ny = Math.max(4, Math.round(aspect >= 1 ? G / aspect : G));
+  const cs = W / nx; // 1マスの大きさ
+  // 形の判定
+  const S = 4, mc = document.createElement('canvas'); mc.width = nx * S; mc.height = ny * S;
+  const mg = mc.getContext('2d'); mg.drawImage(img, 0, 0, mc.width, mc.height);
+  const ad = mg.getImageData(0, 0, mc.width, mc.height).data;
+  let opaque = true;
+  for (let i = 3; i < ad.length; i += 16) if (ad[i] < 250) { opaque = false; break; }
+  const VX = nx + 1, VY = ny + 1, inside = new Uint8Array(VX * VY);
+  const rr = Math.min(nx, ny) * 0.22;
+  for (let y = 0; y < VY; y++) for (let x = 0; x < VX; x++) {
+    let ok;
+    if (opaque) { // 不透明な画像は角の丸い四角
+      const dx = Math.max(0, Math.abs(x - nx / 2) - (nx / 2 - rr)), dy = Math.max(0, Math.abs(y - ny / 2) - (ny / 2 - rr));
+      ok = dx * dx + dy * dy <= rr * rr;
+    } else {
+      const px = Math.min(mc.width - 1, Math.max(0, Math.round(x * S - 0.5))), py = Math.min(mc.height - 1, Math.max(0, Math.round(y * S - 0.5)));
+      ok = ad[(py * mc.width + px) * 4 + 3] > 110;
+    }
+    inside[y * VX + x] = ok ? 1 : 0;
+  }
+  // 三角形
+  const tris = [], id = (x, y) => y * VX + x;
+  for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) {
+    const a = id(x, y), b = id(x + 1, y), c = id(x, y + 1), d = id(x + 1, y + 1);
+    const ia = inside[a], ib = inside[b], ic = inside[c], idd = inside[d], n = ia + ib + ic + idd;
+    if (n === 4) { tris.push(a, c, b, b, c, d); }
+    else if (n === 3) {
+      if (!ia) tris.push(b, c, d); else if (!ib) tris.push(a, c, d); else if (!ic) tris.push(a, d, b); else tris.push(a, c, b);
+    }
+  }
+  if (!tris.length) return null;
+  // ふちの頂点（1つの三角形にしか使われていない辺）
+  const ec = new Map(), ek = (i, j) => i < j ? i * 1e6 + j : j * 1e6 + i;
+  for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) {
+    const key = ek(tris[t + k], tris[t + (k + 1) % 3]); ec.set(key, (ec.get(key) || 0) + 1);
+  }
+  const used = new Uint8Array(VX * VY), border = new Uint8Array(VX * VY), bnb = new Map();
+  for (const i of tris) used[i] = 1;
+  for (const [key, n] of ec) if (n === 1) {
+    const i = Math.floor(key / 1e6), j = key % 1e6; border[i] = border[j] = 1;
+    (bnb.get(i) || bnb.set(i, []).get(i)).push(j); (bnb.get(j) || bnb.set(j, []).get(j)).push(i);
+  }
+  // ふちからの距離
+  const dist = new Float32Array(VX * VY).fill(1e9), q = [];
+  for (let i = 0; i < VX * VY; i++) if (border[i]) { dist[i] = 0; q.push(i); }
+  for (let it = 0; it < 2; it++) for (const pass of [1, -1]) { // 2方向の距離変換
+    const ys = pass > 0 ? [0, VY, 1] : [VY - 1, -1, -1], xs = pass > 0 ? [0, VX, 1] : [VX - 1, -1, -1];
+    for (let y = ys[0]; y !== ys[1]; y += ys[2]) for (let x = xs[0]; x !== xs[1]; x += xs[2]) {
+      const i = id(x, y); if (!used[i]) continue;
+      for (const [ox, oy, w] of [[-1, 0, 1], [0, -1, 1], [-1, -1, 1.414], [1, -1, 1.414]]) {
+        const X = x + ox * pass, Y = y + oy * pass; if (X < 0 || Y < 0 || X >= VX || Y >= VY) continue;
+        const j = id(X, Y); if (used[j] && dist[j] + w < dist[i]) dist[i] = dist[j] + w;
+      }
+    }
+  }
+  // 平面上の位置（ふちのギザギザをなめらかにする）
+  const px = new Float32Array(VX * VY), py = new Float32Array(VX * VY);
+  for (let y = 0; y < VY; y++) for (let x = 0; x < VX; x++) { const i = id(x, y); px[i] = (x - nx / 2) * cs; py[i] = (ny / 2 - y) * cs; }
+  for (let it = 0; it < 14; it++) {
+    const nxp = Float32Array.from(px), nyp = Float32Array.from(py);
+    for (const [i, nb] of bnb) {
+      if (nb.length !== 2) continue;
+      nxp[i] = px[i] * 0.5 + (px[nb[0]] + px[nb[1]]) * 0.25; nyp[i] = py[i] * 0.5 + (py[nb[0]] + py[nb[1]]) * 0.25;
+    }
+    px.set(nxp); py.set(nyp);
+  }
+  // 厚み: ふちは丸く、まん中はほんのり球
+  let dmax = 0; for (let i = 0; i < VX * VY; i++) if (used[i] && dist[i] > dmax) dmax = dist[i];
+  const R = 0.32, dm = Math.max(1e-6, dmax * cs);
+  const hOf = i => {
+    const d = dist[i] * cs, t = Math.min(1, d / R);
+    const dn = d / dm;
+    return R * 0.85 * Math.sqrt(1 - (1 - t) * (1 - t)) + 0.32 * Math.min(1, dm / 1.2) * dn * (2 - dn);
+  };
+  // 厚みをならす（ギザギザ防止）
+  const hv = new Float32Array(VX * VY), adj = Array.from({ length: VX * VY }, () => []);
+  for (let i = 0; i < VX * VY; i++) if (used[i] && !border[i]) hv[i] = hOf(i);
+  for (const key of ec.keys()) { const i = Math.floor(key / 1e6), j = key % 1e6; adj[i].push(j); adj[j].push(i); }
+  for (let it = 0; it < 4; it++) {
+    const nh = Float32Array.from(hv);
+    for (let i = 0; i < VX * VY; i++) if (used[i] && !border[i]) { let m = 0; for (const j of adj[i]) m += hv[j]; nh[i] = hv[i] * 0.5 + m / adj[i].length * 0.5; }
+    hv.set(nh);
+  }
+  // 頂点（表と裏、ふちは共有）
+  const pos = [], uv = [], front = new Int32Array(VX * VY).fill(-1), back = new Int32Array(VX * VY).fill(-1);
+  const add = (i, z) => { pos.push(px[i], py[i], z); uv.push(px[i] / W + 0.5, py[i] / H + 0.5); return pos.length / 3 - 1; };
+  for (let i = 0; i < VX * VY; i++) if (used[i]) {
+    if (border[i]) front[i] = back[i] = add(i, 0);
+    else { const h = hv[i]; front[i] = add(i, h); back[i] = add(i, -h); }
+  }
+  const idx = [];
+  for (let t = 0; t < tris.length; t += 3) {
+    const a = tris[t], b = tris[t + 1], c = tris[t + 2];
+    idx.push(front[a], front[b], front[c], back[a], back[c], back[b]);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  g.userData.size = Math.max(W, H);
+  return g;
+}
 
 function build(img) {
-  const aspect = (img.width || 1) / (img.height || 1);
-  const W = aspect >= 1 ? 3 : 3 * aspect, H = aspect >= 1 ? 3 / aspect : 3;
+  const g = makeShape(img); if (!g) return;
   if (mesh) { group.remove(mesh); geo.dispose(); }
   if (tex) tex.dispose();
-  tex = new THREE.Texture(img); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; tex.needsUpdate = true;
-  faceMat.map = tex; faceMat.needsUpdate = true;
-  geo = new THREE.BoxGeometry(2, 2, 2, SEG, SEG, 8);
-  const p = geo.attributes.position, n = 4; // 丸みのある箱（超楕円体）
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    const r = Math.pow(Math.abs(x) ** n + Math.abs(y) ** n + Math.abs(z) ** 2.4, 1 / n) || 1;
-    const k = 1 / r;
-    p.setXYZ(i, x * k * W / 2, y * k * H / 2, z * k * DEPTH / 2);
-  }
-  // 表面を少しふくらませる（ほんのり球）
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i) / (W / 2), y = p.getY(i) / (H / 2), z = p.getZ(i);
-    const b = Math.max(0, 1 - (x * x + y * y) * 0.7);
-    p.setZ(i, z * (1 + b * 0.9));
-  }
-  rest = Float32Array.from(p.array);
-  disp = new Float32Array(p.count * 3); vel = new Float32Array(p.count * 3);
-  geo.computeVertexNormals();
-  normals = Float32Array.from(geo.attributes.normal.array);
-  mesh = new THREE.Mesh(geo, [sideMat, sideMat, sideMat, sideMat, faceMat, backMat]);
+  tex = new THREE.CanvasTexture(bleed(img)); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  mat.map = tex; mat.needsUpdate = true;
+  geo = g; size = g.userData.size;
+  rest = Float32Array.from(geo.attributes.position.array);
+  restN = Float32Array.from(geo.attributes.normal.array);
+  disp = new Float32Array(rest.length); vel = new Float32Array(rest.length);
+  const N = rest.length / 3, ix = geo.index.array, sets = Array.from({ length: N }, () => new Set());
+  for (let t = 0; t < ix.length; t += 3) for (let k = 0; k < 3; k++) { const p = ix[t + k], q = ix[t + (k + 1) % 3]; sets[p].add(q); sets[q].add(p); }
+  nbStart = new Int32Array(N + 1); const L = [];
+  for (let i = 0; i < N; i++) { nbStart[i] = L.length; for (const j of sets[i]) L.push(j); }
+  nbStart[N] = L.length; nbList = Int32Array.from(L);
+  mesh = new THREE.Mesh(geo, mat);
   group.add(mesh);
-  size = Math.max(W, H);
 }
-let size = 3;
 
 function resize() {
   const w = cv.clientWidth, h = cv.clientHeight;
@@ -220,19 +347,23 @@ cv.addEventListener('pointerdown', e => {
   }
   if (pointers.size > 2) return;
   setNdc(e); ray.setFromCamera(ndc, camera);
+  if (geo) geo.computeBoundingSphere();
   const hit = e.button === 0 && mesh ? ray.intersectObject(mesh)[0] : null;
   if (hit) {
-    const local = mesh.worldToLocal(hit.point.clone());
     const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(camDir.negate(), hit.point);
-    // 各頂点の重み
-    const p = geo.attributes.position, R = size * 0.28, w = new Float32Array(p.count);
-    for (let i = 0; i < p.count; i++) {
-      const dx = p.array[i * 3] - local.x, dy = p.array[i * 3 + 1] - local.y, dz = p.array[i * 3 + 2] - local.z;
+    // 元の形の上での距離で重みを決める（変形していても形がくずれない）
+    const h = hit.face.a * 3, hx = rest[h], hy = rest[h + 1], hz = rest[h + 2];
+    const ln = new THREE.Vector3(restN[h], restN[h + 1], restN[h + 2]);
+    const N = rest.length / 3, R = Math.max(0.45, size * 0.24), w = new Float32Array(N), sp = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      const dx = rest[i * 3] - hx, dy = rest[i * 3 + 1] - hy, dz = rest[i * 3 + 2] - hz;
       w[i] = Math.exp(-(dx * dx + dy * dy + dz * dz) / (R * R));
+      // 押すときは触った側の面だけを凹ませる
+      const c = restN[i * 3] * ln.x + restN[i * 3 + 1] * ln.y + restN[i * 3 + 2] * ln.z;
+      const u = Math.min(1, Math.max(0, (c + 0.2) / 1.0)); sp[i] = u * u * (3 - 2 * u);
     }
-    const ln = hit.face.normal.clone(); // ローカル法線
-    grab = { id: e.pointerId, plane, start: hit.point.clone(), w, base: Float32Array.from(disp), press: 0, moved: 0, ln, sx: e.clientX, sy: e.clientY, cur: hit.point.clone() };
+    grab = { id: e.pointerId, plane, start: hit.point.clone(), w, sp, R, thick: Math.abs(hz) * 2, base: Float32Array.from(disp), press: 0, moved: 0, ln, sx: e.clientX, sy: e.clientY, cur: hit.point.clone() };
     puni(520, 260, 0.1);
   } else {
     rotating = { id: e.pointerId, x: e.clientX, y: e.clientY };
@@ -281,20 +412,31 @@ function step(dt) {
     inv.copy(mesh.matrixWorld).invert();
     const a = grab.start.clone().applyMatrix4(inv), b = grab.cur.clone().applyMatrix4(inv);
     const d = b.sub(a);
-    const len = d.length(), max = size * 0.9;
-    if (len > max) d.multiplyScalar(max / len);
+    // 引っ張りすぎて面が折り返さないよう、なめらかに頭打ちにする
+    const len = d.length(), max = grab.R * 1.05;
+    if (len > 1e-6) d.multiplyScalar(max * Math.tanh(len / max) / len);
     if (grab.moved < 8) grab.press = Math.min(1, grab.press + dt * 1.5);
     else grab.press = Math.max(0, grab.press - dt * 3);
-    const pd = grab.press * DEPTH * 1.1;
+    const pd = grab.press * Math.min(grab.R * 0.8, grab.thick * 0.7 + 0.05);
     const k = Math.min(1, dt * 18);
     for (let i = 0; i < N; i++) {
       const w = grab.w[i]; if (w < 0.002) continue;
-      const j = i * 3;
-      const tx = grab.base[j] + (d.x - grab.ln.x * pd) * w;
-      const ty = grab.base[j + 1] + (d.y - grab.ln.y * pd) * w;
-      const tz = grab.base[j + 2] + (d.z - grab.ln.z * pd) * w;
+      const j = i * 3, pw = pd * w * grab.sp[i];
+      const tx = grab.base[j] + d.x * w - grab.ln.x * pw;
+      const ty = grab.base[j + 1] + d.y * w - grab.ln.y * pw;
+      const tz = grab.base[j + 2] + d.z * w - grab.ln.z * pw;
       vel[j] = (tx - disp[j]) * k / dt; vel[j + 1] = (ty - disp[j + 1]) * k / dt; vel[j + 2] = (tz - disp[j + 2]) * k / dt;
     }
+  }
+  // となりの頂点とならす（しわ・とがりを防ぐ）
+  const a = 0.12;
+  for (let i = 0; i < N; i++) {
+    if (grab && grab.w[i] >= 0.002) continue;
+    const s0 = nbStart[i], s1 = nbStart[i + 1]; if (s1 === s0) continue;
+    let ax = 0, ay = 0, az = 0;
+    for (let k = s0; k < s1; k++) { const j = nbList[k] * 3; ax += disp[j]; ay += disp[j + 1]; az += disp[j + 2]; }
+    const n = s1 - s0, j = i * 3;
+    disp[j] += (ax / n - disp[j]) * a; disp[j + 1] += (ay / n - disp[j + 1]) * a; disp[j + 2] += (az / n - disp[j + 2]) * a;
   }
   // ゆっくり戻るばね（つかんでいない頂点）
   const K = 5, C = 3.2;
@@ -332,22 +474,135 @@ function loadDataURL(url) {
   return new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = url; });
 }
 async function setImage(img) { build(img); resize(); }
-$('pick').onclick = () => $('file').click();
+// ---- 切り抜き（指でなぞった所だけ残す） ----
+const cc = $('cropcv'), cx2 = cc.getContext('2d');
+let src = null, mask = null, mctx = null, tmpC = null, view = null, CW = 300, CH = 300;
+let brushIdx = 1, erasing = false, undoStack = [];
+const BRUSH = [8, 22, 50];
+$('pick').onclick = () => { $('file').value = ''; $('file').click(); };
 $('file').onchange = async () => {
   const f = $('file').files[0]; if (!f) return;
   const url = URL.createObjectURL(f);
   const im = await loadDataURL(url); URL.revokeObjectURL(url);
-  $('file').value = '';
   if (!im) return;
-  const s = Math.min(1, 1024 / Math.max(im.width, im.height));
-  const c = document.createElement('canvas'); c.width = Math.round(im.width * s); c.height = Math.round(im.height * s);
-  c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
-  let data = c.toDataURL('image/jpeg', 0.85);
-  if (!store.set('img', data)) { // 大きすぎるときはもう少し小さく
-    const c2 = document.createElement('canvas'); c2.width = c.width >> 1; c2.height = c.height >> 1;
-    c2.getContext('2d').drawImage(c, 0, 0, c2.width, c2.height); store.set('img', c2.toDataURL('image/jpeg', 0.8));
+  const k = Math.min(1, 1600 / Math.max(im.width, im.height));
+  src = document.createElement('canvas');
+  src.width = Math.max(1, Math.round(im.width * k)); src.height = Math.max(1, Math.round(im.height * k));
+  src.getContext('2d').drawImage(im, 0, 0, src.width, src.height);
+  mask = document.createElement('canvas'); mask.width = src.width; mask.height = src.height;
+  mctx = mask.getContext('2d', { willReadFrequently: true });
+  tmpC = document.createElement('canvas'); tmpC.width = src.width; tmpC.height = src.height;
+  undoStack = []; erasing = false; cptrs.clear(); cpinch = null;
+  $('crop').classList.add('on');
+  CW = Math.min(560, innerWidth - 24); CH = Math.max(160, innerHeight - 280);
+  const d = Math.min(2, devicePixelRatio || 1);
+  cc.width = CW * d; cc.height = CH * d; cc.style.width = CW + 'px'; cc.style.height = CH + 'px';
+  const fit = Math.min(CW / src.width, CH / src.height);
+  view = { k: fit, fit, x: (CW - src.width * fit) / 2, y: (CH - src.height * fit) / 2 };
+  updateTools(); drawCrop();
+};
+function drawCrop() {
+  const d = cc.width / CW, { k, x, y } = view, w = src.width * k, h = src.height * k;
+  cx2.setTransform(d, 0, 0, d, 0, 0);
+  cx2.clearRect(0, 0, CW, CH);
+  cx2.fillStyle = '#3a1f2b'; cx2.fillRect(x, y, w, h);
+  cx2.globalAlpha = 0.35; cx2.drawImage(src, x, y, w, h); cx2.globalAlpha = 1;
+  const g = tmpC.getContext('2d');
+  g.globalCompositeOperation = 'source-over';
+  g.clearRect(0, 0, tmpC.width, tmpC.height);
+  g.drawImage(mask, 0, 0);
+  g.globalCompositeOperation = 'source-in'; g.drawImage(src, 0, 0);
+  g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(255,111,145,.35)'; g.fillRect(0, 0, tmpC.width, tmpC.height);
+  cx2.drawImage(tmpC, x, y, w, h);
+}
+function maskBox() {
+  const dd = mctx.getImageData(0, 0, mask.width, mask.height).data;
+  let x0 = mask.width, y0 = mask.height, x1 = -1, y1 = -1;
+  for (let y = 0; y < mask.height; y++) for (let x = 0; x < mask.width; x++) {
+    if (dd[(y * mask.width + x) * 4 + 3] > 20) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
   }
-  setImage(c); puni(400, 800, 0.15);
+  return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+function updateTools() {
+  const sz = [8, 13, 20][brushIdx];
+  $('brush').firstChild.style.width = $('brush').firstChild.style.height = sz + 'px';
+  $('erase').classList.toggle('on', erasing);
+  $('undo').disabled = !undoStack.length;
+  $('ok').disabled = !undoStack.length || !maskBox();
+}
+const pushUndo = () => { undoStack.push(mctx.getImageData(0, 0, mask.width, mask.height)); if (undoStack.length > 20) undoStack.shift(); };
+$('brush').onclick = () => { brushIdx = (brushIdx + 1) % BRUSH.length; updateTools(); };
+$('erase').onclick = () => { erasing = !erasing; updateTools(); };
+$('undo').onclick = () => { const dd = undoStack.pop(); if (dd) mctx.putImageData(dd, 0, 0); updateTools(); drawCrop(); };
+$('all').onclick = () => { pushUndo(); mctx.fillStyle = '#000'; mctx.fillRect(0, 0, mask.width, mask.height); updateTools(); drawCrop(); };
+const toImg = e => { const r = cc.getBoundingClientRect(); return { x: (e.clientX - r.left - view.x) / view.k, y: (e.clientY - r.top - view.y) / view.k }; };
+function stroke(a, b) {
+  const lw = BRUSH[brushIdx] / view.k;
+  mctx.save();
+  mctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
+  mctx.strokeStyle = mctx.fillStyle = '#000';
+  mctx.lineCap = mctx.lineJoin = 'round'; mctx.lineWidth = lw;
+  mctx.beginPath(); mctx.moveTo(a.x, a.y); mctx.lineTo(b.x, b.y); mctx.stroke();
+  mctx.beginPath(); mctx.arc(b.x, b.y, lw / 2, 0, Math.PI * 2); mctx.fill();
+  mctx.restore();
+}
+const cptrs = new Map(); let cpinch = null, lastPt = null;
+const mid = (a, b) => { const r = cc.getBoundingClientRect(); return { x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top }; };
+cc.addEventListener('pointerdown', e => {
+  e.preventDefault(); cc.setPointerCapture(e.pointerId);
+  cptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (cptrs.size === 1) {
+    pushUndo(); lastPt = toImg(e); stroke(lastPt, lastPt); drawCrop();
+  } else if (cptrs.size === 2) {
+    // 2本目の指: 描きかけを取り消して拡大縮小に切り替える
+    if (lastPt) { const dd = undoStack.pop(); if (dd) mctx.putImageData(dd, 0, 0); lastPt = null; }
+    const [a, b] = [...cptrs.values()];
+    cpinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: mid(a, b), k0: view.k, x0: view.x, y0: view.y };
+    drawCrop();
+  }
+});
+cc.addEventListener('pointermove', e => {
+  if (!cptrs.has(e.pointerId)) return;
+  cptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (cpinch && cptrs.size >= 2) {
+    const [a, b] = [...cptrs.values()], m = mid(a, b);
+    const k = Math.max(view.fit, Math.min(view.fit * 12, cpinch.k0 * Math.hypot(a.x - b.x, a.y - b.y) / cpinch.d0));
+    view.x = m.x - (cpinch.m0.x - cpinch.x0) / cpinch.k0 * k;
+    view.y = m.y - (cpinch.m0.y - cpinch.y0) / cpinch.k0 * k;
+    view.k = k; drawCrop();
+  } else if (lastPt) { const p = toImg(e); stroke(lastPt, p); lastPt = p; drawCrop(); }
+});
+const cup = e => {
+  cptrs.delete(e.pointerId);
+  if (!cptrs.size) { cpinch = null; lastPt = null; updateTools(); }
+};
+cc.addEventListener('pointerup', cup); cc.addEventListener('pointercancel', cup);
+cc.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = cc.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const k = Math.max(view.fit, Math.min(view.fit * 12, view.k * Math.exp(-e.deltaY * 0.0015)));
+  view.x = mx - (mx - view.x) / view.k * k; view.y = my - (my - view.y) / view.k * k; view.k = k;
+  if (k <= view.fit * 1.001) { view.x = (CW - src.width * k) / 2; view.y = (CH - src.height * k) / 2; }
+  drawCrop();
+}, { passive: false });
+$('cancel').onclick = () => $('crop').classList.remove('on');
+$('ok').onclick = () => {
+  const b = maskBox(); if (!b) return;
+  const out = document.createElement('canvas');
+  const k = Math.min(1, 640 / Math.max(b.w, b.h));
+  out.width = Math.max(1, Math.round(b.w * k)); out.height = Math.max(1, Math.round(b.h * k));
+  const o = out.getContext('2d');
+  o.drawImage(src, b.x, b.y, b.w, b.h, 0, 0, out.width, out.height);
+  o.globalCompositeOperation = 'destination-in';
+  o.drawImage(mask, b.x, b.y, b.w, b.h, 0, 0, out.width, out.height);
+  $('crop').classList.remove('on');
+  // 保存（入りきらないときは小さくする）
+  let c = out;
+  while (!store.set('img', c.toDataURL('image/png')) && c.width > 64) {
+    const c2 = document.createElement('canvas'); c2.width = c.width >> 1; c2.height = c.height >> 1;
+    c2.getContext('2d').drawImage(c, 0, 0, c2.width, c2.height); c = c2;
+  }
+  setImage(out); rotX = -0.25; rotY = 0.35; rvX = rvY = 0; puni(400, 800, 0.15);
 };
 $('reset').onclick = () => {
   if (!disp) return;
