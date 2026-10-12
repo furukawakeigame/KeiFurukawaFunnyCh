@@ -344,7 +344,7 @@
   }
 
   // ---------- world (units: machine is 400 x 640; planck works in metres, 30 units = 1 m) ----------
-  const WW = 400, WH = 640, FLOOR = 540, CHUTE = 124, RAIL = 36, HOME = 62, SC = 30, DT = 1 / 60, SUB = 3;
+  const WW = 400, WH = 640, FLOOR = 540, CHUTE = 124, RAIL = 36, HOME = 62, SC = 30, DT = 1 / 60, SUB = 5;
   const V = (x, y) => planck.Vec2(x / SC, y / SC);
   const world = planck.World({ gravity: planck.Vec2(0, 10) });
   const ground = world.createBody();
@@ -396,7 +396,7 @@
       const j = a.joint, rel = a.getAngle() - head.getAngle();
       const lo = a.side < 0 ? ARM_LO : -ARM_HI, hi = a.side < 0 ? ARM_HI : -ARM_LO;
       const c = Math.max(lo, Math.min(hi, rel)), anc = j.getAnchorA(), p = a.getPosition();
-      if (c !== rel || Math.hypot(anc.x - p.x, anc.y - p.y) > 0.03) {
+      if (c !== rel || Math.hypot(anc.x - p.x, anc.y - p.y) > 0.2) {
         a.setTransform(anc, head.getAngle() + c);
         if (c !== rel) a.setAngularVelocity(0);
         a.setLinearVelocity(head.getLinearVelocity());
@@ -408,7 +408,8 @@
     const target = claw.close ? SHUT : claw.wide ? OPEN + 0.1 : OPEN;
     for (const a of arms) {
       const ang = -a.side * a.joint.getJointAngle();
-      a.joint.setMotorSpeed(-a.side * Math.max(-5, Math.min(5, (target - ang) * 10)));
+      const vmax = claw.close ? 2.5 : 5;   // close gently so a prize pinned on the floor is squeezed, not crushed
+      a.joint.setMotorSpeed(-a.side * Math.max(-vmax, Math.min(vmax, (target - ang) * 10)));
       a.joint.setMaxMotorTorque(claw.close ? GRIP : OPEN_T);
     }
     // slippery while letting go, so prizes don't hang on the arms over the chute
@@ -462,11 +463,15 @@
         if (Math.abs(d) > 0.5) { claw.x += Math.max(-SPEED * 1.6, Math.min(SPEED * 1.6, d)); hum(); }
       } else if (claw.dir) { claw.x = Math.max(HOME, Math.min(WW - 62, claw.x + claw.dir * SPEED)); hum(); }
     } else if (st === 'down') {
-      claw.wire += 7;
+      // brake just before touching, like a real machine: hitting a prize at full speed would fling it
+      claw.wire += Math.max(1.5, Math.min(7, gapBelow() * 0.3));
       // stop once the arms are pressed on something
       const hit = arms.some(a => { for (let ce = a.getContactList(); ce; ce = ce.next) if (ce.contact.isTouching() && ce.other.spr) return true; return false; });
       if (hit) claw.hitT = (claw.hitT || 0) + 1;
-      if (claw.wire >= WIRE_MAX || claw.hitT > 14) { claw.wire = Math.min(claw.wire, WIRE_MAX); go('close'); }
+      // stop as soon as something holds the arms up (a prize pressed on the floor), instead of crushing it
+      const push = Math.max(...arms.map(a => a.joint.getReactionForce(SUB / DT).length() / (a.getMass() * 10)));
+      if (push > 3 && claw.t > 8) claw.pushT = (claw.pushT || 0) + 1;
+      if (claw.wire >= WIRE_MAX || claw.hitT > 12 || claw.pushT > 1) { claw.wire = Math.min(claw.wire, WIRE_MAX); go('close'); }
       hum();
     } else if (st === 'close') {
       claw.close = 1;
@@ -489,7 +494,22 @@
     head.setLinearVelocity(planck.Vec2((claw.x / SC - p.x) / DT, ((RAIL + claw.wire) / SC - p.y) / DT));
     updateGrab();
   }
-  function go(s) { claw.state = s; claw.t = 0; claw.hitT = 0; }
+  // distance from any corner of the arms down to the first thing below it
+  function gapBelow() {
+    let gap = 60;
+    for (const a of arms) for (let f = a.getFixtureList(); f; f = f.getNext()) for (const v of f.getShape().m_vertices) {
+      const low = a.getWorldPoint(v);
+      {
+        const p1 = planck.Vec2(low.x, low.y), p2 = planck.Vec2(low.x, low.y + 60 / SC);
+        world.rayCast(p1, p2, (fx, pt, n, frac) => {
+          if (fx.isSensor() || fx.getFilterGroupIndex() === CLAW) return -1;
+          gap = Math.min(gap, frac * 60); return frac;
+        });
+      }
+    }
+    return gap;
+  }
+  function go(s) { claw.state = s; claw.t = 0; claw.hitT = 0; claw.pushT = 0; }
   function grab() { if (claw.state === 'idle' && mode === 'play') { claw.dir = 0; claw.target = null; go('down'); tone(600, 400, 0.1, 'square', 0.06); } }
   function updateGrab() {
     const busy = claw.state !== 'idle';
@@ -597,6 +617,13 @@
   function tick() {
     clawStep();
     for (let i = 0; i < SUB; i++) { driveArms(); world.step(DT / SUB, 10, 4); clampArms(); }
+    // safety net: nothing in a toy box should move this fast
+    for (const b of prizes) {
+      const v = b.getLinearVelocity(), sp = v.length();
+      if (sp > 15) b.setLinearVelocity(planck.Vec2(v.x * 15 / sp, v.y * 15 / sp));
+      const w = b.getAngularVelocity();
+      if (Math.abs(w) > 12) b.setAngularVelocity(Math.sign(w) * 12);
+    }
     if (queue.length && --queue[0].wait <= 0) { const q = queue.shift(); dropIn(q.item, q.scale); }
     for (const b of prizes.slice()) {
       if (b.got && ++b.got > 70) removePrize(b);
