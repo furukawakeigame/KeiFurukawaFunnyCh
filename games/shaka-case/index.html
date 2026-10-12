@@ -735,7 +735,7 @@ const targetQ = new THREE.Quaternion(); // where the finger wants the phone; the
 let drag = null, flip = null;
 const rd = renderer.domElement;
 rd.addEventListener('pointerdown', e => {
-  e.preventDefault(); unlock();
+  e.preventDefault(); unlockAudio();
   rd.setPointerCapture(e.pointerId);
   drag = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
   flip = null; omega.set(0, 0, 0); targetQ.copy(phoneQ);
@@ -782,6 +782,8 @@ function unlockAudio() {
 }
 // asks for motion access once. Never from the buttons that open the file picker:
 // on iPhone the permission dialog uses up the tap, and the picker would not open
+// iPhone only accepts the request from a tap / finger lift (not from pointerdown);
+// if it throws because of that, try again on the next one
 let motionAsked = false;
 function unlock() {
   unlockAudio();
@@ -789,9 +791,10 @@ function unlock() {
   motionAsked = true;
   const on = () => { motionOn = true; window.addEventListener('devicemotion', onMotion); };
   if (typeof DeviceMotionEvent.requestPermission === 'function') {
-    DeviceMotionEvent.requestPermission().then(r => { if (r === 'granted') on(); }).catch(() => {});
+    DeviceMotionEvent.requestPermission().then(r => { if (r === 'granted') on(); }).catch(() => { motionAsked = false; });
   } else on();
 }
+stage.addEventListener('touchend', () => { if (mode === 'case') unlock(); });
 
 // ---------- layout ----------
 function resize() {
