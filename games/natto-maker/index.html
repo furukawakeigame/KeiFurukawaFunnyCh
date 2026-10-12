@@ -84,8 +84,6 @@
       <button id="done" class="btn" disabled></button>
     </div>
     <div id="barStir" class="bar hide">
-      <button id="tare" class="btn sub"></button>
-      <button id="karashi" class="btn sub"></button>
       <button id="save" class="btn"></button>
       <a id="post" class="btn"></a>
       <button id="again" class="btn sub"></button>
@@ -102,12 +100,12 @@
   const DICT = {
     ja: {
       title: '納豆メーカー', back: '← トップへ戻る', pick: '画像をえらぶ', sample: 'ふつうの豆', erase: '消す', undo: '戻す',
-      done: 'できた', tare: 'タレ', karashi: 'からし', save: '保存', post: 'Xに投稿', again: '画像を変える',
+      done: 'できた', save: '保存', post: 'Xに投稿', again: '画像を変える',
       shareText: '好きな画像で納豆を作った\n#納豆メーカー', err: '画像を読み込めませんでした',
     },
     en: {
       title: 'Natto Maker', back: '← Back to top', pick: 'Choose image', sample: 'Plain beans', erase: 'Erase', undo: 'Undo',
-      done: 'Done', tare: 'Sauce', karashi: 'Mustard', save: 'Save', post: 'Post on X', again: 'New image',
+      done: 'Done', save: 'Save', post: 'Post on X', again: 'New image',
       shareText: 'I made natto out of my own picture\n#NattoMaker', err: 'Could not load the image',
     },
   };
@@ -146,17 +144,6 @@
       s.connect(f).connect(g).connect(a.destination); s.start(now, Math.random() * 0.15); s.stop(now + 0.11);
     } catch {}
   }
-  function plop() {
-    if (!soundOn) return;
-    try {
-      const a = audio(), o = a.createOscillator(), g = a.createGain(), now = a.currentTime;
-      o.type = 'sine';
-      o.frequency.setValueAtTime(260, now); o.frequency.exponentialRampToValueAtTime(90, now + 0.12);
-      g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.3, now + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.15);
-      o.connect(g).connect(a.destination); o.start(now); o.stop(now + 0.16);
-    } catch {}
-  }
 
   // ---------- state ----------
   const cv = $('cv'), ctx = cv.getContext('2d');
@@ -167,7 +154,7 @@
   let sprite = null;
   // pack-local units: the inside of the tray is PW x PH, centered at 0
   const PW = 1, PH = 0.8, R = 0.046, N_BEANS = 54;
-  let beans = [], strings = new Map(), blobs = [];
+  let beans = [], strings = new Map();
   let neba = 0;                 // stickiness 0..1, grows as you stir
   let stick = null;             // chopstick: {x, y, vx, vy, holds: [bean idx]}
 
@@ -269,7 +256,7 @@
 
   // ---------- natto physics (top view, no gravity) ----------
   function startNatto() {
-    beans = []; strings = new Map(); blobs = []; neba = 0; stick = null;
+    beans = []; strings = new Map(); neba = 0; stick = null;
     for (let i = 0; i < N_BEANS; i++) {
       const foam = [];
       for (let j = 0; j < 4; j++) foam.push({ a: Math.random() * Math.PI * 2, d: R * (0.6 + Math.random() * 0.7), r: R * (0.18 + Math.random() * 0.22), th: Math.random() });
@@ -278,21 +265,10 @@
         vx: 0, vy: 0, a: Math.random() * Math.PI * 2, va: 0, foam,
       });
     }
-    $('tare').disabled = false; $('karashi').disabled = false;
     setMode('stir');
   }
   const SR = 0.13, STICK_R = 0.022;
   const key = (i, j) => i * 1000 + j;
-  function addBlob(kind) {
-    const n = kind === 'tare' ? 6 : 1;
-    for (let i = 0; i < n; i++) {
-      blobs.push({
-        kind, x: (Math.random() - 0.5) * 0.4 + (kind === 'karashi' ? 0.25 : -0.05), y: (Math.random() - 0.5) * 0.3,
-        vx: 0, vy: 0, r: kind === 'tare' ? 0.05 + Math.random() * 0.03 : 0.045, a: kind === "tare" ? 0.75 : 1,
-      });
-    }
-    plop();
-  }
   let nechaT = 0;
   function step(dt) {
     const fr = Math.pow(0.08, dt);                 // tray friction
@@ -351,20 +327,6 @@
         if (p.y > hy) { p.y = hy; p.vy = -Math.abs(p.vy) * 0.3; }
       }
     }
-    // sauce and mustard get dragged around and spread thin
-    for (const b of blobs) {
-      if (stick) {
-        const dx = b.x - stick.x, dy = b.y - stick.y, d = Math.hypot(dx, dy);
-        if (d < SR + b.r) {
-          const w = (1 - d / (SR + b.r)) * Math.min(1, 4 * dt), sp = Math.hypot(stick.vx, stick.vy);
-          b.vx += (stick.vx - b.vx) * w; b.vy += (stick.vy - b.vy) * w;
-          const r0 = b.r; b.r = Math.min(0.26, b.r + sp * dt * 0.05); b.a *= (r0 / b.r);
-        }
-      }
-      b.vx *= fr; b.vy *= fr; b.x += b.vx * dt; b.y += b.vy * dt;
-      b.x = Math.max(-PW / 2, Math.min(PW / 2, b.x)); b.y = Math.max(-PH / 2, Math.min(PH / 2, b.y));
-    }
-    blobs = blobs.filter(b => b.a > 0.04);
     // chopstick strings: beans it touched stay hooked and stretch when you pull away
     if (stick) {
       const sp = Math.hypot(stick.vx, stick.vy);
@@ -408,8 +370,6 @@
     g.strokeStyle = 'rgba(200,192,170,.5)'; g.lineWidth = 1.2 * lw;
     for (let x = -PW / 2; x <= PW / 2; x += 0.1) { g.beginPath(); g.moveTo(x, -PH / 2); g.lineTo(x, PH / 2); g.stroke(); }
     for (let y = -PH / 2; y <= PH / 2; y += 0.1) { g.beginPath(); g.moveTo(-PW / 2, y); g.lineTo(PW / 2, y); g.stroke(); }
-    // sauce under the beans
-    for (const b of opt.blobs) if (b.kind === 'tare') blob(g, b, '120,70,30');
     // beans
     const sp = opt.sprite, k = (R * 2.4) / Math.max(sp.width, sp.height);
     for (const b of opt.beans) {
@@ -438,7 +398,6 @@
       g.globalAlpha = 1;
     }
     drawStrings(g, opt, lw, 0.6);
-    for (const b of opt.blobs) if (b.kind === 'karashi') blob(g, b, '235,190,40');
     g.restore();
     // chopstick strings above everything
     if (opt.stick) {
@@ -454,11 +413,6 @@
       g.beginPath(); g.arc(opt.stick.x, opt.stick.y, STICK_R, 0, Math.PI * 2); g.fill(); g.stroke();
     }
     g.restore();
-  }
-  function blob(g, b, rgb) {
-    const gr = g.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
-    gr.addColorStop(0, `rgba(${rgb},${b.a})`); gr.addColorStop(0.7, `rgba(${rgb},${b.a * 0.7})`); gr.addColorStop(1, `rgba(${rgb},0)`);
-    g.fillStyle = gr; g.beginPath(); g.arc(b.x, b.y, b.r, 0, Math.PI * 2); g.fill();
   }
   function drawStrings(g, opt, lw, alpha) {
     g.lineCap = 'round';
@@ -484,11 +438,11 @@
     if (mode === 'start') {
       // an empty pack waiting for beans
       const gm = packGeom(W, H);
-      drawPack(ctx, gm.s, gm.cx, gm.cy, { beans: [], strings: new Map(), blobs: [], sprite: startSprite, neba: 0 });
+      drawPack(ctx, gm.s, gm.cx, gm.cy, { beans: [], strings: new Map(), sprite: startSprite, neba: 0 });
       return;
     }
     const gm = packGeom(W, H);
-    drawPack(ctx, gm.s, gm.cx, gm.cy, { beans, strings, blobs, sprite, neba, stick });
+    drawPack(ctx, gm.s, gm.cx, gm.cy, { beans, strings, sprite, neba, stick });
   }
   const startSprite = sampleSprite();
   let tmpC = null;
@@ -606,8 +560,6 @@
     const d = undoStack.pop(); if (d) { mctx.putImageData(d, 0, 0); render(); updateDone(); }
   };
   $('done').onclick = () => { if (makeSprite()) startNatto(); };
-  $('tare').onclick = () => { addBlob('tare'); $('tare').disabled = true; };
-  $('karashi').onclick = () => { addBlob('karashi'); $('karashi').disabled = true; };
 
   ['dragenter', 'dragover'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('hide'); }));
   ['dragleave', 'drop'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); $('drop').classList.add('hide'); }));
@@ -619,7 +571,7 @@
     const g = c.getContext('2d');
     g.fillStyle = '#f3ede0'; g.fillRect(0, 0, c.width, c.height);
     const gm = packGeom(c.width, c.height - 80);
-    drawPack(g, gm.s, gm.cx, gm.cy + 20, { beans, strings, blobs, sprite, neba });
+    drawPack(g, gm.s, gm.cx, gm.cy + 20, { beans, strings, sprite, neba });
     g.fillStyle = '#8a5a2b'; g.font = 'bold 34px sans-serif'; g.textAlign = 'right';
     g.fillText('keifurukawafunnych.com', c.width - 40, c.height - 36);
     return c;
@@ -654,7 +606,7 @@
     document.title = t('title');
     $('back').textContent = t('back');
     $('lang').textContent = lang === 'ja' ? 'EN' : '日本語';
-    for (const k of ['pick', 'sample', 'erase', 'undo', 'done', 'tare', 'karashi', 'save', 'post', 'again']) $(k).textContent = t(k);
+    for (const k of ['pick', 'sample', 'erase', 'undo', 'done', 'save', 'post', 'again']) $(k).textContent = t(k);
     updatePost();
   }
   $('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
