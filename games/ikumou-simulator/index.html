@@ -166,10 +166,12 @@
     const white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
     const black = new THREE.MeshStandardMaterial({ color: 0x1d1d1d, roughness: 0.3 });
     const EYES = [[-0.3, 0.12], [0.3, 0.12]];
+    const pupils = [];
     for (const [x, y] of EYES) {
       const z = Math.sqrt(1 - x * x - y * y);
       add(ball, white, x, y, z - 0.04, 0.13, 0.13, 0.08);
-      add(ball, black, x, y - 0.01, z + 0.03, 0.06, 0.06, 0.04);
+      const c = new THREE.Vector3(x, y, z - 0.04);
+      pupils.push({ c, m: add(ball, black, x, y - 0.01, z + 0.03, 0.06, 0.06, 0.04) });
     }
     // 首と服
     const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.8, 32), skin); neck.position.y = -1.05; scene.add(neck);
@@ -348,6 +350,25 @@
         } else brush.p = null;
       }
     });
+    // 黒目はポインタの位置を向く
+    const look = { x: 0, y: 0, on: false };
+    addEventListener('pointermove', e => { look.x = e.clientX; look.y = e.clientY; look.on = true; });
+    addEventListener('pointerdown', e => { look.x = e.clientX; look.y = e.clientY; look.on = true; });
+    const eyePlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -1.6), lookW = new THREE.Vector3(), dir = new THREE.Vector3();
+    function updateEyes() {
+      if (look.on) {
+        const r = cv.getBoundingClientRect();
+        ndc.set((look.x - r.left) / r.width * 2 - 1, -((look.y - r.top) / r.height) * 2 + 1);
+        ray.setFromCamera(ndc, camera);
+        if (!ray.ray.intersectPlane(eyePlane, lookW)) lookW.set(0, 0, 5);
+      } else lookW.set(0, 0, 5);
+      const loc = head.worldToLocal(lookW.clone());
+      for (const { c, m } of pupils) {
+        dir.subVectors(loc, c); dir.z = Math.max(dir.z, 0.6); dir.normalize();
+        m.position.set(c.x + dir.x * 0.075, c.y + dir.y * 0.075, c.z + dir.z * 0.075);
+        m.lookAt(lookW);
+      }
+    }
     cv.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, zoom * Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
     const up_ = e => { pointers.delete(e.pointerId); if (pointers.size === 0) { brush = null; rot = null; } };
     cv.addEventListener('pointerup', up_); cv.addEventListener('pointercancel', up_);
@@ -377,6 +398,7 @@
       if (brush && brush.p && tool === 'grow') applyBrush(brush.p, dt * 0.9); // 押しっぱなしで伸び続ける
       head.rotation.y += (rotY - head.rotation.y) * 0.25;
       head.rotation.x += (rotX - head.rotation.x) * 0.25;
+      updateEyes();
       renderer.render(scene, camera);
     });
 
