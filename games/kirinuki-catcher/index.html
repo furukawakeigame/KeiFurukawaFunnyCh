@@ -365,10 +365,18 @@
   // claw: kinematic head driven by the motor, two arms on hinge joints whose motors have limited torque
   const ARM_L = 63, PIV = 17, CLAW = -1;
   const OPEN = 0.72, SHUT = -0.2, ARM_LO = SHUT - 0.15, ARM_HI = OPEN + 0.12;
-  const GRIP = 90, OPEN_T = 120;   // motor torque (N m): how hard the arms squeeze / open
+  const GRIP = 800, OPEN_T = 300;   // motor torque (N m): how hard the arms squeeze / open
   const claw = { x: HOME, wire: 44, state: 'idle', t: 0, close: 0, wide: 0, dir: 0, target: null };
-  const head = world.createKinematicBody({ position: V(HOME, RAIL + claw.wire) });
-  head.createFixture(planck.Box(17 / SC, 10 / SC), { filterGroupIndex: CLAW });
+  // the carriage runs on the rail; the head hangs from it on a winch (a slider with a motor of limited force),
+  // so it presses on the prizes with a real, finite force instead of crushing them
+  const carriage = world.createKinematicBody({ position: V(HOME, RAIL) });
+  const head = world.createDynamicBody({ position: V(HOME, RAIL + claw.wire) });
+  head.createFixture(planck.Box(17 / SC, 10 / SC), { density: 6, filterGroupIndex: CLAW });
+  const PRESS = 1500, LIFT = 5000;   // winch force (N): pushing down / pulling up
+  const winch = world.createJoint(planck.PrismaticJoint({
+    enableMotor: true, maxMotorForce: LIFT, motorSpeed: 0, enableLimit: true,
+    lowerTranslation: 0, upperTranslation: (FLOOR - RAIL - 63 - 22 - claw.wire) / SC,
+  }, carriage, head, head.getPosition(), planck.Vec2(0, 1)));
   function makeArm(side) {
     const pv = V(HOME + side * PIV, RAIL + claw.wire + 7);
     const arm = world.createDynamicBody({ position: pv, bullet: true, angularDamping: 1 });
@@ -378,7 +386,7 @@
       const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy), w = 6;
       const nx = -dy / L * w / 2, ny = dx / L * w / 2, ex = dx / L * w / 2, ey = dy / L * w / 2;
       const vs = [[a.x + nx - ex, a.y + ny - ey], [b.x + nx + ex, b.y + ny + ey], [b.x - nx + ex, b.y - ny + ey], [a.x - nx - ex, a.y - ny - ey]];
-      arm.createFixture(planck.Polygon(vs.map(([x, y]) => planck.Vec2(x / SC, y / SC))), { density: 8, friction: 1, filterGroupIndex: CLAW });
+      arm.createFixture(planck.Polygon(vs.map(([x, y]) => planck.Vec2(x / SC, y / SC))), { density: 5, friction: 0.6, filterGroupIndex: CLAW });
     }
     // angles: positive = open for the left arm, so the right arm is mirrored
     const lo = ARM_LO, hi = ARM_HI;
@@ -390,17 +398,14 @@
     return arm;
   }
   const arms = [makeArm(-1), makeArm(1)];
-  // the joint limit is soft, so a hard push could bend an arm past it: put it back on the hinge, inside the limits
+  // the joint limit is soft, so a hard push could bend an arm past it: steer it back with its spin
+  // (never by moving it, which would shove it into a prize)
   function clampArms() {
     for (const a of arms) {
-      const j = a.joint, rel = a.getAngle() - head.getAngle();
+      const rel = a.getAngle() - head.getAngle(), w = a.getAngularVelocity() - head.getAngularVelocity();
       const lo = a.side < 0 ? ARM_LO : -ARM_HI, hi = a.side < 0 ? ARM_HI : -ARM_LO;
-      const c = Math.max(lo, Math.min(hi, rel)), anc = j.getAnchorA(), p = a.getPosition();
-      if (c !== rel || Math.hypot(anc.x - p.x, anc.y - p.y) > 0.2) {
-        a.setTransform(anc, head.getAngle() + c);
-        if (c !== rel) a.setAngularVelocity(0);
-        a.setLinearVelocity(head.getLinearVelocity());
-      }
+      if (rel > hi && w > 0) a.setAngularVelocity(head.getAngularVelocity() + (hi - rel) * 20);
+      else if (rel < lo && w < 0) a.setAngularVelocity(head.getAngularVelocity() + (lo - rel) * 20);
     }
   }
   let lastFr = -1;
@@ -413,7 +418,7 @@
       a.joint.setMaxMotorTorque(claw.close ? GRIP : OPEN_T);
     }
     // slippery while letting go, so prizes don't hang on the arms over the chute
-    const fr = claw.close ? 1 : 0.05;
+    const fr = claw.close ? 0.2 : 0.05;
     if (fr !== lastFr) {
       lastFr = fr;
       for (const a of arms) {
@@ -436,10 +441,10 @@
         const chunk = [p[0]].concat(p.slice(i, i + 11));
         const vs = chunk.map(v => planck.Vec2((v.x - cx) * f / SC, (v.y - cy) * f / SC));
         if (vs.length < 3 || area(vs) < 0.01) continue;
-        b.createFixture(planck.Polygon(vs), { density: 1, friction: 0.7, restitution: 0.05 });
+        b.createFixture(planck.Polygon(vs), { density: 2, friction: 0.3, restitution: 0.05 });
       }
     }
-    if (!b.getFixtureList()) b.createFixture(planck.Box(cx * f / SC, cy * f / SC), { density: 1, friction: 0.7 });
+    if (!b.getFixtureList()) b.createFixture(planck.Box(cx * f / SC, cy * f / SC), { density: 2, friction: 0.3 });
     b.spr = { item, f, ox: -cx * f, oy: -cy * f };
     prizes.push(b);
     while (prizes.length > 40) removePrize(prizes[0]);
@@ -452,7 +457,7 @@
   }
 
   // claw sequence
-  const SPEED = 4.5, WIRE_TOP = 44, WIRE_MAX = FLOOR - RAIL - ARM_L - 22;
+  const SPEED = 4.5, DOWN_V = 5 * 60 / SC, UP_V = 6 * 60 / SC;   // m/s
   function clawStep() {
     const st = claw.state;
     claw.t++;
@@ -463,22 +468,20 @@
         if (Math.abs(d) > 0.5) { claw.x += Math.max(-SPEED * 1.6, Math.min(SPEED * 1.6, d)); hum(); }
       } else if (claw.dir) { claw.x = Math.max(HOME, Math.min(WW - 62, claw.x + claw.dir * SPEED)); hum(); }
     } else if (st === 'down') {
-      // brake just before touching, like a real machine: hitting a prize at full speed would fling it
-      claw.wire += Math.max(1.5, Math.min(7, gapBelow() * 0.3));
-      // stop once the arms are pressed on something
-      const hit = arms.some(a => { for (let ce = a.getContactList(); ce; ce = ce.next) if (ce.contact.isTouching() && ce.other.spr) return true; return false; });
-      if (hit) claw.hitT = (claw.hitT || 0) + 1;
-      // stop as soon as something holds the arms up (a prize pressed on the floor), instead of crushing it
-      const push = Math.max(...arms.map(a => a.joint.getReactionForce(SUB / DT).length() / (a.getMass() * 10)));
-      if (push > 3 && claw.t > 8) claw.pushT = (claw.pushT || 0) + 1;
-      if (claw.wire >= WIRE_MAX || claw.hitT > 12 || claw.pushT > 1) { claw.wire = Math.min(claw.wire, WIRE_MAX); go('close'); }
+      winch.setMaxMotorForce(PRESS); winch.setMotorSpeed(DOWN_V);
+      // stop when the bottom is reached or the head stalls on something
+      const stalled = claw.t > 8 && winch.getJointSpeed() < 0.5;
+      claw.hitT = stalled ? (claw.hitT || 0) + 1 : 0;
+      if (claw.hitT > 4 || winch.getJointTranslation() >= winch.getUpperLimit() - 0.02) go('close');
       hum();
     } else if (st === 'close') {
       claw.close = 1;
-      if (claw.t > 35) { go('up'); tone(300, 500, 0.2, 'sawtooth', 0.05); }
+      // a loose wire while closing: if the tips jam on a prize, the claw rides up a little instead of locking
+      winch.setMaxMotorForce(250); winch.setMotorSpeed(0);
+      if (claw.t > 45) { go('up'); tone(300, 500, 0.2, 'sawtooth', 0.05); }
     } else if (st === 'up') {
-      claw.wire -= 6;
-      if (claw.wire <= WIRE_TOP) { claw.wire = WIRE_TOP; go('home'); }
+      winch.setMaxMotorForce(LIFT); winch.setMotorSpeed(-UP_V);
+      if (winch.getJointTranslation() <= 0.02) go('home');
       hum();
     } else if (st === 'home') {
       claw.x = Math.max(HOME, claw.x - SPEED);
@@ -489,27 +492,12 @@
       if (claw.t === 1) tone(500, 300, 0.2, 'sawtooth', 0.05);
       if (claw.t > 70) { claw.wide = 0; go('idle'); }
     }
-    // the head is moved with a velocity, so the solver sees the motion and pushes things properly
-    const p = head.getPosition();
-    head.setLinearVelocity(planck.Vec2((claw.x / SC - p.x) / DT, ((RAIL + claw.wire) / SC - p.y) / DT));
+    if (st !== 'down' && st !== 'up' && st !== 'close') { winch.setMaxMotorForce(LIFT); winch.setMotorSpeed(0); }
+    // the carriage is moved with a velocity, so the solver sees the motion and pushes things properly
+    carriage.setLinearVelocity(planck.Vec2((claw.x / SC - carriage.getPosition().x) / DT, 0));
     updateGrab();
   }
-  // distance from any corner of the arms down to the first thing below it
-  function gapBelow() {
-    let gap = 60;
-    for (const a of arms) for (let f = a.getFixtureList(); f; f = f.getNext()) for (const v of f.getShape().m_vertices) {
-      const low = a.getWorldPoint(v);
-      {
-        const p1 = planck.Vec2(low.x, low.y), p2 = planck.Vec2(low.x, low.y + 60 / SC);
-        world.rayCast(p1, p2, (fx, pt, n, frac) => {
-          if (fx.isSensor() || fx.getFilterGroupIndex() === CLAW) return -1;
-          gap = Math.min(gap, frac * 60); return frac;
-        });
-      }
-    }
-    return gap;
-  }
-  function go(s) { claw.state = s; claw.t = 0; claw.hitT = 0; claw.pushT = 0; }
+  function go(s) { claw.state = s; claw.t = 0; claw.hitT = 0; }
   function grab() { if (claw.state === 'idle' && mode === 'play') { claw.dir = 0; claw.target = null; go('down'); tone(600, 400, 0.1, 'square', 0.06); } }
   function updateGrab() {
     const busy = claw.state !== 'idle';
@@ -587,7 +575,7 @@
       for (const b of prizes) fixturePaths(b, () => ctx.stroke());
     }
   }
-  const DEBUG = /debug/.test(location.hash);
+  const DEBUG = /debug/.test(location.hash) || /debug/.test(location.search);
   function fixturePaths(b, paint) {
     for (let f = b.getFixtureList(); f; f = f.getNext()) {
       ctx.beginPath();
@@ -616,7 +604,8 @@
   let lastT = performance.now(), acc = 0, queue = [];
   function tick() {
     clawStep();
-    for (let i = 0; i < SUB; i++) { driveArms(); world.step(DT / SUB, 10, 4); clampArms(); }
+    for (let i = 0; i < SUB; i++) { driveArms(); world.step(DT / SUB, 20, 10); clampArms(); }
+    if (DEBUG) for (const a of arms) { const g = -a.side * a.joint.getJointAngle(); window.__mx = Math.max(window.__mx || -9, g); window.__mn = Math.min(window.__mn || 9, g); }
     // safety net: nothing in a toy box should move this fast
     for (const b of prizes) {
       const v = b.getLinearVelocity(), sp = v.length();
