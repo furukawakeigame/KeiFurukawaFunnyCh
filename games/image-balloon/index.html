@@ -38,14 +38,17 @@
     .bar .round svg { width: 26px; height: 26px; }
     .main { background: #2d4a6b !important; color: #fff !important; }
     #file { display: none; }
-    #crop { position: fixed; inset: 0; background: #1b2b3ef2; z-index: 5; display: none; flex-direction: column; align-items: center;
-      padding: 56px 12px calc(80px + env(safe-area-inset-bottom)); box-sizing: border-box; }
+    #crop { position: fixed; inset: 0; background: #1b2b3e; z-index: 5; display: none; flex-direction: column;
+      padding: 56px 0 calc(80px + env(safe-area-inset-bottom)); box-sizing: border-box; }
     #crop.show { display: flex; }
-    #crop p { color: #fff; margin: 4px 0 10px; font-size: 15px; }
-    #cropWrap { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
-    #cc { touch-action: none; max-width: 100%; max-height: 100%; }
-    #crop .row { display: flex; gap: 10px; margin-top: 12px; }
-    #crop .pill { border-color: #fff; }
+    #cropStage { flex: 1; min-height: 0; position: relative; }
+    #cc { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+    #crop .row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 10px 12px 0; }
+    #crop .pill { height: 46px; border-color: #fff; border-radius: 23px; min-width: 46px; }
+    #crop .pill.on { background: #ff9a4a; border-color: #ff9a4a; color: #fff; }
+    #crop .pill:disabled { opacity: .4; cursor: default; }
+    #done { background: #ffd34d; border-color: #ffd34d; }
+    .dot { display: inline-block; background: currentColor; border-radius: 50%; }
     #err { position: fixed; top: 50%; left: 0; right: 0; text-align: center; padding: 0 16px; }
   </style>
 </head>
@@ -64,11 +67,13 @@
   </div>
   <input id="file" type="file" accept="image/*">
   <div id="crop">
-    <p id="hint">なぞって囲む</p>
-    <div id="cropWrap"><canvas id="cc"></canvas></div>
+    <div id="cropStage"><canvas id="cc"></canvas></div>
     <div class="row">
-      <button id="all" class="pill">全体</button>
-      <button id="cancel" class="pill">やめる</button>
+      <button id="brush" class="pill" aria-label="brush"><span class="dot" style="width:11px;height:11px"></span></button>
+      <button id="erase" class="pill">消す</button>
+      <button id="undo" class="pill">戻す</button>
+      <button id="cancel" class="pill" aria-label="やめる"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <button id="done" class="pill" disabled>できた</button>
     </div>
   </div>
   <div id="err"></div>
@@ -95,8 +100,8 @@ const store = {
 
 // ---- 言語 ----
 const L = {
-  ja: { title: '画像ふうせん', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English', pick: '画像をえらぶ', more: 'もうひとつ', hint: 'なぞって囲む', all: '全体', cancel: 'やめる', sound: '音のオン/オフ' },
-  en: { title: 'Image Balloon', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え', pick: 'Pick image', more: 'One more', hint: 'Trace around it', all: 'Whole', cancel: 'Cancel', sound: 'Sound on/off' }
+  ja: { title: '画像ふうせん', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English', pick: '画像をえらぶ', more: 'もうひとつ', erase: '消す', undo: '戻す', done: 'できた', cancel: 'やめる', sound: '音のオン/オフ' },
+  en: { title: 'Image Balloon', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え', pick: 'Pick image', more: 'One more', erase: 'Erase', undo: 'Undo', done: 'Done', cancel: 'Cancel', sound: 'Sound on/off' }
 };
 let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
 if (!L[lang]) lang = 'ja';
@@ -106,7 +111,8 @@ function applyLang() {
   $('back').textContent = t('back');
   $('lang').textContent = t('lang'); $('lang').setAttribute('aria-label', t('langLabel'));
   $('pick').textContent = t('pick'); $('more').setAttribute('aria-label', t('more'));
-  $('hint').textContent = t('hint'); $('all').textContent = t('all'); $('cancel').textContent = t('cancel');
+  for (const k of ['erase', 'undo', 'done']) $(k).textContent = t(k);
+  $('cancel').setAttribute('aria-label', t('cancel'));
   $('sound').setAttribute('aria-label', t('sound'));
 }
 $('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
@@ -174,29 +180,35 @@ function resize() {
 }
 addEventListener('resize', resize); resize();
 
-// 点と多角形の符号付き距離（内側が正）
-function sdist(x, y, poly) {
-  let inside = false, md = Infinity;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, yi] = poly[i], [xj, yj] = poly[j];
-    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
-    const dx = xj - xi, dy = yj - yi, l = dx * dx + dy * dy || 1;
-    const tt = Math.max(0, Math.min(1, ((x - xi) * dx + (y - yi) * dy) / l));
-    const ex = xi + tt * dx - x, ey = yi + tt * dy - y;
-    md = Math.min(md, ex * ex + ey * ey);
-  }
-  return (inside ? 1 : -1) * Math.sqrt(md);
-}
-
-// shape: { canvas(切り抜き済み・透過), poly(canvas座標) } からジオメトリを作る
-function buildShape(canvas, poly) {
+// 切り抜き済み（透過）の canvas から風船のジオメトリを作る
+function buildShape(canvas) {
   const W = canvas.width, H = canvas.height, N = 64;
+  const alpha = canvas.getContext('2d').getImageData(0, 0, W, H).data;
+  // 内側の各点から、いちばん近い透明な点までの距離（px）
+  const D = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) D[i] = alpha[i * 4 + 3] > 127 ? 1e9 : 0;
+  const S2 = Math.SQRT2;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x; if (!D[i]) continue;
+    let v = D[i];
+    if (x > 0) v = Math.min(v, D[i - 1] + 1); else v = Math.min(v, 1);
+    if (y > 0) { v = Math.min(v, D[i - W] + 1); if (x > 0) v = Math.min(v, D[i - W - 1] + S2); if (x < W - 1) v = Math.min(v, D[i - W + 1] + S2); } else v = Math.min(v, 1);
+    D[i] = v;
+  }
+  for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) {
+    const i = y * W + x; if (!D[i]) continue;
+    let v = D[i];
+    if (x < W - 1) v = Math.min(v, D[i + 1] + 1); else v = Math.min(v, 1);
+    if (y < H - 1) { v = Math.min(v, D[i + W] + 1); if (x < W - 1) v = Math.min(v, D[i + W + 1] + S2); if (x > 0) v = Math.min(v, D[i + W - 1] + S2); } else v = Math.min(v, 1);
+    D[i] = v;
+  }
+  const sdist = (x, y) => D[Math.min(H - 1, Math.round(y)) * W + Math.min(W - 1, Math.round(x))];
   const size = 3.2, w = W >= H ? size : size * W / H, h = W >= H ? size * H / W : size;
   const k = w / W; // px → world
   const ds = [];
   let dmax = 0;
   for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
-    const d = sdist(i / N * W, (1 - j / N) * H, poly); ds.push(d); dmax = Math.max(dmax, d);
+    const d = sdist(i / N * W, (1 - j / N) * H); ds.push(d); dmax = Math.max(dmax, d);
   }
   const R = Math.min(dmax * k, 1.1);
   const pos = [], uv = [], idx = [], V = (N + 1) * (N + 1);
@@ -218,7 +230,6 @@ function buildShape(canvas, poly) {
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx); g.computeVertexNormals();
   const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
-  const alpha = canvas.getContext('2d').getImageData(0, 0, W, H).data;
   // 破片の色
   const colors = [];
   for (let n = 0; n < 200 && colors.length < 24; n++) {
@@ -357,23 +368,23 @@ function loop() {
       if (s.life > 1) { scene.remove(s.line); s.line.geometry.dispose(); s.line.material.dispose(); shards.splice(shards.indexOf(s), 1); }
     }
   }
+  if ($('crop').classList.contains('show')) { requestAnimationFrame(loop); return; }
   controls.update();
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
 
 // ---- 形を作る ----
-function makeFromImage(img, poly) {
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const [x, y] of poly) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
-  const bw = x1 - x0, bh = y1 - y0, sc = 512 / Math.max(bw, bh), pad = 4;
+function makeFromMask() {
+  const b = maskBox(); if (!b) return null;
+  const sc = Math.min(512 / Math.max(b.w, b.h), 4), pad = 6;
   const c = document.createElement('canvas');
-  c.width = Math.round(bw * sc) + pad * 2; c.height = Math.round(bh * sc) + pad * 2;
+  c.width = Math.round(b.w * sc) + pad * 2; c.height = Math.round(b.h * sc) + pad * 2;
   const g = c.getContext('2d');
-  const p = poly.map(([x, y]) => [(x - x0) * sc + pad, (y - y0) * sc + pad]);
-  g.beginPath(); p.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
-  g.save(); g.clip(); g.drawImage(img, -x0 * sc + pad, -y0 * sc + pad, img.width * sc, img.height * sc); g.restore();
-  return buildShape(c, p);
+  g.drawImage(img, b.x, b.y, b.w, b.h, pad, pad, b.w * sc, b.h * sc);
+  g.globalCompositeOperation = 'destination-in';
+  g.drawImage(mask, b.x, b.y, b.w, b.h, pad, pad, b.w * sc, b.h * sc);
+  return buildShape(c);
 }
 function sample(kind, c1, c2) {
   const S = 400, c = document.createElement('canvas'); c.width = c.height = S;
@@ -390,64 +401,135 @@ function sample(kind, c1, c2) {
   const gr = g.createLinearGradient(0, 0, S, S); gr.addColorStop(0, c1); gr.addColorStop(1, c2);
   g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
   g.fillStyle = gr; g.fill();
-  return buildShape(c, pts);
+  return buildShape(c);
 }
 
-// ---- 切り抜き ----
-let img = null, path = [];
+// ---- 切り抜き（指でぬる）----
+let img = null, mask = null, mctx = null, view = null;
+let brushIdx = 1, erasing = false, undoStack = [];
 const cc = $('cc'), cg = cc.getContext('2d');
+let CW = 0, CH = 0, CDPR = 1;
 $('pick').onclick = () => { ac(); $('file').click(); };
 $('file').onchange = () => {
   const f = $('file').files[0]; $('file').value = ''; if (!f) return;
   const url = URL.createObjectURL(f), im = new Image();
   im.onload = () => {
-    const sc = Math.min(1, 1200 / Math.max(im.width, im.height));
-    const c = document.createElement('canvas'); c.width = Math.round(im.width * sc); c.height = Math.round(im.height * sc);
-    c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
-    URL.revokeObjectURL(url); img = c; openCrop();
+    URL.revokeObjectURL(url);
+    const sc = Math.min(1, 1600 / Math.max(im.width, im.height));
+    img = document.createElement('canvas'); img.width = Math.max(1, Math.round(im.width * sc)); img.height = Math.max(1, Math.round(im.height * sc));
+    img.getContext('2d').drawImage(im, 0, 0, img.width, img.height);
+    mask = document.createElement('canvas'); mask.width = img.width; mask.height = img.height;
+    mctx = mask.getContext('2d');
+    undoStack = []; erasing = false; $('erase').classList.remove('on'); touches.clear(); pinch = null;
+    $('crop').classList.add('show');
+    cropResize(); placeImage(); updateDone(); drawCrop();
   };
+  im.onerror = () => URL.revokeObjectURL(url);
   im.src = url;
 };
-function openCrop() {
-  $('crop').classList.add('show');
-  cc.width = img.width; cc.height = img.height; path = []; drawCrop();
+function cropResize() {
+  const r = $('cropStage').getBoundingClientRect();
+  CDPR = Math.min(devicePixelRatio || 1, 2); CW = r.width; CH = r.height;
+  cc.width = Math.round(CW * CDPR); cc.height = Math.round(CH * CDPR);
 }
+new ResizeObserver(() => { if (!img || !$('crop').classList.contains('show')) return; cropResize(); placeImage(); drawCrop(); }).observe($('cropStage'));
+function placeImage() {
+  const pad = 12, k = Math.min((CW - pad * 2) / img.width, (CH - pad * 2) / img.height);
+  view = { k, fit: k, x: (CW - img.width * k) / 2, y: (CH - img.height * k) / 2 };
+}
+function snapFit() { if (view.k <= view.fit * 1.001) { view.x = (CW - img.width * view.k) / 2; view.y = (CH - img.height * view.k) / 2; } }
+let tmpC = null;
 function drawCrop() {
-  cg.drawImage(img, 0, 0);
-  if (path.length > 1) {
-    cg.lineWidth = Math.max(img.width, img.height) / 120; cg.lineJoin = 'round';
-    cg.strokeStyle = '#fff'; cg.setLineDash([cg.lineWidth * 2, cg.lineWidth * 1.5]);
-    cg.beginPath(); path.forEach(([x, y], i) => i ? cg.lineTo(x, y) : cg.moveTo(x, y)); cg.stroke();
+  cg.setTransform(CDPR, 0, 0, CDPR, 0, 0);
+  cg.clearRect(0, 0, CW, CH);
+  const { k, x, y } = view;
+  cg.fillStyle = '#0d1824'; cg.fillRect(x, y, img.width * k, img.height * k);
+  cg.globalAlpha = 0.35; cg.drawImage(img, x, y, img.width * k, img.height * k); cg.globalAlpha = 1;
+  if (!tmpC || tmpC.width !== img.width || tmpC.height !== img.height) { tmpC = document.createElement('canvas'); tmpC.width = img.width; tmpC.height = img.height; }
+  const g = tmpC.getContext('2d');
+  g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, tmpC.width, tmpC.height);
+  g.drawImage(mask, 0, 0);
+  g.globalCompositeOperation = 'source-in'; g.drawImage(img, 0, 0);
+  g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(60, 220, 110, 0.45)'; g.fillRect(0, 0, tmpC.width, tmpC.height);
+  cg.drawImage(tmpC, x, y, img.width * k, img.height * k);
+}
+const BRUSH = [8, 22, 50];
+const brushPx = () => BRUSH[brushIdx] / view.k;
+function stroke(a, b) {
+  mctx.save();
+  mctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
+  mctx.strokeStyle = '#000'; mctx.fillStyle = '#000';
+  mctx.lineCap = 'round'; mctx.lineJoin = 'round'; mctx.lineWidth = brushPx();
+  mctx.beginPath(); mctx.moveTo(a.x, a.y); mctx.lineTo(b.x, b.y); mctx.stroke();
+  mctx.beginPath(); mctx.arc(b.x, b.y, brushPx() / 2, 0, Math.PI * 2); mctx.fill();
+  mctx.restore();
+}
+function maskBox() {
+  const d = mctx.getImageData(0, 0, mask.width, mask.height).data;
+  let x0 = mask.width, y0 = mask.height, x1 = -1, y1 = -1;
+  for (let y = 0; y < mask.height; y++) for (let x = 0; x < mask.width; x++) {
+    if (d[(y * mask.width + x) * 4 + 3] > 20) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
   }
+  return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
 }
-function cpt(e) { const r = cc.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * cc.width, (e.clientY - r.top) / r.height * cc.height]; }
-let drawing = false;
-cc.addEventListener('pointerdown', e => { drawing = true; cc.setPointerCapture(e.pointerId); path = [cpt(e)]; drawCrop(); });
+function updateDone() { $('done').disabled = !maskBox(); }
+let lastPt = null, pinch = null;
+const touches = new Map();
+const mid = (a, b) => { const r = cc.getBoundingClientRect(); return { x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top }; };
+function toImg(e) { const r = cc.getBoundingClientRect(); return { x: (e.clientX - r.left - view.x) / view.k, y: (e.clientY - r.top - view.y) / view.k }; }
+cc.addEventListener('pointerdown', e => {
+  e.preventDefault(); cc.setPointerCapture(e.pointerId);
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size === 1 && !pinch) {
+    undoStack.push(mctx.getImageData(0, 0, mask.width, mask.height));
+    if (undoStack.length > 20) undoStack.shift();
+    lastPt = toImg(e); stroke(lastPt, lastPt); drawCrop();
+  } else if (touches.size === 2) {
+    // 2本目の指: 描きはじめた線を取り消して拡大に切り替える
+    if (lastPt) { const d = undoStack.pop(); if (d) mctx.putImageData(d, 0, 0); lastPt = null; }
+    const [a, b] = [...touches.values()];
+    pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: mid(a, b), k0: view.k, x0: view.x, y0: view.y };
+    drawCrop();
+  }
+});
 cc.addEventListener('pointermove', e => {
-  if (!drawing) return;
-  const p = cpt(e), q = path[path.length - 1];
-  if (Math.hypot(p[0] - q[0], p[1] - q[1]) > Math.max(cc.width, cc.height) / 200) { path.push(p); drawCrop(); }
+  if (!touches.has(e.pointerId)) return;
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && touches.size >= 2) {
+    const [a, b] = [...touches.values()], m = mid(a, b);
+    const k = Math.max(view.fit, Math.min(view.fit * 12, pinch.k0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0));
+    view.x = m.x - (pinch.m0.x - pinch.x0) / pinch.k0 * k;
+    view.y = m.y - (pinch.m0.y - pinch.y0) / pinch.k0 * k;
+    view.k = k; snapFit(); drawCrop();
+  } else if (lastPt) { const p = toImg(e); stroke(lastPt, p); lastPt = p; drawCrop(); }
 });
-cc.addEventListener('pointerup', () => {
-  if (!drawing) return; drawing = false;
-  let area = 0;
-  for (let i = 0, j = path.length - 1; i < path.length; j = i++) area += (path[j][0] - path[i][0]) * (path[j][1] + path[i][1]);
-  if (path.length < 8 || Math.abs(area / 2) < cc.width * cc.height * 0.005) { path = []; drawCrop(); return; }
-  const step = Math.max(1, Math.ceil(path.length / 160));
-  finish(path.filter((_, i) => i % step === 0));
-});
-$('all').onclick = () => {
-  const w = img.width, h = img.height, r = Math.min(w, h) * 0.12, poly = [];
-  const corners = [[w - r, h - r, 0], [r, h - r, 1], [r, r, 2], [w - r, r, 3]];
-  for (const [cx, cy, q] of corners) for (let i = 0; i <= 8; i++) { const a = (q + i / 8) * Math.PI / 2; poly.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
-  finish(poly);
+const cropUp = e => {
+  touches.delete(e.pointerId);
+  if (touches.size === 0) pinch = null;
+  if (lastPt) { lastPt = null; updateDone(); }
 };
+cc.addEventListener('pointerup', cropUp);
+cc.addEventListener('pointercancel', cropUp);
+// PC: ホイールでカーソル位置を中心に拡大
+cc.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = cc.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const k = Math.max(view.fit, Math.min(view.fit * 12, view.k * Math.exp(-e.deltaY * 0.0015)));
+  view.x = mx - (mx - view.x) / view.k * k; view.y = my - (my - view.y) / view.k * k; view.k = k; snapFit();
+  drawCrop();
+}, { passive: false });
+$('brush').onclick = () => {
+  brushIdx = (brushIdx + 1) % BRUSH.length;
+  const d = $('brush').firstChild; d.style.width = d.style.height = [5, 11, 20][brushIdx] + 'px';
+};
+$('erase').onclick = () => { erasing = !erasing; $('erase').classList.toggle('on', erasing); };
+$('undo').onclick = () => { const d = undoStack.pop(); if (d) { mctx.putImageData(d, 0, 0); drawCrop(); updateDone(); } };
 $('cancel').onclick = () => $('crop').classList.remove('show');
-function finish(poly) {
+$('done').onclick = () => {
+  const sh = makeFromMask(); if (!sh) return;
   $('crop').classList.remove('show');
-  current = makeFromImage(img, poly);
-  spawn(current); puffSound();
-}
+  current = sh; spawn(current); puffSound();
+};
 $('more').onclick = () => {
   ac();
   spawn(current || [sampleA, sampleB, sampleC][Math.random() * 3 | 0]); puffSound();
