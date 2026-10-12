@@ -159,6 +159,10 @@
     } catch {}
   }
 
+  function plop() {
+    necha(0.5);
+  }
+
   // ---------- state ----------
   const cv = $('cv'), ctx = cv.getContext('2d');
   let W = 0, H = 0, DPR = 1;
@@ -169,8 +173,8 @@
   // pack-local units: the inside of the tray is PW x PH, centered at 0
   const PW = 1, PH = 0.8, R = 0.046, N_BEANS = 54;
   let beans = [], strings = new Map();
-  let neba = 0;                 // stickiness 0..1, grows as you stir
-  let stick = null;             // chopstick: {x, y, vx, vy, holds: [bean idx]}
+  let neba = 0;                 // stickiness 0..2, grows as you stir (past 1 it gets extra gooey)
+  let stick = null, recoil = [];             // chopstick: {x, y, vx, vy, holds: [bean idx]}
 
   // ---------- layout ----------
   function resize() {
@@ -271,10 +275,10 @@
 
   // ---------- natto physics (top view, no gravity) ----------
   function startNatto() {
-    beans = []; strings = new Map(); neba = 0; stick = null;
+    beans = []; strings = new Map(); neba = 0; stick = null; recoil = [];
     for (let i = 0; i < N_BEANS; i++) {
       const foam = [];
-      for (let j = 0; j < 4; j++) foam.push({ a: Math.random() * Math.PI * 2, d: R * (0.6 + Math.random() * 0.7), r: R * (0.18 + Math.random() * 0.22), th: Math.random() });
+      for (let j = 0; j < 8; j++) foam.push({ a: Math.random() * Math.PI * 2, d: R * (0.6 + Math.random() * 0.7), r: R * (0.18 + Math.random() * 0.22), th: j < 4 ? Math.random() : 1 + Math.random() });
       beans.push({
         x: (Math.random() - 0.5) * (PW - R * 4), y: (Math.random() - 0.5) * (PH - R * 4),
         i, vx: 0, vy: 0, a: Math.random() * Math.PI * 2, va: 0, foam, carry: false, fall: 0,
@@ -287,19 +291,27 @@
   let nechaT = 0;
   // pulling the chopstick up out of the tray: a few beans come with it and many strings stretch
   function liftOff() {
-    const near = beans.map(b => ({ b, d: Math.hypot(b.x - stick.x, b.y - stick.y) })).filter(o => o.d < 0.35).sort((a, b) => a.d - b.d);
+    const near = beans.map(b => ({ b, d: Math.hypot(b.x - stick.x, b.y - stick.y) })).filter(o => o.d < 0.3 + neba * 0.1).sort((a, b) => a.d - b.d);
     stick.holds.clear();
     near.forEach((o, n) => {
       if (n < 3) {
         o.b.carry = true;
         o.b.ox = (Math.random() - 0.5) * R * 2; o.b.oy = R * (0.6 + n * 1.3);
       }
-      if (n < 16) stick.holds.set(o.b.i, n < 4 ? 9 : (0.5 + neba * 1.6) * (0.5 + Math.random()));
+      if (n < 14 + neba * 8) stick.holds.set(o.b.i, n < 4 ? 9 : (0.5 + neba * 1.6) * (0.5 + Math.random()));
     });
     necha(0.5);
   }
   function drop() {
-    for (const b of beans) if (b.carry) { b.carry = false; b.fall = 0.4; }
+    const hx = PW / 2 - R, hy = PH / 2 - R;
+    for (const b of beans) if (b.carry) {
+      b.carry = false; b.fall = 1;
+      b.lx = Math.max(-hx, Math.min(hx, b.x)); b.ly = Math.max(-hy, Math.min(hy, Math.max(b.y, -hy + Math.random() * 0.12)));
+      b.vx *= 0.3; b.vy = Math.min(b.vy, 0) * 0.3;
+    }
+    // the strings let go of the chopstick and spring back to their beans
+    for (const [i] of stick.holds) recoil.push({ i, x: stick.x, y: stick.y, vx: 0, vy: 0, t: 0 });
+    stick.holds.clear();
   }
   function step(dt) {
     const fr = Math.pow(0.08, dt);                 // tray friction
@@ -313,6 +325,7 @@
         b.x += (tx - b.x) * k; b.y += (ty - b.y) * k;
         continue;
       }
+      if (b.fall > 0) continue;
       if (lifted && stick.holds.has(b.i)) {
         // a stretched string tugs the bean toward the chopstick
         const dx = stick.x - b.x, dy = stick.y - b.y, d = Math.hypot(dx, dy) || 1;
@@ -357,7 +370,7 @@
             const rv = (q.vx - p.vx) * nx + (q.vy - p.vy) * ny;
             if (rv < 0) { const imp = -rv * 0.5; p.vx -= nx * imp; p.vy -= ny * imp; q.vx += nx * imp; q.vy += ny * imp; }
             // touching beans get stuck together by a string, more often the more you stir
-            if (it === 0 && neba > 0.05 && strings.size < 220 && Math.random() < neba * dt * 30) {
+            if (it === 0 && neba > 0.05 && strings.size < 200 + neba * 200 && Math.random() < neba * dt * 30) {
               const k = key(i, j);
               if (!strings.has(k)) strings.set(k, { i, j, w: 0.5 + Math.random() * 0.8 });
             }
@@ -365,10 +378,14 @@
         }
         if (p.carry) continue;
         if (p.fall > 0) {
-          // dropping back into the tray
-          const k = Math.min(1, dt * 10);
-          p.x += (Math.max(-hx, Math.min(hx, p.x)) - p.x) * k; p.y += (Math.max(-hy, Math.min(hy, p.y)) - p.y) * k;
-          if (it === 0) p.fall -= dt;
+          // falling back down into the tray, then a small bounce
+          if (it === 0) {
+            p.vy += 9 * dt; p.x += (p.lx - p.x) * Math.min(1, dt * 6); p.y += p.vy * dt;
+            if (p.y >= p.ly) {
+              p.y = p.ly;
+              if (p.vy > 0.5) { p.vy = -p.vy * 0.25; plop(); } else { p.fall = 0; p.vx = p.vy = 0; }
+            }
+          }
           continue;
         }
         if (stick && !lifted) {
@@ -393,18 +410,27 @@
       for (let i = 0; i < beans.length; i++) {
         const b = beans[i], d = Math.hypot(b.x - stick.x, b.y - stick.y);
         if (d < SR) near++;
-        if (neba > 0.15 && d < R + STICK_R + 0.01 && stick.holds.size < 8) stick.holds.set(i, 0);
+        if (neba > 0.15 && d < R + STICK_R + 0.01 && stick.holds.size < 8 + neba * 6) stick.holds.set(i, 0);
       }
       for (const i of stick.holds.keys()) {
         const b = beans[i], d = Math.hypot(b.x - stick.x, b.y - stick.y);
         if (d > 0.08 + neba * 0.45) stick.holds.delete(i);
       }
       if (near) {
-        neba = Math.min(1, neba + sp * dt * 0.06 * Math.min(1, near / 6));
+        neba = Math.min(2, neba + sp * dt * 0.06 * Math.min(1, near / 6));
         nechaT -= dt * Math.min(3, sp * 1.5);
         if (nechaT <= 0) { nechaT = 0.18; necha(0.15 + neba * 0.6); }
       }
     }
+  }
+
+  function stepRecoil(dt) {
+    for (const c of recoil) {
+      const b = beans[c.i];
+      c.vx += ((b.x - c.x) * 260 - c.vx * 14) * dt; c.vy += ((b.y - c.y) * 260 - c.vy * 14) * dt;
+      c.x += c.vx * dt; c.y += c.vy * dt; c.t += dt;
+    }
+    recoil = recoil.filter(c => c.t < 0.45);
   }
 
   // ---------- drawing ----------
@@ -454,6 +480,12 @@
       g.globalAlpha = 1;
     }
     drawStrings(g, opt, lw, 0.6, false);
+    if (opt.neba > 1) {
+      // very well stirred: a white sticky film over everything
+      const e = opt.neba - 1;
+      g.fillStyle = `rgba(255,252,240,${e * 0.08})`; g.fillRect(-PW / 2, -PH / 2, PW, PH);
+      drawStrings(g, opt, lw * (1 + e * 1.5), e * 0.25, false);
+    }
     g.restore();
     // chopstick strings above everything
     if (opt.stick) {
@@ -462,14 +494,20 @@
       for (const [i, lim] of st.holds) {
         const b = opt.beans[i], d = Math.hypot(b.x - st.x, b.y - st.y);
         // long thin strands that thin out as they stretch, swaying a little
-        for (let n = 0; n < (st.lifted ? 3 : 1); n++) {
+        for (let n = 0; n < (st.lifted ? 3 + Math.floor(opt.neba * 1.5) : 1); n++) {
           const sway = Math.sin(opt.time * 3 + i + n * 2) * d * 0.06 + (n - 1) * d * 0.04;
           g.strokeStyle = `rgba(255,255,250,${st.lifted ? 0.7 + 0.25 * (1 - d / (lim || 1)) : 0.8})`;
-          g.lineWidth = Math.max(0.9, (st.lifted ? 3.2 - d * 4 : 2.4 - d * 10) * (n ? 0.6 : 1)) * lw;
+          g.lineWidth = Math.max(0.9, (st.lifted ? 3.2 - d * 4 : 2.4 - d * 10) * (n ? 0.6 : 1) * (1 + Math.max(0, opt.neba - 1))) * lw;
           g.beginPath(); g.moveTo(st.x, st.y);
           g.quadraticCurveTo((b.x + st.x) / 2 + sway, (b.y + st.y) / 2 + d * 0.12, b.x, b.y); g.stroke();
         }
       }
+    }
+    // strings springing back after letting go
+    for (const c of opt.recoil || []) {
+      const b = opt.beans[c.i];
+      g.strokeStyle = `rgba(255,255,250,${0.8 * (1 - c.t / 0.45)})`; g.lineWidth = 1.4 * lw;
+      g.beginPath(); g.moveTo(c.x, c.y); g.lineTo(b.x, b.y); g.stroke();
     }
     // beans lifted out of the tray float above it, with strings back down to the tray
     drawStrings(g, opt, lw, 0.75, true);
@@ -519,7 +557,7 @@
       return;
     }
     const gm = packGeom(W, H);
-    drawPack(ctx, gm.s, gm.cx, gm.cy, { beans, strings, sprite, neba, stick, time });
+    drawPack(ctx, gm.s, gm.cx, gm.cy, { beans, strings, sprite, neba, stick, time, recoil });
   }
   const startSprite = sampleSprite();
   let tmpC = null;
@@ -549,11 +587,12 @@
         const vx = (stick.tx - stick.x) / dt, vy = (stick.ty - stick.y) / dt;
         stick.vx += (vx - stick.vx) * 0.5; stick.vy += (vy - stick.vy) * 0.5;
         stick.x = stick.tx; stick.y = stick.ty;
-        const out = stick.y < -PH / 2 - R * 0.5;
+        const out = stick.lifted ? stick.y < -PH / 2 + R * 0.5 : stick.y < -PH / 2 - R * 1.5;
         if (out && !stick.lifted) { stick.lifted = true; liftOff(); }
-        else if (!out && stick.lifted) { stick.lifted = false; drop(); stick.holds.clear(); }
+        else if (!out && stick.lifted) { stick.lifted = false; drop(); }
       }
       for (let i = 0; i < 4; i++) step(dt / 4);
+      stepRecoil(dt);
       render();
     }
     requestAnimationFrame(loop);
@@ -614,7 +653,10 @@
     }
     if (mode === 'stir' && stick && e.pointerId === stick.id) {
       if (stick.lifted) { if (stick.holds.size) twang(0.8); drop(); }
-      else if (stick.holds.size) necha(0.3 + neba * 0.4);
+      else {
+        if (stick.holds.size) necha(0.3 + neba * 0.4);
+        for (const [i] of stick.holds) recoil.push({ i, x: stick.x, y: stick.y, vx: 0, vy: 0, t: 0 });
+      }
       stick = null;
     }
   };
