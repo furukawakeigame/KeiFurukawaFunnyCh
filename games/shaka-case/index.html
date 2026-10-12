@@ -306,9 +306,10 @@ const caseMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.0
 
 // ---------- physics ----------
 const world = new RAPIER.World({ x: 0, y: -G, z: 0 });
-const STEP = 1 / 240;
+// fine steps while the phone turns (so the walls cannot jump over a sticker), coarse ones when it is still
+const STEP_FAST = 1 / 240, STEP_SLOW = 1 / 120;
+let STEP = STEP_SLOW;
 world.timestep = STEP;
-try { world.integrationParameters.numSolverIterations = 8; } catch {}
 const caseBody = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
 {
   const add = d => world.createCollider(d.setFriction(0.3).setRestitution(0.2), caseBody);
@@ -468,7 +469,7 @@ function spawn(id) {
   if (Math.random() < 0.5) q.multiply(tmpQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI));
   const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
     .setTranslation(p.x, p.y, p.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
-    .setCcdEnabled(true).setLinearDamping(0.2).setAngularDamping(0.4));
+    .setLinearDamping(0.2).setAngularDamping(0.4));
   for (const pts of r.parts) {
     const d = RAPIER.ColliderDesc.convexHull(pts);
     if (d) world.createCollider(d.setDensity(1).setFriction(0.35).setRestitution(0.25), body);
@@ -826,9 +827,11 @@ function loop(now) {
     }
     if (!motionOn) grav.set(0, -G, 0);
     world.gravity = { x: grav.x, y: grav.y, z: grav.z };
+    const moving = drag || flip || omega.lengthSq() > 0.01 || phoneQ.angleTo(physQ) > 1e-4;
+    if ((moving ? STEP_FAST : STEP_SLOW) !== STEP) { STEP = moving ? STEP_FAST : STEP_SLOW; world.timestep = STEP; }
     acc += dt;
-    const n = Math.min(12, Math.floor(acc / STEP));
-    acc -= n * STEP; if (n === 12) acc = 0;
+    const n = Math.min(10, Math.floor(acc / STEP));
+    acc -= n * STEP; if (n === 10) acc = 0;
     const from = physQ.clone();
     for (let i = 0; i < n; i++) {
       qa.slerpQuaternions(from, phoneQ, (i + 1) / n);
