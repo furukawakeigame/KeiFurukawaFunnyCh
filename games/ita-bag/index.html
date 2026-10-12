@@ -70,6 +70,18 @@
     .sw.on { box-shadow: 0 0 0 3px #c2185b; }
     .dot { display: inline-block; background: currentColor; border-radius: 50%; }
     input[type=range] { width: 140px; accent-color: #d81b60; }
+    .stock {
+      display: flex; gap: 8px; overflow-x: auto; padding: 8px 12px 2px; touch-action: pan-x;
+      width: 100%; max-width: 640px; margin: 0 auto; box-sizing: border-box; scrollbar-width: none;
+    }
+    .stock::-webkit-scrollbar { display: none; }
+    .thumb {
+      flex: none; width: 52px; height: 52px; padding: 3px; border: 2px solid #f1c6d6; border-radius: 12px;
+      background: #fff; cursor: pointer; -webkit-touch-callout: none;
+    }
+    .thumb img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; display: block; }
+    .thumb.round { border-radius: 50%; padding: 2px; }
+    .thumb.round img { border-radius: 50%; object-fit: cover; }
     .hide { display: none !important; }
     #msg {
       position: absolute; top: 42%; left: 0; right: 0; text-align: center; font-weight: bold; pointer-events: none;
@@ -119,6 +131,7 @@
       <button id="pOk" class="btn" data-t="ok"></button>
     </div>
     <!-- ストラップ -->
+    <div id="stockS" class="stock hide"></div>
     <div id="barStrap" class="bar hide">
       <button id="sPick" class="btn" data-t="pick"></button>
       <button id="sRemove" class="btn sub" data-t="remove"></button>
@@ -131,6 +144,7 @@
       <button id="cDone" class="btn" data-t="done" disabled></button>
     </div>
     <!-- バッジ -->
+    <div id="stockB" class="stock hide"></div>
     <div id="barBadge" class="bar hide">
       <button id="bPick" class="btn" data-t="pick"></button>
     </div>
@@ -341,6 +355,8 @@ function showBars() {
   $('barPrint').classList.toggle('hide', !(mode === 'print' && !sub));
   $('barPlace').classList.toggle('hide', sub !== 'place');
   $('barStrap').classList.toggle('hide', !(mode === 'strap' && !sub));
+  $('stockS').classList.toggle('hide', !(mode === 'strap' && !sub && stock.straps.length));
+  $('stockB').classList.toggle('hide', !(mode === 'badge' && !sub && stock.badges.length));
   $('barCut').classList.toggle('hide', sub !== 'cut');
   $('barBadge').classList.toggle('hide', !(mode === 'badge' && !sub));
   $('barCrop').classList.toggle('hide', sub !== 'crop');
@@ -456,7 +472,6 @@ $('bPick').onclick = () => pickImage(img => openEditor('crop', img));
 
 // ---------- straps (image-balloon style puffy charm) ----------
 const straps = [];
-const SLOTS = [0.5, 0.36, 0.64, 0.22, 0.78];
 const chainMat = new THREE.MeshStandardMaterial({ color: 0xf0d070, metalness: 0.5, roughness: 0.3 });
 const linkGeo = new THREE.TorusGeometry(0.055, 0.014, 8, 20);
 function buildCharm(canvas) {
@@ -485,7 +500,7 @@ function buildCharm(canvas) {
   };
   const Din = dist(i => alpha[i * 4 + 3] > 127, true), Dout = dist(i => alpha[i * 4 + 3] <= 127, false);
   const sdist = (x, y) => { const i = Math.min(H - 1, Math.round(y)) * W + Math.min(W - 1, Math.round(x)); return Din[i] ? Din[i] - 0.5 : -(Math.min(Dout[i], 1e4) - 0.5); };
-  const size = 1.15, w = W >= H ? size : size * W / H, h = W >= H ? size * H / W : size;
+  const size = 0.9, w = W >= H ? size : size * W / H, h = W >= H ? size * H / W : size;
   const k = w / W;
   const ds = [];
   let dmax = 0;
@@ -534,38 +549,146 @@ function buildCharm(canvas) {
   tex.colorSpace = THREE.SRGBColorSpace;
   return { g, tex, top: top || { x: 0, y: h / 2 } };
 }
+// 鎖は質点をつないだ紐（Verlet 法）で、ワールド座標で動かす。バッグが回ったり揺れたりすると引っぱられて揺れる
+const GRAV = 26, LL = 0.085;
+const tmpV = new THREE.Vector3(), tmpL = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
+const UP = new THREE.Vector3(0, 1, 0), invBag = new THREE.Matrix4();
+// 取り付け位置: バッグの口のふち（正面側）に左右から順に並べる
+function strapSlot(n) {
+  const base = [-1.15, 1.15, -0.55, 0.55, 0, -0.85, 0.85, -0.27, 0.27];
+  return n < base.length ? base[n] : -1.3 + ((n * 0.618) % 1) * 2.6;
+}
+function anchorWorld(s, out) { return out.copy(s.anchor).applyMatrix4(bag.matrixWorld); }
 function addStrap(sprite) {
-  const slot = SLOTS.find(s => !straps.some(o => o.slot === s));
-  if (slot === undefined) { flash(t('full')); return; }
   const shape = buildCharm(sprite);
-  const pivot = new THREE.Group();
-  pivot.position.copy(frontHandle.getPointAt(slot)); pivot.position.z += 0.05;
-  const swing = new THREE.Group(); pivot.add(swing);
-  const LINKS = 4, LL = 0.085;
-  for (let i = 0; i < LINKS; i++) {
-    const l = new THREE.Mesh(linkGeo, chainMat);
-    l.position.y = -i * LL - 0.03; l.rotation.x = Math.PI / 2 * 0; l.rotation.y = i % 2 ? Math.PI / 2 : 0;
-    l.scale.set(0.8, 1, 1);
-    swing.add(l);
-  }
+  const n = straps.length, slot = strapSlot(n);
+  const anchor = new THREE.Vector3(slot, BH / 2 - 0.08, BD / 2 + 0.04);
+  const LINKS = 3 + (n % 3) * 2;
+  const links = [];
+  for (let i = 0; i < LINKS; i++) { const l = new THREE.Mesh(linkGeo, chainMat); l.scale.set(0.8, 1, 1); scene.add(l); links.push(l); }
   const mat = new THREE.MeshPhysicalMaterial({ map: shape.tex, alphaTest: 0.5, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.1, side: THREE.DoubleSide });
-  const charm = new THREE.Mesh(shape.g, mat);
-  const ring = new THREE.Mesh(linkGeo, chainMat);
-  const endY = -LINKS * LL - 0.03;
-  ring.position.y = endY; ring.rotation.y = LINKS % 2 ? Math.PI / 2 : 0;
-  swing.add(ring);
-  charm.position.set(-shape.top.x, endY - 0.04 - shape.top.y, 0.05);
-  swing.add(charm);
-  bag.add(pivot);
-  const s = { slot, pivot, swing, ax: 0, az: 0.5, vx: 0, vz: 0, L: 0.4 + shape.top.y + 0.6 };
+  const charm = new THREE.Group();
+  const mesh = new THREE.Mesh(shape.g, mat);
+  mesh.position.set(-shape.top.x, -0.03 - shape.top.y, 0);
+  charm.add(mesh); scene.add(charm);
+  bag.updateMatrixWorld();
+  const s = { anchor, links, charm, mesh, cd: shape.top.y + 0.03, sprite, p: [], q: [] };
+  anchorWorld(s, tmpV);
+  // 質点: 0 = 取り付け位置（固定）, 1..LINKS = 鎖, LINKS+1 = チャームの中心
+  for (let i = 0; i <= LINKS + 1; i++) {
+    const y = i <= LINKS ? i * LL : LINKS * LL + s.cd;
+    const v = new THREE.Vector3(tmpV.x + (Math.random() - 0.5) * 0.05, tmpV.y - y, tmpV.z + 0.05 * i / LINKS);
+    s.p.push(v); s.q.push(v.clone());
+  }
   straps.push(s); showBars(); chainSnd();
 }
+function stepStraps(dt) {
+  bag.updateMatrixWorld(); invBag.copy(bag.matrixWorld).invert();
+  const SUB = 4, h = dt / SUB;
+  for (let k = 0; k < SUB; k++) {
+    for (const s of straps) {
+      const P = s.p, Q = s.q, N = P.length;
+      anchorWorld(s, P[0]); Q[0].copy(P[0]);
+      for (let i = 1; i < N; i++) {
+        const p = P[i], q = Q[i];
+        const vx = (p.x - q.x) * 0.992, vy = (p.y - q.y) * 0.992, vz = (p.z - q.z) * 0.992;
+        q.copy(p); p.x += vx; p.y += vy - GRAV * h * h; p.z += vz;
+      }
+    }
+    // チャームどうしが重ならないよう押し合う
+    for (let a = 0; a < straps.length; a++) for (let b = a + 1; b < straps.length; b++) {
+      const pa = straps[a].p.at(-1), pb = straps[b].p.at(-1);
+      const d = tmpV.subVectors(pa, pb), L = d.length(), R = 0.36;
+      if (L < R && L > 1e-5) { d.multiplyScalar((R - L) / L * 0.5); pa.add(d); pb.sub(d); }
+    }
+    for (const s of straps) {
+      const P = s.p, N = P.length;
+      for (let it = 0; it < 6; it++) {
+        for (let i = 0; i < N - 1; i++) {
+          const a = P[i], b = P[i + 1], rest = i === N - 2 ? s.cd : LL;
+          const d = tmpV.subVectors(b, a), L = d.length() || 1e-6, diff = (L - rest) / L;
+          if (i === 0) b.addScaledVector(d, -diff);
+          else { a.addScaledVector(d, diff * 0.5); b.addScaledVector(d, -diff * 0.5); }
+        }
+        // バッグの本体にめり込まないよう前に押し出す
+        for (let i = 1; i < N; i++) {
+          const m = i === N - 1 ? 0.26 : 0.05;
+          tmpL.copy(P[i]).applyMatrix4(invBag);
+          if (Math.abs(tmpL.x) < BW / 2 + m && tmpL.y < BH / 2 + 0.02 && tmpL.y > -BH / 2 - m && tmpL.z > -BD / 2) {
+            const zf = BD / 2 + bz(tmpL.x, Math.min(tmpL.y, BH / 2)) + m + (i === N - 1 ? 0.06 : 0);
+            if (tmpL.z < zf) { tmpL.z = zf; P[i].copy(tmpL.applyMatrix4(bag.matrixWorld)); }
+          }
+        }
+      }
+    }
+  }
+  // 見た目を質点に合わせる
+  const fwd = new THREE.Vector3(0, 0, 1).transformDirection(bag.matrixWorld);
+  for (const s of straps) {
+    const P = s.p, N = P.length;
+    s.links.forEach((l, i) => {
+      const a = P[i], b = P[i + 1];
+      l.position.addVectors(a, b).multiplyScalar(0.5);
+      tmpV.subVectors(a, b).normalize();
+      l.quaternion.setFromUnitVectors(UP, tmpV);
+      if (i % 2) l.quaternion.multiply(tmpQ.setFromAxisAngle(UP, Math.PI / 2));
+    });
+    const ring = P[N - 2], c = P[N - 1];
+    const y = tmpV.subVectors(ring, c).normalize();
+    const x = new THREE.Vector3().crossVectors(y, fwd).normalize(), z = new THREE.Vector3().crossVectors(x, y);
+    s.charm.position.copy(ring);
+    s.charm.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+  }
+}
+function removeStrap(s) {
+  for (const l of s.links) scene.remove(l);
+  scene.remove(s.charm); s.mesh.geometry.dispose(); s.mesh.material.map.dispose(); s.mesh.material.dispose();
+  straps.splice(straps.indexOf(s), 1); showBars(); chainSnd();
+}
 $('sPick').onclick = () => pickImage(img => openEditor('cut', img));
-$('sRemove').onclick = () => {
-  const s = straps.pop(); if (!s) return;
-  bag.remove(s.pivot); s.pivot.traverse(o => { if (o.geometry && o.geometry !== linkGeo) o.geometry.dispose(); });
-  showBars(); chainSnd();
+$('sRemove').onclick = () => { if (straps.length) removeStrap(straps.at(-1)); };
+
+// ---------- stock (作ったストラップ・バッジを端末に保存して使い回す) ----------
+let stock = store.get('stock', { straps: [], badges: [] });
+function saveStock() {
+  // 容量オーバーのときは古いものから捨てる
+  for (;;) {
+    try { localStorage.setItem('itabag:stock', JSON.stringify(stock)); return; } catch {
+      const l = stock.straps.length >= stock.badges.length ? stock.straps : stock.badges;
+      if (!l.length) return; l.shift();
+    }
+  }
+}
+const loadCanvas = (src, cb) => {
+  const im = new Image();
+  im.onload = () => { const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; c.getContext('2d').drawImage(im, 0, 0); cb(c); };
+  im.src = src;
 };
+function placeBadge(c, size) {
+  const spot = findSpot(BADGE_R[size]);
+  if (!spot) { flash(t('full')); ngSnd(); return; }
+  const b = makeBadge(c, size);
+  bag.add(b.grp); setBadgePos(b, spot.x, spot.y); badges.push(b); clickSnd();
+}
+function renderStock() {
+  for (const [id, list, round] of [['stockS', stock.straps, false], ['stockB', stock.badges, true]]) {
+    const el = $(id); el.innerHTML = '';
+    list.forEach((it, i) => {
+      const b = document.createElement('button'); b.className = 'thumb' + (round ? ' round' : '');
+      const im = new Image(); im.src = round ? it.img : it; im.alt = ''; im.draggable = false; b.appendChild(im);
+      let timer = null, long = false;
+      b.onpointerdown = () => { long = false; timer = setTimeout(() => { long = true; list.splice(i, 1); saveStock(); renderStock(); ngSnd(); }, 650); };
+      b.onpointerup = b.onpointerleave = b.onpointercancel = () => clearTimeout(timer);
+      b.onclick = () => {
+        if (long) return;
+        if (round) loadCanvas(it.img, c => placeBadge(c, it.size));
+        else loadCanvas(it, c => addStrap(c));
+      };
+      el.appendChild(b);
+    });
+  }
+  showBars();
+}
 
 // ---------- 2D editor (strap cut-out / badge crop) ----------
 const edc = $('ed'), ectx = edc.getContext('2d');
@@ -659,6 +782,8 @@ $('cDone').onclick = () => {
   g.globalCompositeOperation = 'destination-in';
   g.drawImage(ed.mask, b.x, b.y, b.w, b.h, pad, pad, c.width - pad * 2, c.height - pad * 2);
   closeEditor();
+  stock.straps.unshift(c.toDataURL('image/png')); if (stock.straps.length > 40) stock.straps.pop();
+  saveStock(); renderStock();
   setTimeout(() => addStrap(c), 30);
 };
 $('kDone').onclick = () => {
@@ -669,11 +794,10 @@ $('kDone').onclick = () => {
   g.drawImage(ed.img, ix - R, iy - R, R * 2, R * 2, 0, 0, 512, 512);
   const size = ed.size;
   closeEditor();
-  const spot = findSpot(BADGE_R[size]);
-  if (!spot) { flash(t('full')); ngSnd(); return; }
-  const b = makeBadge(c, size);
-  bag.add(b.grp); setBadgePos(b, spot.x, spot.y); badges.push(b);
-  b.pop = 0; clickSnd();
+  const th = document.createElement('canvas'); th.width = th.height = 256; th.getContext('2d').drawImage(c, 0, 0, 256, 256);
+  stock.badges.unshift({ img: th.toDataURL('image/jpeg', 0.85), size }); if (stock.badges.length > 60) stock.badges.pop();
+  saveStock(); renderStock();
+  placeBadge(c, size);
 };
 
 let edLast = null, edPinch = null;
@@ -788,10 +912,10 @@ cv.addEventListener('pointerdown', e => {
       return;
     }
   }
-  if (mode === 'strap') {
-    setRay(e);
-    const h = ray.intersectObjects(straps.map(s => s.swing), true)[0];
-    if (h) { const s = straps.find(s => s.swing.getObjectById(h.object.id)); if (s) { s.vz += (Math.random() < 0.5 ? -1 : 1) * 6; s.vx += 3; chainSnd(); } }
+  if (mode === 'strap' && !sub) {
+    // ストラップのタブではバッグをつかんで揺らす
+    drag = { kind: 'shake', x: e.clientX, y: e.clientY, bx: bagPos.x, by: bagPos.y };
+    return;
   }
   drag = { kind: 'rot', x: e.clientX, y: e.clientY, t: performance.now() };
 });
@@ -809,6 +933,10 @@ cv.addEventListener('pointermove', e => {
     setBadgePos(b, q.x, q.y); b.grp.position.z += 0.06;
     const ok = freeAt(q.x, q.y, b.r, b);
     b.capMat.color.set(ok ? 0xffffff : 0xff6070);
+  } else if (drag.kind === 'shake') {
+    const k = 2 * Math.tan(THREE.MathUtils.degToRad(20)) * camera.position.z / H;
+    const nx = drag.bx + (e.clientX - drag.x) * k, ny = drag.by - (e.clientY - drag.y) * k;
+    bagPos.x = Math.max(-2.5, Math.min(2.5, nx)); bagPos.y = Math.max(-1.5, Math.min(1.5, ny));
   } else if (drag.kind === 'rot') {
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y, now = performance.now(), dt = Math.max(1, now - drag.t) / 1000;
     const nyaw = yaw + dx * 0.012, npitch = Math.max(-0.5, Math.min(0.5, pitch + dy * 0.006));
@@ -837,7 +965,8 @@ cv.addEventListener('wheel', e => {
 }, { passive: false });
 
 // ---------- loop ----------
-let last = performance.now(), prevYaw = 0, prevW = 0, time = 0;
+let last = performance.now(), time = 0;
+const bagPos = { x: 0, y: 0 }, bagVel = { x: 0, y: 0 };
 function loop(now) {
   const dt = Math.min(0.033, (now - last) / 1000); last = now; time += dt;
   if (!drag || drag.kind !== 'rot') {
@@ -851,20 +980,15 @@ function loop(now) {
     vpitch += (-pitch * 40 - vpitch * 9) * dt; pitch += vpitch * dt;
   }
   bag.rotation.set(pitch, yaw, 0);
-  // 吊り下げたストラップの揺れ（バッグの回転加速度で振られる）
-  const w = (yaw - prevYaw) / Math.max(dt, 1e-3), al = (w - prevW) / Math.max(dt, 1e-3);
-  prevYaw = yaw; prevW = w;
-  for (const s of straps) {
-    const px = s.pivot.position.x, pz = s.pivot.position.z;
-    const axl = al * pz - w * w * px, azl = -al * px - w * w * pz;
-    const g = 9.8 / s.L;
-    s.vz += (-g * Math.sin(s.az) - axl * 0.12 / s.L - s.vz * 1.2) * dt;
-    s.vx += (-g * Math.sin(s.ax) + azl * 0.12 / s.L - s.vx * 1.2 + Math.sin(time * 1.3 + s.slot * 9) * 0.05) * dt;
-    s.az += s.vz * dt; s.ax += s.vx * dt;
-    // 前に振れすぎてバッグに刺さらないよう、後ろ側には振れないようにする
-    if (s.ax < -0.05) { s.ax = -0.05; s.vx = Math.abs(s.vx) * 0.3; }
-    s.swing.rotation.set(s.ax, 0, s.az);
-  }
+  // バッグの位置: つかんでいる間は指に付いていき、離すとばねで真ん中に戻る
+  if (!drag || drag.kind !== 'shake') {
+    bagVel.x += (-bagPos.x * 60 - bagVel.x * 7) * dt; bagVel.y += (-bagPos.y * 60 - bagVel.y * 7) * dt;
+    bagPos.x += bagVel.x * dt; bagPos.y += bagVel.y * dt;
+  } else { bagVel.x = (bagPos.x - bag.position.x) / Math.max(dt, 1e-3); bagVel.y = (bagPos.y - bag.position.y) / Math.max(dt, 1e-3); }
+  bag.position.set(bagPos.x, bagPos.y, 0);
+  // 横に動かすと少し傾く
+  bag.rotation.z = Math.max(-0.4, Math.min(0.4, -bagVel.x * 0.04));
+  stepStraps(dt);
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
@@ -902,7 +1026,7 @@ function applyLang() {
 $('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
 $('snd').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); drawSnd(); };
 
-drawSnd(); applyLang(); markPen(); compose(); showBars();
+drawSnd(); applyLang(); markPen(); compose(); renderStock(); showBars();
 new ResizeObserver(resize).observe($('stage'));
 resize();
 requestAnimationFrame(loop);
