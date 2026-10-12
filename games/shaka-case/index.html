@@ -231,6 +231,8 @@ function rrect(cx, cy, w, h, r, seg = 6) {
 }
 const toShape = (pts, S = THREE.Shape) => { const s = new S(); s.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) s.lineTo(p[0], p[1]); s.closePath(); return s; };
 
+let asleep = false, dirty = true;   // resting pile put to sleep / screen needs redrawing
+
 // ---------- three.js ----------
 const stage = $('stage');
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -272,6 +274,7 @@ function setWallpaper(img) {
   tex.repeat.set(1 / SW_, 1 / SH_); tex.offset.set(0.5, 0.5);
   if (screenMat.map) screenMat.map.dispose();
   screenMat.map = tex; screenMat.needsUpdate = true;
+  dirty = true;
 }
 setWallpaper(null);
 // camera module (sticks out through a hole in the case)
@@ -476,10 +479,14 @@ function spawn(id) {
   }
   const mesh = new THREE.Mesh(r.geo, r.mats);
   scene.add(mesh);
-  stickers.push({ id, body, mesh, v: { x: 0, y: 0, z: 0 } });
+  stickers.push({ id, body, mesh, v: { x: 0, y: 0, z: 0 }, calm: 0 });
+  wakeAll();
   syncMesh(stickers[stickers.length - 1]);
   return true;
 }
+const sleepGrav = new THREE.Vector3();
+function wakeAll() { if (asleep) for (const s of stickers) s.body.wakeUp(); asleep = false; dirty = true; }
+document.addEventListener('click', () => { dirty = true; }, true);
 function syncMesh(s) {
   const p = s.body.translation(), q = s.body.rotation();
   s.mesh.position.set(p.x, p.y, p.z); s.mesh.quaternion.set(q.x, q.y, q.z, q.w);
@@ -513,9 +520,9 @@ function deleteType(id) {
   types = types.filter(tp => tp.id !== id);
   const r = runtime.get(id);
   if (r) { r.geo.dispose(); r.mats.forEach(m => { if (m.map) m.map.dispose(); m.dispose(); }); runtime.delete(id); }
-  saveTypes(); renderTray();
+  saveTypes(); renderTray(); dirty = true;
 }
-$('clear').onclick = () => { for (const s of stickers) removeSticker(s); stickers.length = 0; saveTypes(); };
+$('clear').onclick = () => { for (const s of stickers) removeSticker(s); stickers.length = 0; saveTypes(); dirty = true; };
 
 // ---------- painting (same as Tapioca Maker) ----------
 const cv = $('cv2'), ctx = cv.getContext('2d');
@@ -648,7 +655,13 @@ function makeType() {
   if (!bl.length) return null;
   const big = Math.max(...bl.map(x => x.area));
   bl = bl.filter(x => x.area >= big * 0.04);
-  const loops = bl.map(x => simplifyLoop(x.pts, 0.9)).filter(p => p.length >= 3);
+  // simplify the outline (fewer corners = fewer collider pieces = lighter physics); the mesh uses the same outline
+  let eps = 0.9, loops;
+  for (;;) {
+    loops = bl.map(x => simplifyLoop(x.pts, eps)).filter(p => p.length >= 3);
+    if (loops.reduce((a, p) => a + p.length, 0) <= 32 || eps > 3) break;
+    eps *= 1.25;
+  }
   if (!loops.length) return null;
   // world size: longest side = SZ cm, y up
   const s = SZ / Math.max(gw, gh), w = gw * s, h = gh * s;
@@ -809,6 +822,7 @@ function resize() {
   camera.position.set(0, 0, R / Math.sin(half));
   camera.lookAt(0, 0, 0); camera.updateProjectionMatrix();
   cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  dirty = true;
   if (mode === 'paint' && img) { placeImage(); render2d(); }
 }
 new ResizeObserver(resize).observe(stage);
@@ -838,19 +852,22 @@ function loop(now) {
     if (!motionOn) grav.set(0, -G, 0);
     world.gravity = { x: grav.x, y: grav.y, z: grav.z };
     const moving = drag || flip || omega.lengthSq() > 0.01 || phoneQ.angleTo(physQ) > 1e-4;
+    // a resting pile is put to sleep (no physics cost); wake it when the phone turns or the real tilt changes
+    if (asleep && (moving || grav.distanceTo(sleepGrav) > G * 0.04)) wakeAll();
     if ((moving ? STEP_FAST : STEP_SLOW) !== STEP) { STEP = moving ? STEP_FAST : STEP_SLOW; world.timestep = STEP; }
     acc += dt;
     const n = Math.min(10, Math.floor(acc / STEP));
     acc -= n * STEP; if (n === 10) acc = 0;
     const from = physQ.clone();
-    for (let i = 0; i < n; i++) {
+    if (!asleep) for (let i = 0; i < n; i++) {
       qa.slerpQuaternions(from, phoneQ, (i + 1) / n);
-      caseBody.setNextKinematicRotation({ x: qa.x, y: qa.y, z: qa.z, w: qa.w });
+      if (moving) caseBody.setNextKinematicRotation({ x: qa.x, y: qa.y, z: qa.z, w: qa.w });
       world.step();
     }
     if (n) physQ.copy(phoneQ);
     phone.quaternion.copy(physQ);
     const inv = physQ.clone().invert();
+    let calm = true;
     for (const s of stickers) {
       const p = s.body.translation();
       // safety: anything that slipped out of the compartment goes back in
@@ -870,9 +887,17 @@ function loop(now) {
       const dv = Math.hypot(v.x - s.v.x, v.y - s.v.y, v.z - s.v.z);
       if (dv > 90 && n) click(Math.min(1, dv / 600));
       s.v = { x: v.x, y: v.y, z: v.z };
+      const w = s.body.angvel();
+      s.calm = Math.hypot(v.x, v.y, v.z) < 1.5 && Math.hypot(w.x, w.y, w.z) < 0.5 ? s.calm + dt : 0;
+      if (s.calm < 0.5) calm = false;
       syncMesh(s);
     }
-    renderer.render(scene, camera);
+    if (!asleep && !moving && calm) {
+      for (const s of stickers) s.body.sleep();
+      asleep = true; sleepGrav.copy(grav);
+    }
+    // nothing moves: skip drawing too
+    if (!asleep || moving || dirty) { renderer.render(scene, camera); dirty = false; }
   }
   requestAnimationFrame(loop);
 }
