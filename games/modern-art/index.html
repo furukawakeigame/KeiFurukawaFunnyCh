@@ -30,14 +30,14 @@
     .tool.on { border-color: #222; }
     .tool svg { width: 100%; height: 100%; display: block; }
     #done { height: 52px; padding: 0 22px; border-radius: 12px; border: 0; background: #222; color: #fff; font-size: 17px; font-weight: 700; cursor: pointer; margin-left: 6px; }
-    #gallery { position: fixed; inset: 0; background: #1b1a18; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 12px 12px calc(80px + env(safe-area-inset-bottom)); }
+    #gallery { position: fixed; inset: 0; background: #2a2724; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 0 12px calc(80px + env(safe-area-inset-bottom)); }
     #gallery.show { display: flex; }
-    #gcv { max-width: 100%; max-height: calc(100% - 70px); display: block; }
+    #view { width: 100%; max-width: 720px; flex: 1; min-height: 0; color: #ddd; display: flex; align-items: center; justify-content: center; }
+    #titlein { width: min(100%, 420px); height: 44px; border-radius: 10px; border: 1px solid #555; background: #2b2926; color: #fff; font-size: 17px; padding: 0 14px; text-align: center; font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; }
     #gbtns { display: flex; gap: 10px; }
     #gbtns a, #gbtns button { height: 48px; padding: 0 20px; border-radius: 999px; font-size: 16px; font-weight: 700; display: inline-flex; align-items: center; cursor: pointer; text-decoration: none; border: 0; }
     #post { background: #000; color: #fff; border: 1px solid #555 !important; }
     #again { background: #f2efe8; color: #222; }
-    #cdnmsg { display: none; }
   </style>
 </head>
 <body>
@@ -54,18 +54,20 @@
     <button id="done">完成</button>
   </div>
   <div id="gallery">
-    <canvas id="gcv" width="1080" height="1350"></canvas>
+    <div id="view"></div>
+    <input id="titlein" maxlength="40" enterkeyhint="done">
     <div id="gbtns"><a id="post" href="#">Xにポスト</a><button id="again">もう一度</button></div>
   </div>
-<script>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+<script type="module">
 const L = {
   ja: { title: '現代アート', back: '← トップへ戻る', lang: 'EN', done: '完成', post: 'Xにポスト', again: 'もう一度',
-        artist: '作者：あなた', medium: 'キャンバスにアクリル', year: '2026年',
+        artist: '作者：あなた', titlePh: '作品名', cdn: '読み込みに失敗しました。通信を確認してください', medium: 'キャンバスにアクリル', year: '2026年',
         a: ['沈黙の','無題の','記憶の','境界の','反復する','解体された','名もなき','揺らぐ','都市の','内なる','終わらない','透明な'],
         b: ['青','叫び','構成','風景','午後','祈り','断片','時間','余白','衝動','対話','重力'],
         tweet: t => `「${t}」が美術館に展示されました` },
   en: { title: 'Modern Art', back: '← Top', lang: '日本語', done: 'Done', post: 'Post on X', again: 'Again',
-        artist: 'Artist: You', medium: 'Acrylic on canvas', year: '2026',
+        artist: 'Artist: You', titlePh: 'Title', cdn: 'Failed to load. Check your connection.', medium: 'Acrylic on canvas', year: '2026',
         a: ['Silent','Untitled','Remembered','Liminal','Repeating','Deconstructed','Nameless','Trembling','Urban','Inner','Endless','Transparent'],
         b: ['Blue','Scream','Composition','Landscape','Afternoon','Prayer','Fragment','Time','Void','Impulse','Dialogue','Gravity'],
         tweet: t => `"${t}" is now on display at the museum` }
@@ -182,52 +184,133 @@ const up = () => { if (down && tool !== 'shape') newColor(); down = false; };
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
 document.addEventListener('touchmove', e => { if (e.target === cv) e.preventDefault(); }, { passive: false });
 
-// ---- gallery ----
-const gcv = $('gcv'), g = gcv.getContext('2d'), GW = gcv.width, GH = gcv.height;
-function workTitle() { return lang === 'ja' ? `${t('a')[work.a]}${t('b')[work.b]} No.${work.no}` : `${t('a')[work.a]} ${t('b')[work.b]} No.${work.no}`; }
-function renderGallery() {
-  // wall
-  g.fillStyle = '#ece8e1'; g.fillRect(0, 0, GW, GH);
-  const sp = g.createRadialGradient(GW / 2, 520, 50, GW / 2, 560, 760);
-  sp.addColorStop(0, 'rgba(255,250,235,0.9)'); sp.addColorStop(1, 'rgba(60,55,50,0.45)');
-  g.fillStyle = sp; g.fillRect(0, 0, GW, GH);
-  // floor
-  g.fillStyle = '#8a7a66'; g.fillRect(0, GH - 110, GW, 110);
-  g.fillStyle = '#6f6150'; g.fillRect(0, GH - 110, GW, 6);
-  // frame
-  const aw = 520, ah = 650, ax = (GW - aw) / 2, ay = 150, mat = 44, fr = 46;
-  g.save(); g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 40; g.shadowOffsetY = 22;
-  g.fillStyle = '#b8862e'; g.fillRect(ax - mat - fr, ay - mat - fr, aw + 2 * (mat + fr), ah + 2 * (mat + fr)); g.restore();
-  const fg = g.createLinearGradient(ax - mat - fr, ay - mat - fr, ax + aw + mat + fr, ay + ah + mat + fr);
-  fg.addColorStop(0, '#f3d27a'); fg.addColorStop(0.35, '#b8862e'); fg.addColorStop(0.6, '#e8c260'); fg.addColorStop(1, '#7d5a1c');
-  g.fillStyle = fg; g.fillRect(ax - mat - fr, ay - mat - fr, aw + 2 * (mat + fr), ah + 2 * (mat + fr));
-  g.strokeStyle = 'rgba(80,50,10,.6)'; g.lineWidth = 4;
-  g.strokeRect(ax - mat - fr + 12, ay - mat - fr + 12, aw + 2 * (mat + fr) - 24, ah + 2 * (mat + fr) - 24);
-  g.strokeRect(ax - mat - 4, ay - mat - 4, aw + 2 * mat + 8, ah + 2 * mat + 8);
-  g.fillStyle = '#fbfaf6'; g.fillRect(ax - mat, ay - mat, aw + 2 * mat, ah + 2 * mat);
-  g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(ax - 3, ay - 3, aw + 6, ah + 6);
-  g.drawImage(cv, ax, ay, aw, ah);
-  // plaque
-  const px = GW / 2 - 230, py = 990, pw = 460, ph = 150;
-  g.save(); g.shadowColor = 'rgba(0,0,0,.25)'; g.shadowBlur = 12; g.shadowOffsetY = 4;
-  g.fillStyle = '#fff'; g.fillRect(px, py, pw, ph); g.restore();
-  g.fillStyle = '#222'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
-  let fs = 38; const ti = workTitle();
-  do { g.font = `700 ${fs}px "Hiragino Mincho ProN","Yu Mincho",serif`; fs -= 2; } while (g.measureText(ti).width > pw - 50 && fs > 16);
-  g.fillText(ti, px + 25, py + 56);
-  g.font = '26px system-ui, sans-serif'; g.fillStyle = '#555';
-  g.fillText(t('artist'), px + 25, py + 98);
-  g.fillText(`${t('medium')}, ${t('year')}`, px + 25, py + 132);
-  // link
-  const text = t('tweet')(ti), url = 'https://keifurukawafunnych.com/games/modern-art/';
+// ---- gallery (3D) ----
+let three = null;
+const plaqueCv = document.createElement('canvas'); plaqueCv.width = 1024; plaqueCv.height = 360;
+const titleIn = $('titlein');
+function defaultTitle() { return lang === 'ja' ? `${t('a')[work.a]}${t('b')[work.b]} No.${work.no}` : `${t('a')[work.a]} ${t('b')[work.b]} No.${work.no}`; }
+function workTitle() { return work.custom != null ? work.custom : defaultTitle(); }
+
+function drawPlaque() {
+  const g = plaqueCv.getContext('2d'), pw = plaqueCv.width, ph = plaqueCv.height;
+  g.fillStyle = '#fbfaf6'; g.fillRect(0, 0, pw, ph);
+  g.fillStyle = '#222'; g.textBaseline = 'alphabetic';
+  let fs = 92; const ti = workTitle() || ' ';
+  do { g.font = `700 ${fs}px "Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif`; fs -= 3; } while (g.measureText(ti).width > pw - 100 && fs > 30);
+  g.fillText(ti, 50, 140);
+  g.font = '56px system-ui, sans-serif'; g.fillStyle = '#555';
+  g.fillText(t('artist'), 50, 240);
+  g.fillText(`${t('medium')}, ${t('year')}`, 50, 320);
+  if (three) three.plaqueTex.needsUpdate = true;
+}
+function updatePost() {
+  const text = t('tweet')(workTitle()), url = 'https://keifurukawafunnych.com/games/modern-art/';
   const a = $('post');
   a.href = 'https://x.com/intent/post?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(url);
   if (matchMedia('(pointer: coarse)').matches) { a.removeAttribute('target'); a.removeAttribute('rel'); }
   else { a.target = '_blank'; a.rel = 'noopener'; }
 }
-$('done').onclick = () => {
-  work = { a: Math.floor(Math.random() * 12), b: Math.floor(Math.random() * 12), no: 1 + Math.floor(Math.random() * 99) };
-  renderGallery(); $('gallery').classList.add('show');
+function renderGallery() {
+  titleIn.placeholder = t('titlePh');
+  if (work.custom == null) titleIn.value = defaultTitle();
+  drawPlaque(); updatePost();
+}
+titleIn.addEventListener('input', () => { work.custom = titleIn.value.slice(0, 40); drawPlaque(); updatePost(); });
+titleIn.addEventListener('keydown', e => { if (e.key === 'Enter') titleIn.blur(); });
+
+async function initThree() {
+  const THREE = await import('three');
+  const view = $('view');
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  view.appendChild(renderer.domElement);
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#2a2724');
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+
+  // room
+  const wall = new THREE.Mesh(new THREE.PlaneGeometry(30, 12), new THREE.MeshStandardMaterial({ color: '#e8e3da', roughness: 0.95 }));
+  wall.position.set(0, 3, 0); wall.receiveShadow = true; scene.add(wall);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 20), new THREE.MeshStandardMaterial({ color: '#7d6a55', roughness: 0.6 }));
+  floor.rotation.x = -Math.PI / 2; floor.position.set(0, -2.4, 10); floor.receiveShadow = true; scene.add(floor);
+
+  // frame: art 2.0 x 2.5, mat, gold beveled frame
+  const AW = 2.0, AH = 2.5, MAT = 0.28, FW = 0.32, FD = 0.16;
+  const group = new THREE.Group(); group.position.set(0, 0.9, 0.0); scene.add(group);
+  const gold = new THREE.MeshStandardMaterial({ color: '#c8963a', metalness: 0.85, roughness: 0.32 });
+  const ow = AW + 2 * MAT, oh = AH + 2 * MAT;
+  const outer = new THREE.Shape(); outer.moveTo(-ow / 2 - FW, -oh / 2 - FW); outer.lineTo(ow / 2 + FW, -oh / 2 - FW); outer.lineTo(ow / 2 + FW, oh / 2 + FW); outer.lineTo(-ow / 2 - FW, oh / 2 + FW); outer.closePath();
+  const hole = new THREE.Path(); hole.moveTo(-ow / 2, -oh / 2); hole.lineTo(-ow / 2, oh / 2); hole.lineTo(ow / 2, oh / 2); hole.lineTo(ow / 2, -oh / 2); hole.closePath();
+  outer.holes.push(hole);
+  const fgeo = new THREE.ExtrudeGeometry(outer, { depth: FD, bevelEnabled: true, bevelThickness: 0.07, bevelSize: 0.07, bevelSegments: 4 });
+  const frame = new THREE.Mesh(fgeo, gold); frame.castShadow = true; group.add(frame);
+  // inner moulding ring
+  const ring = new THREE.Shape(); const rw = ow / 2 + 0.06, rh = oh / 2 + 0.06;
+  ring.moveTo(-rw, -rh); ring.lineTo(rw, -rh); ring.lineTo(rw, rh); ring.lineTo(-rw, rh); ring.closePath();
+  const rh2 = new THREE.Path(); rh2.moveTo(-ow / 2, -oh / 2); rh2.lineTo(-ow / 2, oh / 2); rh2.lineTo(ow / 2, oh / 2); rh2.lineTo(ow / 2, -oh / 2); rh2.closePath(); ring.holes.push(rh2);
+  const rmesh = new THREE.Mesh(new THREE.ExtrudeGeometry(ring, { depth: 0.05, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 3 }), gold);
+  rmesh.position.z = FD + 0.04; group.add(rmesh);
+  const mat = new THREE.Mesh(new THREE.BoxGeometry(ow, oh, 0.04), new THREE.MeshStandardMaterial({ color: '#fbfaf6', roughness: 0.9 }));
+  mat.position.z = 0.04; mat.receiveShadow = true; group.add(mat);
+  const artTex = new THREE.CanvasTexture(cv); artTex.colorSpace = THREE.SRGBColorSpace; artTex.anisotropy = 4;
+  const art = new THREE.Mesh(new THREE.PlaneGeometry(AW, AH), new THREE.MeshStandardMaterial({ map: artTex, roughness: 0.75 }));
+  art.position.z = 0.065; art.receiveShadow = true; group.add(art);
+
+  // plaque
+  const plaqueTex = new THREE.CanvasTexture(plaqueCv); plaqueTex.colorSpace = THREE.SRGBColorSpace; plaqueTex.anisotropy = 4;
+  const plaque = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5625, 0.03), [
+    ...Array(4).fill(new THREE.MeshStandardMaterial({ color: '#ddd' })),
+    new THREE.MeshStandardMaterial({ map: plaqueTex, roughness: 0.6 }), new THREE.MeshStandardMaterial({ color: '#ddd' })]);
+  plaque.position.set(0, -2.15 + 0.9 - 0.15, 0.02); plaque.castShadow = true; scene.add(plaque);
+  plaque.position.y = 0.9 - oh / 2 - FW - 0.75;
+
+  // lights
+  scene.add(new THREE.HemisphereLight('#fff6e8', '#3a3128', 0.55));
+  const spot = new THREE.SpotLight('#fff1d6', 60, 20, 0.5, 0.6, 1.6);
+  spot.position.set(0, 6.5, 4.5); spot.target = group; spot.castShadow = true;
+  spot.shadow.mapSize.set(1024, 1024); spot.shadow.bias = -0.0005; scene.add(spot);
+  const fill = new THREE.DirectionalLight('#ffffff', 0.35); fill.position.set(-3, 2, 6); scene.add(fill);
+
+  // camera orbit
+  let yaw = 0, pitch = 0, tyaw = 0.35, tpitch = 0.05, drag = null, idle = 0;
+  const el = renderer.domElement; el.style.touchAction = 'none'; el.style.display = 'block';
+  el.addEventListener('pointerdown', e => { drag = [e.clientX, e.clientY, tyaw, tpitch]; idle = 0; el.setPointerCapture(e.pointerId); });
+  el.addEventListener('pointermove', e => { if (!drag) return;
+    tyaw = Math.max(-0.9, Math.min(0.9, drag[2] - (e.clientX - drag[0]) * 0.006));
+    tpitch = Math.max(-0.3, Math.min(0.4, drag[3] + (e.clientY - drag[1]) * 0.004)); });
+  const end = () => drag = null; el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+
+  function resize() {
+    const r = view.getBoundingClientRect(); renderer.setSize(r.width, r.height);
+    camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize);
+  let last = performance.now(), dist = 9;
+  function loop(now) {
+    requestAnimationFrame(loop);
+    if (!$('gallery').classList.contains('show')) return;
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (!drag) { idle += dt; if (idle > 2.5) tyaw = Math.sin(now / 4000) * 0.35; }
+    yaw += (tyaw - yaw) * Math.min(1, dt * 4); pitch += (tpitch - pitch) * Math.min(1, dt * 4);
+    // fit whole frame+plaque vertically & horizontally
+    const needH = 5.6, needW = 3.9, vf = 2 * Math.tan(camera.fov * Math.PI / 360);
+    dist = Math.max(needH / vf, needW / (vf * camera.aspect)) + 0.5;
+    const cy = 0.15;
+    camera.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, cy + Math.sin(pitch) * dist, Math.cos(yaw) * Math.cos(pitch) * dist);
+    camera.lookAt(0, cy, 0);
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(loop);
+  three = { artTex, plaqueTex, resize, reset() { yaw = 0.9; tyaw = 0.35; tpitch = 0.05; idle = 0; } };
+}
+
+$('done').onclick = async () => {
+  work = { a: Math.floor(Math.random() * 12), b: Math.floor(Math.random() * 12), no: 1 + Math.floor(Math.random() * 99), custom: null };
+  $('gallery').classList.add('show');
+  try { if (!three) await initThree(); } catch (e) { $('view').textContent = t('cdn'); console.error(e); return; }
+  three.artTex.needsUpdate = true; three.reset(); three.resize();
+  renderGallery();
 };
 $('again').onclick = () => { work = null; $('gallery').classList.remove('show'); reset(); };
 
