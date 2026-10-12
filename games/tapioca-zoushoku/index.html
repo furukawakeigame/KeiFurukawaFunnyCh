@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>増殖タピオカ</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <!-- X などにURLを貼ったときのカード表示（ここだけは https:// から書く） -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="増殖タピオカ">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/tapioca-zoushoku/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/tapioca-zoushoku/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    html, body { margin: 0; height: 100%; background: #f3e4cf; color: #5b3d28; }
+    body {
+      display: flex; flex-direction: column; height: 100dvh; box-sizing: border-box;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom));
+      font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden; touch-action: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    header { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; }
+    header a { color: #5b3d28; text-decoration: none; font-size: 14px; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill {
+      height: 34px; min-width: 34px; border: 2px solid #5b3d28; border-radius: 17px;
+      background: #fff8ee; color: #5b3d28; font: inherit; font-size: 15px; font-weight: bold;
+      padding: 0 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+    }
+    .pill svg { width: 20px; height: 20px; }
+    #sound { padding: 0 6px; }
+    #stage { flex: 1; position: relative; min-height: 0; }
+    #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    #count { position: absolute; top: 4px; left: 0; right: 0; text-align: center; font-size: 22px; font-weight: bold; pointer-events: none; }
+    .bar { display: flex; justify-content: center; gap: 10px; padding: 8px; }
+    .bar .pill { height: 44px; border-radius: 22px; padding: 0 20px; font-size: 16px; }
+    .main { background: #5b3d28 !important; color: #fff8ee !important; }
+    #crop {
+      position: fixed; inset: 0; background: rgba(40,25,15,.85); display: none;
+      flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom)); box-sizing: border-box;
+    }
+    #crop.on { display: flex; }
+    #cropcv { touch-action: none; cursor: grab; }
+    #crop .row { display: flex; gap: 10px; }
+    #crop .pill { height: 44px; border-radius: 22px; padding: 0 22px; font-size: 16px; }
+    #file { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="../../" id="back">← トップへ戻る</a>
+    <div class="hbtns">
+      <button id="lang" class="pill">EN</button>
+      <button id="sound" class="pill"></button>
+    </div>
+  </header>
+  <div id="stage"><canvas id="cv"></canvas><div id="count"></div></div>
+  <div class="bar">
+    <button id="pick" class="pill main"></button>
+    <button id="reset" class="pill"></button>
+  </div>
+  <input type="file" id="file" accept="image/*">
+  <div id="crop">
+    <canvas id="cropcv"></canvas>
+    <div class="row"><button id="cancel" class="pill"></button><button id="ok" class="pill main"></button></div>
+  </div>
+<script>
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('tz-' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('tz-' + k, JSON.stringify(v)); } catch {} }
+};
+
+// ---- 言語 ----
+const L = {
+  ja: { title: '増殖タピオカ', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
+        pick: '画像をえらぶ', reset: 'リセット', ok: '決定', cancel: 'やめる', unit: '個', sound: '音のオン/オフ' },
+  en: { title: 'Multiplying Tapioca', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
+        pick: 'Pick image', reset: 'Reset', ok: 'OK', cancel: 'Cancel', unit: '', sound: 'Sound on/off' }
+};
+let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
+if (!L[lang]) lang = 'ja';
+const t = k => L[lang][k];
+const $ = id => document.getElementById(id);
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = t('title');
+  $('back').textContent = t('back');
+  $('lang').textContent = t('lang'); $('lang').setAttribute('aria-label', t('langLabel'));
+  $('sound').setAttribute('aria-label', t('sound'));
+  $('pick').textContent = t('pick'); $('reset').textContent = t('reset');
+  $('ok').textContent = t('ok'); $('cancel').textContent = t('cancel');
+  updateCount();
+}
+$('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+
+// ---- 音 ----
+let soundOn = store.get('sound', true);
+const SPK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>';
+const updateSoundBtn = () => {
+  $('sound').innerHTML = SPK + (soundOn
+    ? '<path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>'
+    : '<path d="M16 9l5 6M21 9l-5 6"/></svg>');
+};
+$('sound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updateSoundBtn(); };
+let ac = null, lastPop = 0;
+function pop() {
+  if (!soundOn) return;
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const now = ac.currentTime;
+    if (now - lastPop < 0.05) return;
+    lastPop = now;
+    const o = ac.createOscillator(), g = ac.createGain();
+    const f = 500 + Math.random() * 500;
+    o.frequency.setValueAtTime(f, now);
+    o.frequency.exponentialRampToValueAtTime(f * 2.2, now + 0.07);
+    g.gain.setValueAtTime(0.15, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    o.connect(g).connect(ac.destination); o.start(now); o.stop(now + 0.13);
+  } catch {}
+}
+
+// ---- 粒の絵 ----
+const SPR = 160;
+const sprite = document.createElement('canvas'); sprite.width = sprite.height = SPR;
+function makeSprite(img) {
+  const c = sprite.getContext('2d');
+  c.clearRect(0, 0, SPR, SPR);
+  c.save(); c.beginPath(); c.arc(SPR/2, SPR/2, SPR/2 - 1, 0, Math.PI*2); c.clip();
+  if (img) c.drawImage(img, 0, 0, SPR, SPR);
+  else { c.fillStyle = '#2a1810'; c.fillRect(0, 0, SPR, SPR); }
+  // つやつやのハイライト
+  const g = c.createRadialGradient(SPR*0.35, SPR*0.3, 2, SPR*0.35, SPR*0.3, SPR*0.45);
+  g.addColorStop(0, 'rgba(255,255,255,.55)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = g; c.fillRect(0, 0, SPR, SPR);
+  c.restore();
+  c.strokeStyle = 'rgba(40,20,10,.35)'; c.lineWidth = 3;
+  c.beginPath(); c.arc(SPR/2, SPR/2, SPR/2 - 2, 0, Math.PI*2); c.stroke();
+}
+const saved = store.get('img', null);
+if (saved) { const im = new Image(); im.onload = () => makeSprite(im); im.src = saved; makeSprite(null); }
+else makeSprite(null);
+
+// ---- 物理 ----
+const cv = $('cv'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, CX = 0, CY = 0, R = 100;
+function resize() {
+  const r = $('stage').getBoundingClientRect();
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = r.width; H = r.height;
+  cv.width = W * DPR; cv.height = H * DPR;
+  CX = W / 2; CY = H / 2 + 14; R = Math.max(40, Math.min(W / 2 - 16, H / 2 - 30));
+}
+window.addEventListener('resize', resize);
+
+const MAX = 300, COOL = 1.0;
+let balls = [];
+const targetR = () => R * Math.min(0.11, 0.6 / Math.sqrt(Math.max(balls.length, 1)));
+function addBall(x, y, vx = 0, vy = 0, rad) {
+  if (balls.length >= MAX) return null;
+  const b = { x, y, vx, vy, r: rad || targetR(), cool: COOL, a: Math.random() * 6.28, va: 0 };
+  balls.push(b); return b;
+}
+function updateCount() { $('count').textContent = balls.length + t('unit'); }
+
+cv.addEventListener('pointerdown', e => {
+  const r = cv.getBoundingClientRect();
+  let x = e.clientX - r.left, y = e.clientY - r.top;
+  const dx = x - CX, dy = y - CY, d = Math.hypot(dx, dy), lim = R * 0.85;
+  if (d > lim) { x = CX + dx / d * lim; y = CY + dy / d * lim; }
+  const b = addBall(x, y); if (b) b.cool = 0.3;
+  pop(); updateCount();
+});
+$('reset').onclick = () => { balls = []; updateCount(); };
+
+function step(dt) {
+  const g = R * 2.2, tr = targetR();
+  for (const b of balls) {
+    b.r += (tr - b.r) * Math.min(1, dt * 3);
+    b.vy += g * dt;
+    b.vx *= 0.995; b.vy *= 0.995;
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    b.a += b.va * dt; b.va *= 0.98;
+    b.cool -= dt;
+  }
+  const born = [];
+  for (let it = 0; it < 3; it++) {
+    for (let i = 0; i < balls.length; i++) {
+      const a = balls[i];
+      for (let j = i + 1; j < balls.length; j++) {
+        const b = balls[j];
+        const dx = b.x - a.x, dy = b.y - a.y, rr = a.r + b.r;
+        if (Math.abs(dx) > rr || Math.abs(dy) > rr) continue;
+        const d2 = dx*dx + dy*dy;
+        if (d2 >= rr*rr || d2 === 0) continue;
+        const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, ov = (rr - d) / 2;
+        a.x -= nx * ov; a.y -= ny * ov; b.x += nx * ov; b.y += ny * ov;
+        const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+        if (rv < 0) {
+          const imp = -rv * 0.6;
+          a.vx -= nx * imp; a.vy -= ny * imp; b.vx += nx * imp; b.vy += ny * imp;
+          a.va -= rv * 0.01; b.va += rv * 0.01;
+        }
+        // 増殖
+        if (it === 0 && a.cool <= 0 && b.cool <= 0 && balls.length + born.length < MAX) {
+          a.cool = b.cool = COOL;
+          born.push([(a.x + b.x) / 2 - ny * rr * 0.5, (a.y + b.y) / 2 + nx * rr * 0.5, Math.min(a.r, b.r) * 0.3]);
+        }
+      }
+    }
+    // 器の壁
+    for (const b of balls) {
+      const dx = b.x - CX, dy = b.y - CY, d = Math.hypot(dx, dy), lim = R - b.r;
+      if (d > lim) {
+        const nx = dx / d, ny = dy / d;
+        b.x = CX + nx * lim; b.y = CY + ny * lim;
+        const vn = b.vx * nx + b.vy * ny;
+        if (vn > 0) { b.vx -= nx * vn * 1.4; b.vy -= ny * vn * 1.4; b.va += (b.vx * -ny + b.vy * nx) / b.r * 0.02; }
+      }
+    }
+  }
+  for (const [x, y, r] of born) { const n = addBall(x, y, (Math.random()-.5) * 60, -60, r); if (n) n.cool = COOL; }
+  if (born.length) { pop(); updateCount(); }
+}
+
+function draw() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // カップ
+  ctx.fillStyle = '#e6c9a3';
+  ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI*2); ctx.fill();
+  for (const b of balls) {
+    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a);
+    ctx.drawImage(sprite, -b.r, -b.r, b.r * 2, b.r * 2);
+    ctx.restore();
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.arc(CX, CY, R + 3, 0, Math.PI*2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(CX, CY, R - 14, Math.PI * 1.1, Math.PI * 1.35); ctx.stroke();
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  step(dt / 2); step(dt / 2);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// ---- 切り抜き ----
+const cc = $('cropcv'), cx2 = cc.getContext('2d');
+let cImg = null, cs = 1, ox = 0, oy = 0, CS = 280;
+$('pick').onclick = () => { $('file').value = ''; $('file').click(); };
+$('file').onchange = () => {
+  const f = $('file').files[0]; if (!f) return;
+  const url = URL.createObjectURL(f), im = new Image();
+  im.onload = () => {
+    cImg = im;
+    CS = Math.min(320, innerWidth - 32, innerHeight - 220);
+    const d = Math.min(2, devicePixelRatio || 1);
+    cc.width = CS * d; cc.height = CS * d; cc.style.width = cc.style.height = CS + 'px';
+    cs = CS * 0.8 / Math.min(im.width, im.height); ox = 0; oy = 0;
+    $('crop').classList.add('on'); drawCrop();
+  };
+  im.src = url;
+};
+function drawCrop() {
+  const d = cc.width / CS;
+  cx2.setTransform(d, 0, 0, d, 0, 0);
+  cx2.clearRect(0, 0, CS, CS);
+  const w = cImg.width * cs, h = cImg.height * cs;
+  cx2.drawImage(cImg, CS/2 - w/2 + ox, CS/2 - h/2 + oy, w, h);
+  cx2.fillStyle = 'rgba(30,18,10,.6)';
+  cx2.beginPath(); cx2.rect(0, 0, CS, CS); cx2.arc(CS/2, CS/2, CS*0.4, 0, Math.PI*2, true); cx2.fill();
+  cx2.strokeStyle = '#fff'; cx2.lineWidth = 3; cx2.setLineDash([8, 6]);
+  cx2.beginPath(); cx2.arc(CS/2, CS/2, CS*0.4, 0, Math.PI*2); cx2.stroke(); cx2.setLineDash([]);
+}
+const ptrs = new Map(); let pinch = null;
+cc.addEventListener('pointerdown', e => { cc.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); pinch = null; });
+cc.addEventListener('pointermove', e => {
+  if (!ptrs.has(e.pointerId)) return;
+  const p = ptrs.get(e.pointerId);
+  if (ptrs.size === 1) { ox += e.clientX - p[0]; oy += e.clientY - p[1]; }
+  ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+  if (ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()], dist = Math.hypot(a[0]-b[0], a[1]-b[1]);
+    if (pinch) zoom(dist / pinch);
+    pinch = dist;
+  }
+  drawCrop();
+});
+const up = e => { ptrs.delete(e.pointerId); pinch = null; };
+cc.addEventListener('pointerup', up); cc.addEventListener('pointercancel', up);
+cc.addEventListener('wheel', e => { e.preventDefault(); zoom(Math.exp(-e.deltaY * 0.0015)); drawCrop(); }, { passive: false });
+function zoom(k) { cs *= k; ox *= k; oy *= k; }
+$('cancel').onclick = () => $('crop').classList.remove('on');
+$('ok').onclick = () => {
+  const out = document.createElement('canvas'); out.width = out.height = SPR;
+  const o = out.getContext('2d'), k = SPR / (CS * 0.8);
+  o.fillStyle = '#fff'; o.fillRect(0, 0, SPR, SPR);
+  const w = cImg.width * cs, h = cImg.height * cs;
+  o.drawImage(cImg, (CS/2 - w/2 + ox - CS*0.1) * k, (CS/2 - h/2 + oy - CS*0.1) * k, w * k, h * k);
+  makeSprite(out);
+  store.set('img', out.toDataURL('image/jpeg', 0.85));
+  $('crop').classList.remove('on');
+};
+
+resize(); updateSoundBtn(); applyLang();
+addBall(CX, CY - R * 0.4);
+updateCount();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
