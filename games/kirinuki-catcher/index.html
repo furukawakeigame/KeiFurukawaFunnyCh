@@ -97,7 +97,8 @@
       <button id="done" class="btn" disabled></button>
     </div>
     <div id="barPlay" class="hide">
-      <div class="bar"><div id="stock"><button id="add" aria-label="add">+</button></div></div>
+      <div class="bar"><button id="grab" class="btn big"></button></div>
+      <div class="bar" style="padding-top:0"><div id="stock"><button id="add" aria-label="add">+</button></div></div>
     </div>
     <input id="file" type="file" accept="image/*" class="hide">
   </main>
@@ -112,12 +113,12 @@
   const DICT = {
     ja: {
       title: '切り抜きキャッチー', back: '← トップへ戻る', pick: '画像をえらぶ', erase: '消す', undo: '戻す',
-      done: 'できた', cancel: 'やめる', count: n => `${n}個`,
+      done: 'できた', cancel: 'やめる', grab: 'つかむ', count: n => `${n}個`,
       err: '画像を読み込めませんでした', cdn: 'ライブラリを読み込めませんでした。通信を確認して再読み込みしてください',
     },
     en: {
       title: 'Cutout Catcher', back: '← Back to top', pick: 'Choose image', erase: 'Erase', undo: 'Undo',
-      done: 'Done', cancel: 'Cancel', count: n => `${n} won`,
+      done: 'Done', cancel: 'Cancel', grab: 'Grab', count: n => `${n} won`,
       err: 'Could not load the image', cdn: 'Could not load a library. Check your connection and reload.',
     },
   };
@@ -366,7 +367,7 @@
   function makeArm(side) {
     const px = HOME + side * PIV, py = RAIL + claw.wire + 7;
     // drawn in the closed pose: two pieces, out from the pivot then a claw bending in, its tip pointing nearly straight down
-    const P = [[0, 0], [-15, 33], [0, 66]].map(([x, y]) => ({ x: px - side * x, y: py + y }));
+    const P = [[0, 0], [-26, 30], [-4, 64]].map(([x, y]) => ({ x: px - side * x, y: py + y }));
     const seg = (a, b, w) => {
       const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy), nx = -dy / L * w / 2, ny = dx / L * w / 2;
       const ex = dx / L * w / 2, ey = dy / L * w / 2;   // overlap the joints a little
@@ -393,8 +394,8 @@
     for (const a of arms) {
       // relative angle, positive = open for both arms
       const ang = -a.side * a.angle, av = -a.side * a.angularVelocity;
-      const lim = claw.close ? 0.004 : 0.005;     // weak grip, like the real thing
-      const acc = Math.max(-lim, Math.min(lim, (target - ang) * 0.02 - av * 0.25));
+      const lim = claw.close ? 0.009 : 0.006;     // weak grip, like the real thing
+      const acc = Math.max(-lim, Math.min(lim, (target - ang) * 0.035 - av * 0.3));
       a.torque += -a.side * acc * a.inertia / 16.67 ** 2;
       // hinge stops
       const hi = OPEN + (claw.wide ? 0.3 : 0.15), lo = SHUT - 0.25;
@@ -450,7 +451,7 @@
         else if (claw.armed) { claw.armed = 0; claw.target = null; grab(); }
       } else if (claw.dir) { claw.x = Math.max(HOME, Math.min(WW - 72, claw.x + claw.dir * SPEED)); hum(); }
     } else if (st === 'down') {
-      claw.wire += 4.5;
+      claw.wire += 7;
       // stop once the arm tips are pressed on something
       const pp = prizes.flatMap(b => b.parts.slice(1));
       const hit = arms.some(a => a.parts.slice(1).some(q => Query.collides(q, pp).length));
@@ -461,7 +462,7 @@
       claw.close = 1;
       if (claw.t > 45) { go('up'); tone(300, 500, 0.2, 'sawtooth', 0.05); }
     } else if (st === 'up') {
-      claw.wire -= 3.5;
+      claw.wire -= 6;
       if (claw.wire <= WIRE_TOP) { claw.wire = WIRE_TOP; go('home'); }
       hum();
     } else if (st === 'home') {
@@ -477,10 +478,11 @@
     updateGrab();
   }
   function go(s) { claw.state = s; claw.t = 0; claw.hitT = 0; }
-  function grab() { if (claw.state === 'idle' && mode === 'play') { claw.dir = 0; go('down'); tone(600, 400, 0.1, 'square', 0.06); } }
+  function grab() { if (claw.state === 'idle' && mode === 'play') { claw.dir = 0; claw.target = null; go('down'); tone(600, 400, 0.1, 'square', 0.06); } }
   function updateGrab() {
     const busy = claw.state !== 'idle';
     cv.style.cursor = mode === 'play' ? (busy ? 'default' : 'ew-resize') : '';
+    if ($('grab').disabled !== busy) $('grab').disabled = busy;
   }
 
   // ---------- drawing ----------
@@ -642,7 +644,6 @@
     if (drag && e.pointerId === drag.id) {
       drag = null;
       if (claw.target === null) claw.target = claw.x;
-      claw.armed = 1;
       return;
     }
     if (mode !== 'paint') return;
@@ -661,6 +662,7 @@
     render();
   }, { passive: false });
 
+  $('grab').onclick = grab;
   $('pick').onclick = () => $('file').click();
   $('add').onclick = () => $('file').click();
   $('file').onchange = e => { loadFile(e.target.files[0]); e.target.value = ''; };
@@ -725,7 +727,7 @@
     document.title = t('title');
     $('back').textContent = t('back');
     $('lang').textContent = lang === 'ja' ? 'EN' : '日本語';
-    for (const k of ['pick', 'erase', 'undo', 'done', 'cancel']) $(k).textContent = t(k);
+    for (const k of ['pick', 'erase', 'undo', 'done', 'cancel', 'grab']) $(k).textContent = t(k);
     render();
   }
   $('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
