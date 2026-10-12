@@ -308,29 +308,30 @@ const caseMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.0
 }
 
 // ---------- physics ----------
+// The world is the inside of the case (phone-local coordinates). The stickers slide in its plane only
+// (no moving out of it, no tilting), so they can never ride over each other. Turning the phone shows up
+// as gravity changing direction plus the inertial forces of the rotation (centrifugal, Euler, Coriolis).
 const world = new RAPIER.World({ x: 0, y: -G, z: 0 });
-// fine steps while the phone turns (so the walls cannot jump over a sticker), coarse ones when it is still
-const STEP_FAST = 1 / 240, STEP_SLOW = 1 / 120;
-let STEP = STEP_SLOW;
+const STEP = 1 / 120;
 world.timestep = STEP;
-const caseBody = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
+const ZM = (Z0 + Z1) / 2;   // sticker plane
+const CT = 2;               // collider depth: much thicker than any overlap, so contacts always push sideways
+const caseBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
 {
   const add = d => world.createCollider(d.setFriction(0.3).setRestitution(0.2), caseBody);
-  add(RAPIER.ColliderDesc.cuboid(PW / 2 + 3, PH / 2 + 3, 3).setTranslation(0, 0, Z0 - 3));          // phone back
-  add(RAPIER.ColliderDesc.cuboid(PW / 2 + 3, PH / 2 + 3, 3).setTranslation(0, 0, Z1 + 3));          // clear plate
   // side walls along the rounded outline
-  const pts = rrect(0, 0, PW, PH, PR, 6), hz = GAP / 2 + 3, TH = 3;   // thick walls so fast spins cannot tunnel
+  const pts = rrect(0, 0, PW, PH, PR, 6), hz = CT, TH = 3;
   for (let i = 0; i < pts.length; i++) {
     const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
     const ex = x2 - x1, ey = y2 - y1, len = Math.hypot(ex, ey); if (len < 1e-6) continue;
     const nx = ey / len, ny = -ex / len, a = Math.atan2(ey, ex);
     add(RAPIER.ColliderDesc.cuboid(len / 2 + 0.06, TH, hz)
-      .setTranslation((x1 + x2) / 2 + nx * TH, (y1 + y2) / 2 + ny * TH, (Z0 + Z1) / 2)
+      .setTranslation((x1 + x2) / 2 + nx * TH, (y1 + y2) / 2 + ny * TH, ZM)
       .setRotation({ x: 0, y: 0, z: Math.sin(a / 2), w: Math.cos(a / 2) }));
   }
   // camera module
   const cam = [];
-  for (const [x, y] of rrect(CAM.x, CAM.y, CAM.s, CAM.s, CAM.r)) cam.push(x, y, Z0 - 0.3, x, y, Z1 + 0.3);
+  for (const [x, y] of rrect(CAM.x, CAM.y, CAM.s, CAM.s, CAM.r)) cam.push(x, y, ZM - CT, x, y, ZM + CT);
   const cd = RAPIER.ColliderDesc.convexHull(new Float32Array(cam)); if (cd) add(cd);
 }
 
@@ -442,7 +443,7 @@ function buildRuntime(tp) {
       const parts = [];
       for (const p of tp.polys) for (const c of convexParts(p)) {
         const arr = [];
-        for (const [x, y] of c) arr.push(x, y, -ST / 2, x, y, ST / 2);
+        for (const [x, y] of c) arr.push(x, y, -CT / 2, x, y, CT / 2);
         parts.push(new Float32Array(arr));
       }
       const hulls = parts.map(p => RAPIER.ColliderDesc.convexHull(p)).filter(Boolean).map(d => d.shape);
@@ -464,8 +465,8 @@ function findSpot(r) {
   world.updateSceneQueries();
   const Z = new THREE.Vector3(0, 0, 1), Y = new THREE.Vector3(0, 1, 0);
   for (let k = 0; k < 400; k++) {
-    const p = new THREE.Vector3((Math.random() * 2 - 1) * PW / 2, (Math.random() * 2 - 1) * PH / 2, (Z0 + Z1) / 2).applyQuaternion(physQ);
-    const q = physQ.clone().multiply(tmpQ.setFromAxisAngle(Z, Math.random() * Math.PI * 2));
+    const p = new THREE.Vector3((Math.random() * 2 - 1) * PW / 2, (Math.random() * 2 - 1) * PH / 2, ZM);
+    const q = new THREE.Quaternion().setFromAxisAngle(Z, Math.random() * Math.PI * 2);
     if (Math.random() < 0.5) q.multiply(tmpQ.setFromAxisAngle(Y, Math.PI));
     const pv = { x: p.x, y: p.y, z: p.z }, qv = { x: q.x, y: q.y, z: q.z, w: q.w };
     if (r.hulls.every(sh => !world.intersectionWithShape(pv, qv, sh))) return { p, q };
@@ -479,13 +480,14 @@ function spawn(id, quiet) {
   const { p, q } = spot;
   const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
     .setTranslation(p.x, p.y, p.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
+    .enabledTranslations(true, true, false).enabledRotations(false, false, true)
     .setLinearDamping(0.2).setAngularDamping(0.4));
   for (const pts of r.parts) {
     const d = RAPIER.ColliderDesc.convexHull(pts);
     if (d) world.createCollider(d.setDensity(1).setFriction(0.35).setRestitution(0.25), body);
   }
   const mesh = new THREE.Mesh(r.geo, r.mats);
-  scene.add(mesh);
+  phone.add(mesh);
   stickers.push({ id, body, mesh, v: { x: 0, y: 0, z: 0 }, calm: 0 });
   wakeAll();
   syncMesh(stickers[stickers.length - 1]);
@@ -498,7 +500,7 @@ function syncMesh(s) {
   const p = s.body.translation(), q = s.body.rotation();
   s.mesh.position.set(p.x, p.y, p.z); s.mesh.quaternion.set(q.x, q.y, q.z, q.w);
 }
-function removeSticker(s) { world.removeRigidBody(s.body); scene.remove(s.mesh); }
+function removeSticker(s) { world.removeRigidBody(s.body); phone.remove(s.mesh); }
 function saveTypes() {
   for (const tp of types) tp.n = stickers.filter(s => s.id === tp.id).length;
   if (!store.set('types', types)) toast(t('saveErr'));
@@ -838,6 +840,7 @@ resize();
 // ---------- loop ----------
 let last = performance.now(), acc = 0;
 const qa = new THREE.Quaternion();
+const omegaL = new THREE.Vector3(), alpha = new THREE.Vector3();   // phone spin and its change, in case coordinates
 function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (mode === 'case') {
@@ -857,36 +860,40 @@ function loop(now) {
       targetQ.copy(phoneQ);
     }
     if (!motionOn) grav.set(0, -G, 0);
-    world.gravity = { x: grav.x, y: grav.y, z: grav.z };
-    const moving = drag || flip || omega.lengthSq() > 0.01 || phoneQ.angleTo(physQ) > 1e-4;
-    // a resting pile is put to sleep (no physics cost); wake it when the phone turns or the real tilt changes
-    if (asleep && (moving || grav.distanceTo(sleepGrav) > G * 0.04)) wakeAll();
-    if ((moving ? STEP_FAST : STEP_SLOW) !== STEP) { STEP = moving ? STEP_FAST : STEP_SLOW; world.timestep = STEP; }
-    acc += dt;
-    const n = Math.min(10, Math.floor(acc / STEP));
-    acc -= n * STEP; if (n === 10) acc = 0;
-    const from = physQ.clone();
-    if (!asleep) for (let i = 0; i < n; i++) {
-      qa.slerpQuaternions(from, phoneQ, (i + 1) / n);
-      if (moving) caseBody.setNextKinematicRotation({ x: qa.x, y: qa.y, z: qa.z, w: qa.w });
-      world.step();
-    }
-    if (n) physQ.copy(phoneQ);
+    const inv = phoneQ.clone().invert();
+    // gravity as seen inside the case
+    const gl = tmpV.copy(grav).applyQuaternion(inv);
+    world.gravity = { x: gl.x, y: gl.y, z: 0 };
+    // rotation of the phone this frame, in case coordinates
+    const dq = phoneQ.clone().multiply(physQ.clone().invert());
+    if (dq.w < 0) { dq.x = -dq.x; dq.y = -dq.y; dq.z = -dq.z; dq.w = -dq.w; }
+    const sinH = Math.hypot(dq.x, dq.y, dq.z), ang = 2 * Math.atan2(sinH, dq.w);
+    const wl = sinH > 1e-9 && dt > 0 ? new THREE.Vector3(dq.x, dq.y, dq.z).multiplyScalar(ang / sinH / dt).applyQuaternion(inv) : new THREE.Vector3();
+    alpha.lerp(wl.clone().sub(omegaL).divideScalar(Math.max(dt, 1e-3)), 0.3);
+    omegaL.copy(wl);
+    const moving = drag || flip || omega.lengthSq() > 0.01 || ang > 1e-4;
+    physQ.copy(phoneQ);
     phone.quaternion.copy(physQ);
-    const inv = physQ.clone().invert();
+    // a resting pile is put to sleep (no physics cost); wake it when the phone turns or the real tilt changes
+    if (asleep && (moving || gl.distanceTo(sleepGrav) > G * 0.04)) wakeAll();
+    if (!asleep) for (const s of stickers) {
+      // inertial forces of the turning case: -w x (w x r) - a x r - 2 w x v
+      const p = s.body.translation(), v = s.body.linvel(), m = s.body.mass();
+      const r = new THREE.Vector3(p.x, p.y, 0), vv = new THREE.Vector3(v.x, v.y, 0);
+      const f = omegaL.clone().cross(omegaL.clone().cross(r)).add(alpha.clone().cross(r)).add(omegaL.clone().cross(vv).multiplyScalar(2)).multiplyScalar(-m);
+      s.body.resetForces(false);
+      if (moving) s.body.addForce({ x: f.x, y: f.y, z: 0 }, true);
+    }
+    acc += dt;
+    const n = Math.min(6, Math.floor(acc / STEP));
+    acc -= n * STEP; if (n === 6) acc = 0;
+    if (!asleep) for (let i = 0; i < n; i++) world.step();
     let calm = true;
     for (const s of stickers) {
       const p = s.body.translation();
-      // safety: anything that slipped out of the compartment goes back in
-      const l = tmpV.set(p.x, p.y, p.z).applyQuaternion(inv);
-      if (Math.abs(l.x) > PW / 2 + 0.3 || Math.abs(l.y) > PH / 2 + 0.3 || l.z < Z0 - 0.3 || l.z > Z1 + 0.3) {
-        // put it back at the nearest spot inside, lying flat
-        l.x = Math.max(-PW / 2 + 1, Math.min(PW / 2 - 1, l.x));
-        l.y = Math.max(-PH / 2 + 1, Math.min(PH / 2 - 1, l.y));
-        l.z = (Z0 + Z1) / 2;
-        const np = l.applyQuaternion(physQ);
-        s.body.setTranslation({ x: np.x, y: np.y, z: np.z }, true);
-        s.body.setRotation({ x: physQ.x, y: physQ.y, z: physQ.z, w: physQ.w }, true);
+      // safety: anything that got outside goes back to the nearest spot inside
+      if (Math.abs(p.x) > PW / 2 + 0.3 || Math.abs(p.y) > PH / 2 + 0.3) {
+        s.body.setTranslation({ x: Math.max(-PW / 2 + 1, Math.min(PW / 2 - 1, p.x)), y: Math.max(-PH / 2 + 1, Math.min(PH / 2 - 1, p.y)), z: ZM }, true);
         s.body.setLinvel({ x: 0, y: 0, z: 0 }, true); s.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
       }
       // click when a sticker's velocity changes sharply (it hit something)
@@ -901,7 +908,7 @@ function loop(now) {
     }
     if (!asleep && !moving && calm) {
       for (const s of stickers) s.body.sleep();
-      asleep = true; sleepGrav.copy(grav);
+      asleep = true; sleepGrav.copy(gl);
     }
     // nothing moves: skip drawing too
     if (!asleep || moving || dirty) { renderer.render(scene, camera); dirty = false; }
