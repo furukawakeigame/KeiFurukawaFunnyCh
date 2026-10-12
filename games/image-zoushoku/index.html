@@ -143,8 +143,10 @@ function makeSprite(img) {
     // 切り抜いた形のまま、縦横比を保って枠に収める
     const k = SPR / Math.max(img.width, img.height), w = img.width * k, h = img.height * k;
     c.drawImage(img, (SPR - w) / 2, (SPR - h) / 2, w, h);
+    buildShape();
     return;
   }
+  SH = { cx: 0, cy: 0, circles: [{ x: 0, y: 0, r: 1 }], I: 0.5, area: Math.PI, bound: 1 };
   c.save(); c.beginPath(); c.arc(SPR/2, SPR/2, SPR/2 - 1, 0, Math.PI*2); c.clip();
   c.fillStyle = '#2a1810'; c.fillRect(0, 0, SPR, SPR);
   // つやつやのハイライト
@@ -154,6 +156,58 @@ function makeSprite(img) {
   c.restore();
   c.strokeStyle = 'rgba(40,20,10,.35)'; c.lineWidth = 3;
   c.beginPath(); c.arc(SPR/2, SPR/2, SPR/2 - 2, 0, Math.PI*2); c.stroke();
+}
+// 当たり判定の形: 絵の形を小さな円の集まりで近似する（単位は粒の半径=1、原点は重心）
+let SH = null;
+function buildShape() {
+  const G = 48, u = 2 / G, c = document.createElement('canvas'); c.width = c.height = G;
+  const g = c.getContext('2d'); g.drawImage(sprite, 0, 0, G, G);
+  const d = g.getImageData(0, 0, G, G).data, inside = new Uint8Array(G * G);
+  let n = 0, sx = 0, sy = 0;
+  for (let i = 0; i < G * G; i++) if (d[i * 4 + 3] > 100) { inside[i] = 1; n++; sx += i % G; sy += (i / G) | 0; }
+  if (n < 3) { SH = { cx: 0, cy: 0, circles: [{ x: 0, y: 0, r: 1 }], I: 0.5, area: Math.PI, bound: 1 }; return; }
+  const mx = sx / n, my = sy / n, cx = (mx + 0.5) * u - 1, cy = (my + 0.5) * u - 1;
+  // 外側との境目のピクセル
+  const edge = [];
+  for (let y = -1; y <= G; y++) for (let x = -1; x <= G; x++) {
+    const inn = x >= 0 && y >= 0 && x < G && y < G && inside[y * G + x];
+    if (inn) continue;
+    let near = false;
+    for (let oy = -1; oy <= 1 && !near; oy++) for (let ox = -1; ox <= 1; ox++) {
+      const X = x + ox, Y = y + oy;
+      if (X >= 0 && Y >= 0 && X < G && Y < G && inside[Y * G + X]) { near = true; break; }
+    }
+    if (near) edge.push(x, y);
+  }
+  // 各ピクセルから外側までの距離
+  const dt = new Float32Array(G * G);
+  let I = 0;
+  for (let i = 0; i < G * G; i++) {
+    if (!inside[i]) continue;
+    const x = i % G, y = (i / G) | 0;
+    let best = 1e9;
+    for (let k = 0; k < edge.length; k += 2) { const dx = edge[k] - x, dy = edge[k + 1] - y, q = dx * dx + dy * dy; if (q < best) best = q; }
+    dt[i] = Math.sqrt(best) - 0.5;
+    I += ((x - mx) * (x - mx) + (y - my) * (y - my)) * u * u;
+  }
+  // 大きい円から順に置いていく
+  const covered = new Uint8Array(G * G), circles = [];
+  let left = n;
+  while (circles.length < 12 && left > n * 0.03) {
+    let bi = -1, bv = 0;
+    for (let i = 0; i < G * G; i++) if (inside[i] && !covered[i] && dt[i] > bv) { bv = dt[i]; bi = i; }
+    if (bi < 0) break;
+    const x = bi % G, y = (bi / G) | 0, r = Math.max(0.7, bv);
+    for (let i = 0; i < G * G; i++) {
+      if (!inside[i] || covered[i]) continue;
+      const dx = i % G - x, dy = ((i / G) | 0) - y;
+      if (dx * dx + dy * dy <= r * r * 1.44) { covered[i] = 1; left--; }
+    }
+    circles.push({ x: (x - mx) * u, y: (y - my) * u, r: r * u });
+  }
+  let bound = 0;
+  for (const q of circles) bound = Math.max(bound, Math.hypot(q.x, q.y) + q.r);
+  SH = { cx, cy, circles, I: I / n, area: n * u * u, bound };
 }
 const saved = store.get('cut', null);
 if (saved) { const im = new Image(); im.onload = () => makeSprite(im); im.src = saved; makeSprite(null); }
@@ -175,12 +229,13 @@ const COOL = 1.0;
 let balls = [];
 const targetR = () => R * 0.045;
 // 粒の面積の合計が円と同じになったら「いっぱい」
-const FULL = Math.floor(1 / (0.045 * 0.045));
+// （とても細い形だと数が増えすぎて重くなるので、最大600個）
+const FULL = () => Math.min(600, Math.floor(Math.PI / (SH.area * 0.045 * 0.045)));
 // 重力なし。粒はランダムな向きに飛び出す
 function addBall(x, y) {
   const ang = Math.random() * Math.PI * 2, sp = R * (1.5 + Math.random() * 0.5);
   const vx = Math.cos(ang) * sp, vy = Math.sin(ang) * sp;
-  const b = { x, y, vx, vy, r: targetR(), cool: COOL, a: Math.random() * 6.28, va: 0 };
+  const b = { x, y, vx, vy, cool: COOL, a: Math.random() * 6.28, va: (Math.random() - 0.5) * 6, wc: [] };
   balls.push(b); return b;
 }
 function updateCount() { $('count').textContent = balls.length + t('unit'); }
@@ -195,56 +250,105 @@ cv.addEventListener('pointerdown', e => {
 });
 $('reset').onclick = () => { balls = []; updateCount(); };
 
+// 粒の当たり判定の円を、いまの位置と向きで計算する
+function place(b, sc) {
+  const co = Math.cos(b.a), si = Math.sin(b.a), cs = SH.circles;
+  if (b.wc.length !== cs.length * 3) b.wc = new Array(cs.length * 3);
+  for (let k = 0; k < cs.length; k++) {
+    const q = cs[k];
+    b.wc[k * 3] = b.x + (q.x * co - q.y * si) * sc;
+    b.wc[k * 3 + 1] = b.y + (q.x * si + q.y * co) * sc;
+    b.wc[k * 3 + 2] = q.r * sc;
+  }
+}
+// 点 (px,py) に力積 (jx,jy) を加える（質量1）
+function push(b, px, py, jx, jy, I) {
+  b.vx += jx; b.vy += jy;
+  b.va += ((px - b.x) * jy - (py - b.y) * jx) / I;
+}
 function step(dt) {
-  const tr = targetR();
+  const sc = targetR(), I = SH.I * sc * sc, full = FULL();
   for (const b of balls) {
-    b.r = tr;
-    b.x += b.vx * dt; b.y += b.vy * dt;
-    b.a += b.va * dt; b.va *= 0.98;
+    b.x += b.vx * dt; b.y += b.vy * dt; b.a += b.va * dt;
     b.cool -= dt;
   }
   const born = [];
-  for (let it = 0; it < 3; it++) {
-    const cell = tr * 2, grid = new Map();
+  for (let it = 0; it < 2; it++) {
+    for (const b of balls) place(b, sc);
+    const cell = SH.bound * sc * 2, grid = new Map();
     for (let i = 0; i < balls.length; i++) {
       const b = balls[i], k = Math.floor(b.x / cell) * 65536 + Math.floor(b.y / cell);
       (grid.get(k) || grid.set(k, []).get(k)).push(i);
     }
     for (let i = 0; i < balls.length; i++) {
-      const a = balls[i], gx = Math.floor(a.x / cell), gy = Math.floor(a.y / cell);
+      const A = balls[i], gx = Math.floor(A.x / cell), gy = Math.floor(A.y / cell);
       for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
       const list = grid.get((gx + ox) * 65536 + gy + oy); if (!list) continue;
       for (const j of list) {
         if (j <= i) continue;
-        const b = balls[j];
-        const dx = b.x - a.x, dy = b.y - a.y, rr = a.r + b.r;
-        if (Math.abs(dx) > rr || Math.abs(dy) > rr) continue;
-        const d2 = dx*dx + dy*dy;
-        if (d2 >= rr*rr || d2 === 0) continue;
-        const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, ov = (rr - d) / 2;
-        a.x -= nx * ov; a.y -= ny * ov; b.x += nx * ov; b.y += ny * ov;
-        const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-        if (rv < 0) {
-          const imp = -rv;
-          a.vx -= nx * imp; a.vy -= ny * imp; b.vx += nx * imp; b.vy += ny * imp;
-          a.va -= rv * 0.01; b.va += rv * 0.01;
+        const B = balls[j];
+        { const dx = B.x - A.x, dy = B.y - A.y; if (dx * dx + dy * dy > cell * cell) continue; }
+        // いちばん深くめり込んでいる円の組を探す
+        let best = 0, nx = 0, ny = 0, px = 0, py = 0;
+        const wa = A.wc, wb = B.wc;
+        const bnd = SH.bound * sc;
+        for (let p = 0; p < wa.length; p += 3) {
+          // 相手の粒の外枠に届かない円は飛ばす
+          const ex = wa[p] - B.x, ey = wa[p + 1] - B.y, er = wa[p + 2] + bnd;
+          if (ex * ex + ey * ey >= er * er) continue;
+          for (let q = 0; q < wb.length; q += 3) {
+          const dx = wb[q] - wa[p], dy = wb[q + 1] - wa[p + 1], rr = wa[p + 2] + wb[q + 2];
+          if (Math.abs(dx) >= rr || Math.abs(dy) >= rr) continue;
+          const d2 = dx * dx + dy * dy;
+          if (d2 >= rr * rr) continue;
+          const d = Math.sqrt(d2) || 1e-6, ov = rr - d;
+          if (ov > best) {
+            best = ov; nx = dx / d; ny = dy / d;
+            px = wa[p] + nx * (wa[p + 2] - ov / 2); py = wa[p + 1] + ny * (wa[p + 2] - ov / 2);
+          }
+          }
+        }
+        if (!best) continue;
+        const h = best / 2;
+        A.x -= nx * h; A.y -= ny * h; B.x += nx * h; B.y += ny * h;
+        for (let p = 0; p < wa.length; p += 3) { wa[p] -= nx * h; wa[p + 1] -= ny * h; }
+        for (let q = 0; q < wb.length; q += 3) { wb[q] += nx * h; wb[q + 1] += ny * h; }
+        // 回転も含めた完全弾性衝突（反発係数1）
+        const rax = px - A.x, ray = py - A.y, rbx = px - B.x, rby = py - B.y;
+        const vax = A.vx - A.va * ray, vay = A.vy + A.va * rax;
+        const vbx = B.vx - B.va * rby, vby = B.vy + B.va * rbx;
+        const vn = (vbx - vax) * nx + (vby - vay) * ny;
+        if (vn < 0) {
+          const ca = rax * ny - ray * nx, cb = rbx * ny - rby * nx;
+          const jn = -2 * vn / (2 + ca * ca / I + cb * cb / I);
+          push(A, px, py, -nx * jn, -ny * jn, I);
+          push(B, px, py, nx * jn, ny * jn, I);
         }
         // 増殖
-        if (it === 0 && a.cool <= 0 && b.cool <= 0 && balls.length + born.length < FULL) {
-          a.cool = b.cool = COOL;
-          born.push([(a.x + b.x) / 2 - ny * rr * 0.5, (a.y + b.y) / 2 + nx * rr * 0.5]);
+        if (it === 0 && A.cool <= 0 && B.cool <= 0 && balls.length + born.length < full) {
+          A.cool = B.cool = COOL;
+          const o = SH.bound * sc;
+          born.push([px - ny * o, py + nx * o]);
         }
       }
       }
     }
     // 器の壁
     for (const b of balls) {
-      const dx = b.x - CX, dy = b.y - CY, d = Math.hypot(dx, dy), lim = R - b.r;
-      if (d > lim) {
-        const nx = dx / d, ny = dy / d;
-        b.x = CX + nx * lim; b.y = CY + ny * lim;
-        const vn = b.vx * nx + b.vy * ny;
-        if (vn > 0) { b.vx -= nx * vn * 2; b.vy -= ny * vn * 2; b.va += (b.vx * -ny + b.vy * nx) / b.r * 0.02; }
+      const w = b.wc;
+      let best = 0, nx = 0, ny = 0, px = 0, py = 0;
+      for (let p = 0; p < w.length; p += 3) {
+        const dx = w[p] - CX, dy = w[p + 1] - CY, d = Math.hypot(dx, dy) || 1e-6, ov = d + w[p + 2] - R;
+        if (ov > best) { best = ov; nx = dx / d; ny = dy / d; px = CX + nx * R; py = CY + ny * R; }
+      }
+      if (!best) continue;
+      b.x -= nx * best; b.y -= ny * best;
+      for (let p = 0; p < w.length; p += 3) { w[p] -= nx * best; w[p + 1] -= ny * best; }
+      const rx = px - b.x, ry = py - b.y;
+      const vn = (b.vx - b.va * ry) * nx + (b.vy + b.va * rx) * ny;
+      if (vn > 0) {
+        const c = rx * ny - ry * nx, jn = -2 * vn / (1 + c * c / I);
+        push(b, px, py, nx * jn, ny * jn, I);
       }
     }
   }
@@ -258,9 +362,10 @@ function draw() {
   // カップ
   ctx.fillStyle = '#e6c9a3';
   ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI*2); ctx.fill();
+  const sc = targetR();
   for (const b of balls) {
     ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a);
-    ctx.drawImage(sprite, -b.r, -b.r, b.r * 2, b.r * 2);
+    ctx.drawImage(sprite, (-1 - SH.cx) * sc, (-1 - SH.cy) * sc, sc * 2, sc * 2);
     ctx.restore();
   }
   ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 6;
@@ -272,7 +377,7 @@ function draw() {
 let last = performance.now();
 function loop(now) {
   const dt = Math.min(0.033, (now - last) / 1000); last = now;
-  step(dt / 2); step(dt / 2);
+  for (let i = 0; i < 4; i++) step(dt / 4);
   draw();
   requestAnimationFrame(loop);
 }
