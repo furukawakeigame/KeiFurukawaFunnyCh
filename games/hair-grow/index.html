@@ -168,7 +168,7 @@
     const body = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshStandardMaterial({ color: 0x5b7fa6, roughness: 0.8 }));
     body.scale.set(1.7, 0.9, 0.9); body.position.y = -2.15; scene.add(body);
 
-    // 口：普通・悲しい・キメ顔 をモーフで切り替え
+    // 口
     function mouthCurve(k) {
       const pts = [];
       for (let i = 0; i <= 8; i++) {
@@ -179,10 +179,9 @@
       return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 32, 0.025, 8, false);
     }
     const mouthGeo = mouthCurve(0);
-    mouthGeo.morphAttributes.position = [mouthCurve(0.1).attributes.position, mouthCurve(-0.12).attributes.position];
     const mouth = new THREE.Mesh(mouthGeo, new THREE.MeshStandardMaterial({ color: 0x7a3a2e }));
     head.add(mouth);
-    // 眉も同じくモーフ（ハの字 ⇔ キリッ）
+    // 眉
     function browGeo(k, side) {
       const pts = [];
       for (let i = 0; i <= 4; i++) {
@@ -191,11 +190,7 @@
       }
       return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 12, 0.022, 6, false);
     }
-    const brows = [-1, 1].map(side => {
-      const g = browGeo(0, side);
-      g.morphAttributes.position = [browGeo(-0.16, side).attributes.position, browGeo(0.14, side).attributes.position];
-      const m = new THREE.Mesh(g, black); head.add(m); return m;
-    });
+    [-1, 1].forEach(side => head.add(new THREE.Mesh(browGeo(0, side), black)));
 
     // ---------- 毛：1本ずつモーフ（毛根 ⇔ 長いうねり毛） ----------
     const SEG = 8, RAD = 4, LONG = 1.1;
@@ -273,14 +268,14 @@
     let zoom = 1, tx = 0, ty = 0, baseDist = 5, tf = 1;
     const camD = z => 1.3 + (baseDist - 1.3) / z;  // 頭の表面からの距離で寄る
     function placeCam() {
-      const lim = 1.4 * (1 - 1 / zoom);
+      const lim = 1.4 * Math.max(0, 1 - 1 / zoom);
       tx = THREE.MathUtils.clamp(tx, -lim, lim); ty = THREE.MathUtils.clamp(ty, -lim, lim);
       camera.position.set(tx, ty + 0.05, camD(zoom)); camera.lookAt(tx, ty - 0.15, 0);
     }
     function zoomAt(cx, cy, z) {  // 画面上の (cx, cy) の位置を動かさずに寄る
       const r = renderer.domElement.getBoundingClientRect();
       const nx = (cx - r.left) / r.width * 2 - 1, ny = -((cy - r.top) / r.height) * 2 + 1;
-      const z2 = THREE.MathUtils.clamp(z, 1, 4), d1 = camD(zoom), d2 = camD(z2);
+      const z2 = THREE.MathUtils.clamp(z, 0.35, 4), d1 = camD(zoom), d2 = camD(z2);
       tx += nx * tf * camera.aspect * (d1 - d2); ty += ny * tf * (d1 - d2);
       zoom = z2; placeCam();
     }
@@ -365,20 +360,12 @@
     }
 
     // ---------- ループ ----------
-    let prevT = performance.now(), mood = 0;
+    let prevT = performance.now();
     renderer.setAnimationLoop(() => {
       const now = performance.now(), dt = Math.min(0.05, (now - prevT) / 1000); prevT = now;
       if (brush && brush.p && tool === 'grow') applyBrush(brush.p, dt * 0.9); // 押しっぱなしで伸び続ける
       head.rotation.y += (rotY - head.rotation.y) * 0.25;
       head.rotation.x += (rotX - head.rotation.x) * 0.25;
-      // 毛の総量で表情をモーフ
-      let sum = 0; for (let i = 0; i < vals.length; i++) sum += vals[i];
-      const target = sum / vals.length;
-      mood += (target - mood) * 0.1;
-      const sad = THREE.MathUtils.clamp(1 - mood / 0.08, 0, 1);
-      const cool = THREE.MathUtils.clamp((mood - 0.12) / 0.3, 0, 1);
-      mouth.morphTargetInfluences[0] = sad; mouth.morphTargetInfluences[1] = cool;
-      brows.forEach(b => { b.morphTargetInfluences[0] = sad; b.morphTargetInfluences[1] = cool; });
       renderer.render(scene, camera);
     });
 
