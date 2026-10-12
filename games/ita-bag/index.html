@@ -103,6 +103,7 @@
       <canvas id="cv"></canvas>
       <canvas id="ed" class="hide"></canvas>
       <div id="corner">
+        <button id="front" class="pill" aria-label="front"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4"/></svg></button>
         <button id="save" class="pill"></button>
         <a id="post" class="pill"></a>
       </div>
@@ -330,14 +331,15 @@ function compose() {
 // ---------- layout ----------
 let W = 1, H = 1;
 const CAM_Y = 0.55;
+let zoom = 1, baseDist = 10;
 function resize() {
   const r = $('stage').getBoundingClientRect();
   W = Math.max(1, r.width); H = Math.max(1, r.height);
   renderer.setSize(W, H, false);
   camera.aspect = W / H;
   const th = Math.tan(THREE.MathUtils.degToRad(20));
-  const dist = Math.max(5.6 / (2 * th), 4.3 / (2 * th * camera.aspect)) + BD;
-  camera.position.set(0, CAM_Y, dist); camera.lookAt(0, CAM_Y, 0);
+  baseDist = Math.max(5.6 / (2 * th), 4.3 / (2 * th * camera.aspect)) + BD;
+  camera.position.set(0, CAM_Y, baseDist / zoom); camera.lookAt(0, CAM_Y, 0);
   camera.updateProjectionMatrix();
   if (ed) edLayout();
 }
@@ -889,15 +891,24 @@ let drag = null;
 cv.addEventListener('pointerdown', e => {
   if (sub === 'cut' || sub === 'crop') return;
   e.preventDefault(); cv.setPointerCapture(e.pointerId);
+  pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pts.size === 2) {
+    // 2本指: ピンチで拡大縮小（描きかけの線は取り消す）
+    if (drag && drag.kind === 'pen') { const d = pUndo.pop(); if (d) { pctx.putImageData(d, 0, 0); compose(); } }
+    if (drag && drag.kind === 'badge') { clearTimeout(drag.timer); setBadgePos(drag.b, drag.home.x, drag.home.y); drag.b.capMat.color.set(0xffffff); }
+    const [a, b] = [...pts.values()];
+    drag = { kind: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, z0: zoom };
+    return;
+  }
   if (drag) return;
-  const nearFront = Math.abs(yaw) < 0.35 && Math.abs(pitch) < 0.35;
+  resetting = false;
   if (sub === 'place') {
     const p = hitFront(e);
     if (p) { drag = { kind: 'move', last: p }; return; }
-  } else if (mode === 'print' && nearFront) {
+  } else if (mode === 'print') {
     const p = hitFront(e);
     if (p) { pushUndo(); drag = { kind: 'pen', last: p }; penStroke(p, p); compose(); return; }
-  } else if (mode === 'badge' && nearFront) {
+  } else if (mode === 'badge') {
     setRay(e);
     const h = ray.intersectObjects(badges.map(b => b.grp), true)[0];
     if (h) {
@@ -912,15 +923,17 @@ cv.addEventListener('pointerdown', e => {
       return;
     }
   }
-  if (mode === 'strap' && !sub) {
-    // ストラップのタブではバッグをつかんで揺らす
-    drag = { kind: 'shake', x: e.clientX, y: e.clientY, bx: bagPos.x, by: bagPos.y };
-    return;
-  }
   drag = { kind: 'rot', x: e.clientX, y: e.clientY, t: performance.now() };
 });
+const pts = new Map();
+function setZoom(z) { zoom = Math.max(0.6, Math.min(2.2, z)); camera.position.setZ(baseDist / zoom); }
 cv.addEventListener('pointermove', e => {
+  if (pts.has(e.pointerId)) pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (!drag) return;
+  if (drag.kind === 'pinch') {
+    if (pts.size >= 2) { const [a, b] = [...pts.values()]; setZoom(drag.z0 * Math.hypot(a.x - b.x, a.y - b.y) / drag.d0); }
+    return;
+  }
   if (drag.kind === 'pen') {
     const p = hitFront(e); if (p) { penStroke(drag.last, p); drag.last = p; compose(); }
   } else if (drag.kind === 'move') {
@@ -933,19 +946,17 @@ cv.addEventListener('pointermove', e => {
     setBadgePos(b, q.x, q.y); b.grp.position.z += 0.06;
     const ok = freeAt(q.x, q.y, b.r, b);
     b.capMat.color.set(ok ? 0xffffff : 0xff6070);
-  } else if (drag.kind === 'shake') {
-    const k = 2 * Math.tan(THREE.MathUtils.degToRad(20)) * camera.position.z / H;
-    const nx = drag.bx + (e.clientX - drag.x) * k, ny = drag.by - (e.clientY - drag.y) * k;
-    bagPos.x = Math.max(-2.5, Math.min(2.5, nx)); bagPos.y = Math.max(-1.5, Math.min(1.5, ny));
   } else if (drag.kind === 'rot') {
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y, now = performance.now(), dt = Math.max(1, now - drag.t) / 1000;
-    const nyaw = yaw + dx * 0.012, npitch = Math.max(-0.5, Math.min(0.5, pitch + dy * 0.006));
-    vyaw = vyaw * 0.5 + (nyaw - yaw) / dt * 0.5; vpitch = (npitch - pitch) / dt;
+    const nyaw = yaw + dx * 0.012, npitch = Math.max(-1.2, Math.min(1.2, pitch + dy * 0.009));
+    vyaw = vyaw * 0.5 + (nyaw - yaw) / dt * 0.5; vpitch = vpitch * 0.5 + (npitch - pitch) / dt * 0.5;
     yaw = nyaw; pitch = npitch; drag.x = e.clientX; drag.y = e.clientY; drag.t = now;
   }
 });
-const up = () => {
+const up = e => {
+  pts.delete(e.pointerId);
   if (!drag) return;
+  if (drag.kind === 'pinch') { if (pts.size === 0) drag = null; return; }
   if (drag.kind === 'badge') {
     clearTimeout(drag.timer);
     const b = drag.b;
@@ -953,41 +964,34 @@ const up = () => {
     else { setBadgePos(b, b.x, b.y); if (drag.moved) clickSnd(); }
     b.capMat.color.set(0xffffff);
   }
-  if (drag.kind === 'rot' && performance.now() - drag.t > 80) vyaw = 0;
+  if (drag.kind === 'rot' && performance.now() - drag.t > 80) vyaw = vpitch = 0;
   drag = null;
 };
 cv.addEventListener('pointerup', up);
 cv.addEventListener('pointercancel', up);
 cv.addEventListener('wheel', e => {
-  if (sub !== 'place') return;
   e.preventDefault();
+  if (sub !== 'place') { setZoom(zoom * Math.exp(-e.deltaY * 0.0012)); return; }
   const s = $('pScale'); s.value = Math.max(+s.min, Math.min(+s.max, +s.value * Math.exp(-e.deltaY * 0.0015))); compose();
 }, { passive: false });
 
 // ---------- loop ----------
-let last = performance.now(), time = 0;
-const bagPos = { x: 0, y: 0 }, bagVel = { x: 0, y: 0 };
+let last = performance.now(), time = 0, resetting = false;
+$('front').onclick = () => { resetting = true; };
 function loop(now) {
   const dt = Math.min(0.033, (now - last) / 1000); last = now; time += dt;
-  if (!drag || drag.kind !== 'rot') {
-    const toFront = mode !== 'strap' || sub;
-    if (toFront) {
-      // 正面に一番近い向きへ戻す
-      const target = Math.round(yaw / (Math.PI * 2)) * Math.PI * 2;
-      vyaw += ((target - yaw) * 40 - vyaw * 9) * dt;
-    } else vyaw *= Math.pow(0.15, dt);
-    yaw += vyaw * dt;
-    vpitch += (-pitch * 40 - vpitch * 9) * dt; pitch += vpitch * dt;
+  if (resetting && !drag) {
+    // 正面に戻す
+    const k = 1 - Math.pow(0.0005, dt), ty = Math.round(yaw / (Math.PI * 2)) * Math.PI * 2;
+    yaw += (ty - yaw) * k; pitch += -pitch * k; setZoom(zoom + (1 - zoom) * k); vyaw = vpitch = 0;
+    if (Math.abs(ty - yaw) + Math.abs(pitch) + Math.abs(1 - zoom) < 0.002) resetting = false;
+  } else if (!drag || drag.kind !== 'rot') {
+    // 手を離しても慣性で少し回り続ける
+    const f = Math.pow(0.08, dt);
+    vyaw *= f; vpitch *= f;
+    yaw += vyaw * dt; pitch = Math.max(-1.2, Math.min(1.2, pitch + vpitch * dt));
   }
-  bag.rotation.set(pitch, yaw, 0);
-  // バッグの位置: つかんでいる間は指に付いていき、離すとばねで真ん中に戻る
-  if (!drag || drag.kind !== 'shake') {
-    bagVel.x += (-bagPos.x * 60 - bagVel.x * 7) * dt; bagVel.y += (-bagPos.y * 60 - bagVel.y * 7) * dt;
-    bagPos.x += bagVel.x * dt; bagPos.y += bagVel.y * dt;
-  } else { bagVel.x = (bagPos.x - bag.position.x) / Math.max(dt, 1e-3); bagVel.y = (bagPos.y - bag.position.y) / Math.max(dt, 1e-3); }
-  bag.position.set(bagPos.x, bagPos.y, 0);
-  // 横に動かすと少し傾く
-  bag.rotation.z = Math.max(-0.4, Math.min(0.4, -bagVel.x * 0.04));
+  bag.rotation.set(pitch, yaw, 0, 'XYZ');
   stepStraps(dt);
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
