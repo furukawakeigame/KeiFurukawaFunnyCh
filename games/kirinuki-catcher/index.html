@@ -344,7 +344,7 @@
   }
 
   // ---------- world (units: machine is 400 x 640; planck works in metres, 30 units = 1 m) ----------
-  const WW = 400, WH = 640, FLOOR = 540, CHUTE = 104, RAIL = 36, HOME = 52, SC = 30, DT = 1 / 60, SUB = 3;
+  const WW = 400, WH = 640, FLOOR = 540, CHUTE = 124, RAIL = 36, HOME = 62, SC = 30, DT = 1 / 60, SUB = 3;
   const V = (x, y) => planck.Vec2(x / SC, y / SC);
   const world = planck.World({ gravity: planck.Vec2(0, 10) });
   const ground = world.createBody();
@@ -364,7 +364,7 @@
   });
   // claw: kinematic head driven by the motor, two arms on hinge joints whose motors have limited torque
   const ARM_L = 63, PIV = 17, CLAW = -1;
-  const OPEN = 0.72, SHUT = -0.2;
+  const OPEN = 0.72, SHUT = -0.2, ARM_LO = SHUT - 0.15, ARM_HI = OPEN + 0.12;
   const GRIP = 90, OPEN_T = 120;   // motor torque (N m): how hard the arms squeeze / open
   const claw = { x: HOME, wire: 44, state: 'idle', t: 0, close: 0, wide: 0, dir: 0, target: null };
   const head = world.createKinematicBody({ position: V(HOME, RAIL + claw.wire) });
@@ -381,7 +381,7 @@
       arm.createFixture(planck.Polygon(vs.map(([x, y]) => planck.Vec2(x / SC, y / SC))), { density: 8, friction: 1, filterGroupIndex: CLAW });
     }
     // angles: positive = open for the left arm, so the right arm is mirrored
-    const lo = SHUT - 0.25, hi = OPEN + 0.3;
+    const lo = ARM_LO, hi = ARM_HI;
     const joint = world.createJoint(planck.RevoluteJoint({
       enableMotor: true, maxMotorTorque: OPEN_T, enableLimit: true,
       lowerAngle: side < 0 ? lo : -hi, upperAngle: side < 0 ? hi : -lo,
@@ -390,9 +390,22 @@
     return arm;
   }
   const arms = [makeArm(-1), makeArm(1)];
+  // the joint limit is soft, so a hard push could bend an arm past it: put it back on the hinge, inside the limits
+  function clampArms() {
+    for (const a of arms) {
+      const j = a.joint, rel = a.getAngle() - head.getAngle();
+      const lo = a.side < 0 ? ARM_LO : -ARM_HI, hi = a.side < 0 ? ARM_HI : -ARM_LO;
+      const c = Math.max(lo, Math.min(hi, rel)), anc = j.getAnchorA(), p = a.getPosition();
+      if (c !== rel || Math.hypot(anc.x - p.x, anc.y - p.y) > 0.03) {
+        a.setTransform(anc, head.getAngle() + c);
+        if (c !== rel) a.setAngularVelocity(0);
+        a.setLinearVelocity(head.getLinearVelocity());
+      }
+    }
+  }
   let lastFr = -1;
   function driveArms() {
-    const target = claw.close ? SHUT : claw.wide ? OPEN + 0.25 : OPEN;
+    const target = claw.close ? SHUT : claw.wide ? OPEN + 0.1 : OPEN;
     for (const a of arms) {
       const ang = -a.side * a.joint.getJointAngle();
       a.joint.setMotorSpeed(-a.side * Math.max(-5, Math.min(5, (target - ang) * 10)));
@@ -447,7 +460,7 @@
         // drag: the motor follows the finger
         const d = claw.target - claw.x;
         if (Math.abs(d) > 0.5) { claw.x += Math.max(-SPEED * 1.6, Math.min(SPEED * 1.6, d)); hum(); }
-      } else if (claw.dir) { claw.x = Math.max(HOME, Math.min(WW - 72, claw.x + claw.dir * SPEED)); hum(); }
+      } else if (claw.dir) { claw.x = Math.max(HOME, Math.min(WW - 62, claw.x + claw.dir * SPEED)); hum(); }
     } else if (st === 'down') {
       claw.wire += 7;
       // stop once the arms are pressed on something
@@ -583,7 +596,7 @@
   let lastT = performance.now(), acc = 0, queue = [];
   function tick() {
     clawStep();
-    for (let i = 0; i < SUB; i++) { driveArms(); world.step(DT / SUB, 10, 4); }
+    for (let i = 0; i < SUB; i++) { driveArms(); world.step(DT / SUB, 10, 4); clampArms(); }
     if (queue.length && --queue[0].wait <= 0) { const q = queue.shift(); dropIn(q.item, q.scale); }
     for (const b of prizes.slice()) {
       if (b.got && ++b.got > 70) removePrize(b);
@@ -629,7 +642,7 @@
   let drag = null;
   cv.addEventListener('pointermove', e => {
     if (drag && e.pointerId === drag.id) {
-      claw.target = Math.max(HOME, Math.min(WW - 72, drag.c0 + (e.clientX - drag.x0) / scr.s));
+      claw.target = Math.max(HOME, Math.min(WW - 62, drag.c0 + (e.clientX - drag.x0) / scr.s));
       return;
     }
     if (mode !== 'paint' || !touches.has(e.pointerId)) return;
