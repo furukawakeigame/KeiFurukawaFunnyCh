@@ -37,6 +37,9 @@
     .tool svg { width: 26px; height: 26px; }
     .sub { height: 44px; padding: 0 16px; border-radius: 22px; background: #2f3b44; color: #fff; border: none;
       font: inherit; font-size: 15px; cursor: pointer; text-decoration: none; display: flex; align-items: center; }
+    #cutBar { align-items: center; }
+    #cutBar[hidden] { display: flex; visibility: hidden; }
+    #cut { width: min(220px, 55vw); accent-color: #2f3b44; touch-action: auto; }
     .sub.light { background: #fff; color: #2f3b44; }
   </style>
 </head>
@@ -52,6 +55,11 @@
   <div class="bar">
     <button class="tool on" data-tool="grow"><svg viewBox="0 0 26 26"><path d="M13 23 V9 M13 14 C8 13 6 9 6 5 C10 6 13 9 13 14 M13 11 C18 10 20 6 20 3 C16 4 13 7 13 11" fill="#7cc36b" stroke="#3d7a32" stroke-width="2" stroke-linejoin="round"/></svg><span id="tGrow"></span></button>
     <button class="tool" data-tool="shave"><svg viewBox="0 0 26 26"><rect x="3" y="4" width="20" height="7" rx="2" fill="#c9d3da" stroke="#2f3b44" stroke-width="2"/><rect x="11" y="11" width="4" height="12" rx="2" fill="#2f3b44"/></svg><span id="tShave"></span></button>
+  </div>
+  <div class="bar" id="cutBar" hidden>
+    <svg viewBox="0 0 26 26" width="26" height="26"><rect x="2" y="20" width="22" height="4" rx="2" fill="#f2c6a0"/><path d="M7 20v-3M11 20v-3M15 20v-3M19 20v-3" stroke="#2a2018" stroke-width="2"/></svg>
+    <input id="cut" type="range" min="0" max="0.9" step="0.01" value="0">
+    <svg viewBox="0 0 26 26" width="26" height="26"><rect x="2" y="20" width="22" height="4" rx="2" fill="#f2c6a0"/><path d="M7 20V4M11 20V4M15 20V4M19 20V4" stroke="#2a2018" stroke-width="2"/></svg>
   </div>
   <div class="bar">
     <button id="reset" class="sub light"></button>
@@ -288,13 +296,14 @@
       placeCam();
       camera.updateProjectionMatrix();
     }
-    addEventListener('resize', resize); resize();
+    new ResizeObserver(resize).observe(stage); resize();
 
     // ---------- 操作 ----------
     let tool = 'grow';
     document.querySelectorAll('.tool').forEach(b => b.onclick = () => {
       tool = b.dataset.tool;
       document.querySelectorAll('.tool').forEach(x => x.classList.toggle('on', x === b));
+      $('cutBar').hidden = tool !== 'shave';
     });
     $('reset').onclick = () => { roots.forEach((_, i) => setV(i, 0)); flush(); };
 
@@ -344,6 +353,8 @@
     cv.addEventListener('pointerup', up_); cv.addEventListener('pointercancel', up_);
 
     const BR0 = 0.15;
+    let cut = 0;
+    $('cut').oninput = e => { cut = +e.target.value; };
     function applyBrush(p, amt) {
       let changed = false;
       const BR = BR0 / Math.sqrt(zoom);  // 寄るほど細かく塗れる
@@ -354,7 +365,7 @@
         if (tool === 'grow') {
           const v = Math.min(1, vals[i] + amt * (0.4 + f));
           if (v !== vals[i]) { setV(i, v); changed = true; }
-        } else if (vals[i] > 0 && d < BR * 0.85) { setV(i, 0); changed = true; }
+        } else if (vals[i] > cut && d < BR * 0.85) { setV(i, cut); changed = true; }  // 指定の長さで剃る
       }
       if (changed) { flush(); sfx(tool); }
     }
