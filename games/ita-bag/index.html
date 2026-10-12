@@ -153,7 +153,11 @@
     <!-- バッジ -->
     <div id="stockB" class="stock hide"></div>
     <div id="barBadge" class="bar hide">
-      <input id="bSize" type="range" min="18" max="70" value="38" aria-label="size" class="hide">
+      <span id="bSizeWrap" class="hide" style="display:inline-flex;align-items:center;gap:6px">
+        <span class="dot" style="width:10px;height:10px;color:#c2185b"></span>
+        <input id="bSize" type="range" min="10" max="70" value="19" aria-label="size">
+        <span class="dot" style="width:22px;height:22px;color:#c2185b"></span>
+      </span>
       <button id="bPick" class="btn" data-t="pick"></button>
     </div>
     <div id="barCrop" class="bar hide">
@@ -482,7 +486,7 @@ $('pOk').onclick = () => {
 };
 
 // ---------- badges ----------
-const BADGE_R = [0.28, 0.38, 0.5], BADGE_T = 0.08;
+const BADGE_R = [0.14, 0.19, 0.25], BADGE_T = 0.08;
 const badges = [];
 const rimMat = new THREE.MeshStandardMaterial({ color: 0xeeeef2, metalness: 0.35, roughness: 0.3 });
 function capGeometry(r) {
@@ -547,12 +551,12 @@ let selBadge = null;
 function selectBadge(b) {
   if (selBadge) selBadge.capMat.emissive.set(0x000000);
   selBadge = b;
-  $('bSize').classList.toggle('hide', !b);
+  $('bSizeWrap').classList.toggle('hide', !b);
   if (b) { b.capMat.emissive.set(0x332200); $('bSize').value = Math.round(b.r * 100); }
 }
-$('bSize').oninput = () => {
-  const b = selBadge; if (!b) return;
-  const want = $('bSize').value / 100;
+$('bSize').oninput = () => { if (selBadge) resizeBadge(selBadge, $('bSize').value / 100); };
+function resizeBadge(b, want) {
+  want = Math.max(0.1, Math.min(0.7, want));
   const ok = (x, y, r) => inFace(x, y, r) && freeAt(x, y, r, b);
   // その場で入らなければ、近くの空いている位置にずらして入れる
   const fits = r => {
@@ -572,11 +576,12 @@ $('bSize').oninput = () => {
   if (!fits(r)) {
     let lo = Math.min(b.r, want), hi = want;
     for (let i = 0; i < 20; i++) { const m = (lo + hi) / 2; if (fits(m)) lo = m; else hi = m; }
-    r = lo; $('bSize').value = Math.round(r * 100);
+    r = lo;
   }
   const q = fits(r); if (!q) return;
   b.r = r; b.grp.scale.setScalar(r / b.r0); setBadgePos(b, q.x, q.y);
-};
+  if (b === selBadge) $('bSize').value = Math.round(r * 100);
+}
 $('bPick').onclick = () => pickImage(img => openEditor('crop', img));
 
 // ---------- straps (image-balloon style puffy charm) ----------
@@ -789,7 +794,7 @@ function placeBadge(c, size) {
   const spot = findSpot(BADGE_R[size]);
   if (!spot) { flash(t('full')); ngSnd(); return; }
   const b = makeBadge(c, size);
-  bag.add(b.grp); setBadgePos(b, spot.x, spot.y); badges.push(b); clickSnd();
+  bag.add(b.grp); setBadgePos(b, spot.x, spot.y); badges.push(b); selectBadge(b); clickSnd();
 }
 function renderStock() {
   for (const [id, list, round] of [['stockS', stock.straps, false], ['stockB', stock.badges, true]]) {
@@ -1014,9 +1019,14 @@ cv.addEventListener('pointerdown', e => {
   if (pts.size === 2) {
     // 2本指: ピンチで拡大縮小（描きかけの線は取り消す）
     if (drag && drag.kind === 'pen') { const d = pUndo.pop(); if (d) { pctx.putImageData(d, 0, 0); compose(); } }
-    if (drag && drag.kind === 'badge') { clearTimeout(drag.timer); setBadgePos(drag.b, drag.home.x, drag.home.y); drag.b.capMat.color.set(0xffffff); }
-    const [a, b] = [...pts.values()];
-    drag = { kind: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, z0: zoom };
+    const [a, b] = [...pts.values()], d0 = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    if (drag && drag.kind === 'badge') {
+      // バッジをつかんだまま2本指: そのバッジの大きさを変える
+      const bd = drag.b; clearTimeout(drag.timer); setBadgePos(bd, drag.home.x, drag.home.y); bd.capMat.color.set(0xffffff);
+      selectBadge(bd); drag = { kind: 'pinchB', b: bd, d0, r0: bd.r };
+      return;
+    }
+    drag = { kind: 'pinch', d0, z0: zoom };
     return;
   }
   if (drag) return;
@@ -1049,6 +1059,10 @@ function setZoom(z) { zoom = Math.max(0.6, Math.min(2.2, z)); camera.position.se
 cv.addEventListener('pointermove', e => {
   if (pts.has(e.pointerId)) pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (!drag) return;
+  if (drag.kind === 'pinchB') {
+    if (pts.size >= 2) { const [a, b] = [...pts.values()]; resizeBadge(drag.b, drag.r0 * Math.hypot(a.x - b.x, a.y - b.y) / drag.d0); }
+    return;
+  }
   if (drag.kind === 'pinch') {
     if (pts.size >= 2) { const [a, b] = [...pts.values()]; setZoom(drag.z0 * Math.hypot(a.x - b.x, a.y - b.y) / drag.d0); }
     return;
@@ -1075,13 +1089,13 @@ cv.addEventListener('pointermove', e => {
 const up = e => {
   pts.delete(e.pointerId);
   if (!drag) return;
-  if (drag.kind === 'pinch') { if (pts.size === 0) drag = null; return; }
+  if (drag.kind === 'pinch' || drag.kind === 'pinchB') { if (pts.size === 0) drag = null; return; }
   if (drag.kind === 'badge') {
     clearTimeout(drag.timer);
     const b = drag.b;
     if (!freeAt(b.x, b.y, b.r, b) || !inFace(b.x, b.y, b.r)) { setBadgePos(b, drag.home.x, drag.home.y); ngSnd(); }
     else { setBadgePos(b, b.x, b.y); if (drag.moved) clickSnd(); }
-    if (!drag.moved) selectBadge(selBadge === b ? null : b);
+    selectBadge(b);
     b.capMat.color.set(0xffffff);
   }
   if (drag.kind === 'rot' && performance.now() - drag.t > 80) vyaw = vpitch = 0;
@@ -1091,6 +1105,12 @@ cv.addEventListener('pointerup', up);
 cv.addEventListener('pointercancel', up);
 cv.addEventListener('wheel', e => {
   e.preventDefault();
+  if (mode === 'badge' && !sub) {
+    // PC: バッジの上でホイールを回すと、そのバッジの大きさが変わる
+    setRay(e);
+    const h = ray.intersectObjects(badges.map(b => b.grp), true)[0];
+    if (h) { const b = h.object.userData.badge; selectBadge(b); resizeBadge(b, b.r * Math.exp(-e.deltaY * 0.0012)); return; }
+  }
   if (sub !== 'place') { setZoom(zoom * Math.exp(-e.deltaY * 0.0012)); return; }
   const s = $('pScale'); s.value = Math.max(+s.min, Math.min(+s.max, +s.value * Math.exp(-e.deltaY * 0.0015))); compose();
 }, { passive: false });
