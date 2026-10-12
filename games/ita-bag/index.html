@@ -45,7 +45,7 @@
       width: calc(100% - 24px); max-width: 420px; box-sizing: border-box;
     }
     #tabs button {
-      flex: 1; font: inherit; font-weight: bold; font-size: 15px; border: none; border-radius: 999px;
+      flex: 1; font: inherit; font-weight: bold; font-size: 14px; border: none; border-radius: 999px;
       height: 38px; background: transparent; color: #a0466e; cursor: pointer; white-space: nowrap; padding: 0 4px;
     }
     #tabs button.on { background: #fff; color: #c2185b; box-shadow: 0 2px 0 #e8b4c8; }
@@ -110,9 +110,15 @@
       <div id="msg"></div>
     </div>
     <div id="tabs">
+      <button data-m="bag"></button>
       <button data-m="print" class="on"></button>
       <button data-m="strap"></button>
       <button data-m="badge"></button>
+    </div>
+    <!-- バッグ -->
+    <div id="barBag" class="bar hide">
+      <div id="bagColors" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center"></div>
+      <button id="pocketBtn" class="btn sub" data-t="pocket"></button>
     </div>
     <!-- プリント -->
     <div id="barPrint" class="bar">
@@ -180,13 +186,13 @@ const store = {
 };
 const DICT = {
   ja: {
-    title: '痛バッグメーカー', back: '← トップへ戻る', print: 'プリント', strap: 'ストラップ', badge: 'バッジ',
+    title: '痛バッグメーカー', back: '← トップへ戻る', bag: 'バッグ', pocket: 'ポケット', print: 'プリント', strap: 'ストラップ', badge: 'バッジ',
     erase: '消す', undo: '戻す', image: '画像', cancel: 'やめる', ok: '決定', pick: '画像をえらぶ', remove: '外す',
     done: 'できた', save: '保存', post: 'Xに投稿', full: '置く場所がありません', err: '画像を読み込めませんでした',
     shareText: '痛バッグを作りました\n#痛バッグメーカー',
   },
   en: {
-    title: 'Ita-Bag Maker', back: '← Back to top', print: 'Print', strap: 'Charm', badge: 'Badge',
+    title: 'Ita-Bag Maker', back: '← Back to top', bag: 'Bag', pocket: 'Pocket', print: 'Print', strap: 'Charm', badge: 'Badge',
     erase: 'Erase', undo: 'Undo', image: 'Image', cancel: 'Cancel', ok: 'OK', pick: 'Choose image', remove: 'Remove',
     done: 'Done', save: 'Save', post: 'Post', full: 'No room left', err: 'Could not load the image',
     shareText: 'I made my ita-bag\n#ItaBagMaker',
@@ -269,21 +275,27 @@ function weave(c, base) {
   }
   return c;
 }
-const FABRIC = '#efe5d0';
-const baseFront = weave(Object.assign(document.createElement('canvas'), { width: CW, height: CH }), FABRIC);
-// stitch line near the top
-{
+const BAG_COLORS = ['#efe5d0', '#f7f6f2', '#2c2b30', '#f5b7cb', '#b5d8f2', '#cdbbe8', '#bfe6cf', '#f6dd8c'];
+let bagColor = store.get('bagColor', BAG_COLORS[0]);
+if (!BAG_COLORS.includes(bagColor)) bagColor = BAG_COLORS[0];
+let pocketOn = store.get('pocket', true);
+const baseFront = Object.assign(document.createElement('canvas'), { width: CW, height: CH });
+function paintBase() {
+  weave(baseFront, bagColor);
+  // stitch line near the top
   const g = baseFront.getContext('2d');
-  g.strokeStyle = 'rgba(120,95,60,.45)'; g.lineWidth = 3; g.setLineDash([14, 10]);
-  g.beginPath(); g.moveTo(0, 46); g.lineTo(CW, 46); g.stroke();
+  g.strokeStyle = bagColor === '#2c2b30' ? 'rgba(255,255,255,.3)' : 'rgba(120,95,60,.45)'; g.lineWidth = 3; g.setLineDash([14, 10]);
+  g.beginPath(); g.moveTo(0, 46); g.lineTo(CW, 46); g.stroke(); g.setLineDash([]);
 }
+paintBase();
 const printC = Object.assign(document.createElement('canvas'), { width: CW, height: CH });
 const pctx = printC.getContext('2d');
 const frontC = Object.assign(document.createElement('canvas'), { width: CW, height: CH });
 const fctx = frontC.getContext('2d');
 const frontTex = new THREE.CanvasTexture(frontC);
 frontTex.colorSpace = THREE.SRGBColorSpace; frontTex.anisotropy = 4;
-const sideTex = new THREE.CanvasTexture(weave(Object.assign(document.createElement('canvas'), { width: 256, height: 256 }), FABRIC));
+const sideC = Object.assign(document.createElement('canvas'), { width: 256, height: 256 });
+const sideTex = new THREE.CanvasTexture(weave(sideC, bagColor));
 sideTex.colorSpace = THREE.SRGBColorSpace; sideTex.wrapS = sideTex.wrapT = THREE.RepeatWrapping; sideTex.repeat.set(3, 3);
 
 const bag = new THREE.Group();
@@ -314,6 +326,63 @@ for (const c of [frontHandle, handleCurve(-BD / 2 - 0.02)]) {
   const m = new THREE.Mesh(new THREE.TubeGeometry(c, 64, 0.07, 10), fabricMat);
   m.scale.set(1, 1, 0.45); m.position.z = c.points[0].z * 0.55;
   bag.add(m);
+}
+
+// クリアポケット: 正面の大部分を覆う透明なビニール。中に貼ったバッジが透けて見える
+const PK = { x0: -1.36, x1: 1.36, y0: -1.6, y1: 0.95, z: 0.17 };
+const inPocket = (x, y) => pocketOn && x > PK.x0 && x < PK.x1 && y > PK.y0 && y < PK.y1;
+const pocket = new THREE.Group();
+const trimMat = new THREE.MeshStandardMaterial({ roughness: 0.9, side: THREE.DoubleSide });
+{
+  const pw = PK.x1 - PK.x0, ph = PK.y1 - PK.y0, cx = (PK.x0 + PK.x1) / 2, cy = (PK.y0 + PK.y1) / 2;
+  const g = new THREE.PlaneGeometry(pw, ph, 24, 24), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i) + cx, y = p.getY(i) + cy;
+    p.setXYZ(i, x, y, BD / 2 + bz(x, y) + PK.z);
+  }
+  g.computeVertexNormals();
+  const film = new THREE.Mesh(g, new THREE.MeshPhysicalMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.16, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.03, depthWrite: false,
+  }));
+  film.renderOrder = 2;
+  pocket.add(film);
+  // ふちのテープと、袋の側面（マチ）
+  const TW = 0.08, pos = [], idx = [];
+  const ribbon = pts => {
+    // pts: [x, y, nx, ny] ポケットの内側を向く法線つき
+    const base = pos.length / 3;
+    for (const [x, y, nx, ny] of pts) {
+      const sz = BD / 2 + bz(x, y);
+      pos.push(x - nx * 0.01, y - ny * 0.01, sz + PK.z + 0.012, x + nx * TW, y + ny * TW, sz + bz(x + nx * TW, y + ny * TW) - bz(x, y) + PK.z + 0.012,
+        x - nx * 0.01, y - ny * 0.01, sz + 0.005);
+    }
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = base + i * 3, b = a + 3;
+      idx.push(a, b, b + 1, a, b + 1, a + 1, a + 2, b + 2, b, a + 2, b, a);
+    }
+  };
+  const edge = (x0, y0, x1, y1, nx, ny) => {
+    const n = 40, pts = [];
+    for (let i = 0; i <= n; i++) pts.push([x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n, nx, ny]);
+    ribbon(pts);
+  };
+  edge(PK.x0, PK.y1, PK.x1, PK.y1, 0, -1);
+  edge(PK.x0, PK.y0, PK.x1, PK.y0, 0, 1);
+  edge(PK.x0, PK.y0, PK.x0, PK.y1, 1, 0);
+  edge(PK.x1, PK.y0, PK.x1, PK.y1, -1, 0);
+  const tg = new THREE.BufferGeometry();
+  tg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); tg.setIndex(idx); tg.computeVertexNormals();
+  pocket.add(new THREE.Mesh(tg, trimMat));
+}
+bag.add(pocket);
+function applyBag() {
+  paintBase(); weave(sideC, bagColor); sideTex.needsUpdate = true;
+  const c = new THREE.Color(bagColor); const hsl = {}; c.getHSL(hsl);
+  trimMat.color.setHSL(hsl.h, hsl.s, hsl.l > 0.5 ? hsl.l - 0.18 : hsl.l + 0.15);
+  pocket.visible = pocketOn;
+  document.querySelectorAll('.bc').forEach(b => b.classList.toggle('on', b.dataset.c === bagColor));
+  $('pocketBtn').classList.toggle('on', pocketOn);
+  compose();
 }
 
 function compose() {
@@ -354,6 +423,7 @@ function setMode(m) {
   showBars();
 }
 function showBars() {
+  $('barBag').classList.toggle('hide', !(mode === 'bag' && !sub));
   $('barPrint').classList.toggle('hide', !(mode === 'print' && !sub));
   $('barPlace').classList.toggle('hide', sub !== 'place');
   $('barStrap').classList.toggle('hide', !(mode === 'strap' && !sub));
@@ -372,11 +442,11 @@ document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => setMode
 // ---------- print ----------
 let penColor = '#222222', penSize = 1, penErase = false, pUndo = [];
 const PEN = [8, 20, 48];
-document.querySelectorAll('.sw').forEach(b => b.onclick = () => {
+document.querySelectorAll('#barPrint .sw').forEach(b => b.onclick = () => {
   penColor = b.dataset.c; penErase = false; markPen();
 });
 function markPen() {
-  document.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', !penErase && b.dataset.c === penColor));
+  document.querySelectorAll('#barPrint .sw').forEach(b => b.classList.toggle('on', !penErase && b.dataset.c === penColor));
   $('pErase').classList.toggle('on', penErase);
   const d = $('pSize').firstChild, s = [8, 14, 22][penSize]; d.style.width = d.style.height = s + 'px';
 }
@@ -629,7 +699,7 @@ function stepStraps(dt) {
           const m = i === N - 1 ? 0.12 : 0.04;
           tmpL.copy(P[i]).applyMatrix4(invBag);
           if (Math.abs(tmpL.x) < BW / 2 + m && tmpL.y < BH / 2 + 0.02 && tmpL.y > -BH / 2 - m && tmpL.z > -BD / 2) {
-            const zf = BD / 2 + bz(tmpL.x, Math.min(tmpL.y, BH / 2)) + m + (i === N - 1 ? 0.06 : 0);
+            const zf = BD / 2 + bz(tmpL.x, Math.min(tmpL.y, BH / 2)) + m + (i === N - 1 ? 0.06 : 0) + (inPocket(tmpL.x, tmpL.y) ? PK.z : 0);
             if (tmpL.z < zf) { tmpL.z = zf; P[i].copy(tmpL.applyMatrix4(bag.matrixWorld)); }
           }
         }
@@ -1042,7 +1112,13 @@ function applyLang() {
 $('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
 $('snd').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); drawSnd(); };
 
-drawSnd(); applyLang(); markPen(); compose(); renderStock(); showBars();
+for (const c of BAG_COLORS) {
+  const b = document.createElement('button'); b.className = 'sw bc'; b.dataset.c = c; b.style.background = c;
+  b.onclick = () => { bagColor = c; store.set('bagColor', c); applyBag(); };
+  $('bagColors').appendChild(b);
+}
+$('pocketBtn').onclick = () => { pocketOn = !pocketOn; store.set('pocket', pocketOn); applyBag(); clickSnd(); };
+drawSnd(); applyLang(); markPen(); applyBag(); renderStock(); showBars();
 new ResizeObserver(resize).observe($('stage'));
 resize();
 requestAnimationFrame(loop);
