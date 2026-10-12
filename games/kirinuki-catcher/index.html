@@ -360,13 +360,13 @@
     if (b.parts.length > 1) Body.setInertia(b, I);
     return b;
   }
-  const ARM_L = 112, PIV = 18;
+  const ARM_L = 84, PIV = 24;
   const claw = { x: HOME, wire: 44, state: 'idle', t: 0, close: 0, dir: 0, target: null, armed: 0 };
   const head = Bodies.rectangle(HOME, RAIL + claw.wire, 46, 26, { isStatic: true, collisionFilter: { group: CLAW }, label: 'head', chamfer: { radius: 6 } });
   function makeArm(side) {
     const px = HOME + side * PIV, py = RAIL + claw.wire + 10;
     // drawn in the closed pose: two pieces, out from the pivot then a claw bending in, its tip pointing nearly straight down
-    const P = [[0, 0], [-18, 60], [4, 118]].map(([x, y]) => ({ x: px - side * x, y: py + y }));
+    const P = [[0, 0], [-20, 44], [0, 88]].map(([x, y]) => ({ x: px - side * x, y: py + y }));
     const seg = (a, b, w) => {
       const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy), nx = -dy / L * w / 2, ny = dx / L * w / 2;
       const ex = dx / L * w / 2, ey = dy / L * w / 2;   // overlap the joints a little
@@ -384,20 +384,20 @@
   }
   const arms = [makeArm(-1), makeArm(1)];
   Composite.add(world, head);
-  const OPEN = 0.55, SHUT = -0.12;
+  const OPEN = 0.72, SHUT = -0.2;
   function driveArms() {
-    const target = claw.close ? SHUT : claw.wide ? OPEN + 0.3 : OPEN;
+    const target = claw.close ? SHUT : claw.wide ? OPEN + 0.15 : OPEN;
     // slippery while letting go, so prizes don't hang on the arms over the chute
     const fr = claw.close ? 1 : 0.02;
     for (const a of arms) for (const p of a.parts) { p.friction = fr; p.frictionStatic = claw.close ? 2 : 0; }
     for (const a of arms) {
       // relative angle, positive = open for both arms
       const ang = -a.side * a.angle, av = -a.side * a.angularVelocity;
-      const lim = claw.close ? 0.0016 : 0.004;     // weak grip, like the real thing
-      const acc = Math.max(-lim, Math.min(lim, (target - ang) * 0.01 - av * 0.25));
+      const lim = claw.close ? 0.004 : 0.005;     // weak grip, like the real thing
+      const acc = Math.max(-lim, Math.min(lim, (target - ang) * 0.02 - av * 0.25));
       a.torque += -a.side * acc * a.inertia / 16.67 ** 2;
       // hinge stops
-      const hi = OPEN + (claw.wide ? 0.45 : 0.15), lo = SHUT - 0.25;
+      const hi = OPEN + (claw.wide ? 0.3 : 0.15), lo = SHUT - 0.25;
       if (ang > hi) Body.setAngularVelocity(a, -a.side * Math.min(av, (hi - ang) * 0.3));
       else if (ang < lo) Body.setAngularVelocity(a, -a.side * Math.max(av, (lo - ang) * 0.3));
     }
@@ -438,7 +438,7 @@
   });
 
   // claw sequence
-  const SPEED = 3, WIRE_TOP = 44, WIRE_MAX = FLOOR - RAIL - ARM_L - 22;
+  const SPEED = 4.5, WIRE_TOP = 44, WIRE_MAX = FLOOR - RAIL - ARM_L - 22;
   function clawStep() {
     const st = claw.state;
     claw.t++;
@@ -455,7 +455,7 @@
       const pp = prizes.flatMap(b => b.parts.slice(1));
       const hit = arms.some(a => a.parts.slice(1).some(q => Query.collides(q, pp).length));
       if (hit) claw.hitT = (claw.hitT || 0) + 1;
-      if (claw.wire >= WIRE_MAX || claw.hitT > 24) { claw.wire = Math.min(claw.wire, WIRE_MAX); go('close'); }
+      if (claw.wire >= WIRE_MAX || claw.hitT > 14) { claw.wire = Math.min(claw.wire, WIRE_MAX); go('close'); }
       hum();
     } else if (st === 'close') {
       claw.close = 1;
