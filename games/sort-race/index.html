@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ソート対決</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <!-- X などにURLを貼ったときのカード表示（ここだけは https:// から書く） -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="ソート対決">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/sort-race/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/sort-race/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    html, body { margin: 0; height: 100%; background: #f6f7fb; color: #2b3142; }
+    body {
+      display: flex; flex-direction: column; height: 100dvh;
+      font-family: "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden; touch-action: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; width: 100%; max-width: 520px; margin: 0 auto; box-sizing: border-box;
+    }
+    header a { color: #3b5bdb; text-decoration: none; font-weight: bold; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill {
+      font-size: 15px; background: #fff; border: 2px solid #d5dbef; border-radius: 999px;
+      min-width: 44px; height: 36px; padding: 0 10px; cursor: pointer; font-weight: bold; color: #3b5bdb;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .pill svg { width: 20px; height: 20px; }
+    main {
+      flex: 1; min-height: 0; width: 100%; max-width: 520px; margin: 0 auto;
+      display: flex; flex-direction: column; box-sizing: border-box; gap: 8px;
+      padding: 0 12px calc(80px + env(safe-area-inset-bottom));
+    }
+    #hud { display: flex; justify-content: space-between; align-items: center; font-weight: bold; min-height: 32px; }
+    #stageNo { display: flex; gap: 6px; }
+    #stageNo i { width: 14px; height: 14px; border-radius: 50%; background: #d5dbef; }
+    #stageNo i.on { background: #3b5bdb; }
+    #stageNo i.won { background: #2fb36b; }
+    #timer { font-variant-numeric: tabular-nums; font-size: 20px; }
+    .lane {
+      flex: 1; min-height: 0; background: #fff; border-radius: 14px; position: relative;
+      box-shadow: 0 2px 0 #e3e7f3; display: flex; flex-direction: column; padding: 6px 8px 8px;
+    }
+    .lane .tag { font-size: 13px; font-weight: bold; color: #7a8299; height: 18px; }
+    .bars { flex: 1; min-height: 0; display: flex; align-items: flex-end; gap: 6px; position: relative; }
+    .bar {
+      flex: 1; border-radius: 6px 6px 3px 3px; position: relative;
+      transition: transform .15s, outline-color .1s; outline: 3px solid transparent; outline-offset: 2px;
+    }
+    #me .bar { cursor: pointer; }
+    .bar.sel { outline-color: #2b3142; transform: translateY(-8px); }
+    .bar.cmp { outline-color: #ffb400; }
+    .bar.swp { outline-color: #ff4d6d; }
+    .lane.done { box-shadow: 0 0 0 3px #2fb36b; }
+    #me .tap { position: absolute; inset: 0; }
+    .overlay {
+      position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 14px; background: rgba(246,247,251,.94); border-radius: 14px; z-index: 5;
+      text-align: center;
+    }
+    .overlay[hidden] { display: none; }
+    .big {
+      font-size: 20px; font-weight: bold; color: #fff; background: #3b5bdb; border: 0; border-radius: 999px;
+      padding: 12px 34px; cursor: pointer; box-shadow: 0 4px 0 #2a44a8; text-decoration: none; font-family: inherit;
+    }
+    .big:active { transform: translateY(2px); box-shadow: 0 2px 0 #2a44a8; }
+    .big.x { background: #222; box-shadow: 0 4px 0 #000; }
+    .count { font-size: 64px; font-weight: bold; color: #3b5bdb; }
+    .head { font-size: 28px; font-weight: bold; }
+    .stats { font-size: 18px; line-height: 1.7; font-variant-numeric: tabular-nums; }
+    #wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="../../" id="back">← トップへ戻る</a>
+    <div class="hbtns"><button id="lang" class="pill">EN</button><button id="sound" class="pill"></button></div>
+  </header>
+  <main>
+    <div id="hud"><div id="stageNo"><i></i><i></i><i></i></div><div id="timer">0.0</div></div>
+    <div id="wrap">
+      <div class="lane" id="me"><div class="tag" id="meTag"></div><div class="bars"></div></div>
+      <div class="lane" id="cpu"><div class="tag" id="cpuTag"></div><div class="bars"></div></div>
+      <div class="overlay" id="ov"></div>
+    </div>
+  </main>
+  <script>
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/sort-race/';
+    const N = 8;
+    // ステージ: アルゴリズムと CPU の1手あたりの時間(ms)
+    const STAGES = [
+      { algo: 'bubble', ms: 380 },
+      { algo: 'selection', ms: 260 },
+      { algo: 'quick', ms: 230 },
+    ];
+
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('sort-race:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('sort-race:' + k, JSON.stringify(v)); } catch {} },
+    };
+
+    // 音
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const SPK = '<path d="M3 9h4l5-4v14l-5-4H3z" fill="currentColor"/>';
+    const updateSoundBtn = () => {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24">${SPK}${soundOn
+        ? '<path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>'
+        : '<path d="M16 9l6 6M22 9l-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'}</svg>`;
+    };
+    soundBtn.onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updateSoundBtn(); };
+    updateSoundBtn();
+    let actx;
+    function beep(freq, dur, type = 'sine', vol = 0.12, slide = 0, delay = 0) {
+      if (!soundOn) return;
+      try {
+        actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+        const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + delay;
+        o.type = type; o.frequency.setValueAtTime(freq, t);
+        if (slide) o.frequency.linearRampToValueAtTime(freq + slide, t + dur);
+        g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur);
+      } catch {}
+    }
+    const sndPick = () => beep(660, 0.06, 'square', 0.05);
+    const sndSwap = () => beep(440, 0.1, 'triangle', 0.12, 220);
+    const sndCpu = () => beep(220, 0.05, 'square', 0.025);
+    const sndWin = () => [523, 659, 784, 1046].forEach((f, i) => beep(f, 0.18, 'triangle', 0.12, 0, i * 0.09));
+    const sndLose = () => beep(330, 0.6, 'sawtooth', 0.08, -200);
+    const sndCount = hi => beep(hi ? 880 : 440, 0.12, 'sine', 0.12);
+
+    // 文言
+    const L = {
+      ja: {
+        title: 'ソート対決', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
+        sound: '音のオン/オフ', start: 'スタート', next: '次へ', retry: 'もう一度', share: 'Xに投稿',
+        you: 'あなた', algo: { bubble: 'バブルソート', selection: '選択ソート', quick: 'クイックソート' },
+        win: '勝ち', lose: '負け', clear: '全クリア',
+        stage: n => `ステージ ${n}`,
+        stats: (s, sec, sw) => `クリア ${s}/3<br>タイム ${sec}秒<br>入れ替え ${sw}回`,
+        shareText: (s, sec, sw) => s === 3
+          ? `ソートアルゴリズムに全勝した（${sec}秒・入れ替え${sw}回）\n#ソート対決`
+          : `ソートアルゴリズムに${s}勝した（ステージ${s + 1}で負け）\n#ソート対決`,
+      },
+      en: {
+        title: 'Sort Race', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
+        sound: 'Sound on/off', start: 'Start', next: 'Next', retry: 'Retry', share: 'Post on X',
+        you: 'You', algo: { bubble: 'Bubble Sort', selection: 'Selection Sort', quick: 'Quicksort' },
+        win: 'Win', lose: 'Lose', clear: 'All Clear',
+        stage: n => `Stage ${n}`,
+        stats: (s, sec, sw) => `Cleared ${s}/3<br>Time ${sec}s<br>Swaps ${sw}`,
+        shareText: (s, sec, sw) => s === 3
+          ? `I beat every sorting algorithm (${sec}s, ${sw} swaps)\n#SortRace`
+          : `I beat ${s} sorting algorithm${s === 1 ? '' : 's'} (lost at stage ${s + 1})\n#SortRace`,
+      },
+    };
+    let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
+    if (!L[lang]) lang = 'ja';
+    const t = k => L[lang][k];
+    const langBtn = document.getElementById('lang');
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      langBtn.textContent = t('lang'); langBtn.setAttribute('aria-label', t('langLabel'));
+      soundBtn.setAttribute('aria-label', t('sound'));
+      document.getElementById('meTag').textContent = t('you');
+      document.getElementById('cpuTag').textContent = t('algo')[STAGES[stage].algo];
+      renderOverlay();
+    }
+    langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+
+    // アルゴリズム: 比較と入れ替えの手順を作る
+    function steps(algo, src) {
+      const a = src.slice(), out = [];
+      const cmp = (i, j) => out.push(['c', i, j]);
+      const swp = (i, j) => { [a[i], a[j]] = [a[j], a[i]]; out.push(['s', i, j]); };
+      if (algo === 'bubble') {
+        for (let end = a.length - 1; end > 0; end--) {
+          let any = false;
+          for (let i = 0; i < end; i++) { cmp(i, i + 1); if (a[i] > a[i + 1]) { swp(i, i + 1); any = true; } }
+          if (!any) break;
+        }
+      } else if (algo === 'selection') {
+        for (let i = 0; i < a.length - 1; i++) {
+          let m = i;
+          for (let j = i + 1; j < a.length; j++) { cmp(m, j); if (a[j] < a[m]) m = j; }
+          if (m !== i) swp(i, m);
+        }
+      } else {
+        const qs = (lo, hi) => {
+          if (lo >= hi) return;
+          let p = lo;
+          for (let j = lo; j < hi; j++) { cmp(j, hi); if (a[j] < a[hi]) { if (j !== p) swp(p, j); p++; } }
+          if (p !== hi) swp(p, hi);
+          qs(lo, p - 1); qs(p + 1, hi);
+        };
+        qs(0, a.length - 1);
+      }
+      return out;
+    }
+
+    const COLORS = ['#ff6b6b', '#ff9f43', '#feca57', '#7bd389', '#48dbfb', '#5f8bff', '#9b6bff', '#f78fb3'];
+    const meBars = document.querySelector('#me .bars'), cpuBars = document.querySelector('#cpu .bars');
+    const meLane = document.getElementById('me'), cpuLane = document.getElementById('cpu');
+    const ov = document.getElementById('ov'), timerEl = document.getElementById('timer');
+
+    let stage = 0, state = 'title', me = [], cpu = [], sel = -1, swaps = 0, totalSwaps = 0, totalTime = 0;
+    let startAt = 0, cpuTimer = 0, raf = 0, wins = 0, countdown = 0;
+
+    function draw(el, arr, mark = {}) {
+      if (el.children.length !== arr.length) {
+        el.innerHTML = '';
+        arr.forEach((_, i) => { const b = document.createElement('div'); b.className = 'bar'; b.dataset.i = i; el.appendChild(b); });
+      }
+      arr.forEach((v, i) => {
+        const b = el.children[i];
+        b.style.height = (14 + v * (86 / (N - 1))) + '%';
+        b.style.background = COLORS[v];
+        b.className = 'bar' + (mark[i] ? ' ' + mark[i] : '');
+      });
+    }
+    const sorted = a => a.every((v, i) => i === 0 || a[i - 1] < v);
+    const inversions = a => { let n = 0; for (let i = 0; i < a.length; i++) for (let j = i + 1; j < a.length; j++) if (a[i] > a[j]) n++; return n; };
+
+    function shuffle() {
+      let a;
+      do {
+        a = [...Array(N).keys()];
+        for (let i = N - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+      } while (inversions(a) < 14);
+      return a;
+    }
+
+    function setupStage() {
+      me = shuffle(); cpu = me.slice(); sel = -1; swaps = 0;
+      meLane.classList.remove('done'); cpuLane.classList.remove('done');
+      draw(meBars, me); draw(cpuBars, cpu);
+      timerEl.textContent = '0.0';
+      [...document.querySelectorAll('#stageNo i')].forEach((d, i) => d.className = i < wins ? 'won' : i === stage ? 'on' : '');
+      applyLang();
+    }
+
+    function renderOverlay() {
+      ov.hidden = state === 'play';
+      if (state === 'title') {
+        ov.innerHTML = `<div class="head">${t('stage')(stage + 1)}</div><button class="big" id="go">${t('start')}</button>`;
+        document.getElementById('go').onclick = startCountdown;
+      } else if (state === 'count') {
+        ov.innerHTML = `<div class="count">${countdown}</div>`;
+      } else if (state === 'won') {
+        ov.innerHTML = `<div class="head" style="color:#2fb36b">${t('win')}</div><button class="big" id="go">${t('next')}</button>`;
+        document.getElementById('go').onclick = () => { stage++; state = 'title'; setupStage(); };
+      } else if (state === 'end') {
+        const sec = totalTime.toFixed(1);
+        const href = `https://x.com/intent/post?text=${encodeURIComponent(t('shareText')(wins, sec, totalSwaps))}&url=${encodeURIComponent(SHARE_URL)}`;
+        const tgt = matchMedia('(pointer: coarse)').matches ? '' : ' target="_blank" rel="noopener"';
+        ov.innerHTML = `<div class="head" style="color:${wins === 3 ? '#2fb36b' : '#ff4d6d'}">${wins === 3 ? t('clear') : t('lose')}</div>
+          <div class="stats">${t('stats')(wins, sec, totalSwaps)}</div>
+          <button class="big" id="go">${t('retry')}</button>
+          <a class="big x" href="${href}"${tgt}>${t('share')}</a>`;
+        document.getElementById('go').onclick = () => { stage = 0; wins = 0; totalSwaps = 0; totalTime = 0; state = 'title'; setupStage(); };
+      }
+    }
+
+    function startCountdown() {
+      state = 'count'; countdown = 3; renderOverlay(); sndCount(false);
+      const tick = () => {
+        countdown--;
+        if (countdown > 0) { renderOverlay(); sndCount(false); setTimeout(tick, 600); }
+        else { sndCount(true); begin(); }
+      };
+      setTimeout(tick, 600);
+    }
+
+    function begin() {
+      state = 'play'; renderOverlay();
+      startAt = performance.now();
+      const plan = steps(STAGES[stage].algo, cpu);
+      let k = 0;
+      const ms = STAGES[stage].ms;
+      const run = () => {
+        if (state !== 'play') return;
+        if (k >= plan.length) { draw(cpuBars, cpu); finish(false); return; }
+        const [op, i, j] = plan[k++];
+        if (op === 's') { [cpu[i], cpu[j]] = [cpu[j], cpu[i]]; sndCpu(); }
+        draw(cpuBars, cpu, { [i]: op === 's' ? 'swp' : 'cmp', [j]: op === 's' ? 'swp' : 'cmp' });
+        cpuTimer = setTimeout(run, ms);
+      };
+      cpuTimer = setTimeout(run, ms);
+      const loop = () => {
+        if (state !== 'play') return;
+        timerEl.textContent = ((performance.now() - startAt) / 1000).toFixed(1);
+        raf = requestAnimationFrame(loop);
+      };
+      loop();
+    }
+
+    function finish(playerWon) {
+      clearTimeout(cpuTimer); cancelAnimationFrame(raf);
+      const el = (performance.now() - startAt) / 1000;
+      timerEl.textContent = el.toFixed(1);
+      totalTime += el; totalSwaps += swaps;
+      (playerWon ? meLane : cpuLane).classList.add('done');
+      if (playerWon) {
+        wins++; sndWin();
+        document.querySelectorAll('#stageNo i')[stage].className = 'won';
+        state = stage === STAGES.length - 1 ? 'end' : 'won';
+      } else { sndLose(); state = 'end'; }
+      setTimeout(renderOverlay, 700);
+      ov.hidden = true;
+    }
+
+    meBars.addEventListener('pointerdown', e => {
+      if (state !== 'play') return;
+      const b = e.target.closest('.bar');
+      let i;
+      if (b) i = +b.dataset.i;
+      else { // 棒の上の空白をタップしても、その列を選ぶ
+        const r = meBars.getBoundingClientRect();
+        i = Math.max(0, Math.min(N - 1, Math.floor((e.clientX - r.left) / r.width * N)));
+      }
+      e.preventDefault();
+      if (sel < 0) { sel = i; sndPick(); draw(meBars, me, { [i]: 'sel' }); return; }
+      if (sel === i) { sel = -1; draw(meBars, me); return; }
+      [me[sel], me[i]] = [me[i], me[sel]]; swaps++; sndSwap();
+      sel = -1; draw(meBars, me);
+      if (sorted(me)) finish(true);
+    });
+
+    setupStage();
+  </script>
+</body>
+</html>
