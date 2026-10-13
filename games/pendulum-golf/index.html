@@ -103,7 +103,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const SH = { x: 0, y: 2.3 };
 const LEN = [0.8, 0.75, 0.7];
 const G = 9.8, BALL_R = 0.06, BALL_X = 0.25, TEE_H = 0.14;
-let pts, ball, state = 'title', grab = null, releaseT = 0, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, hitFlash = 0;
+let pts, ball, state = 'title', grab = null, releaseT = 0, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, hitFlash = 0, hitStop = 0, hitStopMax = 0, hitPow = 0;
 
 function reset() {
   // hang slightly bent so it's alive
@@ -139,6 +139,7 @@ function step(dt) {
       if (sp > 0.5) {
         ball.vx = hvx * 2.2; ball.vy = Math.max(hvy * 2.2, Math.abs(hvx) * 0.5);
         ball.flying = true; state = 'fly'; hitFlash = 1;
+        hitPow = Math.min(1, sp / 25); hitStop = hitStopMax = 0.04 + hitPow * 0.45;
         beep(1200, .15, 'square', .25, 300);
       }
     }
@@ -200,11 +201,33 @@ addEventListener('resize', resize);
 function draw() {
   const W = cv.clientWidth, H = cv.clientHeight;
   const X = x => originX + (x - camX) * scale, Y = y => groundY - (y - camY) * scale, GY = Y(0);
-  ctx.fillStyle = '#bfe6ff'; ctx.fillRect(0, 0, W, H);
+  const Y0 = y => groundY - (y - camY) * scale;
+  // sky -> space gradient by altitude
+  const SPACE = 60, sky = [191, 230, 255], mid = [40, 70, 160], space = [5, 5, 25];
+  const col = y => { const k = Math.max(0, Math.min(1, y / SPACE)); const a = k < .5 ? sky : mid, b = k < .5 ? mid : space, u = k < .5 ? k * 2 : (k - .5) * 2; return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * u)).join(',')})`; };
+  const yTop = camY + groundY / scale, yBot = camY - (H - groundY) / scale;
+  const gr = ctx.createLinearGradient(0, 0, 0, H);
+  for (let i = 0; i <= 6; i++) gr.addColorStop(i / 6, col(yTop + (yBot - yTop) * i / 6));
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+  // stars
+  const starA = Math.max(0, Math.min(1, (yTop - 20) / 25));
+  if (starA > 0) {
+    ctx.fillStyle = `rgba(255,255,255,${starA})`;
+    for (let i = 0; i < 300; i++) {
+      const wx = ((i * 7919) % 1000) / 1000 * 40, wy = 18 + ((i * 104729) % 997) / 997 * 200;
+      const sx = (((wx - camX * 0.05) * scale * 0.5) % (W + 40) + W + 40) % (W + 40) - 20;
+      const sy = Y0(camY * 0.7 + wy * 0.3 + 14) ;
+      if (sy < -5 || sy > H) continue;
+      const z = 1 + (i % 3) * 0.6; ctx.fillRect(sx, sy, z, z);
+    }
+  }
+  // hit-stop shake
+  ctx.save();
+  if (hitStop > 0) { const m = 4 + hitPow * 14; ctx.translate((Math.random() - .5) * m, (Math.random() - .5) * m); }
   // clouds (parallax)
   ctx.fillStyle = '#fff';
   for (let i = -2; i < 40; i++) {
-    const cx = ((i * 9) - camX * 0.3) * scale * 0.4 + originX, cy = H * (0.15 + 0.08 * ((i * 7) % 3));
+    const cx = ((i * 9) - camX * 0.3) * scale * 0.4 + originX, cy = H * (0.15 + 0.08 * ((i * 7) % 3)) + camY * scale * 0.5;
     if (cx < -100 || cx > W + 100) continue;
     ctx.beginPath(); ctx.ellipse(cx, cy, 40, 14, 0, 0, 7); ctx.ellipse(cx + 25, cy - 8, 26, 14, 0, 0, 7); ctx.fill();
   }
@@ -272,6 +295,14 @@ function draw() {
   if (grab) { ctx.strokeStyle = 'rgba(0,0,0,.3)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(X(h.x), Y(h.y)); ctx.lineTo(X(grab.x), Y(grab.y)); ctx.stroke(); ctx.setLineDash([]); }
   // hint: pulsing ring on head when ready
   if ((state === 'ready' || state === 'swing') && !grab) { const k = (performance.now() / 900) % 1; ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(X(h.x), Y(h.y), 15 + k * 30, 0, 7); ctx.stroke(); }
+  // impact burst during hit-stop
+  if (hitStop > 0) {
+    const bx = X(ball.x), by = Y(ball.y), u = 1 - hitStop / hitStopMax;
+    ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.arc(bx, by, (20 + hitPow * 50) * (0.6 + u * 0.4), 0, 7); ctx.fill();
+    ctx.strokeStyle = '#ffd43b'; ctx.lineWidth = 3 + hitPow * 4;
+    for (let i = 0; i < 12; i++) { const a = i / 12 * 6.283 + i, r1 = 25 + hitPow * 40, r2 = r1 + 30 + hitPow * 90 * (0.5 + (i % 3) / 3); ctx.beginPath(); ctx.moveTo(bx + Math.cos(a) * r1, by + Math.sin(a) * r1); ctx.lineTo(bx + Math.cos(a) * r2, by + Math.sin(a) * r2); ctx.stroke(); }
+  }
+  ctx.restore();
   $('dist').textContent = (state === 'fly' || state === 'done') ? dist().toFixed(1) + 'm' : '';
 }
 
@@ -280,8 +311,9 @@ function loop(now) {
   let fdt = Math.min(0.05, (now - last) / 1000); last = now;
   const sub = 8, dt = 1 / 480;
   let n = Math.round(fdt / dt);
-  for (let i = 0; i < n; i++) step(dt);
-  hitFlash = Math.max(0, hitFlash - fdt * 2);
+  if (hitStop > 0) hitStop -= fdt;
+  else for (let i = 0; i < n && hitStop <= 0; i++) step(dt);
+  if (hitStop <= 0) hitFlash = Math.max(0, hitFlash - fdt * 2);
   if (state === 'fly') {
     const W = cv.clientWidth, H = cv.clientHeight, mg = Math.min(W, H) * 0.35, k = Math.min(1, fdt * 25);
     camX += (ball.x - (W / 2 - originX) / scale - camX) * k;
