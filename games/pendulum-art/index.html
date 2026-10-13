@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>振り子の軌跡</title>
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ふるかわけい面白チャンネル">
+<meta property="og:title" content="振り子の軌跡">
+<meta property="og:url" content="https://keifurukawafunnych.com/games/pendulum-art/">
+<meta property="og:image" content="https://keifurukawafunnych.com/games/pendulum-art/icon.png">
+<meta name="twitter:card" content="summary">
+<style>
+  html, body { margin: 0; height: 100%; background: #02030a; color: #cfd6ff; font-family: system-ui, sans-serif; overflow: hidden; }
+  body { touch-action: none; user-select: none; -webkit-user-select: none; }
+  #view { position: fixed; left: 0; top: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); }
+  #view canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  #view canvas.drag { cursor: grabbing; }
+  header { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; z-index: 2; pointer-events: none; }
+  header > * { pointer-events: auto; }
+  a.back { color: #cfd6ff; text-decoration: none; font-size: 14px; opacity: .75; }
+  .btns { display: flex; gap: 8px; }
+  button.pill { height: 36px; min-width: 36px; padding: 0 12px; border-radius: 18px; border: 1px solid rgba(180,190,255,.3); background: rgba(10,14,40,.55); color: #e6eaff; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; backdrop-filter: blur(6px); }
+  button.pill:hover { background: rgba(40,50,120,.6); }
+  button.pill svg { width: 18px; height: 18px; }
+  #bar { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; z-index: 2; pointer-events: none; }
+  #bar > * { pointer-events: auto; }
+  #time { font-variant-numeric: tabular-nums; font-size: 14px; opacity: .6; pointer-events: none; }
+  #err { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+</style>
+</head>
+<body>
+<div id="view"></div>
+<header>
+  <a class="back" id="back" href="../../">← トップへ戻る</a>
+  <div class="btns">
+    <button class="pill" id="lang">EN</button>
+    <button class="pill" id="sound" aria-label="sound">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor"/><g id="waves"><path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a8 8 0 0 1 0 11"/></g><g id="mute"><path d="M16 9l5 6M21 9l-5 6"/></g></svg>
+    </button>
+  </div>
+</header>
+<div id="bar">
+  <span id="time">0.0s</span>
+  <div class="btns">
+    <button class="pill" id="reset">リセット</button>
+    <button class="pill" id="save">画像を保存</button>
+  </div>
+</div>
+<div id="err">ライブラリを読み込めませんでした。通信環境を確認して再読み込みしてください。</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script>
+  // CDNが読めないときの表示
+  window.__ok = false;
+  setTimeout(() => { if (!window.__ok) document.getElementById('err').style.display = 'flex'; }, 8000);
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+window.__ok = true;
+
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('pendulum-art:' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('pendulum-art:' + k, JSON.stringify(v)); } catch {} }
+};
+
+// ---- 言語 ----
+const L = {
+  ja: { title: '振り子の軌跡', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English', reset: 'リセット', save: '画像を保存', sound: '音のオン/オフ' },
+  en: { title: 'Pendulum Trails', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え', reset: 'Reset', save: 'Save image', sound: 'Sound on/off' }
+};
+let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
+if (!L[lang]) lang = 'ja';
+const t = k => L[lang][k];
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = t('title');
+  $('back').textContent = t('back');
+  $('lang').textContent = t('lang'); $('lang').setAttribute('aria-label', t('langLabel'));
+  $('reset').textContent = t('reset'); $('save').textContent = t('save');
+  $('sound').setAttribute('aria-label', t('sound'));
+}
+$('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+applyLang();
+
+// ---- 物理（三重振り子・ラグランジュ方程式 + RK4）----
+const N = 3, G = 9.8, LEN = [1, 1, 1], MASS = [1, 1, 1];
+const MSUM = MASS.map((_, i) => MASS.slice(i).reduce((a, b) => a + b, 0));
+function deriv(s, out) {
+  const th = [s[0], s[1], s[2]], w = [s[3], s[4], s[5]];
+  const M = [[0,0,0],[0,0,0],[0,0,0]], f = [0,0,0];
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < N; j++) {
+      const m = MSUM[Math.max(i, j)];
+      M[i][j] = m * LEN[i] * LEN[j] * Math.cos(th[i] - th[j]);
+      f[i] -= m * LEN[i] * LEN[j] * Math.sin(th[i] - th[j]) * w[j] * w[j];
+    }
+    f[i] -= G * LEN[i] * Math.sin(th[i]) * MSUM[i];
+  }
+  // 3x3 をクラメルで解く
+  const det = (a) => a[0][0]*(a[1][1]*a[2][2]-a[1][2]*a[2][1]) - a[0][1]*(a[1][0]*a[2][2]-a[1][2]*a[2][0]) + a[0][2]*(a[1][0]*a[2][1]-a[1][1]*a[2][0]);
+  const D = det(M);
+  for (let k = 0; k < 3; k++) {
+    const A = M.map((r, i) => r.map((v, j) => j === k ? f[i] : v));
+    out[3 + k] = det(A) / D;
+  }
+  out[0] = w[0]; out[1] = w[1]; out[2] = w[2];
+}
+const k1 = new Float64Array(6), k2 = new Float64Array(6), k3 = new Float64Array(6), k4 = new Float64Array(6), tmp = new Float64Array(6);
+function rk4(s, h) {
+  deriv(s, k1);
+  for (let i = 0; i < 6; i++) tmp[i] = s[i] + k1[i] * h / 2; deriv(tmp, k2);
+  for (let i = 0; i < 6; i++) tmp[i] = s[i] + k2[i] * h / 2; deriv(tmp, k3);
+  for (let i = 0; i < 6; i++) tmp[i] = s[i] + k3[i] * h; deriv(tmp, k4);
+  for (let i = 0; i < 6; i++) s[i] += (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]) * h / 6;
+}
+function joints(s) {
+  let x = 0, y = 0; const p = [[0, 0]];
+  for (let i = 0; i < N; i++) { x += LEN[i] * Math.sin(s[i]); y -= LEN[i] * Math.cos(s[i]); p.push([x, y]); }
+  return p;
+}
+
+// ---- three.js ----
+const view = $('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x02030a);
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.9, 0.45, 0.2);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// 背景の星
+{
+  const n = 900, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    pos[i*3] = (Math.random() - .5) * 40; pos[i*3+1] = (Math.random() - .5) * 40; pos[i*3+2] = -4 - Math.random() * 20;
+    const c = new THREE.Color().setHSL(.55 + Math.random() * .2, .6, .3 + Math.random() * .5);
+    col[i*3] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: .06, vertexColors: true, transparent: true, opacity: .5, depthWrite: false })));
+}
+
+// 軌跡（太さのある光の帯）
+const COUNT = 7, TRAIL = 3000, SUB = 10;
+const ribbonMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  vertexShader: `attribute vec3 color; attribute float alpha; varying vec3 vC; varying float vA; varying float vS;
+    attribute float side;
+    void main(){ vC = color; vA = alpha; vS = side; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `varying vec3 vC; varying float vA; varying float vS;
+    void main(){ float e = 1.0 - abs(vS); float core = pow(e, 1.5); gl_FragColor = vec4(vC * (core * 0.55 + 0.04) * vA, 1.0); }`
+});
+const pends = [];
+for (let k = 0; k < COUNT; k++) {
+  const g = new THREE.BufferGeometry();
+  const pos = new Float32Array(TRAIL * 2 * 3), col = new Float32Array(TRAIL * 2 * 3), al = new Float32Array(TRAIL * 2), side = new Float32Array(TRAIL * 2);
+  for (let i = 0; i < TRAIL; i++) { side[i*2] = -1; side[i*2+1] = 1; }
+  const idx = [];
+  for (let i = 0; i < TRAIL - 1; i++) { const a = i*2; idx.push(a, a+1, a+2, a+1, a+3, a+2); }
+  g.setIndex(idx);
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('alpha', new THREE.BufferAttribute(al, 1).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('side', new THREE.BufferAttribute(side, 1));
+  g.setDrawRange(0, 0);
+  const mesh = new THREE.Mesh(g, ribbonMat); mesh.frustumCulled = false; scene.add(mesh);
+
+  // 腕
+  const armG = new THREE.BufferGeometry(); armG.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+  const arm = new THREE.Line(armG, new THREE.LineBasicMaterial({ color: 0x8090ff, transparent: true, opacity: k === 0 ? .55 : .12, blending: THREE.AdditiveBlending, depthWrite: false }));
+  arm.frustumCulled = false; scene.add(arm);
+
+  pends.push({ s: new Float64Array(6), tx: new Float32Array(TRAIL), ty: new Float32Array(TRAIL), tc: new Float32Array(TRAIL * 3), head: 0, len: 0, g, arm, hueOff: k / COUNT * .35 });
+}
+
+// 先端と関節の光の玉
+const glowTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
+  const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.25, 'rgba(255,255,255,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = gr; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c);
+})();
+const tips = pends.map(() => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); s.material.opacity = .45; s.scale.set(.2, .2, 1); scene.add(s); return s; });
+const knots = [0, 1, 2].map(() => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x9aa8ff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: .5 })); s.scale.set(.1, .1, 1); scene.add(s); return s; });
+
+// ---- 状態 ----
+let simT = 0, hueBase = Math.random(), grab = null, dragAngles = null;
+function start(angles) {
+  hueBase = Math.random();
+  pends.forEach((p, k) => {
+    p.s.set([angles[0], angles[1], angles[2] + k * 1e-4, 0, 0, 0]);
+    p.head = 0; p.len = 0;
+  });
+  simT = 0;
+}
+function randomStart() { start([Math.PI * (.55 + Math.random() * .45) * (Math.random() < .5 ? -1 : 1), Math.PI * (.4 + Math.random() * .6), Math.PI * (.3 + Math.random() * .7)]); }
+randomStart();
+
+function pushTrail(p, x, y, hue, light) {
+  p.tx[p.head] = x; p.ty[p.head] = y;
+  const c = _c.setHSL(hue % 1, 1, light);
+  p.tc[p.head*3] = c.r; p.tc[p.head*3+1] = c.g; p.tc[p.head*3+2] = c.b;
+  p.head = (p.head + 1) % TRAIL; if (p.len < TRAIL) p.len++;
+}
+const _c = new THREE.Color();
+
+function buildRibbon(p) {
+  const n = p.len, pos = p.g.attributes.position.array, col = p.g.attributes.color.array, al = p.g.attributes.alpha.array;
+  const start = (p.head - n + TRAIL) % TRAIL;
+  for (let i = 0; i < n; i++) {
+    const a = (start + i) % TRAIL, b = (start + Math.min(i + 1, n - 1)) % TRAIL, c = (start + Math.max(i - 1, 0)) % TRAIL;
+    let dx = p.tx[b] - p.tx[c], dy = p.ty[b] - p.ty[c]; const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+    const age = i / Math.max(1, n - 1); // 0=古い 1=新しい
+    const w = .006 + .03 * age * age;
+    const fade = Math.pow(age, 1.6);
+    for (let s = 0; s < 2; s++) {
+      const sg = s ? 1 : -1, o = (i * 2 + s);
+      pos[o*3] = p.tx[a] - dy * w * sg; pos[o*3+1] = p.ty[a] + dx * w * sg; pos[o*3+2] = 0;
+      col[o*3] = p.tc[a*3]; col[o*3+1] = p.tc[a*3+1]; col[o*3+2] = p.tc[a*3+2];
+      al[o] = fade;
+    }
+  }
+  p.g.attributes.position.needsUpdate = p.g.attributes.color.needsUpdate = p.g.attributes.alpha.needsUpdate = true;
+  p.g.setDrawRange(0, Math.max(0, n - 1) * 6);
+}
+
+// ---- 入力 ----
+const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), ndc = new THREE.Vector2(), hit = new THREE.Vector3();
+function toWorld(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.set((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera); ray.ray.intersectPlane(plane, hit); return [hit.x, hit.y];
+}
+const cv = renderer.domElement;
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault(); ensureAudio();
+  const [x, y] = toWorld(e), js = joints(pends[0].s);
+  let best = 2, bi = 3; // 近い関節を掴む（遠ければ先端）
+  for (let i = 1; i <= 3; i++) { const d = Math.hypot(js[i][0] - x, js[i][1] - y); if (d < best * (i === 3 ? 1 : .6)) { best = d; bi = i; } }
+  grab = bi; dragAngles = [pends[0].s[0], pends[0].s[1], pends[0].s[2]];
+  cv.setPointerCapture(e.pointerId); cv.classList.add('drag'); move(x, y);
+});
+cv.addEventListener('pointermove', e => { if (grab) { const [x, y] = toWorld(e); move(x, y); } });
+const end = () => { if (!grab) return; grab = null; cv.classList.remove('drag'); start(dragAngles); };
+cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+cv.addEventListener('dblclick', () => randomStart());
+function move(x, y) {
+  // 掴んだ関節を指の方向へ向ける（その手前の関節から）
+  const js = joints([...dragAngles]);
+  const [px, py] = js[grab - 1];
+  dragAngles[grab - 1] = Math.atan2(x - px, -(y - py));
+  if (grab === 1) { /* 1本目のみ */ }
+  pends.forEach(p => { p.s.set([dragAngles[0], dragAngles[1], dragAngles[2], 0, 0, 0]); p.len = 0; });
+  simT = 0;
+}
+$('reset').onclick = () => randomStart();
+$('save').onclick = () => {
+  composer.render();
+  const a = document.createElement('a'); a.download = 'pendulum-trails.png'; a.href = renderer.domElement.toDataURL('image/png'); a.click();
+};
+
+// ---- 音 ----
+let ac = null, osc, osc2, gain, filt, soundOn = store.get('sound', false);
+function drawSound() { $('waves').style.display = soundOn ? '' : 'none'; $('mute').style.display = soundOn ? 'none' : ''; }
+function ensureAudio() {
+  if (ac || !soundOn) { if (ac && ac.state === 'suspended') ac.resume(); return; }
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    gain = ac.createGain(); gain.gain.value = 0;
+    filt = ac.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 1200; filt.Q.value = 4;
+    osc = ac.createOscillator(); osc.type = 'sine'; osc2 = ac.createOscillator(); osc2.type = 'triangle';
+    const g2 = ac.createGain(); g2.gain.value = .3;
+    osc.connect(filt); osc2.connect(g2).connect(filt); filt.connect(gain).connect(ac.destination);
+    const dl = ac.createDelay(); dl.delayTime.value = .28; const fb = ac.createGain(); fb.gain.value = .45;
+    gain.connect(dl); dl.connect(fb).connect(dl); dl.connect(ac.destination);
+    osc.start(); osc2.start();
+  } catch { ac = null; }
+}
+$('sound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); drawSound(); ensureAudio(); if (gain && !soundOn) gain.gain.setTargetAtTime(0, ac.currentTime, .05); };
+drawSound();
+
+// ---- サイズ ----
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h, false); composer.setSize(w, h); bloom.setSize(w, h);
+  camera.aspect = w / h;
+  const need = 7.0, fov = camera.fov * Math.PI / 180;
+  const visH = Math.max(need, need / camera.aspect);
+  camera.userData.dist = visH / 2 / Math.tan(fov / 2);
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+// ---- ループ ----
+let last = performance.now(), wall = 0;
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now; wall += dt;
+  if (!grab) {
+    const h = dt / SUB;
+    for (let s = 0; s < SUB; s++) {
+      simT += h;
+      pends.forEach((p, k) => {
+        rk4(p.s, h);
+        const js = joints(p.s), tip = js[3];
+        const sp = Math.hypot(p.s[3], p.s[4], p.s[5]);
+        pushTrail(p, tip[0], tip[1], hueBase + simT * .04 + p.hueOff, .45 + Math.min(.2, sp * .012));
+      });
+    }
+  }
+  $('time').textContent = simT.toFixed(1) + 's';
+  pends.forEach((p, k) => {
+    buildRibbon(p);
+    const js = joints(p.s), a = p.arm.geometry.attributes.position.array;
+    js.forEach((j, i) => { a[i*3] = j[0]; a[i*3+1] = j[1]; a[i*3+2] = 0; });
+    p.arm.geometry.attributes.position.needsUpdate = true;
+    tips[k].position.set(js[3][0], js[3][1], .01);
+    tips[k].material.color.setHSL((hueBase + simT * .04 + p.hueOff) % 1, 1, .7);
+    if (k === 0) for (let i = 0; i < 3; i++) knots[i].position.set(js[i][0], js[i][1], .01);
+  });
+  // 音：先端の速さで音程
+  if (ac && soundOn) {
+    const s = pends[0].s, js = joints(s);
+    let vx = 0, vy = 0; for (let i = 0; i < 3; i++) { vx += LEN[i] * Math.cos(s[i]) * s[3+i]; vy += LEN[i] * Math.sin(s[i]) * s[3+i]; }
+    const v = Math.hypot(vx, vy), f = 110 * Math.pow(2, Math.min(3, v / 5));
+    osc.frequency.setTargetAtTime(f, ac.currentTime, .05); osc2.frequency.setTargetAtTime(f * 1.5, ac.currentTime, .05);
+    filt.frequency.setTargetAtTime(400 + v * 120, ac.currentTime, .05);
+    gain.gain.setTargetAtTime(grab ? 0 : .05 + Math.min(.08, v * .006), ac.currentTime, .1);
+  }
+  // カメラをゆっくり揺らす
+  const d = camera.userData.dist;
+  camera.position.set(Math.sin(wall * .11) * .35, Math.cos(wall * .09) * .25, d);
+  camera.lookAt(0, 0, 0);
+  composer.render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
