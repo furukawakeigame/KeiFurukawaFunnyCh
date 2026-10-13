@@ -102,15 +102,15 @@ function beep(freq, dur, type = 'square', vol = .2, slide = 0) {
 const cv = $('cv'), ctx = cv.getContext('2d');
 const SH = { x: 0, y: 2.3 };
 const LEN = [0.8, 0.75, 0.7];
-const G = 9.8, BALL_R = 0.06, BALL_X = 0.25;
-let pts, ball, state = 'title', grab = null, releaseT = 0, camX = 0, best = store.get('best', 0), finalDist = 0, hitFlash = 0;
+const G = 9.8, BALL_R = 0.06, BALL_X = 0.25, TEE_H = 0.14;
+let pts, ball, state = 'title', grab = null, releaseT = 0, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, hitFlash = 0;
 
 function reset() {
   // hang slightly bent so it's alive
   pts = []; let x = SH.x, y = SH.y;
   for (let i = 0; i < 3; i++) { x += 0; y -= LEN[i]; pts.push({ x, y, px: x, py: y }); }
-  ball = { x: BALL_X, y: BALL_R, vx: 0, vy: 0, flying: false, stopped: false, maxX: BALL_X };
-  camX = 0; releaseT = 0; grab = null; finalDist = 0;
+  ball = { x: BALL_X, y: TEE_H + BALL_R, vx: 0, vy: 0, flying: false, stopped: false, maxX: BALL_X };
+  camX = 0; camY = 0; releaseT = 0; grab = null; finalDist = 0;
 }
 reset();
 
@@ -156,11 +156,11 @@ function step(dt) {
   }
 }
 
-function dist() { return Math.max(0, ball.x - BALL_X); }
+function dist() { return ball.x - BALL_X; }
 
 // ---- input ----
 let scale = 100, originX = 0, groundY = 0;
-function toWorld(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left - originX) / scale + camX, y: (groundY - (e.clientY - r.top)) / scale }; }
+function toWorld(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left - originX) / scale + camX, y: (groundY - (e.clientY - r.top)) / scale + camY }; }
 cv.addEventListener('pointerdown', e => {
   if (state !== 'ready' && state !== 'swing') return;
   e.preventDefault(); cv.setPointerCapture(e.pointerId); grab = toWorld(e);
@@ -175,7 +175,7 @@ $('again').onclick = () => { $('result').hidden = true; reset(); state = 'ready'
 function showResult() {
   const d = finalDist.toFixed(1);
   $('rDist').textContent = d + t('m');
-  $('rBest').textContent = `${t('best')} ${best.toFixed(1)}${t('m')}`;
+  $('rBest').textContent = `${t('best')} ${(best ?? 0).toFixed(1)}${t('m')}`;
   const a = $('share');
   a.href = `https://x.com/intent/post?text=${encodeURIComponent(L[lang].post(d))}&url=${encodeURIComponent('https://keifurukawafunnych.com/games/pendulum-golf/')}`;
   if (matchMedia('(pointer: coarse)').matches) { a.removeAttribute('target'); a.removeAttribute('rel'); }
@@ -183,7 +183,7 @@ function showResult() {
 }
 function finish() {
   state = 'done'; finalDist = dist();
-  if (finalDist > best) { best = finalDist; store.set('best', best); }
+  if (best === null || finalDist > best) { best = finalDist; store.set('best', best); }
   beep(500, .15, 'square', .2); setTimeout(() => beep(800, .25, 'square', .2), 150);
   setTimeout(() => { showResult(); $('result').hidden = false; }, 700);
 }
@@ -199,7 +199,7 @@ addEventListener('resize', resize);
 
 function draw() {
   const W = cv.clientWidth, H = cv.clientHeight;
-  const X = x => originX + (x - camX) * scale, Y = y => groundY - y * scale;
+  const X = x => originX + (x - camX) * scale, Y = y => groundY - (y - camY) * scale, GY = Y(0);
   ctx.fillStyle = '#bfe6ff'; ctx.fillRect(0, 0, W, H);
   // clouds (parallax)
   ctx.fillStyle = '#fff';
@@ -208,21 +208,21 @@ function draw() {
     if (cx < -100 || cx > W + 100) continue;
     ctx.beginPath(); ctx.ellipse(cx, cy, 40, 14, 0, 0, 7); ctx.ellipse(cx + 25, cy - 8, 26, 14, 0, 0, 7); ctx.fill();
   }
-  ctx.fillStyle = '#5cb85c'; ctx.fillRect(0, groundY, W, H - groundY);
-  ctx.fillStyle = '#4aa64a'; ctx.fillRect(0, groundY, W, 6);
+  ctx.fillStyle = '#5cb85c'; ctx.fillRect(0, GY, W, Math.max(0, H - GY));
+  ctx.fillStyle = '#4aa64a'; ctx.fillRect(0, GY, W, 6);
   // markers
   const step10 = scale < 30 ? 50 : 10;
   ctx.font = 'bold 14px system-ui'; ctx.textAlign = 'center';
   for (let m = Math.floor((camX - originX / scale) / step10) * step10; X(m) < W + 40; m += step10) {
-    if (m <= 0) continue;
+    if (m === 0) continue;
     const x = X(m + BALL_X);
-    ctx.fillStyle = '#fff'; ctx.fillRect(x - 1, groundY - 26, 3, 26);
-    ctx.fillStyle = '#e03131'; ctx.beginPath(); ctx.moveTo(x + 2, groundY - 26); ctx.lineTo(x + 18, groundY - 21); ctx.lineTo(x + 2, groundY - 16); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.fillText(m + 'm', x, groundY + 20);
+    ctx.fillStyle = '#fff'; ctx.fillRect(x - 1, GY - 26, 3, 26);
+    ctx.fillStyle = '#e03131'; ctx.beginPath(); ctx.moveTo(x + 2, GY - 26); ctx.lineTo(x + 18, GY - 21); ctx.lineTo(x + 2, GY - 16); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillText(m + 'm', x, GY + 20);
   }
-  if (best > 0) { const x = X(best + BALL_X); if (x > -20 && x < W + 20) { ctx.strokeStyle = '#ffd43b'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(x, groundY - 60); ctx.lineTo(x, groundY); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = '#e8b500'; ctx.fillText(t('best'), x, groundY - 66); } }
+  if (best !== null && best !== 0) { const x = X(best + BALL_X); if (x > -20 && x < W + 20) { ctx.strokeStyle = '#ffd43b'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(x, GY - 60); ctx.lineTo(x, GY); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = '#e8b500'; ctx.fillText(t('best'), x, GY - 66); } }
   // tee
-  ctx.fillStyle = '#fff'; ctx.fillRect(X(BALL_X) - 2, Y(0), 4, 6);
+  ctx.fillStyle = '#fff'; ctx.fillRect(X(BALL_X) - Math.max(2, scale * 0.015), Y(TEE_H), Math.max(4, scale * 0.03), TEE_H * scale + 6); ctx.fillRect(X(BALL_X) - scale * 0.05, Y(TEE_H), scale * 0.1, Math.max(3, scale * 0.02));
   // body (golfer stand)
   ctx.strokeStyle = '#334'; ctx.lineWidth = Math.max(3, scale * 0.06); ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(X(-0.15), Y(0)); ctx.lineTo(X(-0.05), Y(1.2)); ctx.lineTo(X(0.05), Y(0)); ctx.moveTo(X(-0.05), Y(1.2)); ctx.lineTo(X(0), Y(SH.y)); ctx.stroke();
@@ -246,7 +246,7 @@ function draw() {
   ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(X(ball.x), Y(0) + 2, BALL_R * scale, BALL_R * scale * 0.3, 0, 0, 7); ctx.fill();
   ctx.fillStyle = '#fff'; ctx.strokeStyle = '#999'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.arc(X(ball.x), Y(ball.y), Math.max(4, BALL_R * scale), 0, 7); ctx.fill(); ctx.stroke();
-  if (hitFlash > 0) { ctx.strokeStyle = `rgba(255,212,59,${hitFlash})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(X(BALL_X), Y(BALL_R), 20 + (1 - hitFlash) * 40, 0, 7); ctx.stroke(); }
+  if (hitFlash > 0) { ctx.strokeStyle = `rgba(255,212,59,${hitFlash})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(X(BALL_X), Y(TEE_H + BALL_R), 20 + (1 - hitFlash) * 40, 0, 7); ctx.stroke(); }
   // grab line
   if (grab) { ctx.strokeStyle = 'rgba(0,0,0,.3)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(X(h.x), Y(h.y)); ctx.lineTo(X(grab.x), Y(grab.y)); ctx.stroke(); ctx.setLineDash([]); }
   // hint: pulsing ring on head when ready
@@ -262,9 +262,10 @@ function loop(now) {
   for (let i = 0; i < n; i++) step(dt);
   hitFlash = Math.max(0, hitFlash - fdt * 2);
   if (state === 'fly') {
-    const target = Math.max(0, ball.x - 1);
-    camX += (target - camX) * Math.min(1, fdt * 5);
-    if (ball.stopped || ball.x < -3) { if (ball.x < -3) ball.x = BALL_X; finish(); }
+    camX += (ball.x - 1 - camX) * Math.min(1, fdt * 5);
+    const vh = groundY / scale, ty = Math.max(0, ball.y - vh * 0.6);
+    camY += (ty - camY) * Math.min(1, fdt * 5);
+    if (ball.stopped) finish();
   }
   draw();
   requestAnimationFrame(loop);
