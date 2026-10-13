@@ -192,8 +192,8 @@ function finish() {
 function resize() {
   const r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
   cv.width = r.width * dpr; cv.height = r.height * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  scale = Math.min(r.height / 3.3, r.width / 3.2);
-  originX = r.width * 0.3; groundY = r.height - Math.max(30, r.height * 0.12);
+  scale = Math.min(r.height / 3.3, r.width / 5);
+  originX = Math.max(r.width * 0.3, 2.3 * scale); groundY = r.height - Math.max(30, r.height * 0.12);
 }
 addEventListener('resize', resize);
 
@@ -207,6 +207,27 @@ function draw() {
     const cx = ((i * 9) - camX * 0.3) * scale * 0.4 + originX, cy = H * (0.15 + 0.08 * ((i * 7) % 3));
     if (cx < -100 || cx > W + 100) continue;
     ctx.beginPath(); ctx.ellipse(cx, cy, 40, 14, 0, 0, 7); ctx.ellipse(cx + 25, cy - 8, 26, 14, 0, 0, 7); ctx.fill();
+  }
+  // mountains (far)
+  const hill = (par, base, amp, wl, col, seed) => {
+    ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0, H);
+    for (let sx = 0; sx <= W + 10; sx += 10) {
+      const wx = (sx - originX) / scale + camX * par;
+      const h = amp * (0.6 + 0.4 * Math.sin(wx / wl + seed) * Math.sin(wx / (wl * 2.7) + seed * 3));
+      ctx.lineTo(sx, Y(camY * (1 - par)) - (base + h) * scale * 0.5);
+    }
+    ctx.lineTo(W, H); ctx.fill();
+  };
+  hill(0.1, 1.5, 5, 3, '#a5c8e4', 1);
+  hill(0.3, 0.5, 2.5, 1.6, '#8fcf8f', 4);
+  // trees (mid)
+  const tp = 0.6;
+  for (let i = Math.floor((camX * tp - originX / scale) / 7) - 1, n = i + Math.ceil(W / scale / 7) + 3; i < n; i++) {
+    if (i % 3 === 1) continue;
+    const wx = i * 7 + ((i * 37) % 5), sx = originX + (wx - camX * tp) * scale * 0.7, by = Y(camY * (1 - tp));
+    const th = (1.6 + ((i * 13) % 4) * 0.3) * scale * 0.7;
+    ctx.fillStyle = '#7a5230'; ctx.fillRect(sx - th * 0.05, by - th * 0.45, th * 0.1, th * 0.45);
+    ctx.fillStyle = i % 2 ? '#2f8a3a' : '#3c9a46'; ctx.beginPath(); ctx.ellipse(sx, by - th * 0.65, th * 0.3, th * 0.38, 0, 0, 7); ctx.fill();
   }
   ctx.fillStyle = '#5cb85c'; ctx.fillRect(0, GY, W, Math.max(0, H - GY));
   ctx.fillStyle = '#4aa64a'; ctx.fillRect(0, GY, W, 6);
@@ -265,6 +286,9 @@ function loop(now) {
     camX += (ball.x - 1 - camX) * Math.min(1, fdt * 5);
     const vh = groundY / scale, ty = Math.max(0, ball.y - vh * 0.6);
     camY += (ty - camY) * Math.min(1, fdt * 5);
+    const W = cv.clientWidth, H = cv.clientHeight, mg = 40;
+    camX = Math.min(ball.x - (mg - originX) / scale, Math.max(ball.x - (W - mg - originX) / scale, camX));
+    camY = Math.max(0, Math.min(ball.y + (H - mg - groundY) / scale, Math.max(ball.y - (groundY - mg) / scale, camY)));
     if (ball.stopped) finish();
   }
   draw();
