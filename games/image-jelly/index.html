@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>画像ゼリー</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="画像ゼリー">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/image-jelly/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/image-jelly/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    html, body { margin: 0; height: 100%; background: #e8f4f6; color: #2f5560; }
+    body {
+      display: flex; flex-direction: column; height: 100dvh; box-sizing: border-box;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom));
+      font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden; touch-action: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    header { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; }
+    header a { color: #2f5560; text-decoration: none; font-size: 14px; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill {
+      height: 34px; min-width: 34px; border: 2px solid #2f5560; border-radius: 17px;
+      background: #f7fcfd; color: #2f5560; font: inherit; font-size: 15px; font-weight: bold;
+      padding: 0 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+      text-decoration: none; box-sizing: border-box;
+    }
+    .pill svg { width: 20px; height: 20px; }
+    #sound { padding: 0 6px; }
+    #stage { flex: 1; position: relative; min-height: 0; }
+    #gl, #cut { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+    #cut { display: none; cursor: crosshair; background: #e8f4f6; }
+    #hint { position: absolute; left: 0; right: 0; top: 8px; text-align: center; font-size: 15px; font-weight: bold; pointer-events: none; display: none; }
+    .bar { display: flex; justify-content: center; gap: 10px; padding: 8px; flex-wrap: wrap; }
+    .bar .pill { height: 48px; border-radius: 24px; padding: 0 16px; font-size: 15px; }
+    .bar .pill svg { width: 24px; height: 24px; }
+    .main { background: #2f5560 !important; color: #f7fcfd !important; }
+    .hide { display: none !important; }
+    #file { display: none; }
+    #err { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="../../" id="back">← トップへ戻る</a>
+    <div class="hbtns">
+      <button id="lang" class="pill">EN</button>
+      <button id="sound" class="pill"></button>
+    </div>
+  </header>
+  <div id="stage"><canvas id="gl"></canvas><canvas id="cut"></canvas><div id="hint"></div><div id="err"></div></div>
+  <div class="bar">
+    <button id="pick" class="pill main"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4 18l5-5 4 4 3-3 4 4"/></svg><span id="pickT" style="margin-left:6px"></span></button>
+    <button id="drop" class="pill hide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg></button>
+    <a id="post" class="pill hide"></a>
+  </div>
+  <input type="file" id="file" accept="image/*">
+
+<script type="importmap">{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }</script>
+<script>
+  window.__t = setTimeout(() => { if (!window.__ok) { const e = document.getElementById('err'); e.style.display = 'flex';
+    e.textContent = (navigator.language || '').startsWith('ja') ? '読み込みに失敗しました。通信状況を確認して再読み込みしてください。' : 'Failed to load. Please check your connection and reload.'; } }, 8000);
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+window.__ok = true;
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('jelly-' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('jelly-' + k, JSON.stringify(v)); } catch {} }
+};
+const URL_GAME = 'https://keifurukawafunnych.com/games/image-jelly/';
+
+// ---- 言語 ----
+const L = {
+  ja: { title: '画像ゼリー', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English', pick: '画像をえらぶ', pickShort: '別の画像',
+        hint: 'なぞって切り抜く', drop: 'もう一度落とす', post: 'Xに投稿', share: '画像をゼリーにした', sound: '音のオン/オフ' },
+  en: { title: 'Image Jelly', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え', pick: 'Pick image', pickShort: 'New image',
+        hint: 'Trace to cut out', drop: 'Drop again', post: 'Post on X', share: 'I turned my picture into jelly', sound: 'Sound on/off' }
+};
+let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
+if (!L[lang]) lang = 'ja';
+const t = k => L[lang][k];
+function applyLang() {
+  document.documentElement.lang = lang; document.title = t('title');
+  $('back').textContent = t('back');
+  $('lang').textContent = t('lang'); $('lang').setAttribute('aria-label', t('langLabel'));
+  $('sound').setAttribute('aria-label', t('sound'));
+  $('pickT').textContent = mode === 'jelly' ? '' : t('pick'); $('pickT').style.display = mode === 'jelly' ? 'none' : '';
+  $('pick').setAttribute('aria-label', mode === 'jelly' ? t('pickShort') : t('pick')); $('pick').title = $('pick').getAttribute('aria-label');
+  $('drop').setAttribute('aria-label', t('drop')); $('drop').title = t('drop');
+  $('hint').textContent = t('hint');
+  $('post').textContent = t('post');
+  $('post').href = 'https://x.com/intent/post?text=' + encodeURIComponent(t('share')) + '&url=' + encodeURIComponent(URL_GAME);
+  if (matchMedia('(pointer: coarse)').matches) { $('post').removeAttribute('target'); $('post').removeAttribute('rel'); }
+  else { $('post').target = '_blank'; $('post').rel = 'noopener'; }
+}
+$('lang').onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+
+// ---- 音 ----
+let soundOn = store.get('sound', true);
+const SPK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>';
+const updateSoundBtn = () => {
+  $('sound').innerHTML = SPK + (soundOn
+    ? '<path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>'
+    : '<path d="M16 9l5 6"/><path d="M21 9l-5 6"/></svg>');
+};
+$('sound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updateSoundBtn(); };
+updateSoundBtn();
+let actx = null;
+function boing(vol) {
+  if (!soundOn) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const now = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(), lfo = actx.createOscillator(), lg = actx.createGain();
+    const f = 160 + Math.random() * 60;
+    o.type = 'sine'; o.frequency.setValueAtTime(f * 1.8, now); o.frequency.exponentialRampToValueAtTime(f, now + 0.35);
+    lfo.frequency.value = 14; lg.gain.value = f * 0.25; lfo.connect(lg); lg.connect(o.frequency);
+    g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.35 * vol, now + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+    o.connect(g); g.connect(actx.destination); o.start(now); lfo.start(now); o.stop(now + 0.5); lfo.stop(now + 0.5);
+  } catch {}
+}
+
+// ---- 画面モード ----
+let mode = 'start'; // start | cut | jelly
+function setMode(m) {
+  mode = m;
+  $('cut').style.display = m === 'cut' ? 'block' : 'none';
+  $('hint').style.display = m === 'cut' ? 'block' : 'none';
+  $('drop').classList.toggle('hide', m !== 'jelly');
+  $('post').classList.toggle('hide', m !== 'jelly');
+  $('pick').classList.toggle('main', m !== 'jelly');
+  applyLang();
+}
+
+// ---- 画像選択 ----
+let img = null; // 縮小済みcanvas
+$('pick').onclick = () => { $('file').value = ''; $('file').click(); };
+$('file').onchange = () => {
+  const f = $('file').files[0]; if (!f) return;
+  const im = new Image(), u = URL.createObjectURL(f);
+  im.onload = () => {
+    const s = Math.min(1, 1400 / Math.max(im.width, im.height));
+    const c = document.createElement('canvas'); c.width = Math.round(im.width * s); c.height = Math.round(im.height * s);
+    c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(u); img = c; startCut();
+  };
+  im.src = u;
+};
+
+// ---- 切り抜き ----
+const cut = $('cut'), cx = cut.getContext('2d');
+let path = [], drawing = false, view = { s: 1, ox: 0, oy: 0 };
+function startCut() { setMode('cut'); path = []; resizeCut(); }
+function resizeCut() {
+  const r = cut.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  cut.width = Math.max(1, r.width * dpr); cut.height = Math.max(1, r.height * dpr);
+  if (!img) return;
+  const pad = 40 * dpr, s = Math.min((cut.width - pad) / img.width, (cut.height - pad - 30 * dpr) / img.height);
+  view = { s, ox: (cut.width - img.width * s) / 2, oy: (cut.height - img.height * s) / 2 + 12 * dpr, dpr };
+  drawCut();
+}
+function drawCut() {
+  cx.clearRect(0, 0, cut.width, cut.height);
+  if (!img) return;
+  const { s, ox, oy, dpr } = view;
+  cx.drawImage(img, ox, oy, img.width * s, img.height * s);
+  if (path.length < 2) return;
+  cx.beginPath();
+  path.forEach((p, i) => i ? cx.lineTo(ox + p[0] * s, oy + p[1] * s) : cx.moveTo(ox + p[0] * s, oy + p[1] * s));
+  if (!drawing) cx.closePath();
+  cx.lineJoin = 'round'; cx.lineCap = 'round';
+  cx.strokeStyle = 'rgba(47,85,96,.9)'; cx.lineWidth = 5 * dpr; cx.stroke();
+  cx.strokeStyle = '#fff'; cx.lineWidth = 2.5 * dpr; cx.setLineDash([8 * dpr, 6 * dpr]); cx.stroke(); cx.setLineDash([]);
+}
+const toImg = e => {
+  const r = cut.getBoundingClientRect(), d = view.dpr;
+  return [Math.max(0, Math.min(img.width, ((e.clientX - r.left) * d - view.ox) / view.s)),
+          Math.max(0, Math.min(img.height, ((e.clientY - r.top) * d - view.oy) / view.s))];
+};
+cut.addEventListener('pointerdown', e => { if (!img) return; cut.setPointerCapture(e.pointerId); drawing = true; path = [toImg(e)]; drawCut(); });
+cut.addEventListener('pointermove', e => {
+  if (!drawing) return;
+  const p = toImg(e), q = path[path.length - 1];
+  if (Math.hypot(p[0] - q[0], p[1] - q[1]) * view.s > 3) { path.push(p); drawCut(); }
+});
+cut.addEventListener('pointerup', () => {
+  if (!drawing) return; drawing = false; drawCut();
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const p of path) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
+  const big = Math.max(x1 - x0, y1 - y0) > Math.max(img.width, img.height) * 0.08;
+  if (path.length >= 8 && big && Math.abs(area(path)) > (x1 - x0) * (y1 - y0) * 0.15) setTimeout(() => makeJelly(img, path), 150);
+  else { path = []; drawCut(); }
+});
+
+// ---- 2Dの形の処理 ----
+function area(P) { let a = 0; for (let i = 0; i < P.length; i++) { const p = P[i], q = P[(i + 1) % P.length]; a += p[0] * q[1] - q[0] * p[1]; } return a / 2; }
+function chaikin(P) { const o = []; for (let i = 0; i < P.length; i++) { const p = P[i], q = P[(i + 1) % P.length]; o.push([p[0] * .75 + q[0] * .25, p[1] * .75 + q[1] * .25], [p[0] * .25 + q[0] * .75, p[1] * .25 + q[1] * .75]); } return o; }
+function resample(P, n) {
+  const segs = []; let tot = 0;
+  for (let i = 0; i < P.length; i++) { const p = P[i], q = P[(i + 1) % P.length], l = Math.hypot(q[0] - p[0], q[1] - p[1]); segs.push(l); tot += l; }
+  const o = []; let si = 0, acc = 0;
+  for (let k = 0; k < n; k++) {
+    const d = tot * k / n;
+    while (acc + segs[si] < d) { acc += segs[si]; si++; }
+    const p = P[si], q = P[(si + 1) % P.length], f = segs[si] ? (d - acc) / segs[si] : 0;
+    o.push([p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f]);
+  }
+  return o;
+}
+function inside(P, x, y) { let c = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const a = P[i], b = P[j]; if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; }
+function edgeDist(P, x, y) {
+  let m = 1e9;
+  for (let i = 0; i < P.length; i++) {
+    const a = P[i], b = P[(i + 1) % P.length], dx = b[0] - a[0], dy = b[1] - a[1];
+    const u = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+    m = Math.min(m, Math.hypot(a[0] + dx * u - x, a[1] + dy * u - y));
+  }
+  return m;
+}
+
+// ---- 3D ----
+const gl = $('gl');
+const renderer = new THREE.WebGLRenderer({ canvas: gl, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xe8f4f6);
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+const camTarget = new THREE.Vector3(0, 0.35, 0);
+let camAz = 0, camEl = 0.62, camDist = 7.2;
+function placeCam() {
+  camera.position.set(camTarget.x + camDist * Math.sin(camAz) * Math.cos(camEl), camTarget.y + camDist * Math.sin(camEl), camTarget.z + camDist * Math.cos(camAz) * Math.cos(camEl));
+  camera.lookAt(camTarget);
+}
+scene.add(new THREE.HemisphereLight(0xffffff, 0xbfd8dd, 0.6));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+sun.position.set(3, 7, 4); sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024); sun.shadow.camera.left = sun.shadow.camera.bottom = -4; sun.shadow.camera.right = sun.shadow.camera.top = 4;
+sun.shadow.radius = 4; sun.shadow.bias = -0.002;
+scene.add(sun);
+const PLATE_R = 2.5, TABLE_Y = -0.14;
+const plate = new THREE.Mesh(new THREE.CylinderGeometry(PLATE_R, PLATE_R * 0.8, 0.14, 72),
+  new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.1 }));
+plate.position.y = -0.07; plate.receiveShadow = true; plate.castShadow = true; scene.add(plate);
+const table = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0xcfe6ea, roughness: 0.9 }));
+table.rotation.x = -Math.PI / 2; table.position.y = TABLE_Y; table.receiveShadow = true; scene.add(table);
+
+function resize() {
+  const r = $('stage').getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = r.width / Math.max(1, r.height);
+  camera.fov = camera.aspect < 0.8 ? 50 : 38;
+  camera.updateProjectionMatrix();
+  if (mode === 'cut') resizeCut();
+}
+addEventListener('resize', resize);
+
+// ---- ゼリー（やわらかい物体：クラスタ型シェイプマッチング） ----
+let J = null; // { mesh, n, x, v, p, x0, clusters, goal, cnt }
+const H = 0.75, BEV = 0.2, SIZE = 3.0, N_RING = 76;
+
+function buildGeometry(P2) {
+  // P2: ワールド座標 (x,z) の輪郭（CCW）
+  const n = P2.length, nrm = [];
+  for (let i = 0; i < n; i++) {
+    const a = P2[(i + n - 1) % n], b = P2[(i + 1) % n];
+    let tx = b[0] - a[0], tz = b[1] - a[1]; const l = Math.hypot(tx, tz) || 1; tx /= l; tz /= l;
+    nrm.push([tz, -tx]); // 外向き
+  }
+  const pos = [], idx = [];
+  const rings = [];
+  const prof = [];
+  for (let k = 0; k <= 3; k++) { const a = k / 3 * Math.PI / 2; prof.push([BEV - BEV * Math.cos(a), BEV - BEV * Math.sin(a)]); }
+  prof.push([H / 2, 0]);
+  for (let k = 0; k <= 3; k++) { const a = k / 3 * Math.PI / 2; prof.push([H - BEV + BEV * Math.sin(a), BEV - BEV * Math.cos(a)]); }
+  for (const [y, ins] of prof) {
+    const r = [];
+    for (let i = 0; i < n; i++) { r.push(pos.length / 3); pos.push(P2[i][0] - nrm[i][0] * ins, y, P2[i][1] - nrm[i][1] * ins); }
+    rings.push(r);
+  }
+  const P = new THREE.Vector3(), Q = new THREE.Vector3(), R = new THREE.Vector3();
+  const tri = (a, b, c, dx, dy, dz) => {
+    P.fromArray(pos, a * 3); Q.fromArray(pos, b * 3).sub(P); R.fromArray(pos, c * 3).sub(P); Q.cross(R);
+    if (Q.x * dx + Q.y * dy + Q.z * dz < 0) idx.push(a, c, b); else idx.push(a, b, c);
+  };
+  for (let k = 0; k < rings.length - 1; k++) for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n, a = rings[k][i], b = rings[k][j], c = rings[k + 1][j], d = rings[k + 1][i];
+    const ox = nrm[i][0] + nrm[j][0], oz = nrm[i][1] + nrm[j][1], oy = (k < 3 ? -1 : k > 4 ? 1 : 0) * 0.3;
+    tri(a, b, c, ox, oy, oz); tri(a, c, d, ox, oy, oz);
+  }
+  // 上下のふた（内側に点を足して、真ん中もへこむように）
+  const inner = P2.map((p, i) => [p[0] - nrm[i][0] * BEV, p[1] - nrm[i][1] * BEV]);
+  let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+  for (const p of inner) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
+  const st = [], g = 0.24;
+  for (let x = x0 + g / 2; x < x1; x += g) for (let z = z0 + g / 2; z < z1; z += g * 0.866) {
+    const xx = x + ((Math.round((z - z0) / (g * 0.866)) % 2) ? g / 2 : 0);
+    if (inside(inner, xx, z) && edgeDist(inner, xx, z) > g * 0.55) st.push([xx, z]);
+  }
+  const faces = THREE.ShapeUtils.triangulateShape(inner.map(p => new THREE.Vector2(p[0], p[1])), st.map(p => [new THREE.Vector2(p[0], p[1])]));
+  for (const [ring, y, dir] of [[rings[0], 0, -1], [rings[rings.length - 1], H, 1]]) {
+    const map = ring.slice();
+    for (const s of st) { map.push(pos.length / 3); pos.push(s[0], y, s[1]); }
+    for (const f of faces) tri(map[f[0]], map[f[1]], map[f[2]], 0, dir, 0);
+  }
+  return { pos: new Float32Array(pos), idx };
+}
+
+function makeJelly(src, path) {
+  // 輪郭をなめらかに
+  let P = chaikin(chaikin(path));
+  P = resample(P, N_RING);
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const p of P) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
+  const s = SIZE / Math.max(x1 - x0, y1 - y0), cxp = (x0 + x1) / 2, cyp = (y0 + y1) / 2;
+  let W = P.map(p => [(p[0] - cxp) * s, (p[1] - cyp) * s]); // (x, z)
+  if (area(W) < 0) W.reverse(); // x右・z手前の座標でCCW → 外向き法線 (tz,-tx)
+  // 実際の向きに合わせて外向きを決める：面積が正なら (tz,-tx) が外
+  const { pos, idx } = buildGeometry(W);
+  // テクスチャ（切り抜きの外枠ぶんを切り出し）
+  const tw = Math.max(1, Math.round(x1 - x0)), th = Math.max(1, Math.round(y1 - y0));
+  const ts = Math.min(1, 1024 / Math.max(tw, th));
+  const tc = document.createElement('canvas'); tc.width = Math.max(2, Math.round(tw * ts)); tc.height = Math.max(2, Math.round(th * ts));
+  tc.getContext('2d').drawImage(src, x0, y0, tw, th, 0, 0, tc.width, tc.height);
+  const tex = new THREE.CanvasTexture(tc); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const n = pos.length / 3, uv = new Float32Array(n * 2);
+  const hx = (x1 - x0) * s / 2, hz = (y1 - y0) * s / 2;
+  for (let i = 0; i < n; i++) { uv[i * 2] = (pos[i * 3] + hx) / (2 * hx); uv[i * 2 + 1] = 1 - (pos[i * 3 + 2] + hz) / (2 * hz); }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos.slice(), 3).setUsage(THREE.DynamicDrawUsage));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(idx); geo.computeVertexNormals();
+  const mat = new THREE.MeshPhysicalMaterial({
+    map: tex, roughness: 0.06, metalness: 0, transmission: 0.45, thickness: 1.2, ior: 1.34,
+    clearcoat: 1, clearcoatRoughness: 0.04, attenuationDistance: 2.5, attenuationColor: new THREE.Color(0xffffff),
+    specularIntensity: 1
+  });
+  if (J) { scene.remove(J.mesh); J.mesh.geometry.dispose(); J.mesh.material.map.dispose(); J.mesh.material.dispose(); }
+  const mesh = new THREE.Mesh(geo, mat); mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false;
+  scene.add(mesh);
+  // 粒子
+  const x0s = new Float32Array(pos);
+  for (let i = 0; i < n; i++) x0s[i * 3 + 1] -= H / 2; // 重心付近を原点に
+  const clusters = [], CS = 0.62, CR = 0.78;
+  const addCluster = members => {
+    if (members.length < 10) return;
+    let mx = 0, my = 0, mz = 0;
+    for (const i of members) { mx += x0s[i * 3]; my += x0s[i * 3 + 1]; mz += x0s[i * 3 + 2]; }
+    mx /= members.length; my /= members.length; mz /= members.length;
+    const q = new Float32Array(members.length * 3);
+    members.forEach((i, k) => { q[k * 3] = x0s[i * 3] - mx; q[k * 3 + 1] = x0s[i * 3 + 1] - my; q[k * 3 + 2] = x0s[i * 3 + 2] - mz; });
+    clusters.push({ m: Int32Array.from(members), q, rot: [0, 0, 0, 1] });
+  };
+  const lim = SIZE / 2 + CS;
+  for (let gx = -lim; gx <= lim; gx += CS) for (let gz = -lim; gz <= lim; gz += CS) {
+    const m = [];
+    for (let i = 0; i < n; i++) if (Math.hypot(x0s[i * 3] - gx, x0s[i * 3 + 2] - gz) < CR) m.push(i);
+    addCluster(m);
+  }
+  addCluster([...Array(n).keys()]);
+  J = { mesh, n, x0: x0s, x: new Float32Array(n * 3), v: new Float32Array(n * 3), p: new Float32Array(n * 3),
+        goal: new Float32Array(n * 3), cnt: new Float32Array(n), clusters };
+  for (const c of clusters) for (const i of c.m) J.cnt[i]++;
+  setMode('jelly');
+  dropJelly();
+}
+
+function dropJelly() {
+  if (!J) return;
+  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler((Math.random() - .5) * 0.5, Math.random() * 0.6 - 0.3, (Math.random() - .5) * 0.5));
+  const v = new THREE.Vector3();
+  for (let i = 0; i < J.n; i++) {
+    v.fromArray(J.x0, i * 3).applyQuaternion(q); v.y += 3.2;
+    v.toArray(J.x, i * 3); J.v[i * 3] = J.v[i * 3 + 2] = 0; J.v[i * 3 + 1] = -1;
+  }
+  for (const c of J.clusters) { c.rot[0] = q.x; c.rot[1] = q.y; c.rot[2] = q.z; c.rot[3] = q.w; }
+}
+
+// 3x3 行列（行優先）から回転部分を取り出す（Müller ほか 2016 の反復法、四元数を引き継ぐ）
+function extractRot(A, q) {
+  for (let it = 0; it < 12; it++) {
+    const [x, y, z, w] = q;
+    const r00 = 1 - 2 * (y * y + z * z), r01 = 2 * (x * y - z * w), r02 = 2 * (x * z + y * w);
+    const r10 = 2 * (x * y + z * w), r11 = 1 - 2 * (x * x + z * z), r12 = 2 * (y * z - x * w);
+    const r20 = 2 * (x * z - y * w), r21 = 2 * (y * z + x * w), r22 = 1 - 2 * (x * x + y * y);
+    let ox = 0, oy = 0, oz = 0, dd = 0;
+    for (let c = 0; c < 3; c++) {
+      const rx = c === 0 ? r00 : c === 1 ? r01 : r02, ry = c === 0 ? r10 : c === 1 ? r11 : r12, rz = c === 0 ? r20 : c === 1 ? r21 : r22;
+      const ax = A[c], ay = A[3 + c], az = A[6 + c];
+      ox += ry * az - rz * ay; oy += rz * ax - rx * az; oz += rx * ay - ry * ax; dd += rx * ax + ry * ay + rz * az;
+    }
+    const inv = 1 / (Math.abs(dd) + 1e-9); ox *= inv; oy *= inv; oz *= inv;
+    const wl = Math.hypot(ox, oy, oz); if (wl < 1e-9) break;
+    const sn = Math.sin(wl / 2) / wl, cw = Math.cos(wl / 2), ax = ox * sn, ay = oy * sn, az = oz * sn;
+    const nx = cw * x + ax * w + ay * z - az * y, ny = cw * y - ax * z + ay * w + az * x;
+    const nz = cw * z + ax * y - ay * x + az * w, nw = cw * w - ax * x - ay * y - az * z;
+    const l = Math.hypot(nx, ny, nz, nw); q[0] = nx / l; q[1] = ny / l; q[2] = nz / l; q[3] = nw / l;
+  }
+  const [x, y, z, w] = q;
+  return [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w),
+          2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w),
+          2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)];
+}
+
+const groundY = (x, z) => Math.hypot(x, z) < PLATE_R ? 0 : TABLE_Y;
+const GRAV = -14, SUB = 6, STIFF = 0.1, DAMP = 0.996, FRIC = 0.55;
+let grab = null; // { ids, w, off, target }
+let lastBoing = 0;
+function step(dt) {
+  const { n, x, v, p, goal, cnt, clusters } = J;
+  const h = dt / SUB;
+  let impact = 0;
+  for (let s = 0; s < SUB; s++) {
+    for (let i = 0; i < n; i++) {
+      const k = i * 3;
+      v[k + 1] += GRAV * h;
+      p[k] = x[k] + v[k] * h; p[k + 1] = x[k + 1] + v[k + 1] * h; p[k + 2] = x[k + 2] + v[k + 2] * h;
+    }
+    // シェイプマッチング
+    goal.fill(0);
+    for (const c of clusters) {
+      const m = c.m, q = c.q, L = m.length;
+      let mx = 0, my = 0, mz = 0;
+      for (let j = 0; j < L; j++) { const k = m[j] * 3; mx += p[k]; my += p[k + 1]; mz += p[k + 2]; }
+      mx /= L; my /= L; mz /= L;
+      const A = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+      for (let j = 0; j < L; j++) {
+        const k = m[j] * 3, px = p[k] - mx, py = p[k + 1] - my, pz = p[k + 2] - mz, qx = q[j * 3], qy = q[j * 3 + 1], qz = q[j * 3 + 2];
+        A[0] += px * qx; A[1] += px * qy; A[2] += px * qz; A[3] += py * qx; A[4] += py * qy; A[5] += py * qz; A[6] += pz * qx; A[7] += pz * qy; A[8] += pz * qz;
+      }
+      const R = extractRot(A, c.rot);
+      for (let j = 0; j < L; j++) {
+        const k = m[j] * 3, qx = q[j * 3], qy = q[j * 3 + 1], qz = q[j * 3 + 2];
+        goal[k] += R[0] * qx + R[1] * qy + R[2] * qz + mx;
+        goal[k + 1] += R[3] * qx + R[4] * qy + R[5] * qz + my;
+        goal[k + 2] += R[6] * qx + R[7] * qy + R[8] * qz + mz;
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      const k = i * 3, c = 1 / cnt[i];
+      p[k] += (goal[k] * c - p[k]) * STIFF; p[k + 1] += (goal[k + 1] * c - p[k + 1]) * STIFF; p[k + 2] += (goal[k + 2] * c - p[k + 2]) * STIFF;
+    }
+    // つかんでいる所
+    if (grab) for (let j = 0; j < grab.ids.length; j++) {
+      const k = grab.ids[j] * 3, w = grab.w[j] * 0.3;
+      p[k] += (grab.target.x + grab.off[j * 3] - p[k]) * w;
+      p[k + 1] += (grab.target.y + grab.off[j * 3 + 1] - p[k + 1]) * w;
+      p[k + 2] += (grab.target.z + grab.off[j * 3 + 2] - p[k + 2]) * w;
+    }
+    // 床との当たり（摩擦つき）
+    for (let i = 0; i < n; i++) {
+      const k = i * 3, gy = groundY(p[k], p[k + 2]);
+      if (p[k + 1] < gy) {
+        const vy = (p[k + 1] - x[k + 1]) / h;
+        if (vy < -2) impact += -vy;
+        p[k + 1] = gy;
+        p[k] = x[k] + (p[k] - x[k]) * (1 - FRIC); p[k + 2] = x[k + 2] + (p[k + 2] - x[k + 2]) * (1 - FRIC);
+      }
+    }
+    for (let i = 0; i < n * 3; i++) { v[i] = (p[i] - x[i]) / h * DAMP; x[i] = p[i]; }
+  }
+  const now = performance.now();
+  if (impact > n * 0.6 && now - lastBoing > 350) { lastBoing = now; boing(Math.min(1, impact / (n * 6))); }
+  // 遠くに行ったら戻す
+  if (x[1] < -5) dropJelly();
+  const pa = J.mesh.geometry.attributes.position; pa.array.set(x); pa.needsUpdate = true;
+  J.mesh.geometry.computeVertexNormals();
+}
+
+// ---- 操作 ----
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+let ptr = null; // { id, sx, sy, moved, kind }
+const dragPlane = new THREE.Plane();
+function setNdc(e) { const r = gl.getBoundingClientRect(); ndc.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1); ray.setFromCamera(ndc, camera); }
+gl.addEventListener('pointerdown', e => {
+  if (mode !== 'jelly' || ptr) return;
+  gl.setPointerCapture(e.pointerId);
+  ptr = { id: e.pointerId, sx: e.clientX, sy: e.clientY, lx: e.clientX, moved: false, kind: 'cam', t: performance.now() };
+  setNdc(e);
+  J.mesh.geometry.computeBoundingSphere();
+  const hit = ray.intersectObject(J.mesh)[0];
+  if (hit) {
+    const hp = hit.point, ids = [], w = [], off = [];
+    for (let i = 0; i < J.n; i++) {
+      const k = i * 3, d = Math.hypot(J.x[k] - hp.x, J.x[k + 1] - hp.y, J.x[k + 2] - hp.z);
+      if (d < 0.6) { ids.push(i); w.push(1 - d / 0.6); off.push(J.x[k] - hp.x, J.x[k + 1] - hp.y, J.x[k + 2] - hp.z); }
+    }
+    if (ids.length) {
+      ptr.kind = 'jelly'; ptr.hit = hp.clone(); ptr.normal = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0, 1, 0);
+      const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
+      dragPlane.setFromNormalAndCoplanarPoint(camDir.negate(), hp);
+      ptr.pending = { ids, w, off: Float32Array.from(off), target: hp.clone() };
+    }
+  }
+});
+gl.addEventListener('pointermove', e => {
+  if (!ptr || e.pointerId !== ptr.id) return;
+  if (Math.hypot(e.clientX - ptr.sx, e.clientY - ptr.sy) > 6) ptr.moved = true;
+  if (ptr.kind === 'cam') {
+    camAz -= (e.clientX - ptr.lx) * 0.008; ptr.lx = e.clientX;
+  } else if (ptr.moved) {
+    if (!grab) grab = ptr.pending;
+    setNdc(e);
+    const pt = new THREE.Vector3();
+    if (ray.ray.intersectPlane(dragPlane, pt)) {
+      pt.sub(ptr.hit).clampLength(0, 1.8).add(ptr.hit);
+      pt.y = Math.max(pt.y, 0.05);
+      grab.target.copy(pt);
+    }
+  }
+});
+const endPtr = e => {
+  if (!ptr || e.pointerId !== ptr.id) return;
+  if (ptr.kind === 'jelly' && !ptr.moved) {
+    // つつく：押し込んで「ぷるん」
+    const { ids, w } = ptr.pending;
+    for (let j = 0; j < ids.length; j++) { const k = ids[j] * 3; J.v[k + 1] -= 6 * w[j]; }
+    boing(0.6);
+  }
+  grab = null; ptr = null;
+};
+gl.addEventListener('pointerup', endPtr);
+gl.addEventListener('pointercancel', endPtr);
+$('drop').onclick = () => dropJelly();
+
+// ---- ループ ----
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(1 / 30, (now - last) / 1000); last = now;
+  if (J && mode === 'jelly') step(dt);
+  if (!ptr && mode === 'jelly' && J) camAz += dt * 0.05;
+  placeCam();
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+// 最初の画面：お皿だけ。サンプル用の入口（テスト・アイコン作成用）
+window.__jelly = (canvas, pts) => { img = canvas; makeJelly(canvas, pts); };
+window.__sim = n => { for (let i = 0; i < n; i++) step(1 / 60); };
+setMode('start');
+resize();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
