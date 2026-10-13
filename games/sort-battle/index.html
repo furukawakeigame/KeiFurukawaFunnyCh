@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ソート選手権</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <!-- X などにURLを貼ったときのカード表示（ここだけは https:// から書く） -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="ソート選手権">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/sort-battle/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/sort-battle/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #f6f7fb; color: #2b3142; }
+    body {
+      display: flex; flex-direction: column; height: 100dvh;
+      font-family: "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden; touch-action: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; width: 100%; max-width: 520px; margin: 0 auto;
+    }
+    header a { color: #3b5bdb; text-decoration: none; font-weight: bold; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill {
+      font-size: 15px; background: #fff; border: 2px solid #d5dbef; border-radius: 999px;
+      min-width: 44px; height: 36px; padding: 0 10px; cursor: pointer; font-weight: bold; color: #3b5bdb;
+      display: flex; align-items: center; justify-content: center; font-family: inherit;
+    }
+    .pill svg { width: 20px; height: 20px; }
+    main {
+      flex: 1; min-height: 0; width: 100%; max-width: 520px; margin: 0 auto; position: relative;
+      display: flex; flex-direction: column; gap: 8px;
+      padding: 0 12px calc(80px + env(safe-area-inset-bottom));
+    }
+    #hud { display: flex; justify-content: space-between; align-items: center; font-weight: bold; min-height: 30px; }
+    #score { font-size: 18px; font-variant-numeric: tabular-nums; }
+    #score .me { color: #3b5bdb; } #score .cpu { color: #e0445f; }
+    #dots { display: flex; gap: 5px; }
+    #dots i { width: 12px; height: 12px; border-radius: 50%; background: #d5dbef; }
+    #dots i.w { background: #3b5bdb; } #dots i.l { background: #e0445f; } #dots i.now { outline: 2px solid #2b3142; outline-offset: 1px; }
+    .q { background: #fff; border-radius: 14px; padding: 10px 12px; box-shadow: 0 2px 0 #e3e7f3; display: flex; gap: 12px; align-items: center; }
+    .q canvas { width: 96px; height: 60px; flex-shrink: 0; background: #f2f4fa; border-radius: 8px; }
+    .q .qt { font-weight: bold; font-size: 17px; line-height: 1.35; }
+    .q .rule[hidden] { display: none; }
+    .q .rule { display: inline-block; margin-top: 4px; font-size: 12px; font-weight: bold; color: #fff; background: #e0445f; border-radius: 6px; padding: 1px 8px; }
+    #timebar { height: 6px; background: #e3e7f3; border-radius: 3px; overflow: hidden; }
+    #timebar div { height: 100%; background: #3b5bdb; width: 100%; }
+    #area { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+    .hand { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 8px; }
+    .card {
+      border: 0; border-radius: 14px; background: #fff; box-shadow: 0 3px 0 #d5dbef; cursor: pointer;
+      font: inherit; color: inherit; padding: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+      transition: transform .1s;
+    }
+    .card:active { transform: translateY(2px); box-shadow: 0 1px 0 #d5dbef; }
+    .card b { font-size: 17px; }
+    .card .tg { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; font-size: 11px; color: #6b7390; }
+    .card .tg span { background: #eef1fb; border-radius: 5px; padding: 0 6px; }
+    .lane { flex: 1; min-height: 0; background: #fff; border-radius: 14px; box-shadow: 0 2px 0 #e3e7f3; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+    .lane .top { display: flex; justify-content: space-between; font-weight: bold; font-size: 15px; font-variant-numeric: tabular-nums; }
+    .lane .who { font-size: 12px; color: #6b7390; margin-right: 6px; }
+    .lane canvas { flex: 1; min-height: 0; width: 100%; background: #f9fafe; border-radius: 8px; }
+    .lane.win { box-shadow: 0 0 0 3px #2fb36b; }
+    .lane .bad { color: #e0445f; }
+    .row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+    .big {
+      font-size: 18px; font-weight: bold; color: #fff; background: #3b5bdb; border: 0; border-radius: 999px;
+      padding: 10px 30px; cursor: pointer; box-shadow: 0 4px 0 #2a44a8; text-decoration: none; font-family: inherit;
+    }
+    .big:active { transform: translateY(2px); box-shadow: 0 2px 0 #2a44a8; }
+    .big.x { background: #222; box-shadow: 0 4px 0 #000; }
+    .verdict { text-align: center; font-weight: bold; font-size: 20px; min-height: 28px; }
+    .why { font-size: 13px; color: #4a5168; background: #fff; border-radius: 10px; padding: 6px 10px; line-height: 1.5; }
+    .why b { color: #2fb36b; }
+    #ov {
+      position: absolute; inset: 0 12px calc(80px + env(safe-area-inset-bottom)); z-index: 5; background: #f6f7fb;
+      display: flex; flex-direction: column; align-items: center; gap: 12px; overflow-y: auto; touch-action: pan-y; padding: 8px 0;
+    }
+    #ov[hidden] { display: none; }
+    #ov.center { justify-content: center; }
+    #ov > * { flex-shrink: 0; }
+    .head { font-size: 30px; font-weight: bold; }
+    .logo { display: flex; align-items: flex-end; gap: 6px; height: 90px; }
+    .logo i { width: 18px; border-radius: 4px 4px 2px 2px; }
+    .res { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+    .res .it { background: #fff; border-radius: 12px; padding: 8px 12px; font-size: 13px; line-height: 1.5; box-shadow: 0 2px 0 #e3e7f3; }
+    .res .it .t { font-weight: bold; font-size: 14px; display: flex; justify-content: space-between; gap: 8px; }
+    .res .ok { color: #3b5bdb; } .res .ng { color: #e0445f; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="../../" id="back">← トップへ戻る</a>
+    <div class="hbtns"><button id="lang" class="pill">EN</button><button id="sound" class="pill"></button></div>
+  </header>
+  <main>
+    <div id="hud"><div id="dots"></div><div id="score"></div></div>
+    <div class="q"><canvas id="qcv"></canvas><div><div class="qt" id="qt"></div><span class="rule" id="qrule" hidden></span></div></div>
+    <div id="timebar"><div></div></div>
+    <div id="area"></div>
+    <div id="ov" class="center"></div>
+  </main>
+  <script>
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/sort-battle/';
+    const N = 32, ROUNDS = 5, LIMIT = 10;
+
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('sort-battle:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('sort-battle:' + k, JSON.stringify(v)); } catch {} },
+    };
+
+    // 音
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const updateSoundBtn = () => {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M3 9h4l5-4v14l-5-4H3z" fill="currentColor"/>${soundOn
+        ? '<path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>'
+        : '<path d="M16 9l6 6M22 9l-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'}</svg>`;
+    };
+    soundBtn.onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updateSoundBtn(); };
+    updateSoundBtn();
+    let actx;
+    function beep(freq, dur, type = 'sine', vol = 0.12, slide = 0, delay = 0) {
+      if (!soundOn) return;
+      try {
+        actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+        const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + delay;
+        o.type = type; o.frequency.setValueAtTime(freq, t);
+        if (slide) o.frequency.linearRampToValueAtTime(freq + slide, t + dur);
+        g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur);
+      } catch {}
+    }
+    const sndPick = () => beep(660, 0.08, 'square', 0.05);
+    const sndTick = () => beep(300 + Math.random() * 300, 0.03, 'square', 0.015);
+    const sndWin = () => [523, 659, 784, 1046].forEach((f, i) => beep(f, 0.18, 'triangle', 0.12, 0, i * 0.09));
+    const sndLose = () => beep(330, 0.5, 'sawtooth', 0.08, -200);
+    const sndFoul = () => [0, 0.15].forEach(d => beep(180, 0.12, 'square', 0.08, 0, d));
+
+    // アルゴリズム（比較 c・入れ替え s・書き込み w の手順を作る）
+    function rec(src) {
+      const a = src.slice(), ops = [];
+      return {
+        a, ops,
+        c(i, j) { ops.push(['c', i, j]); return a[i] - a[j]; },
+        s(i, j) { if (i === j) return; [a[i], a[j]] = [a[j], a[i]]; ops.push(['s', i, j]); },
+        w(i, v) { a[i] = v; ops.push(['w', i, v]); },
+      };
+    }
+    const ALGOS = {
+      bubble: { mem: 1, stable: true, run(r) {
+        const a = r.a;
+        for (let end = a.length - 1; end > 0; end--) {
+          let any = false;
+          for (let i = 0; i < end; i++) if (r.c(i, i + 1) > 0) { r.s(i, i + 1); any = true; }
+          if (!any) break;
+        }
+      } },
+      selection: { mem: 1, stable: false, run(r) {
+        const a = r.a;
+        for (let i = 0; i < a.length - 1; i++) {
+          let m = i;
+          for (let j = i + 1; j < a.length; j++) if (r.c(j, m) < 0) m = j;
+          r.s(i, m);
+        }
+      } },
+      insertion: { mem: 1, stable: true, run(r) {
+        const a = r.a;
+        for (let i = 1; i < a.length; i++) for (let j = i; j > 0 && r.c(j - 1, j) > 0; j--) r.s(j - 1, j);
+      } },
+      shell: { mem: 1, stable: false, run(r) {
+        const a = r.a;
+        for (const g of [10, 4, 1]) for (let i = g; i < a.length; i++) for (let j = i; j >= g && r.c(j - g, j) > 0; j -= g) r.s(j - g, j);
+      } },
+      merge: { mem: 3, stable: true, run(r) {
+        const a = r.a;
+        const ms = (lo, hi) => {
+          if (hi - lo < 1) return;
+          const mid = (lo + hi) >> 1; ms(lo, mid); ms(mid + 1, hi);
+          const L = a.slice(lo, mid + 1), R = a.slice(mid + 1, hi + 1);
+          let i = 0, j = 0, k = lo;
+          while (i < L.length && j < R.length) { r.ops.push(['c', lo + i, mid + 1 + j]); r.w(k++, L[i] <= R[j] ? L[i++] : R[j++]); }
+          while (i < L.length) r.w(k++, L[i++]);
+          while (j < R.length) r.w(k++, R[j++]);
+        };
+        ms(0, a.length - 1);
+      } },
+      quick: { mem: 2, stable: false, run(r) {
+        const qs = (lo, hi) => {
+          if (lo >= hi) return;
+          let p = lo;
+          for (let j = lo; j < hi; j++) if (r.c(j, hi) < 0) { r.s(p, j); p++; }
+          r.s(p, hi); qs(lo, p - 1); qs(p + 1, hi);
+        };
+        qs(0, r.a.length - 1);
+      } },
+      heap: { mem: 1, stable: false, run(r) {
+        const a = r.a, n = a.length;
+        const down = (i, size) => {
+          for (;;) {
+            let m = i; const l = 2 * i + 1, rr = l + 1;
+            if (l < size && r.c(l, m) > 0) m = l;
+            if (rr < size && r.c(rr, m) > 0) m = rr;
+            if (m === i) return; r.s(i, m); i = m;
+          }
+        };
+        for (let i = (n >> 1) - 1; i >= 0; i--) down(i, n);
+        for (let end = n - 1; end > 0; end--) { r.s(0, end); down(0, end); }
+      } },
+      // 値の範囲 k ぶん数え表をなめる手間も数える
+      counting: { mem: 3, stable: true, run(r) {
+        const a = r.a, max = Math.max(...a), cnt = new Array(max + 1).fill(0);
+        for (let i = 0; i < a.length; i++) { r.ops.push(['c', i, i]); cnt[a[i]]++; }
+        let k = 0;
+        for (let v = 0; v <= max; v++) { if (v % 4 === 0) r.ops.push(['n']); while (cnt[v]--) r.w(k++, v); }
+      } },
+      radix: { mem: 3, stable: true, run(r) {
+        const a = r.a, max = Math.max(...a);
+        for (let exp = 1; exp <= max; exp *= 10) {
+          const b = Array.from({ length: 10 }, () => []);
+          for (let i = 0; i < a.length; i++) { r.ops.push(['c', i, i]); b[Math.floor(a[i] / exp) % 10].push(a[i]); }
+          let k = 0; for (const x of b) for (const v of x) r.w(k++, v);
+        }
+      } },
+    };
+
+    // データの作り方
+    const shuf = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+    const range = () => Array.from({ length: N }, (_, i) => i + 1);
+    const DATA = {
+      random: () => shuf(range()),
+      nearly: () => { const a = range(); for (let k = 0; k < 3; k++) { const i = 1 + Math.floor(Math.random() * (N - 3)); [a[i], a[i + 1]] = [a[i + 1], a[i]]; } return a; },
+      reverse: () => range().reverse(),
+      few: () => shuf(Array.from({ length: N }, () => 1 + Math.floor(Math.random() * 5))),
+      big: () => shuf(Array.from({ length: N }, () => 100 + Math.floor(Math.random() * 900))),
+      dupes: () => shuf(Array.from({ length: N }, () => 1 + Math.floor(Math.random() * 12))),
+    };
+
+    // お題: data・条件（rule: stable / inplace）・手札・正解
+    const QUESTS = [
+      { id: 'nearly', data: 'nearly', hand: ['insertion', 'quick', 'selection', 'heap'] },
+      { id: 'score', data: 'few', hand: ['counting', 'quick', 'bubble', 'merge'] },
+      { id: 'reverse', data: 'reverse', hand: ['quick', 'insertion', 'merge', 'bubble'] },
+      { id: 'tiny', data: 'random', rule: 'inplace', hand: ['merge', 'heap', 'bubble', 'counting'] },
+      { id: 'stable', data: 'dupes', rule: 'stable', hand: ['quick', 'heap', 'merge', 'selection'] },
+      { id: 'random', data: 'random', hand: ['quick', 'bubble', 'selection', 'insertion'] },
+      { id: 'zip', data: 'big', hand: ['radix', 'counting', 'insertion', 'selection'] },
+      { id: 'nearlyStable', data: 'nearly', rule: 'stable', hand: ['selection', 'insertion', 'merge', 'heap'] },
+      { id: 'shell', data: 'random', rule: 'inplace', hand: ['shell', 'insertion', 'merge', 'radix'] },
+    ];
+    const foul = (q, algo) => (q.rule === 'stable' && !ALGOS[algo].stable) || (q.rule === 'inplace' && ALGOS[algo].mem > 1);
+    const cost = (algo, data) => { const r = rec(data); ALGOS[algo].run(r); return r.ops; };
+
+    // 文言
+    const L = {
+      ja: {
+        title: 'ソート選手権', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
+        sound: '音のオン/オフ', start: 'スタート', next: '次へ', result: '結果へ', retry: 'もう一度', share: 'Xに投稿',
+        you: 'あなた', cpu: 'CPU', ops: n => `${n}手`, foulMark: '反則', timeout: '時間切れ',
+        win: '勝ち', lose: '負け', draw: '引き分け', fast: '早く選んだほうの勝ち',
+        best: '最適', vs: (a, b) => `あなた ${a} - ${b} CPU`,
+        rules: { stable: '同じ値の順番を保つこと', inplace: '追加メモリ禁止' },
+        mem: { 1: 'メモリ少', 2: 'メモリ中', 3: 'メモリ多' }, stable: '安定',
+        algo: { bubble: 'バブル', selection: '選択', insertion: '挿入', shell: 'シェル', merge: 'マージ', quick: 'クイック', heap: 'ヒープ', counting: '計数', radix: '基数' },
+        quest: {
+          nearly: 'ほとんど並んでいる名簿を並べ直す',
+          score: '1〜5点の評価をたくさん並べる',
+          reverse: '逆順に並んだデータを並べる',
+          tiny: 'バラバラなデータ。メモリがほぼない機械で',
+          stable: '同点の人の順番を崩さずに点数順に',
+          random: 'バラバラなデータをとにかく速く',
+          zip: '3桁の番号をたくさん並べる',
+          nearlyStable: 'ほぼ並んだ名簿を、同点の順番を保って',
+          shell: 'バラバラなデータ。メモリなしで速く',
+        },
+        why: {
+          nearly: '挿入ソートは、ずれている所だけを少し動かせば終わる。クイックソート（端をピボット）は整列済みに近いと遅くなる。',
+          score: '値が5種類しかないので、計数ソートで「何点が何個」を数えて書き戻すだけ。比較が要らない。',
+          reverse: 'マージソートはどんな並びでも n log n。クイックソート（端をピボット）・挿入・バブルは逆順が苦手。',
+          tiny: 'ヒープソートは追加メモリなしで n log n。マージ・計数は別の場所が必要なので反則。',
+          stable: 'マージソートは安定で速い。クイック・ヒープ・選択は同じ値の順番が入れ替わることがある。',
+          random: 'バラバラなデータならクイックソートが平均最速クラス。',
+          zip: '基数ソートは桁ごとに3回振り分けるだけ。計数ソートは値の範囲（1000通り）を全部なめるので重い。',
+          nearlyStable: '挿入ソートは安定で、ほぼ並んだデータに最速。選択ソートとヒープは安定でないので反則。',
+          shell: 'シェルソートは離れた要素から挿入ソートして、追加メモリなしで速い。マージ・基数はメモリを使うので反則。',
+        },
+        shareText: (a, b) => `ソート選手権で CPU と ${a}-${b}\n#ソート選手権`,
+        final: (a, b) => a > b ? '勝ち' : a < b ? '負け' : '引き分け',
+      },
+      en: {
+        title: 'Sort Championship', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
+        sound: 'Sound on/off', start: 'Start', next: 'Next', result: 'Results', retry: 'Retry', share: 'Post on X',
+        you: 'You', cpu: 'CPU', ops: n => `${n} ops`, foulMark: 'Foul', timeout: 'Time up',
+        win: 'Win', lose: 'Lose', draw: 'Draw', fast: 'Faster pick wins',
+        best: 'Best', vs: (a, b) => `You ${a} - ${b} CPU`,
+        rules: { stable: 'Keep equal items in order', inplace: 'No extra memory' },
+        mem: { 1: 'Low mem', 2: 'Mid mem', 3: 'High mem' }, stable: 'Stable',
+        algo: { bubble: 'Bubble', selection: 'Selection', insertion: 'Insertion', shell: 'Shell', merge: 'Merge', quick: 'Quick', heap: 'Heap', counting: 'Counting', radix: 'Radix' },
+        quest: {
+          nearly: 'Re-sort an almost sorted list',
+          score: 'Sort lots of 1-5 star ratings',
+          reverse: 'Sort data in reverse order',
+          tiny: 'Random data on a machine with no spare memory',
+          stable: 'Sort by score, keeping ties in order',
+          random: 'Sort random data as fast as possible',
+          zip: 'Sort lots of 3-digit codes',
+          nearlyStable: 'Almost sorted list, keeping ties in order',
+          shell: 'Random data, fast, with no extra memory',
+        },
+        why: {
+          nearly: 'Insertion sort only nudges the few items out of place. Quicksort with an end pivot slows down on nearly sorted data.',
+          score: 'Only 5 distinct values: counting sort just tallies them and writes them back, no comparisons needed.',
+          reverse: 'Merge sort is n log n for any input. End-pivot quicksort, insertion and bubble all hate reverse order.',
+          tiny: 'Heapsort is n log n with no extra memory. Merge and counting need extra space, so they foul.',
+          stable: 'Merge sort is stable and fast. Quick, heap and selection can swap equal items.',
+          random: 'On random data, quicksort is among the fastest on average.',
+          zip: 'Radix sort makes just 3 passes, one per digit. Counting sort must scan all 1000 possible values.',
+          nearlyStable: 'Insertion sort is stable and fastest on nearly sorted data. Selection and heap are not stable.',
+          shell: 'Shell sort does insertion sort over shrinking gaps, fast with no extra memory. Merge and radix use memory.',
+        },
+        shareText: (a, b) => `Sort Championship: me vs CPU ${a}-${b}\n#SortChampionship`,
+        final: (a, b) => a > b ? 'Win' : a < b ? 'Lose' : 'Draw',
+      },
+    };
+    let lang = store.get('lang', (navigator.language || '').startsWith('ja') ? 'ja' : 'en');
+    if (!L[lang]) lang = 'ja';
+    const t = k => L[lang][k];
+    const langBtn = document.getElementById('lang');
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      langBtn.textContent = t('lang'); langBtn.setAttribute('aria-label', t('langLabel'));
+      soundBtn.setAttribute('aria-label', t('sound'));
+      render();
+    }
+    langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+
+    // 描画
+    const COL = (v, max) => `hsl(${150 + v / max * 90}, 55%, ${68 - v / max * 18}%)`;
+    function drawBars(cv, arr, hl) {
+      const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+      if (!w || !h) return;
+      if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+      const x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, w, h);
+      const max = Math.max(...arr), bw = w / arr.length;
+      arr.forEach((v, i) => {
+        x.fillStyle = hl && (hl[1] === i || hl[2] === i) ? (hl[0] === 'c' ? '#ffb400' : '#ff4d6d') : COL(v, max);
+        const bh = Math.max(2, v / max * (h - 4));
+        x.fillRect(i * bw + 0.5, h - bh, Math.max(1, bw - 1), bh);
+      });
+    }
+
+    // 状態
+    let state = 'title', round = 0, quests = [], log = [], me = 0, cpu = 0;
+    let q, data, hand, pickAt, timerRaf, cpuPick, cpuAt, myPick, race;
+    const area = document.getElementById('area'), ov = document.getElementById('ov');
+    const timebar = document.querySelector('#timebar div');
+
+    function newGame() {
+      quests = shuf(QUESTS.slice()).slice(0, ROUNDS);
+      round = 0; log = []; me = 0; cpu = 0;
+      startRound();
+    }
+    function startRound() {
+      q = quests[round]; data = DATA[q.data]();
+      hand = shuf(q.hand.slice());
+      // 正解: 反則でない中で手数が最少
+      q.costs = Object.fromEntries(q.hand.map(a => [a, cost(a, data).length]));
+      q.best = q.hand.filter(a => !foul(q, a)).sort((a, b) => q.costs[a] - q.costs[b])[0];
+      // CPU: 6割で正解、残りはランダム。考える時間 2〜7 秒
+      cpuPick = Math.random() < 0.6 ? q.best : q.hand[Math.floor(Math.random() * 4)];
+      cpuAt = 2 + Math.random() * 5;
+      myPick = null; myAt = null; race = null;
+      state = 'pick'; pickAt = performance.now();
+      render();
+      cancelAnimationFrame(timerRaf);
+      const tick = () => {
+        if (state !== 'pick') return;
+        const el = (performance.now() - pickAt) / 1000;
+        timebar.style.width = Math.max(0, 1 - el / LIMIT) * 100 + '%';
+        if (el >= LIMIT) { choose(null); return; }
+        timerRaf = requestAnimationFrame(tick);
+      };
+      tick();
+    }
+    let myAt = null;
+    function choose(a) {
+      if (state !== 'pick') return;
+      myPick = a; myAt = a ? (performance.now() - pickAt) / 1000 : LIMIT;
+      sndPick();
+      // 勝敗: 反則・時間切れは負け。どちらも有効なら手数が少ないほう、同じなら早く選んだほう
+      const val = (p, at) => (!p || foul(q, p)) ? Infinity : q.costs[p] + at / 1000;
+      const mv = val(myPick, myAt), cv = val(cpuPick, cpuAt);
+      const res = mv === cv ? 0 : mv < cv ? 1 : -1;
+      if (res > 0) me++; else if (res < 0) cpu++;
+      log.push({ q, me: myPick, cpu: cpuPick, res });
+      state = 'race';
+      race = {
+        res,
+        lanes: [myPick, cpuPick].map(p => {
+          const ok = p && !foul(q, p);
+          return { p, ok, ops: ok ? cost(p, data) : [], arr: data.slice(), k: 0, hl: null };
+        }),
+      };
+      render();
+      runRace();
+    }
+    function runRace() {
+      const total = Math.max(1, ...race.lanes.map(l => l.ops.length));
+      const per = total / 150; // 約2.5秒で遅いほうが終わる
+      let acc = 0;
+      const frame = () => {
+        if (state !== 'race') return;
+        acc += per; const n = Math.floor(acc); acc -= n;
+        let running = false;
+        const lanesEl = [...area.querySelectorAll(".lane")];
+        race.lanes.forEach((l, li) => {
+          for (let s = 0; s < n && l.k < l.ops.length; s++) {
+            const o = l.ops[l.k++];
+            if (o[0] === 's') [l.arr[o[1]], l.arr[o[2]]] = [l.arr[o[2]], l.arr[o[1]]];
+            else if (o[0] === 'w') l.arr[o[1]] = o[2];
+            l.hl = o[0] === 'w' ? ['w', o[1], o[1]] : o;
+          }
+          if (l.k < l.ops.length) running = true; else l.hl = null;
+          const el = lanesEl[li];
+          drawBars(el.querySelector('canvas'), l.arr, l.hl);
+          if (l.ok) el.querySelector('.n').textContent = t('ops')(l.k);
+        });
+        if (n && running) sndTick();
+        if (running) requestAnimationFrame(frame);
+        else finishRace();
+      };
+      requestAnimationFrame(frame);
+    }
+    function finishRace() {
+      state = 'raced';
+      race.res > 0 ? sndWin() : race.res < 0 ? sndLose() : sndFoul();
+      render();
+    }
+
+    function cardTags(a) {
+      const al = ALGOS[a];
+      return `<span>${t('mem')[al.mem]}</span>${al.stable ? `<span>${t('stable')}</span>` : ''}`;
+    }
+    function render() {
+      // HUD
+      document.getElementById('dots').innerHTML = Array.from({ length: ROUNDS }, (_, i) => {
+        const l = log[i]; return `<i class="${l ? (l.res > 0 ? 'w' : l.res < 0 ? 'l' : '') : ''}${i === round && state !== 'end' && state !== 'title' ? ' now' : ''}"></i>`;
+      }).join('');
+      document.getElementById('score').innerHTML = `<span class="me">${me}</span> - <span class="cpu">${cpu}</span>`;
+      ov.hidden = !(state === 'title' || state === 'end');
+      ov.className = state === 'title' ? 'center' : '';
+      if (state === 'title') {
+        const hs = [5, 2, 7, 1, 8, 3, 6, 4];
+        ov.innerHTML = `<div class="logo">${hs.map(v => `<i style="height:${v * 11}px;background:${COL(v, 8)}"></i>`).join('')}</div>
+          <div class="head">${t('title')}</div><button class="big" id="go">${t('start')}</button>`;
+        area.innerHTML = '';
+        document.getElementById('go').onclick = newGame;
+        document.getElementById('qt').textContent = ''; document.getElementById('qrule').hidden = true;
+        area.innerHTML = '';
+        return;
+      }
+      if (state === 'end') {
+        const href = `https://x.com/intent/post?text=${encodeURIComponent(t('shareText')(me, cpu))}&url=${encodeURIComponent(SHARE_URL)}`;
+        const tgt = matchMedia('(pointer: coarse)').matches ? '' : ' target="_blank" rel="noopener"';
+        ov.innerHTML = `<div class="head" style="color:${me > cpu ? '#3b5bdb' : me < cpu ? '#e0445f' : '#2b3142'}">${t('final')(me, cpu)}</div>
+          <div style="font-weight:bold;font-size:18px">${t('vs')(me, cpu)}</div>
+          <div class="row"><button class="big" id="go">${t('retry')}</button><a class="big x" href="${href}"${tgt}>${t('share')}</a></div>
+          <div class="res">${log.map((l, i) => `<div class="it">
+            <div class="t"><span>${i + 1}. ${t('quest')[l.q.id]}</span><span class="${l.res > 0 ? 'ok' : l.res < 0 ? 'ng' : ''}">${l.res > 0 ? t('win') : l.res < 0 ? t('lose') : t('draw')}</span></div>
+            ${t('you')}: ${l.me ? t('algo')[l.me] : t('timeout')} / ${t('cpu')}: ${t('algo')[l.cpu]} / <b style="color:#2fb36b">${t('best')}: ${t('algo')[l.q.best]}</b><br>${t('why')[l.q.id]}</div>`).join('')}</div>`;
+        ov.scrollTop = 0;
+        area.innerHTML = '';
+        document.getElementById('go').onclick = newGame;
+        return;
+      }
+      // お題
+      document.getElementById('qt').textContent = t('quest')[q.id];
+      const rule = document.getElementById('qrule');
+      rule.hidden = !q.rule; if (q.rule) rule.textContent = t('rules')[q.rule];
+      drawBars(document.getElementById('qcv'), data);
+      if (state === 'pick') {
+        area.innerHTML = `<div class="hand">${hand.map(a => `<button class="card" data-a="${a}"><b>${t('algo')[a]}</b><div class="tg">${cardTags(a)}</div></button>`).join('')}</div>`;
+        area.querySelectorAll('.card').forEach(b => b.onpointerdown = e => { e.preventDefault(); choose(b.dataset.a); });
+        return;
+      }
+      // レース
+      const lane = (l, who, win) => `<div class="lane${win ? ' win' : ''}"><div class="top"><span><span class="who">${who}</span>${l.p ? t('algo')[l.p] : t('timeout')}</span>
+        ${l.ok ? `<span class="n">${t('ops')(l.k)}</span>` : `<span class="bad">${l.p ? t('foulMark') : ''}</span>`}</div><canvas></canvas></div>`;
+      const done = state === 'raced';
+      const last = round === ROUNDS - 1;
+      area.innerHTML = lane(race.lanes[0], t('you'), done && race.res > 0) + lane(race.lanes[1], t('cpu'), done && race.res < 0) +
+        `<div class="verdict" style="color:${race.res > 0 ? '#3b5bdb' : race.res < 0 ? '#e0445f' : '#2b3142'}">${done ? (race.res > 0 ? t('win') : race.res < 0 ? t('lose') : t('draw')) : ''}</div>` +
+        (done ? `<div class="why"><b>${t('best')}: ${t('algo')[q.best]}</b>　${t('why')[q.id]}</div><div class="row"><button class="big" id="go">${last ? t('result') : t('next')}</button></div>` : '');
+      area.querySelectorAll('.lane').forEach((el, i) => drawBars(el.querySelector('canvas'), race.lanes[i].arr, race.lanes[i].hl));
+      if (done) document.getElementById('go').onclick = () => {
+        if (last) { state = 'end'; round = ROUNDS; render(); } else { round++; startRound(); }
+      };
+    }
+    addEventListener('resize', () => render());
+    applyLang();
+  </script>
+</body>
+</html>
