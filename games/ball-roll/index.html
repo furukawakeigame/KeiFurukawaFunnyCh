@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ボール転がし</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="ボール転がし">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/ball-roll/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/ball-roll/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    html, body { margin: 0; height: 100%; background: #241048; color: #fff; }
+    body {
+      display: flex; flex-direction: column; height: 100dvh;
+      font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden; touch-action: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; width: 100%; max-width: 480px; margin: 0 auto; box-sizing: border-box;
+      position: relative; z-index: 3;
+    }
+    header a { color: #ffd84a; text-decoration: none; font-weight: bold; }
+    .hbtns { display: flex; gap: 6px; }
+    #lang { font-size: 15px; padding: 0 10px; }
+    .pill {
+      font-size: 20px; background: #fff; border: 2px solid #ffd84a; border-radius: 999px;
+      min-width: 44px; height: 36px; cursor: pointer; font-weight: bold; color: #7a2fb0;
+    }
+    main { flex: 1; min-height: 0; position: relative; }
+    #stage { position: absolute; inset: 0 0 calc(80px + env(safe-area-inset-bottom)); touch-action: none; cursor: grab; }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    #hud {
+      position: absolute; top: 2px; left: 0; right: 0; text-align: center; pointer-events: none;
+      font-weight: bold; font-size: 20px; z-index: 2; text-shadow: 0 2px 0 #000a;
+    }
+    #hint {
+      position: absolute; left: 50%; bottom: calc(100px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+      pointer-events: none; z-index: 2; animation: up 1.2s ease-in-out infinite;
+    }
+    #hint[hidden] { display: none; }
+    @keyframes up { 0% { transform: translate(-50%, 20px); opacity: 0; } 30% { opacity: 1; } 100% { transform: translate(-50%, -40px); opacity: 0; } }
+    #result {
+      position: absolute; inset: 0; z-index: 4; display: flex; align-items: flex-end; justify-content: center;
+      padding: 12px 12px calc(80px + env(safe-area-inset-bottom)); box-sizing: border-box;
+    }
+    #result[hidden] { display: none; }
+    .panel {
+      background: #fff; color: #4a1a78; border-radius: 24px; padding: 18px 16px; width: 100%; max-width: 360px;
+      box-sizing: border-box; text-align: center; box-shadow: 0 6px 0 #ffd84a;
+    }
+    #rT { font-size: 44px; font-weight: bold; line-height: 1.1; color: #e8364f; }
+    #rN { font-size: 22px; font-weight: bold; margin-top: 4px; }
+    .big {
+      font: inherit; font-size: 22px; font-weight: bold; padding: 14px 8px; border-radius: 18px;
+      border: none; cursor: pointer; color: #fff; background: #e8364f; width: 100%;
+      box-shadow: 0 4px 0 #9c1a2e; touch-action: manipulation; margin-top: 10px;
+      display: block; text-align: center; text-decoration: none; box-sizing: border-box;
+    }
+    .big:active { transform: translateY(3px); box-shadow: 0 1px 0 #9c1a2e; }
+    .big.x { background: #222; box-shadow: 0 4px 0 #000; }
+    #err { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px; font-weight: bold; }
+    #err[hidden] { display: none; }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <header>
+    <a href="../../" id="back">← トップへ戻る</a>
+    <div class="hbtns"><button id="lang" class="pill">EN</button><button id="sound" class="pill" aria-label="音のオン/オフ"></button></div>
+  </header>
+  <main>
+    <div id="stage"></div>
+    <div id="hud"></div>
+    <svg id="hint" width="60" height="70" viewBox="0 0 60 70" fill="none" stroke="#ffd84a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10 32 30 12 50 32"/><path d="M10 58 30 38 50 58"/>
+    </svg>
+    <div id="result" hidden>
+      <div class="panel">
+        <div id="rT"></div>
+        <div id="rN"></div>
+        <div id="shareBox"></div>
+        <button id="retry" class="big"></button>
+      </div>
+    </div>
+    <div id="err" hidden></div>
+  </main>
+  <script>
+    // CDNが読めないとき用
+    setTimeout(() => { if (!window.__ok) { const e = document.getElementById('err'); e.hidden = false;
+      e.textContent = navigator.language.startsWith('ja') ? '読み込めませんでした。通信を確認して再読み込みしてください。' : 'Failed to load. Check your connection and reload.'; } }, 8000);
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    window.__ok = true;
+
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/ball-roll/';
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('ball-roll:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('ball-roll:' + k, JSON.stringify(v)); } catch {} },
+    };
+
+    // ---- 言語 ----
+    const L = {
+      ja: {
+        title: 'ボール転がし', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
+        tryN: n => `${n}回目`, clear: 'クリア！', clearN: n => `${n}回目でクリア`,
+        retry: 'もう一度', share: 'Xに投稿',
+        shareText: n => `ボール転がしを${n}回目でクリア！ #ボール転がし`,
+      },
+      en: {
+        title: 'Ball Roll', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
+        tryN: n => `Try ${n}`, clear: 'Clear!', clearN: n => `Cleared on try ${n}`,
+        retry: 'Play again', share: 'Post on X',
+        shareText: n => `I cleared Ball Roll on try ${n}! #BallRoll`,
+      },
+    };
+    let lang = store.get('lang', navigator.language.startsWith('ja') ? 'ja' : 'en');
+    if (!L[lang]) lang = 'ja';
+    const t = k => L[lang][k];
+    const $ = id => document.getElementById(id);
+    const langBtn = $('lang');
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      $('back').textContent = t('back');
+      langBtn.textContent = t('lang'); langBtn.setAttribute('aria-label', t('langLabel'));
+      $('retry').textContent = t('retry');
+      $('hud').textContent = t('tryN')(tries);
+      if (!$('result').hidden) showResult();
+    }
+    langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+
+    // ---- 音 ----
+    let soundOn = store.get('sound', true);
+    const soundBtn = $('sound');
+    const SPEAKER = '<path d="M4 9h3l4-4v14l-4-4H4z" fill="currentColor"/>';
+    const updateSoundBtn = () => {
+      soundBtn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="vertical-align:middle">${SPEAKER}${
+        soundOn ? '<path d="M15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"/>' : '<path d="M16 9l5 6M21 9l-5 6"/>'}</svg>`;
+      if (rollGain) rollGain.gain.value = 0;
+    };
+    soundBtn.onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updateSoundBtn(); };
+    let ac = null, rollGain = null, rollFilter = null;
+    updateSoundBtn();
+    function audio() {
+      if (!ac) {
+        try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch { return null; }
+        // 転がる音（ずっと鳴らしておき、速さで音量を変える）
+        const len = 2, buf = ac.createBuffer(1, ac.sampleRate * len, ac.sampleRate), d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        const src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+        rollFilter = ac.createBiquadFilter(); rollFilter.type = 'lowpass'; rollFilter.frequency.value = 300;
+        rollGain = ac.createGain(); rollGain.gain.value = 0;
+        src.connect(rollFilter).connect(rollGain).connect(ac.destination); src.start();
+      }
+      if (ac.state === 'suspended') ac.resume();
+      return ac;
+    }
+    function tone(freq, dur, type = 'triangle', vol = 0.2, delay = 0) {
+      if (!soundOn) return;
+      const a = audio(); if (!a) return;
+      const o = a.createOscillator(), g = a.createGain(), now = a.currentTime + delay;
+      o.type = type; o.frequency.value = freq;
+      g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(vol, now + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+      o.connect(g).connect(a.destination); o.start(now); o.stop(now + dur + 0.02);
+    }
+    const chime = () => [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.5, 'triangle', 0.18, i * 0.09));
+    const buzz = () => { tone(220, 0.25, 'square', 0.08); tone(165, 0.35, 'square', 0.08, 0.15); };
+    const pop = () => tone(520, 0.1, 'sine', 0.2);
+
+    // ---- コース（山と谷） ----
+    const G = 14, MU = 0.03, R = 0.25;
+    const C1 = 4, C2 = 8, HW = 1.7, H1 = 0.5, H2 = 0.78, VALLEY = 6, END = C2 + HW;
+    const bump = (s, c, h) => Math.abs(s - c) < HW ? h * (0.5 + 0.5 * Math.cos(Math.PI * (s - c) / HW)) : 0;
+    const prof = s => s < END ? bump(s, C1, H1) + bump(s, C2, H2) : -Math.min(1.2, (s - END) * 0.6);
+    const slope = s => (prof(s + 1e-3) - prof(s - 1e-3)) / 2e-3;
+
+    // ---- 3D ----
+    const stage = $('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    renderer.shadowMap.enabled = true;
+    stage.appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#2a1250');
+    scene.fog = new THREE.Fog('#2a1250', 14, 34);
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+    scene.add(new THREE.HemisphereLight('#ffe9d0', '#40206a', 1.6));
+    const sun = new THREE.DirectionalLight('#fff', 1.6);
+    sun.position.set(3, 8, 4); sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    Object.assign(sun.shadow.camera, { left: -4, right: 4, top: 8, bottom: -8, near: 1, far: 30 });
+    sun.target.position.set(0, 0, -6); scene.add(sun, sun.target);
+
+    const W = 0.8; // レーンの半幅
+    const S0 = -1, S1 = 12.5, N = 300;
+    { // レーンの面
+      const pos = [], col = [], idx = [];
+      const c = new THREE.Color();
+      for (let i = 0; i <= N; i++) {
+        const s = S0 + (S1 - S0) * i / N, y = prof(s);
+        if (Math.abs(s - VALLEY) < 0.75) c.set('#ffd84a');
+        else if (s > END) c.set('#2a2a3a');
+        else if (bump(s, C1, 1) + bump(s, C2, 1) > 0.02) c.set(Math.floor(s * 2.5) % 2 ? '#e8364f' : '#ffffff');
+        else c.set('#3fb6e8');
+        for (const x of [-W, W]) { pos.push(x, y, -s); col.push(c.r, c.g, c.b); }
+      }
+      for (let i = 0; i < N; i++) { const a = 2 * i; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      g.setIndex(idx); g.computeVertexNormals();
+      const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide }));
+      m.receiveShadow = true; scene.add(m);
+      // 横の板（山の形に合わせる）
+      const shape = new THREE.Shape(); shape.moveTo(S0, -1.6);
+      for (let i = 0; i <= N; i++) { const s = S0 + (S1 - S0) * i / N; shape.lineTo(s, prof(s) + 0.22); }
+      shape.lineTo(S1, -1.6);
+      const sideG = new THREE.ExtrudeGeometry(shape, { depth: 0.12, bevelEnabled: false });
+      const sideM = new THREE.MeshStandardMaterial({ color: '#b5651d', roughness: 0.8 });
+      for (const x of [-W - 0.12, W]) {
+        const side = new THREE.Mesh(sideG, sideM);
+        side.rotation.y = Math.PI / 2; side.position.x = x + (x < 0 ? 0 : 0.12);
+        side.castShadow = side.receiveShadow = true; scene.add(side);
+      }
+      // 奥の壁（落ちた球が止まる）
+      const back = new THREE.Mesh(new THREE.BoxGeometry(W * 2 + 0.24, 1.2, 0.12), sideM);
+      back.position.set(0, prof(S1) + 0.2, -S1); scene.add(back);
+      // 台
+      const base = new THREE.Mesh(new THREE.BoxGeometry(W * 2 + 0.6, 0.4, S1 - S0 + 0.6), new THREE.MeshStandardMaterial({ color: '#7a2fb0' }));
+      base.position.set(0, -1.8, -(S0 + S1) / 2); base.receiveShadow = true; scene.add(base);
+      // 谷の目印（光る輪）
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.05, 8, 40), new THREE.MeshBasicMaterial({ color: '#fff27a' }));
+      ring.rotation.x = -Math.PI / 2; ring.position.set(0, prof(VALLEY) + 0.02, -VALLEY); scene.add(ring);
+      window.__ring = ring;
+    }
+    // 電球（横の板の上）
+    const bulbs = [];
+    {
+      const geo = new THREE.SphereGeometry(0.06, 8, 8);
+      const cols = ['#ff5a7a', '#ffd84a', '#5ae0ff', '#9aff6a'];
+      for (let s = S0 + 0.3, i = 0; s < S1; s += 0.6, i++) for (const x of [-W - 0.06, W + 0.06]) {
+        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: cols[i % 4] }));
+        m.position.set(x, prof(s) + 0.3, -s); scene.add(m); bulbs.push(m);
+      }
+    }
+    // 遠くの観覧車
+    const wheel = new THREE.Group();
+    {
+      const mat = new THREE.MeshBasicMaterial({ color: '#ff8ad0' });
+      wheel.add(new THREE.Mesh(new THREE.TorusGeometry(5, 0.12, 6, 48), mat));
+      wheel.add(new THREE.Mesh(new THREE.TorusGeometry(3.6, 0.06, 6, 48), mat));
+      for (let i = 0; i < 12; i++) {
+        const a = i / 12 * Math.PI * 2;
+        const sp = new THREE.Mesh(new THREE.BoxGeometry(0.06, 10, 0.06), mat); sp.rotation.z = a; wheel.add(sp);
+        const car = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 8), new THREE.MeshBasicMaterial({ color: ['#ffd84a', '#5ae0ff', '#9aff6a'][i % 3] }));
+        car.position.set(Math.cos(a) * 5, Math.sin(a) * 5, 0); wheel.add(car);
+      }
+      wheel.position.set(-5, 2.5, -24); scene.add(wheel);
+      const legM = new THREE.MeshBasicMaterial({ color: '#c96aa8' });
+      for (const dx of [-2.2, 2.2]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.15, 7, 0.15), legM);
+        leg.position.set(-5 + dx / 2, -0.9, -24); leg.rotation.z = dx > 0 ? 0.3 : -0.3; scene.add(leg);
+      }
+    }
+    // ボール（模様で転がりが見える）
+    const ball = (() => {
+      const cv = document.createElement('canvas'); cv.width = 256; cv.height = 128;
+      const x = cv.getContext('2d');
+      x.fillStyle = '#ff4fa0'; x.fillRect(0, 0, 256, 128);
+      x.fillStyle = '#fff'; for (let i = 0; i < 4; i++) x.fillRect(i * 64, 0, 28, 128);
+      const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+      const m = new THREE.Mesh(new THREE.SphereGeometry(R, 32, 24), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.25 }));
+      m.castShadow = true; scene.add(m); return m;
+    })();
+    // 紙ふぶき
+    const confetti = [];
+    function burst() {
+      const geo = new THREE.PlaneGeometry(0.08, 0.12);
+      for (let i = 0; i < 80; i++) {
+        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL(Math.random(), 0.9, 0.6), side: THREE.DoubleSide }));
+        m.position.set(0, prof(VALLEY) + 0.4, -VALLEY);
+        m.userData.v = new THREE.Vector3((Math.random() - 0.5) * 4, 3 + Math.random() * 3, (Math.random() - 0.5) * 4);
+        m.userData.r = new THREE.Vector3(Math.random() * 9, Math.random() * 9, 0);
+        scene.add(m); confetti.push(m);
+      }
+    }
+
+    function resize() {
+      const w = stage.clientWidth, h = stage.clientHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      // 縦長でも山2つと谷が全部入るように
+      camera.fov = camera.aspect < 0.8 ? 50 : 40;
+      camera.updateProjectionMatrix();
+    }
+    addEventListener('resize', resize); resize();
+
+    // ---- ゲームの状態 ----
+    let tries = store.get('tries', 1);
+    let state = 'ready'; // ready / rolling / fail / clear
+    let s = 0.3, v = 0, spin = 0, failT = 0, cleared = false;
+    function resetBall() {
+      s = 0.3; v = 0; state = 'ready'; cleared = false;
+      $('hud').textContent = t('tryN')(tries);
+    }
+    function launch(v0) {
+      if (state !== 'ready') return;
+      audio();
+      v = Math.min(10, Math.max(0.8, v0)); state = 'rolling'; pop();
+      $('hint').hidden = true; store.set('hinted', true);
+    }
+    function fail() {
+      state = 'fail'; failT = 0; buzz();
+      tries++; store.set('tries', tries);
+    }
+    function clear() {
+      state = 'clear'; cleared = true; chime(); burst();
+      setTimeout(() => { showResult(); $('result').hidden = false; }, 700);
+    }
+    function showResult() {
+      $('rT').textContent = t('clear');
+      $('rN').textContent = t('clearN')(tries);
+      const a = document.createElement('a');
+      a.className = 'big x'; a.textContent = t('share');
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('shareText')(tries))}&url=${encodeURIComponent(SHARE_URL)}`;
+      if (!matchMedia('(pointer: coarse)').matches) { a.target = '_blank'; a.rel = 'noopener'; }
+      $('shareBox').replaceChildren(a);
+    }
+    $('retry').onclick = () => {
+      $('result').hidden = true; tries = 1; store.set('tries', tries); resetBall();
+    };
+    if (store.get('hinted', false)) $('hint').hidden = true;
+
+    // ---- スワイプ ----
+    let pts = null;
+    stage.addEventListener('pointerdown', e => {
+      if (state !== 'ready') return;
+      pts = [[e.clientY, performance.now()]]; stage.setPointerCapture(e.pointerId); audio();
+    });
+    stage.addEventListener('pointermove', e => {
+      if (!pts) return;
+      pts.push([e.clientY, performance.now()]);
+      if (pts.length > 30) pts.shift();
+    });
+    const endSwipe = e => {
+      if (!pts) return;
+      const now = performance.now(); pts.push([e.clientY, now]);
+      // 最後の 0.1 秒の速さで強さを決める
+      const recent = pts.filter(p => now - p[1] < 100);
+      const p0 = recent.length > 1 ? recent[0] : pts[0];
+      pts = null;
+      const dt = Math.max(16, now - p0[1]), dy = p0[0] - e.clientY;
+      if (dy < 15) return;
+      const speed = dy / dt * (700 / Math.max(400, stage.clientHeight)); // 画面の高さで正規化（px/ms）
+      launch(speed * 2.2);
+    };
+    stage.addEventListener('pointerup', endSwipe);
+    stage.addEventListener('pointercancel', () => { pts = null; });
+    // キーボード（スペース長押し→離すで転がす）
+    let keyT = 0;
+    addEventListener('keydown', e => { if (e.code === 'Space' && !e.repeat) { keyT = performance.now(); e.preventDefault(); } });
+    addEventListener('keyup', e => {
+      if (e.code === 'Space' && keyT) { launch(2 + (performance.now() - keyT) / 1000 * 4); keyT = 0; }
+      if (e.code === 'Enter' && !$('result').hidden) $('retry').click();
+    });
+
+    // ---- 物理（坂に沿って転がる球。重力・転がり抵抗・谷での減速） ----
+    function step(dt) {
+      const th = Math.atan(slope(s)), c = Math.cos(th);
+      let a = -(5 / 7) * G * Math.sin(th);
+      const f = MU * G * c;
+      if (Math.abs(v) < 0.08 && Math.abs(a) < f) { v = 0; return; }
+      a -= Math.sign(v) * f + 0.15 * v;
+      if (Math.abs(s - VALLEY) < 1.6 && Math.abs(v) < 2) a -= 2.5 * v;
+      v += a * dt; s += v * c * dt;
+      if (s < S0 + R) { s = S0 + R; v = Math.abs(v) * 0.3; }
+      if (s > S1 - R) { s = S1 - R; v = -Math.abs(v) * 0.2; }
+    }
+
+    // ---- ループ ----
+    let last = performance.now(), time = 0;
+    const camPos = new THREE.Vector3(0, 4.4, 4.4), camLook = new THREE.Vector3(0, -0.6, -5.2);
+    function frame(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
+      if (state !== 'ready') {
+        const sub = 8; for (let i = 0; i < sub; i++) step(dt / sub);
+      }
+      if (state === 'rolling') {
+        if (s > END + 0.2 || (s < C1 - HW && v < 0)) fail();
+        else {
+          // 谷の中で、もう山を越えられないくらい遅くなったらクリア
+          const e = prof(s) + 0.7 * v * v / G;
+          if (Math.abs(s - VALLEY) < 1.5 && e < Math.min(H1, H2) * 0.5) clear();
+          else if (v === 0) fail();
+        }
+      } else if (state === 'fail') {
+        failT += dt;
+        if (failT > 0.9) resetBall();
+      }
+      spin += v * dt / R;
+      // ボールの位置（面の法線方向に半径ぶん浮かせる）
+      const th = Math.atan(slope(s));
+      ball.position.set(0, prof(s) + R * Math.cos(th), -s + R * Math.sin(th));
+      ball.rotation.x = -spin;
+      // カメラはボールを少し追う
+      const follow = Math.min(s, VALLEY) * 0.2;
+      camera.position.set(camPos.x, camPos.y, camPos.z - follow);
+      camera.lookAt(camLook.x, camLook.y, camLook.z - follow * 0.3);
+      // 電球の点滅・観覧車
+      bulbs.forEach((b, i) => { b.visible = ((i >> 1) + Math.floor(time * 3)) % 3 !== 0 || state === 'clear'; });
+      wheel.rotation.z = time * 0.15;
+      window.__ring.material.color.setHSL(cleared ? (time * 2) % 1 : 0.15, 1, 0.5 + 0.2 * Math.sin(time * 5));
+      for (let i = confetti.length - 1; i >= 0; i--) {
+        const m = confetti[i], u = m.userData;
+        u.v.y -= 6 * dt; m.position.addScaledVector(u.v, dt);
+        m.rotation.x += u.r.x * dt; m.rotation.y += u.r.y * dt;
+        if (m.position.y < -2) { scene.remove(m); confetti.splice(i, 1); }
+      }
+      if (rollGain && soundOn) {
+        rollGain.gain.value = Math.min(0.25, Math.abs(v) * 0.05);
+        rollFilter.frequency.value = 200 + Math.abs(v) * 80;
+      }
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+    applyLang(); resetBall();
+    requestAnimationFrame(frame);
+    // テスト用
+    window.__game = { launch, get state() { return state; }, get s() { return s; } };
+  </script>
+</body>
+</html>
