@@ -68,7 +68,8 @@
     #err[hidden] { display: none; }
   </style>
   <script type="importmap">
-    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js" } }
   </script>
 </head>
 <body>
@@ -99,6 +100,7 @@
   </script>
   <script type="module">
     import * as THREE from 'three';
+    import * as CANNON from 'cannon-es';
     window.__ok = true;
 
     const SHARE_URL = 'https://keifurukawafunnych.com/games/ball-roll/';
@@ -178,11 +180,12 @@
     const pop = () => tone(520, 0.1, 'sine', 0.2);
 
     // ---- コース（山と谷） ----
-    const G = 14, MU = 0.03, R = 0.25;
-    const C1 = 4, C2 = 8, HW = 1.7, H1 = 0.5, H2 = 0.78, VALLEY = 6, END = C2 + HW;
-    const bump = (s, c, h) => Math.abs(s - c) < HW ? h * (0.5 + 0.5 * Math.cos(Math.PI * (s - c) / HW)) : 0;
-    const prof = s => s < END ? bump(s, C1, H1) + bump(s, C2, H2) : -Math.min(1.2, (s - END) * 0.6);
-    const slope = s => (prof(s + 1e-3) - prof(s - 1e-3)) / 2e-3;
+    const G = 20, MASS = 50, R = 0.25; // 重い球（50kg）
+    // 手前の山は幅広く（球が飛び上がりにくい）、奥の山は高い
+    const C1 = 3.6, W1 = 2.4, H1 = 0.5, C2 = 8.6, W2 = 1.9, H2 = 0.78, VALLEY = 6.35, END = C2 + W2;
+    const bump = (s, c, h, hw) => Math.abs(s - c) < hw ? h * (0.5 + 0.5 * Math.cos(Math.PI * (s - c) / hw)) : 0;
+    const hills = s => bump(s, C1, H1, W1) + bump(s, C2, H2, W2);
+    const prof = s => s < END ? hills(s) : -Math.min(1.2, (s - END) * 0.6);
 
     // ---- 3D ----
     const stage = $('stage');
@@ -210,7 +213,7 @@
         const s = S0 + (S1 - S0) * i / N, y = prof(s);
         if (Math.abs(s - VALLEY) < 0.75) c.set('#ffd84a');
         else if (s > END) c.set('#2a2a3a');
-        else if (bump(s, C1, 1) + bump(s, C2, 1) > 0.02) c.set(Math.floor(s * 2.5) % 2 ? '#e8364f' : '#ffffff');
+        else if (hills(s) > 0.01) c.set(Math.floor(s * 2.5) % 2 ? '#e8364f' : '#ffffff');
         else c.set('#3fb6e8');
         for (const x of [-W, W]) { pos.push(x, y, -s); col.push(c.r, c.g, c.b); }
       }
@@ -305,18 +308,45 @@
     }
     addEventListener('resize', resize); resize();
 
+    // ---- 物理（cannon-es） ----
+    const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -G, 0) });
+    const groundMat = new CANNON.Material(), ballMat = new CANNON.Material();
+    world.addContactMaterial(new CANNON.ContactMaterial(groundMat, ballMat, { friction: 0.8, restitution: 0 }));
+    {
+      // レーンの面を三角形で作る（見た目と同じ形）
+      const p = [], ix = [];
+      for (let i = 0; i <= N; i++) { const s = S0 + (S1 - S0) * i / N, y = prof(s); p.push(-W, y, -s, W, y, -s); }
+      for (let i = 0; i < N; i++) { const a = 2 * i; ix.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+      world.addBody(new CANNON.Body({ mass: 0, material: groundMat, shape: new CANNON.Trimesh(p, ix) }));
+      // 横の壁・手前と奥の壁
+      const wall = (x, y, z, hx, hy, hz) => world.addBody(new CANNON.Body({
+        mass: 0, material: groundMat, position: new CANNON.Vec3(x, y, z), shape: new CANNON.Box(new CANNON.Vec3(hx, hy, hz)) }));
+      const L2 = (S1 - S0) / 2;
+      wall(-W - 0.1, 0, -(S0 + S1) / 2, 0.1, 3, L2);
+      wall(W + 0.1, 0, -(S0 + S1) / 2, 0.1, 3, L2);
+      wall(0, 0, -S0 + 0.1, W, 3, 0.1);
+      wall(0, 0, -S1 - 0.1, W, 3, 0.1);
+    }
+    const body = new CANNON.Body({ mass: MASS, material: ballMat, shape: new CANNON.Sphere(R), linearDamping: 0.08, angularDamping: 0.08 });
+    world.addBody(body);
+
     // ---- ゲームの状態 ----
     let tries = store.get('tries', 1);
     let state = 'ready'; // ready / rolling / fail / clear
-    let s = 0.3, v = 0, spin = 0, failT = 0, cleared = false;
+    let failT = 0, stillT = 0, cleared = false;
     function resetBall() {
-      s = 0.3; v = 0; state = 'ready'; cleared = false;
+      body.position.set(0, R + 0.01, -0.3); body.quaternion.set(0, 0, 0, 1);
+      body.velocity.setZero(); body.angularVelocity.setZero(); body.sleepState = 0;
+      state = 'ready'; cleared = false; stillT = 0;
       $('hud').textContent = t('tryN')(tries);
     }
-    function launch(v0) {
+    function launch(v0, side = 0) {
       if (state !== 'ready') return;
       audio();
-      v = Math.min(10, Math.max(0.8, v0)); state = 'rolling'; pop();
+      const v = Math.min(10, Math.max(0.8, v0)), vx = Math.max(-0.6, Math.min(0.6, side)) * v * 0.15;
+      body.velocity.set(vx, 0, -v);
+      body.angularVelocity.set(-v / R, 0, -vx / R); // 転がった状態で送り出す
+      state = 'rolling'; pop();
       $('hint').hidden = true; store.set('hinted', true);
     }
     function fail() {
@@ -345,11 +375,11 @@
     let pts = null;
     stage.addEventListener('pointerdown', e => {
       if (state !== 'ready') return;
-      pts = [[e.clientY, performance.now()]]; stage.setPointerCapture(e.pointerId); audio();
+      pts = [[e.clientY, performance.now(), e.clientX]]; stage.setPointerCapture(e.pointerId); audio();
     });
     stage.addEventListener('pointermove', e => {
       if (!pts) return;
-      pts.push([e.clientY, performance.now()]);
+      pts.push([e.clientY, performance.now(), e.clientX]);
       if (pts.length > 30) pts.shift();
     });
     const endSwipe = e => {
@@ -359,10 +389,10 @@
       const recent = pts.filter(p => now - p[1] < 100);
       const p0 = recent.length > 1 ? recent[0] : pts[0];
       pts = null;
-      const dt = Math.max(16, now - p0[1]), dy = p0[0] - e.clientY;
+      const dt = Math.max(16, now - p0[1]), dy = p0[0] - e.clientY, dx = e.clientX - p0[2];
       if (dy < 15) return;
       const speed = dy / dt * (700 / Math.max(400, stage.clientHeight)); // 画面の高さで正規化（px/ms）
-      launch(speed * 2.2);
+      launch(speed * 2.6, dx / dy);
     };
     stage.addEventListener('pointerup', endSwipe);
     stage.addEventListener('pointercancel', () => { pts = null; });
@@ -370,48 +400,40 @@
     let keyT = 0;
     addEventListener('keydown', e => { if (e.code === 'Space' && !e.repeat) { keyT = performance.now(); e.preventDefault(); } });
     addEventListener('keyup', e => {
-      if (e.code === 'Space' && keyT) { launch(2 + (performance.now() - keyT) / 1000 * 4); keyT = 0; }
+      if (e.code === 'Space' && keyT) { launch(2.5 + (performance.now() - keyT) / 1000 * 4.5); keyT = 0; }
       if (e.code === 'Enter' && !$('result').hidden) $('retry').click();
     });
-
-    // ---- 物理（坂に沿って転がる球。重力・転がり抵抗・谷での減速） ----
-    function step(dt) {
-      const th = Math.atan(slope(s)), c = Math.cos(th);
-      let a = -(5 / 7) * G * Math.sin(th);
-      const f = MU * G * c;
-      if (Math.abs(v) < 0.08 && Math.abs(a) < f) { v = 0; return; }
-      a -= Math.sign(v) * f + 0.15 * v;
-      if (Math.abs(s - VALLEY) < 1.6 && Math.abs(v) < 2) a -= 2.5 * v;
-      v += a * dt; s += v * c * dt;
-      if (s < S0 + R) { s = S0 + R; v = Math.abs(v) * 0.3; }
-      if (s > S1 - R) { s = S1 - R; v = -Math.abs(v) * 0.2; }
-    }
 
     // ---- ループ ----
     let last = performance.now(), time = 0;
     const camPos = new THREE.Vector3(0, 4.4, 4.4), camLook = new THREE.Vector3(0, -0.6, -5.2);
     function frame(now) {
       const dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
+      let s = -body.position.z;
+      const sp = body.velocity.length();
       if (state !== 'ready') {
-        const sub = 8; for (let i = 0; i < sub; i++) step(dt / sub);
+        // 谷では砂地のように強めに減速して、止まりやすくする
+        const inValley = Math.abs(s - VALLEY) < 1.6 && sp < 2;
+        body.linearDamping = body.angularDamping = inValley ? 0.9 : 0.08;
+        world.step(1 / 120, dt, 10);
+        s = -body.position.z;
       }
       if (state === 'rolling') {
-        if (s > END + 0.2 || (s < C1 - HW && v < 0)) fail();
+        const v = body.velocity;
+        if (s > END + 0.2 || (s < C1 - W1 && v.z > 0)) fail();
         else {
           // 谷の中で、もう山を越えられないくらい遅くなったらクリア
-          const e = prof(s) + 0.7 * v * v / G;
-          if (Math.abs(s - VALLEY) < 1.5 && e < Math.min(H1, H2) * 0.5) clear();
-          else if (v === 0) fail();
+          const e = body.position.y - R + 0.7 * v.lengthSquared() / G;
+          if (Math.abs(s - VALLEY) < 1.5 && e < Math.min(H1, H2) * 0.6) clear();
+          else if (v.length() < 0.08) { stillT += dt; if (stillT > 0.3) fail(); }
+          else stillT = 0;
         }
       } else if (state === 'fail') {
         failT += dt;
         if (failT > 0.9) resetBall();
       }
-      spin += v * dt / R;
-      // ボールの位置（面の法線方向に半径ぶん浮かせる）
-      const th = Math.atan(slope(s));
-      ball.position.set(0, prof(s) + R * Math.cos(th), -s + R * Math.sin(th));
-      ball.rotation.x = -spin;
+      ball.position.copy(body.position);
+      ball.quaternion.copy(body.quaternion);
       // カメラはボールを少し追う
       const follow = Math.min(s, VALLEY) * 0.2;
       camera.position.set(camPos.x, camPos.y, camPos.z - follow);
@@ -427,8 +449,8 @@
         if (m.position.y < -2) { scene.remove(m); confetti.splice(i, 1); }
       }
       if (rollGain && soundOn) {
-        rollGain.gain.value = Math.min(0.25, Math.abs(v) * 0.05);
-        rollFilter.frequency.value = 200 + Math.abs(v) * 80;
+        rollGain.gain.value = Math.min(0.25, sp * 0.05);
+        rollFilter.frequency.value = 200 + sp * 80;
       }
       renderer.render(scene, camera);
       requestAnimationFrame(frame);
@@ -436,7 +458,7 @@
     applyLang(); resetBall();
     requestAnimationFrame(frame);
     // テスト用
-    window.__game = { launch, get state() { return state; }, get s() { return s; } };
+    window.__game = { launch, get state() { return state; }, get s() { return -body.position.z; } };
   </script>
 </body>
 </html>
