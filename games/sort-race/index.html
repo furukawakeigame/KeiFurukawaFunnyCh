@@ -74,7 +74,12 @@
     .big.x { background: #222; box-shadow: 0 4px 0 #000; }
     .count { font-size: 64px; font-weight: bold; color: #3b5bdb; }
     .head { font-size: 28px; font-weight: bold; }
-    .stats { font-size: 18px; line-height: 1.7; font-variant-numeric: tabular-nums; }
+    .stats { font-size: 14px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .overlay.end { justify-content: flex-start; overflow-y: auto; touch-action: pan-y; padding: 12px 0; box-sizing: border-box; gap: 10px; }
+    .overlay.end > * { flex-shrink: 0; }
+    .about { background: #fff; border-radius: 12px; padding: 10px 14px; margin: 0 10px; text-align: left; font-size: 14px; line-height: 1.6; box-shadow: 0 2px 0 #e3e7f3; }
+    .about b { display: block; font-size: 15px; margin-bottom: 2px; color: #3b5bdb; }
+    .btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
     #wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
   </style>
 </head>
@@ -144,7 +149,12 @@
         you: 'あなた', algo: { bubble: 'バブルソート', selection: '選択ソート', quick: 'クイックソート' },
         win: '勝ち', lose: '負け', clear: '全クリア',
         stage: n => `ステージ ${n}`,
-        stats: (s, sec, sw) => `クリア ${s}/3<br>タイム ${sec}秒<br>入れ替え ${sw}回`,
+        stats: (s, sec, sw) => `クリア ${s}/3・タイム ${sec}秒・入れ替え ${sw}回`,
+        about: {
+          bubble: '隣どうしを比べて、大きいほうを右へ送るのをくり返す。大きい値が泡のように右へ浮かんでいくのが名前の由来。単純だが遅く、比較は最大 n(n-1)/2 回。',
+          selection: '残りの中から一番小さいものを探して、左端と入れ替えるのをくり返す。入れ替えは少ない（最大 n-1 回）が、比較の回数はいつも n(n-1)/2 回。',
+          quick: '基準の値（ピボット）を決めて、それより小さいものを左、大きいものを右に分け、左右それぞれで同じことをくり返す。平均 n log n 回の比較で済み、実用で最もよく使われる速いソート。',
+        },
         shareText: (s, sec, sw) => s === 3
           ? `ソートアルゴリズムに全勝した（${sec}秒・入れ替え${sw}回）\n#ソート対決`
           : `ソートアルゴリズムに${s}勝した（ステージ${s + 1}で負け）\n#ソート対決`,
@@ -155,7 +165,12 @@
         you: 'You', algo: { bubble: 'Bubble Sort', selection: 'Selection Sort', quick: 'Quicksort' },
         win: 'Win', lose: 'Lose', clear: 'All Clear',
         stage: n => `Stage ${n}`,
-        stats: (s, sec, sw) => `Cleared ${s}/3<br>Time ${sec}s<br>Swaps ${sw}`,
+        stats: (s, sec, sw) => `Cleared ${s}/3 · Time ${sec}s · Swaps ${sw}`,
+        about: {
+          bubble: 'Compares neighbors and pushes the larger one right, over and over. Big values rise like bubbles, hence the name. Simple but slow: up to n(n-1)/2 comparisons.',
+          selection: 'Finds the smallest remaining value and swaps it to the front, repeatedly. Few swaps (at most n-1), but always n(n-1)/2 comparisons.',
+          quick: 'Picks a pivot, moves smaller values left and larger ones right, then repeats on each side. About n log n comparisons on average, one of the fastest sorts in practice.',
+        },
         shareText: (s, sec, sw) => s === 3
           ? `I beat every sorting algorithm (${sec}s, ${sw} swaps)\n#SortRace`
           : `I beat ${s} sorting algorithm${s === 1 ? '' : 's'} (lost at stage ${s + 1})\n#SortRace`,
@@ -213,7 +228,7 @@
     const ov = document.getElementById('ov'), timerEl = document.getElementById('timer');
 
     let stage = 0, state = 'title', me = [], cpu = [], sel = -1, swaps = 0, totalSwaps = 0, totalTime = 0;
-    let startAt = 0, cpuTimer = 0, raf = 0, wins = 0, countdown = 0;
+    let lastTime = 0, lastSwaps = 0, startAt = 0, cpuTimer = 0, raf = 0, wins = 0, countdown = 0;
 
     function draw(el, arr, mark = {}) {
       if (el.children.length !== arr.length) {
@@ -250,6 +265,7 @@
 
     function renderOverlay() {
       ov.hidden = state === 'play';
+      ov.className = 'overlay' + (state === 'end' ? ' end' : '');
       if (state === 'title') {
         ov.innerHTML = `<div class="head">${t('stage')(stage + 1)}</div><button class="big" id="go">${t('start')}</button>`;
         document.getElementById('go').onclick = startCountdown;
@@ -264,9 +280,16 @@
         const tgt = matchMedia('(pointer: coarse)').matches ? '' : ' target="_blank" rel="noopener"';
         ov.innerHTML = `<div class="head" style="color:${wins === 3 ? '#2fb36b' : '#ff4d6d'}">${wins === 3 ? t('clear') : t('lose')}</div>
           <div class="stats">${t('stats')(wins, sec, totalSwaps)}</div>
-          <button class="big" id="go">${t('retry')}</button>
-          <a class="big x" href="${href}"${tgt}>${t('share')}</a>`;
-        document.getElementById('go').onclick = () => { stage = 0; wins = 0; totalSwaps = 0; totalTime = 0; state = 'title'; setupStage(); };
+          <div class="btns"><button class="big" id="go">${t('retry')}</button>
+          <a class="big x" href="${href}"${tgt}>${t('share')}</a></div>
+          <div class="about"><b>${t('algo')[STAGES[stage].algo]}</b>${t('about')[STAGES[stage].algo]}</div>`;
+        ov.scrollTop = 0;
+        // 負けたら同じアルゴリズムともう一度。全クリアなら最初から
+        document.getElementById('go').onclick = () => {
+          if (wins === STAGES.length) { stage = 0; wins = 0; totalSwaps = 0; totalTime = 0; }
+          else { totalTime -= lastTime; totalSwaps -= lastSwaps; }
+          state = 'title'; setupStage();
+        };
       }
     }
 
@@ -307,7 +330,7 @@
       clearTimeout(cpuTimer); cancelAnimationFrame(raf);
       const el = (performance.now() - startAt) / 1000;
       timerEl.textContent = el.toFixed(1);
-      totalTime += el; totalSwaps += swaps;
+      totalTime += el; totalSwaps += swaps; lastTime = el; lastSwaps = swaps;
       (playerWon ? meLane : cpuLane).classList.add('done');
       if (playerWon) {
         wins++; sndWin();
