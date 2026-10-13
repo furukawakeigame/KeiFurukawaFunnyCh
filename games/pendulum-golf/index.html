@@ -103,7 +103,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const SH = { x: 0, y: 2.3 };
 const LEN = [0.8, 0.75, 0.7];
 const G = 9.8, BALL_R = 0.06, BALL_X = 0.25, TEE_H = 0.14;
-let pts, ball, state = 'title', grab = null, releaseT = 0, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, hitFlash = 0, hitStop = 0, hitStopMax = 0, hitPow = 0;
+let pts, ball, state = 'title', grab = null, releaseT = 0, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, hitFlash = 0, hitStop = 0, hitStopMax = 0, hitPow = 0, zoom = 1;
 
 function reset() {
   // hang slightly bent so it's alive
@@ -223,7 +223,8 @@ function draw() {
   }
   // hit-stop shake
   ctx.save();
-  if (hitStop > 0) { const m = 4 + hitPow * 14; ctx.translate((Math.random() - .5) * m, (Math.random() - .5) * m); }
+  if (hitStop > 0) { const m = 3 + hitPow * 8; ctx.translate((Math.random() - .5) * m, (Math.random() - .5) * m); }
+  if (zoom > 1.001) { const bx = originX + (ball.x - camX) * scale, by = Y0(ball.y); const a = Math.min(1, zoom - 1); ctx.translate(bx + (W / 2 - bx) * a, by + (H / 2 - by) * a); ctx.scale(zoom, zoom); ctx.translate(-bx, -by); }
   // clouds (parallax)
   ctx.fillStyle = '#fff';
   for (let i = -2; i < 40; i++) {
@@ -290,18 +291,10 @@ function draw() {
   ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(X(ball.x), Y(0) + 2, BALL_R * scale, BALL_R * scale * 0.3, 0, 0, 7); ctx.fill();
   ctx.fillStyle = '#fff'; ctx.strokeStyle = '#999'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.arc(X(ball.x), Y(ball.y), Math.max(4, BALL_R * scale), 0, 7); ctx.fill(); ctx.stroke();
-  if (hitFlash > 0) { ctx.strokeStyle = `rgba(255,212,59,${hitFlash})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(X(BALL_X), Y(TEE_H + BALL_R), 20 + (1 - hitFlash) * 40, 0, 7); ctx.stroke(); }
   // grab line
   if (grab) { ctx.strokeStyle = 'rgba(0,0,0,.3)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(X(h.x), Y(h.y)); ctx.lineTo(X(grab.x), Y(grab.y)); ctx.stroke(); ctx.setLineDash([]); }
   // hint: pulsing ring on head when ready
   if ((state === 'ready' || state === 'swing') && !grab) { const k = (performance.now() / 900) % 1; ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(X(h.x), Y(h.y), 15 + k * 30, 0, 7); ctx.stroke(); }
-  // impact burst during hit-stop
-  if (hitStop > 0) {
-    const bx = X(ball.x), by = Y(ball.y), u = 1 - hitStop / hitStopMax;
-    ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.arc(bx, by, (20 + hitPow * 50) * (0.6 + u * 0.4), 0, 7); ctx.fill();
-    ctx.strokeStyle = '#ffd43b'; ctx.lineWidth = 3 + hitPow * 4;
-    for (let i = 0; i < 12; i++) { const a = i / 12 * 6.283 + i, r1 = 25 + hitPow * 40, r2 = r1 + 30 + hitPow * 90 * (0.5 + (i % 3) / 3); ctx.beginPath(); ctx.moveTo(bx + Math.cos(a) * r1, by + Math.sin(a) * r1); ctx.lineTo(bx + Math.cos(a) * r2, by + Math.sin(a) * r2); ctx.stroke(); }
-  }
   ctx.restore();
   $('dist').textContent = (state === 'fly' || state === 'done') ? dist().toFixed(1) + 'm' : '';
 }
@@ -313,6 +306,7 @@ function loop(now) {
   let n = Math.round(fdt / dt);
   if (hitStop > 0) hitStop -= fdt;
   else for (let i = 0; i < n && hitStop <= 0; i++) step(dt);
+  zoom += ((hitStop > 0 ? 1.6 + hitPow * 1.2 : 1) - zoom) * Math.min(1, fdt * (hitStop > 0 ? 18 : 6));
   if (hitStop <= 0) hitFlash = Math.max(0, hitFlash - fdt * 2);
   if (state === 'fly') {
     const W = cv.clientWidth, H = cv.clientHeight, mg = Math.min(W, H) * 0.35, k = Math.min(1, fdt * 25);
