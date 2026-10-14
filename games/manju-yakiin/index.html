@@ -382,7 +382,7 @@ const skinTex = new THREE.CanvasTexture(skin); skinTex.colorSpace = THREE.SRGBCo
 function redrawSkin() { sctx.drawImage(base, 0, 0); sctx.drawImage(burn, 0, 0); skinTex.needsUpdate = true; }
 
 // ---- まんじゅうの形（やわらかい物体：画像ゼリーと同じクラスタ型シェイプマッチング） ----
-const H = 0.85, BOT = 0.25, K = 30, SEG = 56;
+const H = 0.85, BOT = 0.25, K = 40, SEG = 72;
 function buildManju() {
   const pos = [], idx = [], rings = [];
   pos.push(0, BOT + H, 0); // 上の頂点
@@ -685,18 +685,15 @@ gl.addEventListener('pointerup', endPtr);
 gl.addEventListener('pointercancel', endPtr);
 // 歯形：真ん中の丸のまわりに小さい丸を並べて、ふちをギザギザにする
 function bite(hp, dir) {
-  const a = new THREE.Vector3(0, 1, 0).cross(dir); if (a.lengthSq() < 1e-4) a.set(1, 0, 0); a.normalize();
-  const b = new THREE.Vector3().crossVectors(dir, a).normalize();
-  const balls = [[hp.clone().addScaledVector(dir, 0.1), 0.4]];
-  for (let k = 0; k < 8; k++) { const t = k / 8 * Math.PI * 2; balls.push([hp.clone().addScaledVector(a, Math.cos(t) * 0.38).addScaledVector(b, Math.sin(t) * 0.38).addScaledVector(dir, 0.05), 0.17]); }
-  const x = M.x, col = M.mesh.geometry.attributes.color, v = new THREE.Vector3();
-  const inside = () => balls.some(([c, r]) => v.distanceToSquared(c) < r * r);
+  // 球でえぐる：球の中に入った頂点を、かじる向きに球の奥側の面まで押し込む
+  const c = hp.clone().addScaledVector(dir, 0.12), r = 0.5;
+  const x = M.x, col = M.mesh.geometry.attributes.color, v = new THREE.Vector3(), w = new THREE.Vector3();
   let ate = 0;
   for (let i = 0; i < M.n; i++) {
-    v.fromArray(x, i * 3);
-    if (!inside()) continue;
-    // かじった向きに押し込んで、えぐれた形にする
-    for (let k = 0; k < 40 && inside(); k++) v.addScaledVector(dir, 0.025);
+    v.fromArray(x, i * 3); w.subVectors(v, c);
+    const cc = w.lengthSq() - r * r; if (cc >= 0) continue;
+    const bb = w.dot(dir), t = -bb + Math.sqrt(bb * bb - cc);
+    v.addScaledVector(dir, t);
     v.y = Math.max(0.02, v.y);
     v.toArray(x, i * 3); M.v[i * 3] = M.v[i * 3 + 1] = M.v[i * 3 + 2] = 0;
     col.setXYZ(i, 0.26, 0.08, 0.08); ate++;
