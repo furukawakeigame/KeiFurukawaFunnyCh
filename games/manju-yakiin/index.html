@@ -521,6 +521,9 @@ function makeStamps() {
     const im = g.getImageData(0, 0, c.width, c.height), d = im.data;
     const W = c.width, Hh = c.height, lum = new Float32Array(W * Hh), al = new Float32Array(W * Hh);
     for (let i = 0; i < W * Hh; i++) { lum[i] = (0.3 * d[i * 4] + 0.59 * d[i * 4 + 1] + 0.11 * d[i * 4 + 2]) / 255; al[i] = d[i * 4 + 3] / 255; }
+    // 画像の中でいちばん暗い所〜明るい所を 0〜1 に広げて、濃淡をはっきりさせる
+    { let lo = 1, hi = 0; for (let i = 0; i < W * Hh; i++) if (al[i] > 0.5) { lo = Math.min(lo, lum[i]); hi = Math.max(hi, lum[i]); }
+      if (hi - lo > 0.05) for (let i = 0; i < W * Hh; i++) lum[i] = Math.min(1, Math.max(0, (lum[i] - lo) / (hi - lo))); }
     // 透明な所は白として見る
     const at = j => lum[j] * al[j] + (1 - al[j]);
     // 輪郭（明るさの差と切り抜きのふち）を見つけて、少し太らせる
@@ -541,12 +544,13 @@ function makeStamps() {
     }
     for (let i = 0; i < W * Hh; i++) {
       // 濃い色ほど、輪郭ほど濃く焼ける
-      const a = Math.min(1, al[i] * (0.04 + 0.6 * Math.pow(1 - lum[i], 1.3 * gamma)) + E[i]);
+      const t = 1 - lum[i], c = t * t * (3 - 2 * t); // 中間を濃い・薄いに振り分ける
+      const a = Math.min(1, al[i] * Math.pow(c, gamma) + E[i]);
       d[i * 4] = rgb[0]; d[i * 4 + 1] = rgb[1]; d[i * 4 + 2] = rgb[2]; d[i * 4 + 3] = a * 255;
     }
     g.putImageData(im, 0, 0); return c;
   };
-  stampBrown = mk([62, 26, 6], 0.8); stampChar = mk([25, 12, 6], 1.2);
+  stampBrown = mk([48, 18, 4], 0.8); stampChar = mk([25, 12, 6], 1.2);
 }
 function setStampSize() {
   const s = +$('size').value, asp = sprite.width / sprite.height, base = 1.5 * s;
@@ -630,8 +634,11 @@ function step(dt) {
   // 焼く
   const touching = mode === 'burn' && pressing && ironY < topAt() + 0.03;
   if (touching) {
-    stampAt(bctx, stampBrown, dt * 1.1);
-    if (burnT > 2.4) stampAt(bctx, stampChar, dt * 0.35);
+    // 重ね塗りすると濃淡がつぶれるので、焼いた時間に合わせて毎回描き直す（2秒で100%、2.4秒から焦げる）
+    const lv = (burnT + dt) / 2;
+    bctx.clearRect(0, 0, TEX, TEX);
+    stampAt(bctx, stampBrown, lv);
+    if (lv > 1.2) stampAt(bctx, stampChar, (lv - 1.2) * 0.8);
     burnT += dt; redrawSkin();
     if (Math.random() < dt * 30) puff();
     $('finish').disabled = false;
