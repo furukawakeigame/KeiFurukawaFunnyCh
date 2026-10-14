@@ -85,7 +85,9 @@
   <input type="file" id="file" accept="image/*">
 <script type="importmap">{ "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.8/build/index.module.js",
+  "three-bvh-csg": "https://cdn.jsdelivr.net/npm/three-bvh-csg@0.0.16/build/index.module.js"
 } }</script>
 <script>
   window.__t = setTimeout(() => { if (!window.__ok) { const e = document.getElementById('err'); e.style.display = 'flex';
@@ -94,6 +96,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg';
 window.__ok = true;
 const $ = id => document.getElementById(id);
 const store = {
@@ -418,9 +421,6 @@ const M = (() => {
     map: skinTex, bumpMap: bumpTex, bumpScale: 1.2, roughness: 0.85, sheen: 0.35, sheenColor: new THREE.Color(0xf5d8b0), sheenRoughness: 0.9, envMapIntensity: 0.5
   }));
   mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false; scene.add(mesh);
-  // かじった所はあんこ色にする（頂点の色を皮の絵にかける）
-  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(pos.length).fill(1), 3));
-  mesh.material.vertexColors = true;
   const x0 = new Float32Array(pos);
   for (let i = 0; i < n; i++) x0[i * 3 + 1] -= 0.45;
   const clusters = [];
@@ -439,7 +439,7 @@ const M = (() => {
     addCluster(m);
   }
   addCluster([...Array(n).keys()]);
-  const J = { mesh, x00: x0.slice(), n, x0, x: new Float32Array(n * 3), v: new Float32Array(n * 3), p: new Float32Array(n * 3), goal: new Float32Array(n * 3), cnt: new Float32Array(n), clusters };
+  const J = { mesh, n, x0, x: new Float32Array(n * 3), v: new Float32Array(n * 3), p: new Float32Array(n * 3), goal: new Float32Array(n * 3), cnt: new Float32Array(n), clusters };
   for (const c of clusters) for (const i of c.m) J.cnt[i]++;
   for (let i = 0; i < n; i++) if (!J.cnt[i]) J.cnt[i] = 1;
   return J;
@@ -571,7 +571,7 @@ function startBurn(s) {
   ironX = 0; ironZ = 0; ironY = 2;
   setMode('burn');
 }
-function resetManju() { M.x0.set(M.x00); restShape(); M.mesh.geometry.attributes.color.array.fill(1); M.mesh.geometry.attributes.color.needsUpdate = true; bctx.clearRect(0, 0, TEX, TEX); burnT = 0; redrawSkin(); dropManju(0.5); }
+function resetManju() { clearEaten(); bctx.clearRect(0, 0, TEX, TEX); burnT = 0; redrawSkin(); dropManju(0.5); }
 const pctNow = () => Math.round(burnT / 2 * 100);
 function stampAt(g, st, alpha) {
   // ずれていても皮についていくよう、まんじゅうの真ん中からの位置で押す
@@ -676,7 +676,7 @@ const endPtr = e => {
   if (mode === 'done' && !ptr.moved) {
     // タップした所をひと口かじる
     setNdc(e); M.mesh.geometry.computeBoundingSphere();
-    const hit = ray.intersectObject(M.mesh)[0];
+    const hit = ray.intersectObject(eaten || M.mesh)[0];
     if (hit) bite(hit.point, ray.ray.direction);
   }
   pressing = false; ptr = null;
@@ -684,36 +684,32 @@ const endPtr = e => {
 gl.addEventListener('pointerup', endPtr);
 gl.addEventListener('pointercancel', endPtr);
 // 歯形：真ん中の丸のまわりに小さい丸を並べて、ふちをギザギザにする
-function bite(hp, dir) {
-  // 球でえぐる：球の中に入った頂点を、かじる向きに球の奥側の面まで押し込む
-  const c = hp.clone().addScaledVector(dir, 0.12), r = 0.5;
-  const x = M.x, col = M.mesh.geometry.attributes.color, v = new THREE.Vector3(), w = new THREE.Vector3();
-  let ate = 0;
-  for (let i = 0; i < M.n; i++) {
-    v.fromArray(x, i * 3); w.subVectors(v, c);
-    const cc = w.lengthSq() - r * r; if (cc >= 0) continue;
-    const bb = w.dot(dir), t = -bb + Math.sqrt(bb * bb - cc);
-    v.addScaledVector(dir, t);
-    v.y = Math.max(0.02, v.y);
-    v.toArray(x, i * 3); M.v[i * 3] = M.v[i * 3 + 1] = M.v[i * 3 + 2] = 0;
-    col.setXYZ(i, 0.26, 0.08, 0.08); ate++;
-  }
-  if (!ate) return;
-  col.needsUpdate = true;
-  // 今の形を新しい元の形にする（戻らないように）
-  for (let i = 0; i < M.n * 3; i++) M.x0[i] = x[i] - (i % 3 === 1 ? 0.45 : 0);
-  restShape();
-  munch();
+// ブーリアン（引き算）でかじる：まんじゅうから球を引く。切り口はあんこ
+const csg = new Evaluator(); csg.attributes = ['position', 'uv', 'normal']; csg.useGroups = true;
+const ankoMat = new THREE.MeshStandardMaterial({ color: 0x3b1714, roughness: 0.7 });
+const biteGeo = new THREE.SphereGeometry(0.5, 40, 28);
+let eaten = null; // かじったあとのまんじゅう（形は固定）
+function clearEaten() {
+  if (!eaten) return;
+  scene.remove(eaten); eaten.geometry.dispose(); eaten = null; M.mesh.visible = true;
 }
-// 元の形（x0）から各まとまりの形を作り直す
-function restShape() {
-  for (const c of M.clusters) {
-    let mx = 0, my = 0, mz = 0; const m = c.m;
-    for (const i of m) { mx += M.x0[i * 3]; my += M.x0[i * 3 + 1]; mz += M.x0[i * 3 + 2]; }
-    mx /= m.length; my /= m.length; mz /= m.length;
-    m.forEach((i, k) => { c.q[k * 3] = M.x0[i * 3] - mx; c.q[k * 3 + 1] = M.x0[i * 3 + 1] - my; c.q[k * 3 + 2] = M.x0[i * 3 + 2] - mz; });
-    c.rot = [0, 0, 0, 1];
+function bite(hp, dir) {
+  if (!eaten) {
+    // 揺れている形をそのまま固めて、ブーリアン用の形にする
+    const g = M.mesh.geometry.clone(); g.computeVertexNormals();
+    eaten = new Brush(g, M.mesh.material);
+    eaten.castShadow = eaten.receiveShadow = true;
+    M.mesh.visible = false;
   }
+  const ball = new Brush(biteGeo, ankoMat);
+  ball.position.copy(hp).addScaledVector(dir, 0.15);
+  ball.rotation.set(Math.random() * 6, Math.random() * 6, 0);
+  ball.updateMatrixWorld(); eaten.updateMatrixWorld();
+  let res;
+  try { res = csg.evaluate(eaten, ball, SUBTRACTION); } catch { return; }
+  scene.remove(eaten); if (eaten.geometry !== M.mesh.geometry) eaten.geometry.dispose();
+  eaten = res; eaten.castShadow = eaten.receiveShadow = true; scene.add(eaten);
+  munch();
 }
 function munch() {
   if (!soundOn) return;
