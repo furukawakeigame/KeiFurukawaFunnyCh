@@ -676,7 +676,7 @@ const endPtr = e => {
   if (mode === 'done' && !ptr.moved) {
     // タップした所をひと口かじる
     setNdc(e); M.mesh.geometry.computeBoundingSphere();
-    const hit = ray.intersectObject(eaten || M.mesh)[0];
+    const hit = ray.intersectObjects(eaten ? [eaten.skin, eaten.anko] : [M.mesh])[0];
     if (hit) bite(hit.point, ray.ray.direction);
   }
   pressing = false; ptr = null;
@@ -687,28 +687,40 @@ gl.addEventListener('pointercancel', endPtr);
 // ブーリアン（引き算）でかじる：まんじゅうから球を引く。切り口はあんこ
 const csg = new Evaluator(); csg.attributes = ['position', 'uv', 'normal']; csg.useGroups = true;
 const ankoMat = new THREE.MeshStandardMaterial({ color: 0x3b1714, roughness: 0.7 });
-const biteGeo = new THREE.SphereGeometry(0.5, 40, 28);
-let eaten = null; // かじったあとのまんじゅう（形は固定）
+const doughMat = new THREE.MeshStandardMaterial({ color: 0xf2dfc0, roughness: 0.9 });
+const biteGeo = new THREE.SphereGeometry(0.8, 48, 32);
+const SKIN = 0.13; // 皮の厚み
+let eaten = null; // かじったあとのまんじゅう { skin, anko }（形は固定）
 function clearEaten() {
   if (!eaten) return;
-  scene.remove(eaten); eaten.geometry.dispose(); eaten = null; M.mesh.visible = true;
+  for (const m of [eaten.skin, eaten.anko]) { scene.remove(m); m.geometry.dispose(); }
+  eaten = null; M.mesh.visible = true;
 }
 function bite(hp, dir) {
   if (!eaten) {
-    // 揺れている形をそのまま固めて、ブーリアン用の形にする
-    const g = M.mesh.geometry.clone(); g.computeVertexNormals();
-    eaten = new Brush(g, M.mesh.material);
-    eaten.castShadow = eaten.receiveShadow = true;
+    // 揺れている形をそのまま固めて、皮（外側−内側の殻）とあんこ（内側）に分ける
+    const outer = M.mesh.geometry.clone(); outer.computeVertexNormals();
+    const inner = outer.clone(), p = inner.attributes.position, nr = outer.attributes.normal;
+    for (let i = 0; i < p.count; i++) p.setXYZ(i, p.getX(i) - nr.getX(i) * SKIN, Math.max(SKIN * 0.6, p.getY(i) - nr.getY(i) * SKIN), p.getZ(i) - nr.getZ(i) * SKIN);
+    inner.computeVertexNormals();
+    const ob = new Brush(outer, M.mesh.material), ib = new Brush(inner, doughMat);
+    ob.updateMatrixWorld(); ib.updateMatrixWorld();
+    eaten = { skin: csg.evaluate(ob, ib, SUBTRACTION), anko: new Brush(inner.clone(), ankoMat) };
+    outer.dispose();
+    for (const m of [eaten.skin, eaten.anko]) { m.castShadow = m.receiveShadow = true; scene.add(m); }
     M.mesh.visible = false;
   }
-  const ball = new Brush(biteGeo, ankoMat);
-  ball.position.copy(hp).addScaledVector(dir, 0.15);
+  const ball = new Brush(biteGeo, doughMat);
+  ball.position.copy(hp).addScaledVector(dir, -0.15); // 球の中心は表面の少し外：深さ 0.65 ほどかじる
   ball.rotation.set(Math.random() * 6, Math.random() * 6, 0);
-  ball.updateMatrixWorld(); eaten.updateMatrixWorld();
-  let res;
-  try { res = csg.evaluate(eaten, ball, SUBTRACTION); } catch { return; }
-  scene.remove(eaten); if (eaten.geometry !== M.mesh.geometry) eaten.geometry.dispose();
-  eaten = res; eaten.castShadow = eaten.receiveShadow = true; scene.add(eaten);
+  ball.updateMatrixWorld();
+  for (const k of ['skin', 'anko']) {
+    const cur = eaten[k]; cur.updateMatrixWorld();
+    ball.material = k === 'skin' ? doughMat : ankoMat;
+    let res; try { res = csg.evaluate(cur, ball, SUBTRACTION); } catch { continue; }
+    scene.remove(cur); cur.geometry.dispose();
+    res.castShadow = res.receiveShadow = true; scene.add(res); eaten[k] = res;
+  }
   munch();
 }
 function munch() {
