@@ -686,8 +686,43 @@ gl.addEventListener('pointercancel', endPtr);
 // 歯形：真ん中の丸のまわりに小さい丸を並べて、ふちをギザギザにする
 // ブーリアン（引き算）でかじる：まんじゅうから球を引く。切り口はあんこ
 const csg = new Evaluator(); csg.attributes = ['position', 'uv', 'normal']; csg.useGroups = true;
-const ankoMat = new THREE.MeshStandardMaterial({ color: 0x3b1714, roughness: 0.7 });
-const doughMat = new THREE.MeshStandardMaterial({ color: 0xf2dfc0, roughness: 0.9 });
+// 断面の絵：あんこ（つぶあん）と生地（細かい気泡）。色の絵とでこぼこの絵を一緒に作る
+function cutTex(draw, rep) {
+  const S = 512, c = document.createElement('canvas'), b = document.createElement('canvas');
+  c.width = c.height = b.width = b.height = S;
+  draw(c.getContext('2d'), b.getContext('2d'), S);
+  const mk = cv => { const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep[0], rep[1]); t.anisotropy = 4; return t; };
+  const map = mk(c); map.colorSpace = THREE.SRGBColorSpace;
+  return { map, bump: mk(b) };
+}
+const R01 = Math.random;
+const ankoT = cutTex((g, h, S) => {
+  g.fillStyle = '#4a1b1c'; g.fillRect(0, 0, S, S); h.fillStyle = '#808080'; h.fillRect(0, 0, S, S);
+  // こしたあんの細かいざらつき
+  for (let i = 0; i < 9000; i++) {
+    const x = R01() * S, y = R01() * S, r = 0.6 + R01() * 2.2, v = R01();
+    g.fillStyle = v < 0.5 ? `rgba(20,6,6,${0.25 + R01() * 0.3})` : `rgba(110,45,40,${0.15 + R01() * 0.25})`;
+    g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+    h.fillStyle = `rgba(${v < 0.5 ? 60 : 200},${v < 0.5 ? 60 : 200},${v < 0.5 ? 60 : 200},0.5)`; h.beginPath(); h.arc(x, y, r, 0, 7); h.fill();
+  }
+  // 小豆の皮のかけら（つやのある赤紫の粒）
+  for (let i = 0; i < 110; i++) {
+    const x = R01() * S, y = R01() * S, rx = 8 + R01() * 12, ry = rx * (0.35 + R01() * 0.35), a = R01() * 3.2;
+    for (const [gg, col] of [[g, '#2a0a10'], [h, '#e8e8e8']]) { gg.save(); gg.translate(x, y); gg.rotate(a); gg.fillStyle = col; gg.beginPath(); gg.ellipse(0, 0, rx, ry, 0, 0, 7); gg.fill(); gg.restore(); }
+    g.save(); g.translate(x, y); g.rotate(a); g.fillStyle = 'rgba(160,80,95,0.55)'; g.beginPath(); g.ellipse(-rx * 0.2, -ry * 0.3, rx * 0.5, ry * 0.3, 0, 0, 7); g.fill(); g.restore();
+  }
+}, [3, 2]);
+const doughT = cutTex((g, h, S) => {
+  g.fillStyle = '#f3e3c6'; g.fillRect(0, 0, S, S); h.fillStyle = '#b0b0b0'; h.fillRect(0, 0, S, S);
+  for (let i = 0; i < 3000; i++) { g.fillStyle = `rgba(${R01() < 0.5 ? '255,250,238' : '215,190,150'},${R01() * 0.35})`; g.fillRect(R01() * S, R01() * S, 2, 2); }
+  // ふんわりした生地の気泡
+  for (let i = 0; i < 1400; i++) {
+    const x = R01() * S, y = R01() * S, rx = 0.8 + Math.pow(R01(), 3) * 6, ry = rx * (0.5 + R01() * 0.5), a = R01() * 3.2;
+    for (const [gg, col] of [[g, `rgba(190,160,115,${0.35 + R01() * 0.3})`], [h, '#202020']]) { gg.save(); gg.translate(x, y); gg.rotate(a); gg.fillStyle = col; gg.beginPath(); gg.ellipse(0, 0, rx, ry, 0, 0, 7); gg.fill(); gg.restore(); }
+  }
+}, [4, 2]);
+const ankoMat = new THREE.MeshStandardMaterial({ map: ankoT.map, bumpMap: ankoT.bump, bumpScale: 2, roughness: 0.45, envMapIntensity: 0.6 });
+const doughMat = new THREE.MeshStandardMaterial({ map: doughT.map, bumpMap: doughT.bump, bumpScale: 2.5, roughness: 0.95, envMapIntensity: 0.5 });
 const biteGeo = new THREE.SphereGeometry(0.8, 48, 32);
 const SKIN = 0.13; // 皮の厚み
 let eaten = null; // かじったあとのまんじゅう { skin, anko }（形は固定）
@@ -712,7 +747,9 @@ function bite(hp, dir) {
   }
   const ball = new Brush(biteGeo, doughMat);
   ball.position.copy(hp).addScaledVector(dir, -0.15); // 球の中心は表面の少し外：深さ 0.65 ほどかじる
-  ball.rotation.set(Math.random() * 6, Math.random() * 6, 0);
+  // 球の絵の極（模様が集まる所）が見えないよう、軸をかじる向きと直角にする
+  const side = new THREE.Vector3(0, 1, 0).cross(dir); if (side.lengthSq() < 1e-4) side.set(1, 0, 0);
+  ball.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), side.normalize()); ball.rotateY(Math.random() * 6);
   ball.updateMatrixWorld();
   for (const k of ['skin', 'anko']) {
     const cur = eaten[k]; cur.updateMatrixWorld();
