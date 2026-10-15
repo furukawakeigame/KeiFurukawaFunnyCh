@@ -315,10 +315,10 @@ const sAct = new Uint8Array(SV), sSeam = new Uint8Array(SV), sSup = new Uint8Arr
 const srx = new Float32Array(SV), sry = new Float32Array(SV);
 let cons = null, simOn = false, hs = 1;
 // ハンガー（中心線の線分。2枚の布はこの太さより外に押し出される）
-const HR = 0.035 + 0.025;
+const HR = 0.035 + 0.045; // 布の点の間が管にかからないよう、すき間を多めに
 const HSEG = (() => {
   const top = armY(0) - 0.035, tipY = armY(TIP_X) - 0.035;
-  return [[-TIP_X, tipY - 0.03, 0, top], [0, top, TIP_X, tipY - 0.03], [-TIP_X, tipY - 0.03, TIP_X, tipY - 0.03]];
+  return [[-TIP_X, tipY - 0.03, 0, top], [0, top, TIP_X, tipY - 0.03], [-TIP_X, tipY - 0.03, TIP_X, tipY - 0.03], [0, top, 0, top + 0.32]];
 })();
 // 後ろ身ごろ（無地）
 const plainCanvas = document.createElement('canvas'); plainCanvas.width = texCanvas.width; plainCanvas.height = texCanvas.height;
@@ -433,11 +433,11 @@ function gridNormals(pos, nrm, n, sign) {
 }
 function prepSim() {
   // 動く粒、ハンガーに当たりうる粒（上の方だけ）、前後の重なりを防ぐ組
-  const mv = [], col = [], sep = [], lowY = armY(TIP_X) - 0.6;
+  const mv = [], col = [], sep = [];
   for (let k = 0; k < SV; k++) {
     if (!sAct[k]) continue;
     mv.push(k); if (!sSeam[k]) { mv.push(SV + k); sep.push(k); }
-    if (sry[k] > lowY) { col.push(k, sSup[k]); if (!sSeam[k]) col.push(SV + k, sSup[k]); }
+    col.push(k, sSup[k]); if (!sSeam[k]) col.push(SV + k, sSup[k]);
   }
   simMove = Int32Array.from(mv); simCol = Int32Array.from(col); simSep = Int32Array.from(sep);
 }
@@ -446,15 +446,19 @@ function prepSim() {
 let hangAng = 0, simAng = 0, simW = 0;
 const sx0 = new Float32Array(SV);
 function stepSim(dt) {
-  const SUB = 2, h = dt / SUB, G = 22 * h * h, ITER = 7;
   // 手で回せるくらいの速さ・勢いまでにする
-  let w = (hangAng - simAng) / dt; w = Math.max(-5, Math.min(5, w));
-  const al = Math.max(-25, Math.min(25, (w - simW) / dt));
+  let w = (hangAng - simAng) / dt; w = Math.max(-4, Math.min(4, w));
+  const al = Math.max(-20, Math.min(20, (w - simW) / dt));
   simAng = hangAng; simW = w;
+  // 速く回すときは細かく区切って計算する（すり抜け防止）
+  const SUB = 2 + Math.min(3, Math.ceil(Math.abs(w) * 0.8)), h = dt / SUB, G = 22 * h * h, ITER = 7, VM = 0.04;
+  const hyLo = armY(TIP_X) - 0.035 - 0.03 - HR, hyHi = armY(0) + 0.32 + HR;
   for (let sub = 0; sub < SUB; sub++) {
     for (let m = 0; m < simMove.length; m++) {
       const o = simMove[m] * 3;
-      const vx = (P[o] - PP[o]) * 0.993, vy = (P[o + 1] - PP[o + 1]) * 0.993, vz = (P[o + 2] - PP[o + 2]) * 0.993;
+      let vx = (P[o] - PP[o]) * 0.993, vy = (P[o + 1] - PP[o + 1]) * 0.993, vz = (P[o + 2] - PP[o + 2]) * 0.993;
+      // 1回で動ける距離はハンガーの太さより小さく
+      const vl = Math.sqrt(vx * vx + vy * vy + vz * vz); if (vl > VM) { vx *= VM / vl; vy *= VM / vl; vz *= VM / vl; }
       const x = P[o], z = P[o + 2], ux = vx / h, uz = vz / h;
       // 遠心力 + コリオリの力 + 回転の加減速による力（y 軸まわり）
       const ax = w * w * x - 2 * w * uz - al * z, az = w * w * z + 2 * w * ux + al * x;
@@ -477,6 +481,7 @@ function stepSim(dt) {
       // ハンガーにぶつかったら外へ押し出す。肩は腕の線より下へは抜けず、腕に乗った所は横にすべらない
       for (let m = 0; m < simCol.length; m += 2) {
         const o = simCol[m] * 3;
+        if (P[o + 1] < hyLo || P[o + 1] > hyHi) continue;
         if (simCol[m + 1] && P[o] <= TIP_X && P[o] >= -TIP_X) {
           const az = Math.abs(P[o + 2]), zz = az < HR * 0.95 ? az : HR * 0.95, ymin = armY(P[o]) - 0.035 + Math.sqrt(HR * HR - zz * zz);
           if (P[o + 1] < ymin) { P[o + 1] = ymin; P[o] = PP[o]; P[o + 2] = PP[o + 2] + (P[o + 2] - PP[o + 2]) * 0.5; }
