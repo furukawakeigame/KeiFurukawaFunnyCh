@@ -21,6 +21,8 @@
   <meta property="og:url" content="https://keifurukawafunnych.com/games/flipbook/">
   <meta property="og:image" content="https://keifurukawafunnych.com/games/flipbook/icon.png">
   <meta name="twitter:card" content="summary">
+  <!-- 投稿用の動画（MP4）を作るのに使う。読めなければ動画なしの投稿リンクになる -->
+  <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.js"></script>
   <style>
     html, body { margin: 0; height: 100%; background: #efe9dd; color: #3a3328; }
     /* ボタンを素早く連打してもダブルタップで拡大しないように */
@@ -67,6 +69,7 @@
       padding: 10px 20px; border-radius: 999px;
     }
     #share svg { width: 18px; height: 18px; fill: #fff; }
+    #msg { text-align: center; font-size: 13px; min-height: 1.2em; margin: -4px 0 0; color: #6b5233; }
   </style>
 </head>
 <body>
@@ -93,6 +96,7 @@
       <button class="btn" id="del"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></button>
     </div>
     <a id="share" href="#"><svg viewBox="0 0 24 24"><path d="M18.2 2.3h3.4l-7.4 8.4 8.7 11.5h-6.8l-5.3-7-6.1 7H1.3l7.9-9L.9 2.3h7l4.8 6.3zm-1.2 17.9h1.9L6.9 4.2H4.9z"/></svg><span id="shareLabel">ポストする</span></a>
+    <p id="msg"></p>
   </main>
   <script>
     const FPS = 24, MAX = FPS * 6, W = 640, H = 480;
@@ -111,6 +115,7 @@
         pen: 'ペン', eraser: '消しゴム', undo: '元に戻す', prev: '前のコマ', next: '次のコマ', play: '再生／停止',
         addBlank: '白紙のコマを追加', addCopy: 'このコマを複製して追加', del: 'このコマを削除',
         full: 'ストレージがいっぱいで保存できませんでした',
+        making: '動画を作っています…', again: '動画ができました。もう一度押してください', saved: '動画を保存しました。投稿に添付してください',
       },
       en: {
         title: 'Flipbook Maker', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
@@ -119,6 +124,7 @@
         pen: 'Pen', eraser: 'Eraser', undo: 'Undo', prev: 'Previous frame', next: 'Next frame', play: 'Play / Stop',
         addBlank: 'Add blank frame', addCopy: 'Duplicate this frame', del: 'Delete this frame',
         full: 'Storage is full, could not save',
+        making: 'Making the video…', again: 'Video ready. Tap again', saved: 'Video saved. Attach it to your post',
       },
     };
     let lang = store.get('lang', navigator.language.startsWith('ja') ? 'ja' : 'en');
@@ -130,7 +136,7 @@
       document.title = t('title');
       $('back').textContent = t('back');
       $('lang').textContent = t('lang'); $('lang').setAttribute('aria-label', t('langLabel'));
-      $('shareLabel').textContent = t('share');
+      $('shareLabel').textContent = t('share'); $('msg').textContent = '';
       for (const id of ['pen', 'eraser', 'undo', 'prev', 'next', 'play', 'addBlank', 'addCopy', 'del']) {
         $(id).title = t(id); $(id).setAttribute('aria-label', t(id));
       }
@@ -170,7 +176,7 @@
     // ---- 保存 ----
     let saveTimer = 0;
     function save() {
-      clearTimeout(saveTimer);
+      clearTimeout(saveTimer); changed();
       saveTimer = setTimeout(() => {
         if (!store.set('frames', frames.map(f => f.toDataURL('image/png')))) alert(t('full'));
       }, 400);
@@ -277,7 +283,81 @@
     });
 
     addEventListener('dblclick', e => e.preventDefault(), { passive: false });
-    load().then(() => { cur = 0; render(); applyLang(); });
+    // ---- 投稿用の動画 ----
+    // Xの投稿URLには動画を付けられないので、MP4を作って
+    // スマホは共有シートに動画と文を渡し、PCは動画を保存してから投稿画面を開く。
+    // 共有シートは「押した直後」でないと開けないので、描くたびに裏で作っておく。
+    const canVideo = () => 'VideoEncoder' in window && 'VideoFrame' in window && window.Mp4Muxer;
+    let version = 0, video = null, building = null, buildTimer = 0;
+    function changed() { version++; clearTimeout(buildTimer); buildTimer = setTimeout(buildVideo, 1500); }
+    async function encode() {
+      let cfg = null;
+      for (const codec of ['avc1.42001f', 'avc1.4d001f', 'avc1.640028']) {
+        const c = { codec, width: W, height: H, bitrate: 2e6, framerate: FPS };
+        try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; break; } } catch {}
+      }
+      if (!cfg) return null;
+      const target = new Mp4Muxer.ArrayBufferTarget();
+      const muxer = new Mp4Muxer.Muxer({ target, video: { codec: 'avc', width: W, height: H, frameRate: FPS }, fastStart: 'in-memory' });
+      let err = null;
+      const enc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: e => { err = e; } });
+      enc.configure(cfg);
+      // 短い作品は3秒以上になるまで繰り返す
+      const loops = Math.max(1, Math.ceil(FPS * 3 / frames.length));
+      const cv = newFrame(), c2 = cv.getContext('2d');
+      for (let i = 0; i < frames.length * loops; i++) {
+        c2.fillStyle = '#fff'; c2.fillRect(0, 0, W, H); c2.drawImage(frames[i % frames.length], 0, 0);
+        const vf = new VideoFrame(cv, { timestamp: Math.round(i * 1e6 / FPS), duration: Math.round(1e6 / FPS) });
+        enc.encode(vf, { keyFrame: i % FPS === 0 }); vf.close();
+        if (enc.encodeQueueSize > 10) await new Promise(r => setTimeout(r, 0));
+      }
+      await enc.flush(); enc.close();
+      if (err) throw err;
+      muxer.finalize();
+      return new File([target.buffer], 'flipbook.mp4', { type: 'video/mp4' });
+    }
+    function buildVideo() {
+      if (!canVideo()) return Promise.resolve(null);
+      if (building) return building;
+      const v = version;
+      building = encode().catch(() => null).then(file => {
+        building = null;
+        video = file ? { file, version: v } : null;
+        return v === version ? file : buildVideo();
+      });
+      return building;
+    }
+    const readyVideo = () => video && video.version === version ? video.file : null;
+    const postText = () => `${t('post')(frames.length)}\nhttps://keifurukawafunnych.com/games/flipbook/`;
+    function download(file) {
+      const a = document.createElement('a'), u = URL.createObjectURL(file);
+      a.href = u; a.download = file.name; a.click();
+      setTimeout(() => URL.revokeObjectURL(u), 10000);
+      $('msg').textContent = t('saved');
+    }
+    $('share').addEventListener('click', e => {
+      if (!canVideo()) return; // 動画が作れないときは普通の投稿リンク
+      stop();
+      const mobile = matchMedia('(pointer: coarse)').matches;
+      const file = readyVideo();
+      if (mobile) {
+        if (file && navigator.canShare?.({ files: [file] })) {
+          e.preventDefault();
+          navigator.share({ files: [file], text: postText() }).catch(err => { if (err.name !== 'AbortError') location.href = $('share').href; });
+        } else if (!file && navigator.canShare) {
+          // まだできていない：作り終えたら、もう一度押してもらう
+          e.preventDefault(); $('msg').textContent = t('making');
+          buildVideo().then(f => { $('msg').textContent = f ? t('again') : ''; if (!f) location.href = $('share').href; });
+        }
+        return;
+      }
+      if (file) { download(file); return; }
+      e.preventDefault(); $('msg').textContent = t('making');
+      const href = $('share').href, w = window.open('about:blank', '_blank');
+      buildVideo().then(f => { if (f) download(f); else $('msg').textContent = ''; if (w) w.location.href = href; else location.href = href; });
+    });
+
+    load().then(() => { cur = 0; render(); applyLang(); buildVideo(); });
   </script>
 </body>
 </html>
