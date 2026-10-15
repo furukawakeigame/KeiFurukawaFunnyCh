@@ -40,8 +40,10 @@
     #stage { position: relative; flex: 1; min-height: 0; }
     #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+    #label { position: absolute; left: 0; right: 0; top: 4px; pointer-events: none; transition: opacity .4s; }
+    #label.hide { opacity: 0; }
     #name {
-      text-align: center; font-weight: 800; font-size: clamp(22px, 7vw, 40px);
+      text-align: center; text-shadow: 0 2px 0 #fbf3e4, 0 0 12px #fbf3e4; font-weight: 800; font-size: clamp(22px, 7vw, 40px);
       min-height: 1.4em; padding: 0 12px; white-space: nowrap; overflow: hidden;
     }
     #count { text-align: center; font-size: 13px; color: #8a7558; min-height: 1.3em; }
@@ -64,12 +66,10 @@
     <button id="sound" aria-label="sound"></button>
     <button id="lang">EN</button>
   </header>
-  <div id="stage"><div id="msg"></div></div>
-  <div id="name"></div>
-  <div id="count"></div>
+  <div id="stage"><div id="label"><div id="name"></div><div id="count"></div></div><div id="msg"></div></div>
   <div id="controls"></div>
 
-  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
   <script>
     // CDN が読めないときの一言
     setTimeout(() => {
@@ -82,6 +82,7 @@
   </script>
   <script type="module">
     import * as THREE from 'three';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
     window.__ok = true;
 
     // ---------- 言葉 ----------
@@ -116,13 +117,24 @@
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.9;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     stage.prepend(renderer.domElement);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xfbf3e4);
     const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
-    scene.add(new THREE.HemisphereLight(0xffffff, 0xb59a74, 1.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+    scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environmentIntensity = 0.45;
+    scene.add(new THREE.HemisphereLight(0xffffff, 0xb59a74, 0.6));
+    const sun = new THREE.DirectionalLight(0xfff4e0, 2.0);
     sun.position.set(2, 5, 6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.camera.left = sun.shadow.camera.bottom = -3;
+    sun.shadow.camera.right = sun.shadow.camera.top = 3;
+    sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.02;
     scene.add(sun);
 
     // ---------- リール（横向きの円筒） ----------
@@ -193,36 +205,69 @@
     const foodRoot = new THREE.Group();
     foodRoot.position.y = FOOD_Y;
     scene.add(foodRoot);
-    const plate = new THREE.Mesh(new THREE.CylinderGeometry(1.55, 1.35, 0.1, 64), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 }));
+    const plate = new THREE.Mesh(new THREE.CylinderGeometry(1.55, 1.35, 0.1, 64), new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.15, clearcoat: 1 }));
     plate.position.y = -0.05;
+    plate.receiveShadow = true;
     foodRoot.add(plate);
     let food = null, foodSpin = 0, foodPop = 1, foodScale = 1;
     const fx = []; // 湯気・氷
 
-    const M = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.65, ...o });
+    const M = (color, o = {}) => new THREE.MeshPhysicalMaterial({ color, roughness: 0.65, ...o });
     const mesh = (geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); return m; };
     const rnd = (a, b) => a + Math.random() * (b - a);
 
+    // 焼き色などのムラ（白〜灰色の斑点。色に掛け合わせる）
+    const speckle = (() => {
+      const c = document.createElement('canvas'); c.width = c.height = 512;
+      const g = c.getContext('2d');
+      g.fillStyle = '#fff'; g.fillRect(0, 0, 512, 512);
+      for (let k = 0; k < 2500; k++) {
+        const v = 200 + Math.random() * 55 | 0;
+        g.fillStyle = `rgba(${v},${v * 0.97 | 0},${v * 0.92 | 0},0.5)`;
+        g.beginPath(); g.arc(Math.random() * 512, Math.random() * 512, 1 + Math.random() * 6, 0, 7); g.fill();
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    })();
+    // 高さで色を変える（上が焼き色、下が淡い色）
+    function shade(geo, top, bot, y0, y1, pow = 1) {
+      const pos = geo.attributes.position, col = [], a = new THREE.Color(bot), b = new THREE.Color(top), c = new THREE.Color();
+      for (let i = 0; i < pos.count; i++) {
+        const t = Math.pow(THREE.MathUtils.clamp((pos.getY(i) - y0) / (y1 - y0), 0, 1), pow);
+        c.copy(a).lerp(b, t); col.push(c.r, c.g, c.b);
+      }
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      return geo;
+    }
+    const baked = (geo, top, bot, y0, y1, { pow, ...o } = {}) => new THREE.Mesh(shade(geo, top, bot, y0, y1, pow), M(0xffffff, { vertexColors: true, map: speckle, bumpMap: speckle, bumpScale: 1.5, roughness: 0.75, ...o }));
+
     function noodles(g, { color, r, count, w, d, h, wave }) {
-      const mat = M(color, { roughness: 0.45 });
+      const base = new THREE.Color(color);
       for (let k = 0; k < count; k++) {
+        const mat = M(base.clone().offsetHSL(0, 0, rnd(-0.06, 0.04)), { roughness: 0.35 });
         const pts = [];
         const z0 = rnd(-d, d), y0 = rnd(0, h), ph = rnd(0, 6);
         for (let s = 0; s <= 10; s++) {
           const x = -w + 2 * w * s / 10;
           pts.push(new THREE.Vector3(x, y0 + Math.sin(s * 1.3 + ph) * h * 0.4 + h * 0.3, z0 + Math.sin(s * wave + ph) * 0.18));
         }
-        g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, r, 6), mat));
+        g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 48, r * rnd(0.85, 1.15), 7), mat));
       }
     }
 
     const BASES = [
       () => { // パン
         const g = new THREE.Group();
-        const bun = mesh(new THREE.CapsuleGeometry(0.5, 1.5, 8, 24), M(0xd99a52, { roughness: 0.7 }), 0, 0.36);
-        bun.rotation.z = Math.PI / 2; bun.scale.set(0.72, 1, 1);
-        g.add(bun);
-        return { g, top: 0.5, w: 1.0 };
+        // コッペパンに切れ目。左右の山の間に具が入る
+        for (const s of [-1, 1]) {
+          const geo = new THREE.CapsuleGeometry(0.34, 1.55, 10, 32).rotateZ(Math.PI / 2);
+          geo.scale(1, 1.1, 1);
+          const half = baked(geo, 0x8a3e0c, 0xe8c48a, -0.3, 0.2, { map: null, bumpMap: null, roughness: 0.55 });
+          half.position.set(0, 0.36, s * 0.24); half.rotation.x = -s * 0.32;
+          g.add(half);
+        }
+        return { g, top: 0.45, w: 0.95 };
       },
       () => { // ご飯
         const g = new THREE.Group();
@@ -230,18 +275,27 @@
         const rice = mesh(new THREE.SphereGeometry(0.9, 40, 16, 0, Math.PI * 2, 0, Math.PI / 2), M(0xfbfaf4, { roughness: 0.9 }), 0, 0.8);
         rice.scale.y = 0.3;
         g.add(bowl, rice);
+        const grains = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.03, 0.06, 2, 6), M(0xfdfcf6, { roughness: 0.5 }), 500);
+        const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+        for (let k = 0; k < 500; k++) {
+          const a = rnd(0, 6.28), r = Math.sqrt(Math.random()) * 0.86;
+          const y = 0.8 + Math.sqrt(Math.max(0, 0.81 - r * r)) * 0.3;
+          q.setFromEuler(e.set(rnd(0, 3), rnd(0, 3), rnd(0, 3)));
+          grains.setMatrixAt(k, m4.compose(new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r), q, new THREE.Vector3(1, 1, 1)));
+        }
+        g.add(grains);
         return { g, top: 0.95, w: 0.75 };
       },
       () => { // せんべい
         const g = new THREE.Group();
-        g.add(mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.14, 48), M(0xc4843f, { roughness: 0.9 }), 0, 0.07));
+        g.add(mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.14, 64, 2), M(0xb87436, { map: speckle, bumpMap: speckle, bumpScale: 4, roughness: 0.55 }), 0, 0.07));
         const nori = mesh(new THREE.BoxGeometry(0.9, 0.02, 0.5), M(0x1d2a1a), 0, 0.15, 0.55);
         g.add(nori);
         return { g, top: 0.15, w: 0.9 };
       },
       () => { // まん
         const g = new THREE.Group();
-        const m = mesh(new THREE.SphereGeometry(0.85, 40, 24), M(0xf7f1e4, { roughness: 0.85 }), 0, 0.6);
+        const m = mesh(new THREE.SphereGeometry(0.85, 48, 32), M(0xf7f1e4, { roughness: 0.6, sheen: 1, map: speckle }), 0, 0.6);
         m.scale.y = 0.72;
         g.add(m);
         return { g, top: 1.15, w: 0.55 };
@@ -255,14 +309,14 @@
       },
       () => { // もなか
         const g = new THREE.Group();
-        const mat = M(0xeccb8b, { roughness: 0.9 });
+        const mat = M(0xe6c07c, { roughness: 0.8, map: speckle, bumpMap: speckle, bumpScale: 3 });
         g.add(mesh(new THREE.BoxGeometry(1.5, 0.18, 1.0), mat, 0, 0.09));
         g.add(mesh(new THREE.BoxGeometry(1.4, 0.1, 0.9), M(0x4a1c1c), 0, 0.22));
         return { g, top: 0.27, w: 0.85 };
       },
       () => { // クレープ
         const g = new THREE.Group();
-        const c = mesh(new THREE.ConeGeometry(0.6, 1.5, 32, 1, true), M(0xf0cf8a, { side: THREE.DoubleSide }), 0, 0.75);
+        const c = mesh(new THREE.ConeGeometry(0.6, 1.5, 48, 4, true), M(0xeec27a, { side: THREE.DoubleSide, map: speckle, bumpMap: speckle, bumpScale: 2 }), 0, 0.75);
         c.rotation.x = Math.PI;
         g.add(c);
         const cream = mesh(new THREE.SphereGeometry(0.55, 24, 12), M(0xffffff, { roughness: 0.9 }), 0, 1.45);
@@ -394,7 +448,7 @@
         }
         if (ck.steam) {
           for (let k = 0; k < 6; k++) {
-            const s = mesh(new THREE.SphereGeometry(0.16, 12, 8), new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false }), rnd(-0.5, 0.5), 0, rnd(-0.2, 0.2));
+            const s = mesh(new THREE.SphereGeometry(0.22, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, depthWrite: false }), rnd(-0.5, 0.5), 0, rnd(-0.2, 0.2));
             s.userData = { t: k / 6, y0: base.top + 0.3 };
             food.add(s); fx.push(s);
           }
@@ -413,6 +467,8 @@
       const size = box.getSize(new THREE.Vector3());
       const s = Math.min(1, 2.9 / size.x, 2.9 / size.z, 1.9 / size.y);
       food.scale.setScalar(s);
+      food.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      fx.forEach(f => { f.castShadow = false; });
       foodRoot.add(food);
       foodPop = 0;
     }
@@ -443,8 +499,7 @@
       state = 'spin';
       beep(440, 0.08);
       drums.forEach(d => { d.spinning = true; d.target = null; });
-      document.getElementById('name').textContent = '';
-      document.getElementById('count').textContent = '';
+      document.getElementById('label').classList.add('hide');
       render();
     }
     function stop(i) {
@@ -472,6 +527,7 @@
 
     const words = () => result.map((k, i) => REELS[i][lang][k]);
     function render() {
+      document.getElementById('label').classList.toggle('hide', state === 'spin');
       document.documentElement.lang = lang;
       document.title = t('title');
       document.getElementById('back').textContent = t('back');
@@ -524,6 +580,15 @@
     addEventListener('pointerup', () => { drag = null; });
 
     // ---------- 画面サイズ ----------
+    const camFar = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
+    const camClose = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
+    let view = 0, viewWait = 0;
+    const _p = new THREE.Vector3(), _l = new THREE.Vector3();
+    function applyCam() {
+      const k = view * view * (3 - 2 * view);
+      camera.position.copy(_p.copy(camFar.pos).lerp(camClose.pos, k));
+      camera.lookAt(_l.copy(camFar.look).lerp(camClose.look, k));
+    }
     function resize() {
       const w = stage.clientWidth, h = stage.clientHeight;
       renderer.setSize(w, h, false);
@@ -534,10 +599,16 @@
       // 縦長で余った高さは、リールを下へ寄せて食べ物を大きくするのに使う
       const extra = Math.max(0, dist * half - needH);
       const lift = extra * 0.75;
-      camera.position.set(0, 0.9 + lift, dist);
-      camera.lookAt(0, -0.05 + lift, 0);
+      camFar.pos.set(0, 0.9 + lift, dist);
+      camFar.look.set(0, -0.05 + lift, 0);
       foodScale = Math.min(1.8, 1 + extra * 0.45);
       foodRoot.position.y = FOOD_Y + lift * 1.3;
+      // 結果: 食べ物に寄った斜め上からの眺め。上に料理名ぶんの余白を空ける
+      const fr = 1.75 * foodScale, cy = foodRoot.position.y + 0.55 * foodScale;
+      const cd = Math.max(fr / (half * camera.aspect), fr * 1.25 / half);
+      camClose.pos.set(0, cy + cd * 0.42, cd);
+      camClose.look.set(0, cy - fr * 0.12, 0);
+      applyCam();
       camera.updateProjectionMatrix();
     }
     addEventListener('resize', resize);
@@ -555,6 +626,10 @@
         if (d.bounce > 0) { d.bounce = Math.max(0, d.bounce - dt * 5); wob = Math.sin(d.bounce * Math.PI * 2) * 0.06 * d.bounce; }
         d.pivot.rotation.x = d.theta + wob;
       });
+      if (state === 'result') viewWait += dt; else viewWait = 0;
+      const goal = state === 'result' && viewWait > 0.35 ? 1 : 0;
+      view += Math.sign(goal - view) * Math.min(Math.abs(goal - view), dt * (goal ? 1.6 : 4));
+      applyCam();
       if (!drag) foodSpin += dt * 0.5;
       foodRoot.rotation.y = foodSpin;
       if (foodPop < 1) { foodPop = Math.min(1, foodPop + dt * 4); }
@@ -563,7 +638,7 @@
       for (const s of fx) {
         s.userData.t = (s.userData.t + dt * 0.5) % 1;
         s.position.y = s.userData.y0 + s.userData.t * 1.0;
-        s.material.opacity = 0.5 * (1 - s.userData.t);
+        s.material.opacity = 0.28 * Math.sin(s.userData.t * Math.PI); s.scale.setScalar(0.6 + s.userData.t);
       }
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
