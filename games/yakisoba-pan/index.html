@@ -904,7 +904,8 @@
 
     // ---------- 進行 ----------
     let state = 'idle'; // idle | spin | result
-    let pending = null, pendingKey = '';
+    let pending = null, pendingKey = '', stoppedAt = 0;
+    const justStopped = () => performance.now() - stoppedAt < 700;
     let spins = store.get('spins', 0);
     let result = [0, 0, 0];
     const controls = document.getElementById('controls');
@@ -922,6 +923,7 @@
       if (state !== 'spin' || !d.spinning || d.target !== null) return;
       // 次に正面へ来るコマで止まる（目押し）
       d.target = (Math.ceil(d.theta / STEP - 0.5) + 0.5) * STEP;
+      stoppedAt = performance.now();
       // 3つ目を押した時点で結果は決まるので、止まるまでの間に料理を作り始める
       if (drums.every(x => x.target !== null)) {
         const idx = drums.map(x => indexFor(x.target));
@@ -975,7 +977,7 @@
       } else {
         const b = document.createElement('button');
         b.className = 'go'; b.textContent = state === 'result' ? t('again') : t('start');
-        b.addEventListener('click', start);
+        b.addEventListener('click', () => { if (!justStopped()) start(); });
         controls.append(b);
         if (state === 'result') {
           const a = document.createElement('a');
@@ -986,6 +988,8 @@
           if (!shareFile && 'VideoEncoder' in window) a.classList.add('wait');
           // スマホは動画ごと共有シートへ。PCは動画を保存してから投稿画面を開く
           a.addEventListener('click', e => {
+            // ストップを押した指がそのまま投稿ボタンを押してしまわないように
+            if (justStopped()) { e.preventDefault(); return; }
             // スマホは最初から共有メニューを開く（動画ができていれば動画つき、まだなら文とURLだけ）
             if (coarse && navigator.share) {
               e.preventDefault();
