@@ -64,6 +64,12 @@ const $ = id => document.getElementById(id);
 const cv = $('cv'), ctx = cv.getContext('2d');
 if (!window.Matter) { $('err').hidden = false; $('err').textContent = 'ライブラリを読み込めませんでした / Failed to load library'; throw new Error('no matter'); }
 const { Engine, Bodies, Body, Composite, Constraint, Events } = Matter;
+// grip the floor hard, but let dominoes slide on each other so chains keep falling
+const pairUpdate = Matter.Pair.update;
+Matter.Pair.update = function (pair, collision, timestamp) {
+  pairUpdate(pair, collision, timestamp);
+  if (collision.parentA.isDomino && collision.parentB.isDomino) { pair.friction = .05; pair.frictionStatic = .2; }
+};
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('domino-stand:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -126,7 +132,7 @@ function spawnPos() { return { x: camX + viewW() * 0.18, y: 150 }; }
 function spawn() {
   const p = spawnPos();
   cur = Bodies.rectangle(p.x, p.y, DW, DH, { isStatic: true, friction: 1.5, frictionStatic: 3, frictionAir: .002, restitution: .05, density: .004 });
-  cur.waiting = true; cur.released = false;
+  cur.isDomino = true; cur.waiting = true; cur.released = false;
   Composite.add(engine.world, cur); dominoes.push(cur); settleT = 0;
 }
 function reset() {
