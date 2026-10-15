@@ -265,7 +265,7 @@
         outWho: n => `${n} 死亡`, surviveWho: n => `${n} 生存`, ask: 'ゲームを開始します', ready: '生き残れ',
         verdict: (n, r) => r === 1 ? `${n} 生存` : `${n} ${r}位で死亡`, winner: n => `生存者 ${n}`,
         msg: ['最後の1人になった', 'あと一歩で生き残れた', 'よく粘った', 'ここまでだった', '早すぎる死', '真っ先に死亡…'],
-        posText: p => p === Infinity ? '100万桁以内に出なかった' : `${p.toLocaleString()}桁目`,
+        posText: p => p === Infinity ? '1億桁以内に出なかった' : `${p.toLocaleString()}桁目`,
         shareText: (num, pos, r) => `円周率デスゲームで「${num}」を選んだら、出てきたのは${pos}。6人中${r}でした`,
         sharePvp: (n, num, pos) => `円周率デスゲーム（${n}人）の生存者は「${num}」！${pos}まで生き残った`,
       },
@@ -281,7 +281,7 @@
         outWho: n => `${n} is dead`, surviveWho: n => `${n} survives`, ask: 'The game begins', ready: 'Survive.',
         verdict: (n, r) => r === 1 ? `${n} survives` : `${n}: died in ${rankEn(r)}`, winner: n => `Survivor: ${n}`,
         msg: ['Last one standing', 'One step from survival', 'Held on well', 'This was the end', 'Died too soon', 'First to die…'],
-        posText: p => p === Infinity ? 'beyond 1,000,000' : p.toLocaleString(),
+        posText: p => p === Infinity ? 'beyond 100,000,000' : p.toLocaleString(),
         shareText: (num, pos, r) => `In Pi Death Game I picked "${num}" — it showed up at digit ${pos}. ${r} of 6`,
         sharePvp: (n, num, pos) => `Pi Death Game (${n} players): "${num}" survived until digit ${pos} of pi`,
       },
@@ -302,9 +302,22 @@
     }
     langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
 
-    // 円周率（小数点以下100万桁）
-    let PI = null;
-    const piReady = fetch('pi.txt').then(r => r.text()).then(s => { PI = s.trim(); });
+    // 円周率（小数点以下1億桁）。100万桁ずつのファイル digits/00.txt〜99.txt に分け、必要になった分だけ読む
+    const CHUNK = 1000000, NCHUNK = 100, TOTAL = CHUNK * NCHUNK;
+    const chunks = [];
+    const loadChunk = i => chunks[i] ??= fetch(`digits/${String(i).padStart(2, '0')}.txt`).then(r => r.text()).then(s => (chunks[i] = s.trim()));
+    loadChunk(0);
+    // 各数字が小数点以下何桁目から始まるかを、先頭のファイルから順に探す（つなぎ目をまたぐ数字も見つける）
+    async function findAll(list) {
+      const pos = new Map(list.map(n => [n, Infinity]));
+      let tail = '';
+      for (let i = 0; i < NCHUNK && [...pos.values()].includes(Infinity); i++) {
+        const text = tail + await loadChunk(i), base = i * CHUNK - tail.length;
+        for (const [n, v] of pos) if (v === Infinity) { const k = text.indexOf(n); if (k >= 0) pos.set(n, base + k + 1); }
+        tail = text.slice(-4);
+      }
+      return pos;
+    }
 
     // ---- モード・人数・数字を選ぶ ----
     let mode = store.get('mode', 'cpu');          // 'cpu' | 'pvp'
@@ -399,7 +412,6 @@
     // ---- かくれんぼ ----
     let players = [], cursor = 0, events = [], timer = 0, fast = false, done = false, myRank = 0, runId = 0;
     async function start(nums) {
-      await piReady;
       const used = new Set(nums.map(e => e.num));
       if (mode === 'cpu') {
         const pool = [...CPU_JA.keys()].sort(() => Math.random() - 0.5);
@@ -408,10 +420,10 @@
           if (!used.has(n)) { used.add(n); nums.push({ num: n, cpu: pool.pop() }); }
         }
       }
-      players = nums.map(({ num, name, cpu }, i) => {
-        const k = PI.indexOf(num);
-        return { num, name, cpu, i, pos: k < 0 ? Infinity : k + 1, out: false, rank: 0 };   // pos = 小数点以下何桁目から始まるか
-      });
+      $('go').disabled = true;
+      const found = await findAll(nums.map(e => e.num));
+      players = nums.map(({ num, name, cpu }, i) =>
+        ({ num, name, cpu, i, pos: found.get(num), out: false, rank: 0 }));   // pos = 小数点以下何桁目から始まるか
       // 先に出た人から脱落。最後まで出なかった人が1位
       events = [...players].sort((a, b) => a.pos - b.pos);
       events.forEach((p, j) => { p.rank = players.length - j; });
@@ -437,7 +449,7 @@
 
     // 横一列の帯。at（小数でもよい）の桁がレンズの左端に来るよう左へ流す
     const SIDE = 18;
-    const ch = k => k >= 1 ? (PI[k - 1] ?? '') : k === 0 ? '.' : k === -1 ? '3' : '\u00a0';
+    const ch = k => k >= 1 ? (typeof chunks[Math.floor((k - 1) / CHUNK)] === 'string' ? chunks[Math.floor((k - 1) / CHUNK)][(k - 1) % CHUNK] ?? '' : '') : k === 0 ? '.' : k === -1 ? '3' : '\u00a0';
     function renderTape(at, hit) {
       const base = Math.floor(at);
       let html = '';
@@ -455,10 +467,10 @@
       if (id !== runId) return;
       const remaining = events.filter(p => !p.out);
       if (!remaining.length) return finish();
-      // 1位の人も最後までスクロールして見つける（100万桁以内にいなければ端まで）
+      // 1位の人も最後までスクロールして見つける（1億桁以内にいなければ端まで）
       const next = remaining[0].pos !== Infinity ? remaining[0] : null;
       // 次の出現位置まで、対数スケールで進む（3.14 の「3」から始める）
-      const from = cursor, to = next ? next.pos : PI.length - 5;
+      const from = cursor, to = next ? next.pos : TOTAL - 5;
       const lg = x => Math.log(x + 3);
       const dur = fast ? 250 : cursor < 1 ? 2400 : 1600;
       const t0 = performance.now();
