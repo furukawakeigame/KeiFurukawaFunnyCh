@@ -304,7 +304,7 @@ function initSim(dy) {
   }
   const rx = new Float32Array(SV), ry = new Float32Array(SV);
   for (let b = 0; b <= S; b++) for (let a = 0; a <= S; a++) {
-    const k = b * (S + 1) + a, v = Math.round(b / S * N) * (N + 1) + Math.round(a / S * N), w = wr[v] * amp;
+    const k = b * (S + 1) + a, v = Math.round(b / S * N) * (N + 1) + Math.round(a / S * N), w = sw;
     rx[k] = (a / S - 0.5) * CW; ry[k] = Y0 - b / S * CH;
     // 今のシワで縮んだ形から始める
     sp[k * 3] = spp[k * 3] = bx[v] + ox[v] * w;
@@ -374,47 +374,53 @@ function drawSim() {
   clothGeo.computeVertexNormals();
 }
 
-// くしゃくしゃの形：ところどころに鋭い折り目（三角波）を重ね、ふちはめくれ上がらせる
+// くしゃくしゃの形：なめらかなデコボコ（値ノイズ）に、長さも向きもばらばらの折り目を重ね、ふちはめくれ上がらせる
+function valueNoise(cells) {
+  const g = new Float32Array((cells + 2) * (cells + 2)).map(() => Math.random() * 2 - 1);
+  const sm = t => t * t * (3 - 2 * t);
+  return (x, z) => {
+    const fx = (x / CW + 0.5) * cells, fz = (z / CH + 0.5) * cells, i = Math.floor(fx), j = Math.floor(fz), u = sm(fx - i), w = sm(fz - j);
+    const G = (a, b) => g[Math.min(cells + 1, Math.max(0, b)) * (cells + 2) + Math.min(cells + 1, Math.max(0, a))];
+    return (G(i, j) * (1 - u) + G(i + 1, j) * u) * (1 - w) + (G(i, j + 1) * (1 - u) + G(i + 1, j + 1) * u) * w;
+  };
+}
 function makeCrumple() {
+  const n1 = valueNoise(3), n2 = valueNoise(7), n3 = valueNoise(15);
   const folds = [];
-  for (let k = 0; k < 22; k++) {
-    const a = Math.random() * Math.PI * 2, f = 0.6 + Math.random() * 1.8;
-    folds.push({ cx: (Math.random() - 0.5) * CW, cz: (Math.random() - 0.5) * CH, r: 0.6 + Math.random() * 1.1,
-      dx: Math.cos(a), dz: Math.sin(a), f, ph: Math.random(), a: (0.07 + Math.random() * 0.09) / Math.sqrt(f) });
+  for (let k = 0; k < 120; k++) {
+    const a = Math.random() * Math.PI * 2;
+    folds.push({ cx: (Math.random() - 0.5) * CW * 1.1, cz: (Math.random() - 0.5) * CH * 1.1, dx: Math.cos(a), dz: Math.sin(a),
+      len: 0.2 + Math.random() * 0.9, wid: 0.06 + Math.random() * 0.22, a: (Math.random() < 0.7 ? 1 : -1) * (0.05 + Math.random() * 0.12) });
   }
-  const p1 = Math.random() * 6, p2 = Math.random() * 6;
   let mn = Infinity;
   for (let v = 0; v < NV; v++) {
     const x = bx[v], z = bz[v];
-    let h = 0.16 * Math.sin(x * 1.4 + p1) * Math.sin(z * 1.2 + p2) + 0.1 * Math.sin(x * 2.3 - z * 1.7 + p2);
+    let h = 0.26 * n1(x, z) + 0.13 * n2(x, z) + 0.05 * n3(x, z);
     for (const F of folds) {
-      const ex = x - F.cx, ez = z - F.cz, env = Math.exp(-(ex * ex + ez * ez) / (F.r * F.r));
-      if (env < 0.01) continue;
-      const s = (x * F.dx + z * F.dz) * F.f + F.ph, tri = 1 - 4 * Math.abs(s - Math.floor(s) - 0.5);
-      h += F.a * env * tri;
+      const ex = x - F.cx, ez = z - F.cz, along = ex * F.dx + ez * F.dz;
+      if (Math.abs(along) > F.len * 2.2) continue;
+      const across = Math.abs(-ex * F.dz + ez * F.dx);
+      if (across > F.wid) continue;
+      // 折り目は鋭い山（または谷）で、両端に向かって消える
+      h += F.a * (1 - across / F.wid) * Math.exp(-(along * along) / (F.len * F.len));
     }
     h += 0.3 * Math.exp(-edgeDist[v] / 0.22);
     oy[v] = h; if (inShirt[v] && h < mn) mn = h;
   }
-  for (let v = 0; v < NV; v++) oy[v] = Math.max(0, oy[v] - mn);
-  // 折り目に合わせて布を寄せる（画像がゆがむ）＋全体を少し縮める
-  const sx = CW / N, sz = CH / N;
-  for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
-    const v = j * (N + 1) + i;
-    const gx = (oy[j * (N + 1) + Math.min(N, i + 1)] - oy[j * (N + 1) + Math.max(0, i - 1)]) / (2 * sx);
-    const gz = (oy[Math.min(N, j + 1) * (N + 1) + i] - oy[Math.max(0, j - 1) * (N + 1) + i]) / (2 * sz);
-    ox[v] = -gx * 0.06 - bx[v] * 0.16; oz[v] = -gz * 0.06 - bz[v] * 0.16;
-  }
+  for (let v = 0; v < NV; v++) { oy[v] = Math.max(0, oy[v] - mn); ox[v] = -bx[v] * 0.16; oz[v] = -bz[v] * 0.16; }
 }
 function resetCloth() {
   wr.fill(1); heat.fill(0); burn.fill(0); cap.fill(Infinity); amp = 0; ccol.fill(1);
   clothGeo.attributes.color.needsUpdate = true; dirty = true;
 }
 const rawY = v => BASE_Y + oy[v] * wr[v] * amp;
+let sw = 0; // 服全体の縮み具合（場所ごとに変えると布が重なって裏が見えるので一様にする）
 function updateCloth() {
+  let sum = 0, cnt = 0;
+  for (let v = 0; v < NV; v++) if (inShirt[v]) { sum += wr[v]; cnt++; }
+  sw = sum / cnt * amp;
   for (let v = 0; v < NV; v++) {
-    const w = wr[v] * amp;
-    cpos[v * 3] = bx[v] + ox[v] * w; cpos[v * 3 + 1] = Math.min(BASE_Y + oy[v] * w, cap[v]); cpos[v * 3 + 2] = bz[v] + oz[v] * w;
+    cpos[v * 3] = bx[v] + ox[v] * sw; cpos[v * 3 + 1] = Math.min(BASE_Y + oy[v] * wr[v] * amp, cap[v]); cpos[v * 3 + 2] = bz[v] + oz[v] * sw;
   }
   clothGeo.attributes.position.needsUpdate = true;
   clothGeo.computeVertexNormals();
@@ -578,6 +584,7 @@ function resize() {
 // ---- 画面の流れ ----
 let mode = 'start'; // start | cut | crumple | play | result
 let anim = 0, demo = 0, clothTop = 0;
+const rot = { drag: null, vel: 0, hinted: false, lx: 0, lt: 0 };
 function setMode(m) {
   mode = m; anim = 0;
   $('cut').style.display = m === 'cut' ? 'block' : 'none';
@@ -587,7 +594,7 @@ function setMode(m) {
   $('barResult').classList.toggle('hide', m !== 'result');
   iron.visible = m !== 'result';
   hanger.visible = false;
-  simOn = false;
+  simOn = false; rot.drag = null; rot.vel = 0; rot.hinted = false;
   if (m !== 'result') { hang.rotation.set(0, 0, 0); cloth.rotation.set(0, 0, 0); cloth.position.set(0, 0, 0); }
   if (m === 'result') { ir.pressing = false; setSound(0, 0); for (const P of puffs) P.s.visible = false; }
   if (m === 'cut') { erasing = false; $('erase').classList.remove('on'); updateCutDone(); }
@@ -778,6 +785,7 @@ function aim(e) {
 }
 gl.addEventListener('pointerdown', e => {
   if (mode === 'start') { startPlay(); return; }
+  if (mode === 'result') { gl.setPointerCapture(e.pointerId); rot.drag = e.pointerId; rot.lx = e.clientX; rot.lt = performance.now(); rot.vel = 0; rot.hinted = true; return; }
   if (mode !== 'play' && mode !== 'crumple') return;
   if (ptrId !== null) return;
   e.preventDefault(); initAudio();
@@ -785,11 +793,18 @@ gl.addEventListener('pointerdown', e => {
   demo = 0; aim(e); ir.pressing = true;
 });
 gl.addEventListener('pointermove', e => {
+  if (mode === 'result' && e.pointerId === rot.drag) {
+    const now = performance.now(), d = (e.clientX - rot.lx) * 0.012, dt = Math.max(0.008, (now - rot.lt) / 1000);
+    hang.rotation.y += d; rot.vel = rot.vel * 0.5 + d / dt * 0.5; rot.lx = e.clientX; rot.lt = now;
+    return;
+  }
   if (mode !== 'play' && mode !== 'crumple') return;
   if (ptrId === null && e.pointerType === 'mouse') { aim(e); return; }
   if (e.pointerId === ptrId) aim(e);
 });
-const up = e => { if (e.pointerId !== ptrId) return; ptrId = null; ir.pressing = false; };
+const up = e => {
+  if (e.pointerId === rot.drag) { rot.drag = null; if (performance.now() - rot.lt > 80) rot.vel = 0; return; }
+  if (e.pointerId !== ptrId) return; ptrId = null; ir.pressing = false; };
 gl.addEventListener('pointerup', up);
 gl.addEventListener('pointercancel', up);
 
@@ -826,7 +841,9 @@ function frame(dt) {
       if (k >= 1) { cloth.rotation.x = 0; cloth.position.y = 0; initSim(dy); }
     }
     if (simOn) { stepSim(dt); drawSim(); }
-    hang.rotation.y = anim > 3 ? Math.sin((anim - 3) * 0.6) * 0.5 : 0;
+    // ドラッグで回す（離すと惰性で回って止まる）
+    if (!rot.drag) { hang.rotation.y += rot.vel * dt; rot.vel *= Math.exp(-dt * 1.5); }
+    if (anim > 2.2 && !rot.hinted) { rot.hinted = true; if (!rot.drag) rot.vel = 2.2; }
   }
   stepPuffs(dt);
   if (dirty) { updateCloth(); dirty = false; }
