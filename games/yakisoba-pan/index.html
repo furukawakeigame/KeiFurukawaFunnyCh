@@ -235,7 +235,6 @@
     const plate = new THREE.Mesh(new THREE.LatheGeometry([[0, 0], [1.3, 0], [1.45, 0.05], [1.62, 0.12], [1.6, 0.13], [1.4, 0.07], [0, 0.07]].map(([x, y]) => new THREE.Vector2(x, y - 0.1)), 96),
       new THREE.MeshPhysicalMaterial({ color: 0xfbfbf8, roughness: 0.12, clearcoat: 1 }));
     plate.receiveShadow = true; plate.castShadow = true;
-    foodScene.add(plate);
     const foodRoot = new THREE.Group();
     foodScene.add(foodRoot);
     let food = null, foodSpin = 0, foodPop = 1;
@@ -364,17 +363,27 @@
       },
       () => { // せんべい
         const g = new THREE.Group();
-        g.add(mesh(shade(organic(new THREE.CylinderGeometry(1.1, 1.1, 0.14, 96, 4), 0.04, 3), 0x8a4a1a, 0xc98a48, 0, 0.07, 1, 0.5), M(0xffffff, { vertexColors: true, map: speckle, bumpMap: speckle, bumpScale: 4, roughness: 0.45, clearcoat: 0.3 }), 0, 0.07));
-        const nori = mesh(new THREE.BoxGeometry(0.9, 0.02, 0.5), M(0x1d2a1a), 0, 0.15, 0.55);
+        g.add(mesh(shade(organic(new THREE.CylinderGeometry(1.1, 1.1, 0.14, 96, 4), 0.04, 3), 0x7a3a12, 0xc98a48, 0, 0.07, 1, 0.6), M(0xffffff, { vertexColors: true, map: speckle, bumpMap: speckle, bumpScale: 5, roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.4 }), 0, 0.07));
+        // 海苔: 少し波打った薄いシート
+        const nori = mesh(organic(new THREE.BoxGeometry(0.9, 0.012, 0.5, 24, 1, 12), 0.025, 4), M(0x15200f, { roughness: 0.45, bumpMap: speckle, bumpScale: 3, sheen: 0.5, sheenColor: 0x3a5a2a }), 0, 0.15, 0.62);
+        nori.rotation.x = 0.25;
         g.add(nori);
         return { g, top: 0.15, w: 0.9 };
       },
       () => { // まん
         const g = new THREE.Group();
-        const m = mesh(organic(new THREE.SphereGeometry(0.85, 96, 48), 0.025, 2.5), M(0xf7f1e4, { roughness: 0.55, sheen: 1, sheenColor: 0xffffff }), 0, 0.6);
+        const geo = organic(new THREE.SphereGeometry(0.85, 96, 48), 0.025, 2.5);
+        // 下はすぼまってしわが寄る
+        const p = geo.attributes.position;
+        for (let i = 0; i < p.count; i++) { const y = p.getY(i); if (y < -0.3) { const k = 1 + (y + 0.3) * 0.25; p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * k); p.setY(i, Math.max(y, -0.62)); } }
+        geo.computeVertexNormals();
+        const m = mesh(geo, M(0xf7f1e4, { roughness: 0.5, sheen: 1, sheenColor: 0xffffff, bumpMap: speckle, bumpScale: 0.4 }), 0, 0.45);
         m.scale.y = 0.72;
         g.add(m);
-        return { g, top: 1.15, w: 0.55 };
+        // 焼き印
+        const mark = mesh(new THREE.TorusGeometry(0.16, 0.025, 8, 32), M(0x6a3410, { roughness: 0.6 }), 0, 0.89, 0);
+        mark.rotation.x = Math.PI / 2; g.add(mark);
+        return { g, top: 0.95, w: 0.55 };
       },
       () => { // ピザ
         const g = new THREE.Group();
@@ -464,30 +473,53 @@
       },
       (w) => { // うどん
         const g = new THREE.Group();
-        noodles(g, { color: 0xf3eedb, r: 0.07, count: 16, w, d: 0.26, h: 0.3, curl: 0.45, rough: 0.25 });
-        flakes(g, { color: 0x5aa03a, n: 40, size: 0.06, w: w * 0.6, d: 0.18, y0: 0.32, y1: 0.4 });
+        noodles(g, { color: 0xf3eedb, r: 0.07, count: 18, w, d: 0.26, h: 0.3, curl: 0.45, rough: 0.2 });
+        // かまぼこ・油揚げ・ねぎ
+        const kama = new THREE.Group();
+        kama.add(mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.07, 48, 1, false, 0, Math.PI), M(0xfffaf2, { roughness: 0.35 })));
+        const pink = mesh(new THREE.CylinderGeometry(0.235, 0.235, 0.07, 48, 1, true, 0, Math.PI), M(0xf06a8a, { roughness: 0.35 }));
+        kama.add(pink);
+        kama.position.set(-w * 0.45, 0.4, 0.05); kama.rotation.set(Math.PI / 2 - 0.3, 0, 0.2);
+        const age = mesh(organic(new THREE.BoxGeometry(0.42, 0.06, 0.32, 12, 2, 10), 0.03, 5), M(0xc8862e, { roughness: 0.4, clearcoat: 0.6, bumpMap: speckle, bumpScale: 4 }), w * 0.35, 0.38, 0);
+        age.rotation.set(0.2, 0.4, -0.15);
+        g.add(kama, age);
+        flakes(g, { color: 0x5aa03a, n: 60, size: 0.06, w: w * 0.6, d: 0.18, y0: 0.34, y1: 0.42 });
         return g;
       },
       (w) => { // ラーメン
         const g = new THREE.Group();
-        noodles(g, { color: 0xeac457, r: 0.028, count: 45, w, d: 0.26, h: 0.26, curl: 1.1 });
-        const naruto = mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 24), M(0xffffff), -w * 0.4, 0.42, 0);
+        noodles(g, { color: 0xeac457, r: 0.028, count: 50, w, d: 0.26, h: 0.26, curl: 1.1 });
+        // なると
+        const nTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); x.fillStyle = '#fffaf4'; x.fillRect(0, 0, 128, 128); x.strokeStyle = '#e8508a'; x.lineWidth = 7; x.beginPath(); for (let a = 0; a < 18; a += 0.1) { const r = a * 2.8; x.lineTo(64 + Math.cos(a) * r, 64 + Math.sin(a) * r); } x.stroke(); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+        const naruto = mesh(organic(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 48), 0.01, 10), [M(0xfffaf4, { roughness: 0.3 }), M(0xffffff, { map: nTex, roughness: 0.3 }), M(0xffffff, { map: nTex, roughness: 0.3 })], -w * 0.4, 0.4, 0.05);
         naruto.rotation.x = 0.5;
-        const swirl = mesh(new THREE.TorusGeometry(0.1, 0.025, 8, 24), M(0xe05080), 0, 0.03, 0);
-        swirl.rotation.x = Math.PI / 2;
-        naruto.add(swirl);
-        const chashu = mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.06, 24), M(0xa3683a), w * 0.4, 0.4, 0);
+        // チャーシュー: 外側が濃い色、脂の層
+        const chashu = mesh(shade(organic(new THREE.CylinderGeometry(0.3, 0.3, 0.06, 64, 1), 0.03, 6), 0x6a3010, 0xe8c0a0, 0.25, 0.3, 1, 0.5), M(0xffffff, { vertexColors: true, roughness: 0.3, clearcoat: 0.7 }), w * 0.38, 0.38, 0);
+        // shade は y 基準なので、半径で色を付け直す
+        { const geo = chashu.geometry, p = geo.attributes.position, col = geo.attributes.color, a = new THREE.Color(0xd8a080), b = new THREE.Color(0x5a2408), f = new THREE.Color(0xf6e6d0), c = new THREE.Color();
+          for (let i = 0; i < p.count; i++) { const r = Math.hypot(p.getX(i), p.getZ(i)) / 0.3; c.copy(a).lerp(b, THREE.MathUtils.smoothstep(r, 0.85, 1)); if (Math.abs(r - 0.6 - fbm(p.getX(i) * 6, 0, p.getZ(i) * 6) * 0.2) < 0.06) c.copy(f); col.setXYZ(i, c.r, c.g, c.b); } }
         chashu.rotation.x = -0.4;
-        g.add(naruto, chashu);
+        // メンマ・海苔
+        for (let k = 0; k < 4; k++) { const m = mesh(new THREE.BoxGeometry(0.3, 0.05, 0.07), M(0xb58a3a, { roughness: 0.4, clearcoat: 0.5, bumpMap: speckle, bumpScale: 3 }), rnd(-0.15, 0.15), 0.38, 0.22 + rnd(-0.05, 0.05)); m.rotation.set(rnd(-0.3, 0.3), rnd(-0.5, 0.5), rnd(-0.3, 0.3)); g.add(m); }
+        const nori = mesh(organic(new THREE.BoxGeometry(0.45, 0.5, 0.01, 10, 10, 1), 0.02, 4), M(0x15200f, { roughness: 0.45, bumpMap: speckle, bumpScale: 3 }), 0, 0.5, -0.26);
+        nori.rotation.x = -0.25;
+        g.add(naruto, chashu, nori);
+        flakes(g, { color: 0x5aa03a, n: 30, size: 0.05, w: 0.25, d: 0.15, y0: 0.36, y1: 0.42 });
         return g;
       },
       (w) => { // カレー
         const g = new THREE.Group();
-        const roux = mesh(organic(new THREE.SphereGeometry(1, 64, 32), 0.08, 3), M(0x8a4a12, { roughness: 0.2, clearcoat: 1, clearcoatRoughness: 0.15 }), 0, 0.05);
+        const roux = mesh(organic(new THREE.SphereGeometry(1, 96, 48), 0.08, 3), M(0x7a3e0e, { roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.12 }), 0, 0.05);
         roux.scale.set(w, 0.16, 0.42);
         g.add(roux);
-        const cols = [0xf08a24, 0xf4e2a0, 0x7a3a1a];
-        for (let k = 0; k < 8; k++) g.add(mesh(organic(new THREE.BoxGeometry(0.16, 0.16, 0.16, 4, 4, 4), 0.02, 9), M(cols[k % 3], { roughness: 0.35, clearcoat: 0.6 }), rnd(-w * 0.7, w * 0.7), 0.15, rnd(-0.22, 0.22)));
+        // じゃがいも・にんじん・牛肉（角が丸い）
+        const kinds = [[0xe8c070, 0.17], [0xe8701c, 0.13], [0x5a2a14, 0.15]];
+        for (let k = 0; k < 9; k++) {
+          const [c, sz] = kinds[k % 3];
+          const geo = organic(new THREE.SphereGeometry(sz, 24, 16).scale(1, 0.75, 0.9), 0.025, 8);
+          const m = mesh(geo, M(c, { roughness: 0.3, clearcoat: 0.8, bumpMap: speckle, bumpScale: 1 }), rnd(-w * 0.7, w * 0.7), 0.13, rnd(-0.22, 0.22));
+          m.rotation.set(rnd(0, 3), rnd(0, 3), rnd(0, 3)); g.add(m);
+        }
         return g;
       },
       () => { // プリン
@@ -546,73 +578,212 @@
       },
       () => { // たこ
         const g = new THREE.Group();
-        const red = M(0xc8402e, { roughness: 0.3, clearcoat: 0.7, sheen: 0.5, sheenColor: 0xffb0a0 });
-        const head = mesh(organic(new THREE.SphereGeometry(0.32, 64, 32), 0.025, 5), red, 0, 0.55, 0);
-        head.scale.y = 1.25;
+        const skin = M(0xffffff, { vertexColors: true, roughness: 0.28, clearcoat: 0.8, sheen: 0.5, sheenColor: 0xffb0a0, bumpMap: speckle, bumpScale: 1 });
+        // 上は赤、下(吸盤側)は白っぽい
+        const tint = (geo) => { geo.computeVertexNormals(); const n = geo.attributes.normal, p = geo.attributes.position, col = [], a = new THREE.Color(0xb02a1a), b = new THREE.Color(0xf6d2c0), c = new THREE.Color();
+          for (let i = 0; i < n.count; i++) { c.copy(a).lerp(b, THREE.MathUtils.clamp(-n.getY(i) * 0.9 + fbm(p.getX(i) * 8, p.getY(i) * 8, p.getZ(i) * 8) * 0.3, 0, 1)); col.push(c.r, c.g, c.b); }
+          geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); return geo; };
+        const headGeo = organic(new THREE.SphereGeometry(0.3, 64, 32).scale(1, 1.35, 1.1), 0.03, 5);
+        const head = mesh(tint(headGeo), skin, 0, 0.62, -0.12);
+        head.rotation.x = -0.35;
         g.add(head);
-        for (const s of [-1, 1]) g.add(mesh(new THREE.SphereGeometry(0.06, 12, 8), M(0x111111), s * 0.12, 0.42, 0.28));
+        for (const s of [-1, 1]) {
+          const eye = mesh(new THREE.SphereGeometry(0.07, 24, 16), M(0xf2e0c8, { roughness: 0.2 }), s * 0.17, 0.42, 0.13);
+          eye.add(mesh(new THREE.SphereGeometry(0.035, 16, 12), M(0x111111, { roughness: 0.05, clearcoat: 1 }), 0, 0, 0.05));
+          g.add(eye);
+        }
         for (let k = 0; k < 8; k++) {
-          const a = k / 8 * Math.PI * 2;
-          const pts = [new THREE.Vector3(0, 0.3, 0), new THREE.Vector3(Math.cos(a) * 0.3, 0.1, Math.sin(a) * 0.3),
-            new THREE.Vector3(Math.cos(a) * 0.55, 0.05, Math.sin(a) * 0.55), new THREE.Vector3(Math.cos(a + 0.4) * 0.65, 0.15, Math.sin(a + 0.4) * 0.65)];
-          g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, 0.055, 8), red));
+          const a = k / 8 * Math.PI * 2 + 0.2;
+          const pts = [new THREE.Vector3(Math.cos(a) * 0.12, 0.35, Math.sin(a) * 0.12), new THREE.Vector3(Math.cos(a) * 0.35, 0.1, Math.sin(a) * 0.35),
+            new THREE.Vector3(Math.cos(a) * 0.6, 0.05, Math.sin(a) * 0.6), new THREE.Vector3(Math.cos(a + 0.5) * 0.75, rnd(0.08, 0.25), Math.sin(a + 0.5) * 0.75),
+            new THREE.Vector3(Math.cos(a + 0.9) * 0.7, rnd(0.15, 0.35), Math.sin(a + 0.9) * 0.7)];
+          const curve = new THREE.CatmullRomCurve3(pts), SEG = 48, RAD = 10;
+          const geo = new THREE.TubeGeometry(curve, SEG, 0.07, RAD);
+          // 先に向かって細くする
+          const p = geo.attributes.position, v = new THREE.Vector3();
+          for (let j = 0; j <= SEG; j++) {
+            const t = j / SEG, c = curve.getPointAt(t), k2 = 1 - t * 0.88;
+            for (let r = 0; r <= RAD; r++) { const i = j * (RAD + 1) + r; v.fromBufferAttribute(p, i).sub(c).multiplyScalar(k2).add(c); p.setXYZ(i, v.x, v.y, v.z); }
+          }
+          g.add(new THREE.Mesh(tint(geo), skin));
         }
         return g;
       },
     ];
 
-    // 調理法: 色をどれだけ寄せるか・つや
-    const COOK = [
-      { c: 0x5a2d0c, a: 0.32 },                 // 焼き
-      { c: 0xd8901c, a: 0.45, rough: 0.9 },     // 揚げ
-      { c: 0xffffff, a: 0.2, steam: true },     // 蒸し
-      { c: 0x7a4a1a, a: 0.28, rough: 0.12 },    // 煮
-      { c: 0x3a2008, a: 0.22, rough: 0.25 },    // 炒め
-      null,                                     // 生
-      { c: 0x3a1e0a, a: 0.55 },                 // 燻製
-      { c: 0xbfe0ff, a: 0.4, rough: 0.15, ice: true }, // 冷やし
-    ];
+    // ---------- 調理法 ----------
+    // 器: 焼き=鉄板 / 揚げ=敷き紙の皿 / 蒸し=せいろ / 煮=煮汁の鉢 / 炒め=フライパン / 生=皿 / 燻製=まな板 / 冷やし=氷のガラス鉢
+    let vessel = null;
+    const vesselRoot = new THREE.Group();
+    foodScene.add(vesselRoot);
+    function makePlate() {
+      return new THREE.Mesh(new THREE.LatheGeometry([[0, 0], [1.3, 0], [1.45, 0.05], [1.62, 0.12], [1.6, 0.13], [1.4, 0.07], [0, 0.07]].map(([x, y]) => new THREE.Vector2(x, y - 0.1)), 96),
+        new THREE.MeshPhysicalMaterial({ color: 0xfbfbf8, roughness: 0.12, clearcoat: 1 }));
+    }
+    const woodTex = (base, line) => {
+      const c = document.createElement('canvas'); c.width = c.height = 256;
+      const g = c.getContext('2d'); g.fillStyle = base; g.fillRect(0, 0, 256, 256);
+      for (let k = 0; k < 90; k++) { g.strokeStyle = line; g.globalAlpha = rnd(0.05, 0.25); g.lineWidth = rnd(1, 3); const y = rnd(0, 256); g.beginPath(); g.moveTo(0, y); for (let x = 0; x <= 256; x += 16) g.lineTo(x, y + Math.sin(x * 0.02 + k) * 4); g.stroke(); }
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+    };
+    function makeVessel(cook) {
+      const g = new THREE.Group();
+      let floor = -0.03;
+      if (cook === 0) { // 鉄板と木の台
+        g.add(mesh(new THREE.BoxGeometry(3.4, 0.14, 2.4), M(0xffffff, { map: woodTex('#7a4a22', '#2a1408'), roughness: 0.6 }), 0, -0.03));
+        const iron = M(0x1c1c1e, { roughness: 0.35, metalness: 0.8 });
+        g.add(mesh(new THREE.BoxGeometry(3.0, 0.06, 2.0), iron, 0, 0.07));
+        for (let k = -6; k <= 6; k++) g.add(mesh(new THREE.BoxGeometry(2.9, 0.04, 0.05), iron, 0, 0.11, k * 0.15));
+        floor = 0.12;
+      } else if (cook === 1) { // 敷き紙
+        g.add(makePlate());
+        const paper = mesh(organic(new THREE.BoxGeometry(2.0, 0.005, 2.0, 20, 1, 20), 0.03, 2), M(0xf4ecd8, { roughness: 0.95, bumpMap: speckle, bumpScale: 1 }), 0, 0.0);
+        paper.rotation.y = 0.6; g.add(paper);
+        floor = 0.01;
+      } else if (cook === 2) { // せいろ
+        const bamboo = M(0xffffff, { map: woodTex('#d8b070', '#8a6030'), roughness: 0.7 });
+        g.add(mesh(new THREE.CylinderGeometry(1.65, 1.65, 0.5, 64, 1, true), Object.assign(bamboo.clone(), { side: THREE.DoubleSide }), 0, 0.15));
+        g.add(mesh(new THREE.TorusGeometry(1.65, 0.05, 8, 64).rotateX(Math.PI / 2), bamboo, 0, 0.4));
+        g.add(mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.03, 64), M(0xc8a060, { roughness: 0.8 }), 0, -0.08));
+        // 敷き布
+        g.add(mesh(organic(new THREE.CylinderGeometry(1.3, 1.3, 0.01, 48, 1), 0.04, 3), M(0xf2efe6, { roughness: 1, bumpMap: speckle, bumpScale: 2 }), 0, -0.05));
+        floor = -0.04;
+      } else if (cook === 3) { // 煮汁の鉢
+        const bowl = new THREE.LatheGeometry([[0, -0.1], [1.2, -0.1], [1.6, 0.15], [1.75, 0.45], [1.7, 0.47], [1.55, 0.2], [1.1, -0.03], [0, -0.03]].map(([x, y]) => new THREE.Vector2(x, y)), 96);
+        g.add(mesh(bowl, M(0x3a1a12, { roughness: 0.2, clearcoat: 1, side: THREE.DoubleSide })));
+        const broth = mesh(new THREE.CircleGeometry(1.62, 96).rotateX(-Math.PI / 2), new THREE.MeshPhysicalMaterial({ color: 0x8a5a20, roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.82 }), 0, 0.3);
+        broth.castShadow = false; broth.userData.noShadow = true;
+        g.add(broth);
+        floor = -0.03;
+      } else if (cook === 4) { // フライパン
+        const iron = M(0x26262a, { roughness: 0.4, metalness: 0.7 });
+        const pan = new THREE.LatheGeometry([[0, -0.1], [1.45, -0.1], [1.75, 0.25], [1.8, 0.27], [1.5, -0.05], [0, -0.05]].map(([x, y]) => new THREE.Vector2(x, y)), 96);
+        g.add(mesh(pan, Object.assign(iron.clone(), { side: THREE.DoubleSide })));
+        const handle = mesh(new THREE.CylinderGeometry(0.09, 0.11, 1.6, 24).rotateZ(Math.PI / 2), M(0x3a2414, { roughness: 0.5 }), 2.55, 0.25);
+        handle.rotation.z = 0.12; g.add(handle);
+        g.add(mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.4, 16).rotateZ(Math.PI / 2), iron, 1.85, 0.2));
+        floor = -0.05;
+      } else if (cook === 6) { // まな板
+        g.add(mesh(organic(new THREE.BoxGeometry(3.3, 0.16, 2.3, 16, 2, 12), 0.01, 2), M(0xffffff, { map: woodTex('#c08a50', '#5a3010'), roughness: 0.75, bumpMap: speckle, bumpScale: 1 }), 0, -0.02));
+        // 燻製用のチップ
+        for (let k = 0; k < 18; k++) { const c = mesh(new THREE.BoxGeometry(0.12, 0.03, 0.06), M(rnd(0, 1) < 0.5 ? 0x5a3418 : 0x2a1a10, { roughness: 0.9 }), rnd(-1.5, 1.5), 0.075, (rnd(0, 1) < 0.5 ? -1 : 1) * rnd(0.85, 1.05)); c.rotation.y = rnd(0, 3); g.add(c); }
+        floor = 0.06;
+      } else if (cook === 7) { // 氷のガラス鉢
+        const glass = new THREE.MeshPhysicalMaterial({ color: 0xe8f4ff, roughness: 0.02, transparent: true, opacity: 0.35, clearcoat: 1, side: THREE.DoubleSide });
+        g.add(mesh(new THREE.LatheGeometry([[0, -0.1], [1.3, -0.1], [1.75, 0.3], [1.72, 0.32], [1.27, -0.06], [0, -0.06]].map(([x, y]) => new THREE.Vector2(x, y)), 96), glass));
+        const ice = new THREE.MeshPhysicalMaterial({ color: 0xf2f8ff, roughness: 0.08, transparent: true, opacity: 0.7, clearcoat: 1 });
+        for (let k = 0; k < 70; k++) {
+          const a = rnd(0, 6.28), r = rnd(0.2, 1.55);
+          const c = mesh(organic(new THREE.IcosahedronGeometry(rnd(0.09, 0.16), 1), 0.03, 8), ice, Math.cos(a) * r, -0.03 + r * 0.12 + rnd(0, 0.06), Math.sin(a) * r);
+          c.rotation.set(rnd(0, 3), rnd(0, 3), rnd(0, 3)); c.userData.noShadow = true; g.add(c);
+        }
+        floor = 0.06;
+      } else { // 生
+        g.add(makePlate());
+        floor = -0.03;
+      }
+      g.traverse(o => { if (o.isMesh) { o.receiveShadow = true; o.castShadow = !o.userData.noShadow; } });
+      return { g, floor };
+    }
+
+    // 料理そのものの見た目を調理法ごとに変える（頂点の色・形・質感）
+    function cookPass(food, cook) {
+      food.updateMatrixWorld(true);
+      const inv = new THREE.Matrix4().copy(food.matrixWorld).invert();
+      const rel = new THREE.Matrix4(), nm = new THREE.Matrix3(), v = new THREE.Vector3(), n = new THREE.Vector3(), c = new THREE.Color();
+      const drops = [];
+      food.traverse(o => {
+        if (!o.isMesh || o.isInstancedMesh || o.userData.fx) return;
+        o.geometry = o.geometry.clone();
+        const geo = o.geometry;
+        if (cook === 1) organic(geo, 0.022, 16); // 衣のざらざら
+        if (!geo.attributes.normal) geo.computeVertexNormals();
+        rel.multiplyMatrices(inv, o.matrixWorld); nm.getNormalMatrix(rel);
+        const pos = geo.attributes.position, nor = geo.attributes.normal, old = geo.attributes.color;
+        const col = new Float32Array(pos.count * 3);
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(rel); n.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize();
+          if (old) c.fromBufferAttribute(old, i); else c.setRGB(1, 1, 1);
+          const nz = fbm(v.x * 5, v.y * 5, v.z * 5);
+          if (cook === 0) { // 焼き: 全体に焼き色、上面に網目の焼き跡
+            c.multiply(new THREE.Color().setRGB(0.78 + nz * 0.15, 0.6 + nz * 0.12, 0.42));
+            const stripe = Math.abs(Math.sin((v.x * 0.8 + v.z) * 9));
+            if (n.y > 0.2 && stripe > 0.82) c.multiplyScalar(0.18);
+          } else if (cook === 1) { // 揚げ: きつね色の衣
+            const k = 0.5 + nz * 0.25;
+            c.lerp(new THREE.Color().setRGB(0.85 * k + 0.2, 0.52 * k + 0.1, 0.12), 0.85);
+          } else if (cook === 2) { // 蒸し: ふっくら白っぽく
+            c.lerp(new THREE.Color(1, 1, 1), 0.25);
+          } else if (cook === 3) { // 煮: 煮汁がしみて茶色
+            c.multiply(new THREE.Color().setRGB(0.72, 0.48, 0.26)).multiplyScalar(1 + nz * 0.15);
+          } else if (cook === 4) { // 炒め: ところどころ焦げ目
+            if (nz > 0.25) c.multiply(new THREE.Color().setRGB(0.45, 0.28, 0.14)); else c.multiplyScalar(0.92);
+          } else if (cook === 6) { // 燻製: 上ほど濃い飴色
+            const k = THREE.MathUtils.clamp(0.5 + v.y * 0.5 + nz * 0.2, 0, 1);
+            c.multiply(new THREE.Color().setRGB(0.75, 0.45, 0.2).lerp(new THREE.Color(0.35, 0.16, 0.06), k));
+          } else if (cook === 7) { // 冷やし: 霜がつく
+            c.lerp(new THREE.Color(0.85, 0.93, 1), 0.25);
+            if (n.y > 0.3 && nz > 0.3) c.lerp(new THREE.Color(1, 1, 1), 0.8);
+            if (n.y > 0.5 && Math.random() < 0.004 && drops.length < 60) drops.push(v.clone().addScaledVector(n, 0.02));
+          }
+          col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        o.material = mats.map(m0 => {
+          const m = m0.clone(); m.vertexColors = true;
+          if (cook === 1) { m.roughness = 0.55; m.clearcoat = 0.5; m.bumpMap = speckle; m.bumpScale = 3; }
+          if (cook === 2) { m.roughness = 0.35; m.clearcoat = 0.8; m.clearcoatRoughness = 0.3; }
+          if (cook === 3 || cook === 4) { m.roughness = 0.15; m.clearcoat = 1; m.clearcoatRoughness = 0.1; }
+          if (cook === 6) { m.roughness = 0.3; m.clearcoat = 0.8; }
+          if (cook === 7) { m.roughness = 0.2; m.clearcoat = 1; }
+          return m;
+        });
+        if (o.material.length === 1) o.material = o.material[0];
+      });
+      // インスタンス（青のり・米粒）は色だけ寄せる
+      food.traverse(o => {
+        if (!o.isInstancedMesh) return;
+        o.material = o.material.clone();
+        const t = [0x8a5a2a, 0xd89a3a, 0xffffff, 0x8a5a2a, 0x6a4a2a, null, 0x5a2a10, 0xe0f0ff][cook];
+        if (t !== null) o.material.color.lerp(new THREE.Color(t), cook === 0 || cook === 6 ? 0.35 : 0.2);
+      });
+      if (cook === 7) {
+        const dm = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0, transparent: true, opacity: 0.5, clearcoat: 1 });
+        for (const d of drops) food.add(mesh(new THREE.SphereGeometry(rnd(0.015, 0.03), 10, 8).scale(1, 0.7, 1), dm, d.x, d.y, d.z));
+      }
+    }
+
+    function addWisps(food, top, color, opacity) {
+      for (let k = 0; k < 8; k++) {
+        const s = mesh(new THREE.SphereGeometry(0.22, 16, 12), new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false }), rnd(-0.5, 0.5), 0, rnd(-0.3, 0.3));
+        s.userData = { t: k / 8, y0: top + 0.2, op: opacity, fx: true };
+        food.add(s); fx.push(s);
+      }
+    }
 
     function buildFood(idx) {
-      if (food) { foodRoot.remove(food); food.traverse(o => { o.geometry?.dispose(); o.material?.dispose?.(); }); }
+      if (food) { foodRoot.remove(food); food.traverse(o => { o.geometry?.dispose(); }); }
+      if (vessel) vesselRoot.remove(vessel.g);
       fx.length = 0;
       food = new THREE.Group();
       const base = BASES[idx[2]]();
       const fill = FILLS[idx[1]](base.w);
       fill.position.y = base.top;
       food.add(base.g, fill);
-      const ck = COOK[idx[0]];
-      if (ck) {
-        const tint = new THREE.Color(ck.c);
-        food.traverse(o => {
-          if (!o.material) return;
-          o.material = o.material.clone();
-          o.material.color.lerp(tint, ck.a);
-          if (ck.rough !== undefined) o.material.roughness = ck.rough;
-        });
-        if (ck.steam) {
-          for (let k = 0; k < 6; k++) {
-            const s = mesh(new THREE.SphereGeometry(0.22, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, depthWrite: false }), rnd(-0.5, 0.5), 0, rnd(-0.2, 0.2));
-            s.userData = { t: k / 6, y0: base.top + 0.3 };
-            food.add(s); fx.push(s);
-          }
-        }
-        if (ck.ice) {
-          for (let k = 0; k < 6; k++) {
-            const a = k / 6 * Math.PI * 2 + 0.3;
-            const c = mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), new THREE.MeshStandardMaterial({ color: 0xdff2ff, transparent: true, opacity: 0.55, roughness: 0.05 }), Math.cos(a) * 1.3, 0.14, Math.sin(a) * 1.0);
-            c.rotation.set(rnd(0, 1), rnd(0, 1), rnd(0, 1));
-            food.add(c);
-          }
-        }
-      }
       // 大きすぎるものは縮める
       const box = new THREE.Box3().setFromObject(food);
       const size = box.getSize(new THREE.Vector3());
-      const s = Math.min(1, 2.9 / size.x, 2.9 / size.z, 1.9 / size.y);
+      const s = Math.min(1, 2.9 / size.x, 2.6 / size.z, 1.9 / size.y);
       food.scale.setScalar(s);
-      food.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-      fx.forEach(f => { f.castShadow = false; });
+      cookPass(food, idx[0]);
+      const top = new THREE.Box3().setFromObject(food).max.y / s;
+      if (idx[0] === 2) addWisps(food, top, 0xffffff, 0.28);
+      if (idx[0] === 6) addWisps(food, top, 0x8a8a8a, 0.22);
+      food.traverse(o => { if (o.isMesh) { o.castShadow = !o.userData.fx; o.receiveShadow = true; } });
+      vessel = makeVessel(idx[0]);
+      vesselRoot.add(vessel.g);
+      food.position.y = vessel.floor;
       foodRoot.add(food);
       foodBox.setFromObject(food);
       fitFoodCam();
@@ -739,7 +910,7 @@
       foodCam.aspect = W / Math.max(1, fh);
       const half = Math.tan(THREE.MathUtils.degToRad(foodCam.fov / 2));
       const size = foodBox.getSize(new THREE.Vector3());
-      const top = Math.max(1.0, foodBox.max.y) + 0.1, hw = Math.max(1.65, size.x / 2, size.z / 2);
+      const top = Math.max(1.0, foodBox.max.y) + 0.1, hw = Math.max(1.85, size.x / 2, size.z / 2);
       const dist = Math.max(hw / (half * foodCam.aspect), top / half * 0.9) + hw * 0.2;
       foodDist = dist; foodCy = top * 0.38;
       placeFoodCam();
@@ -776,13 +947,14 @@
       });
       if (!drag) foodSpin += dt * 0.5;
       foodRoot.rotation.y = foodSpin;
+      vesselRoot.rotation.y = foodSpin;
       if (foodPop < 1) { foodPop = Math.min(1, foodPop + dt * 4); }
       const p = foodPop, sc = 1 + Math.sin(p * Math.PI) * 0.08;
       foodRoot.scale.set(sc * p, sc * p, sc * p);
       for (const s of fx) {
         s.userData.t = (s.userData.t + dt * 0.5) % 1;
         s.position.y = s.userData.y0 + s.userData.t * 1.0;
-        s.material.opacity = 0.28 * Math.sin(s.userData.t * Math.PI); s.scale.setScalar(0.6 + s.userData.t);
+        s.material.opacity = s.userData.op * Math.sin(s.userData.t * Math.PI); s.scale.setScalar(0.6 + s.userData.t);
       }
       renderer.setScissorTest(true);
       renderer.setViewport(0, 0, W, drumH); renderer.setScissor(0, 0, W, drumH);
