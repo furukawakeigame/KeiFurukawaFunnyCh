@@ -50,6 +50,7 @@
     #controls .stop { flex: 0 0 64px; width: 64px; border-radius: 50%; margin: 0 auto; background: #d9472b; box-shadow: 0 4px 0 #9c2c17; }
     #controls .stop:disabled { background: #cdbfa8; box-shadow: none; cursor: default; }
     #controls .cell { flex: 1; display: flex; }
+    .post.wait { opacity: .55; }
     .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 34% !important; font-size: 17px !important; }
     #controls button:active:not(:disabled), #controls a:active { transform: translateY(3px); box-shadow: none; }
   </style>
@@ -63,6 +64,7 @@
   <div id="stage"><div id="msg"></div></div>
   <div id="controls"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.min.js"></script>
   <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
   <script>
     // CDN が読めないときの一言
@@ -92,10 +94,10 @@
     const DICT = {
       ja: { title: '焼きそばパン', back: '← トップへ戻る', lang: 'EN', start: 'スタート', again: 'もう一回', stop: 'ストップ',
             post: 'Xに投稿', count: n => `${n}回目`, name: w => w.join(''),
-            share: w => `「${w.join('')}」ができた #焼きそばパン` },
+            share: w => `「${w.join('')}」ができた #焼きそばパンゲーム` },
       en: { title: 'Yakisoba Bread', back: '← Back to top', lang: '日本語', start: 'START', again: 'AGAIN', stop: 'STOP',
             post: 'Post', count: n => `Spin #${n}`, name: w => w.join(' '),
-            share: w => `I made "${w.join(' ')}" #YakisobaBread` },
+            share: w => `I made "${w.join(' ')}" #焼きそばパンゲーム` },
     };
     const SHARE_URL = 'https://keifurukawafunnych.com/games/yakisoba-pan/';
     const store = {
@@ -762,6 +764,58 @@
       }
     }
 
+    function setWisp(s, t) {
+      s.userData.t = t;
+      s.position.y = s.userData.y0 + t;
+      s.material.opacity = s.userData.op * Math.sin(t * Math.PI); s.scale.setScalar(0.6 + t);
+    }
+
+    // ---------- X投稿用の動画（料理が1周する。最初と最後がつながるループ） ----------
+    const VSIZE = 720, VFPS = 30, VFRAMES = 120; // 4秒で1周。湯気も4秒で2周するので切れ目がない
+    let vr = null, shareFile = null, shareKey = '';
+    async function makeVideo(key) {
+      if (!('VideoEncoder' in window) || !window.Mp4Muxer) return;
+      let cfg = null;
+      for (const codec of ['avc1.640028', 'avc1.4d0028', 'avc1.42001f']) {
+        const c = { codec, width: VSIZE, height: VSIZE, bitrate: 6e6, framerate: VFPS };
+        try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; break; } } catch {}
+      }
+      if (!cfg || shareKey !== key) return;
+      if (!vr) {
+        vr = new THREE.WebGLRenderer({ antialias: true });
+        vr.setPixelRatio(1); vr.setSize(VSIZE, VSIZE, false);
+        vr.outputColorSpace = renderer.outputColorSpace; vr.toneMapping = renderer.toneMapping; vr.toneMappingExposure = renderer.toneMappingExposure;
+        vr.shadowMap.enabled = true; vr.shadowMap.type = renderer.shadowMap.type;
+      }
+      const cam = new THREE.PerspectiveCamera(foodCam.fov, 1, 0.1, 100);
+      const keep = [foodDist, foodCy];
+      fitCam(cam, 1);
+      const el = THREE.MathUtils.degToRad(20);
+      cam.position.set(0, foodCy + Math.sin(el) * foodDist, Math.cos(el) * foodDist); cam.lookAt(0, foodCy, 0);
+      [foodDist, foodCy] = keep;
+      const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: VSIZE, height: VSIZE, frameRate: VFPS }, fastStart: 'in-memory' });
+      let failed = false;
+      const enc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: () => { failed = true; } });
+      enc.configure(cfg);
+      const t0 = fx.map(f => f.userData.t);
+      for (let i = 0; i < VFRAMES; i++) {
+        if (shareKey !== key || failed) { try { enc.close(); } catch {} return; }
+        const a = i / VFRAMES * Math.PI * 2;
+        foodRoot.rotation.y = vesselRoot.rotation.y = a;
+        foodRoot.scale.setScalar(1);
+        fx.forEach((f, k) => setWisp(f, (t0[k] + i / VFRAMES * 2) % 1));
+        vr.render(foodScene, cam);
+        const frame = new VideoFrame(vr.domElement, { timestamp: Math.round(i * 1e6 / VFPS), duration: Math.round(1e6 / VFPS) });
+        enc.encode(frame, { keyFrame: i % 60 === 0 }); frame.close();
+        if (i % 3 === 2) await new Promise(r => requestAnimationFrame(r));
+      }
+      fx.forEach((f, k) => setWisp(f, t0[k]));
+      await enc.flush(); enc.close(); muxer.finalize();
+      if (shareKey !== key || failed) return;
+      shareFile = new File([muxer.target.buffer], 'yakisoba-pan.mp4', { type: 'video/mp4' });
+      render();
+    }
+
     function buildFood(idx) {
       if (food) { foodRoot.remove(food); food.traverse(o => { o.geometry?.dispose(); }); }
       if (vessel) vesselRoot.remove(vessel.g);
@@ -813,6 +867,7 @@
 
     function start() {
       if (state === 'spin') return;
+      shareKey = ''; shareFile = null;
       state = 'spin';
       beep(440, 0.08);
       drums.forEach(d => { d.spinning = true; d.target = null; });
@@ -835,6 +890,9 @@
         result = drums.map(x => x.index);
         spins++; store.set('spins', spins);
         state = 'result';
+        shareFile = null; shareKey = result.join(',') + ':' + spins;
+        const key = shareKey;
+        setTimeout(() => makeVideo(key).catch(() => {}), 700);
         buildFood(result);
         render();
       }
@@ -867,7 +925,23 @@
           const a = document.createElement('a');
           a.className = 'post'; a.textContent = t('post');
           a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(words()))}&url=${encodeURIComponent(SHARE_URL)}`;
-          if (!matchMedia('(pointer: coarse)').matches) { a.target = '_blank'; a.rel = 'noopener'; }
+          const coarse = matchMedia('(pointer: coarse)').matches;
+          if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
+          if (!shareFile && 'VideoEncoder' in window) a.classList.add('wait');
+          // スマホは動画ごと共有シートへ。PCは動画を保存してから投稿画面を開く
+          a.addEventListener('click', e => {
+            if (!shareFile) return;
+            if (coarse && navigator.canShare?.({ files: [shareFile] })) {
+              e.preventDefault();
+              navigator.share({ files: [shareFile], text: `${t('share')(words())}\n${SHARE_URL}` }).catch(err => { if (err.name !== 'AbortError') location.href = a.href; });
+              return;
+            }
+            if (!coarse) {
+              const d = document.createElement('a');
+              d.href = URL.createObjectURL(shareFile); d.download = shareFile.name; d.click();
+              setTimeout(() => URL.revokeObjectURL(d.href), 10000);
+            }
+          });
           controls.append(a);
         }
       }
@@ -905,16 +979,15 @@
       foodCam.position.set(0, foodCy + Math.sin(foodElev) * foodDist, Math.cos(foodElev) * foodDist);
       foodCam.lookAt(0, foodCy, 0);
     }
-    function fitFoodCam() {
-      const fh = foodH;
-      foodCam.aspect = W / Math.max(1, fh);
-      const half = Math.tan(THREE.MathUtils.degToRad(foodCam.fov / 2));
+    function fitFoodCam() { fitCam(foodCam, W / Math.max(1, foodH)); placeFoodCam(); }
+    function fitCam(cam, aspect) {
+      cam.aspect = aspect;
+      const half = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
       const size = foodBox.getSize(new THREE.Vector3());
       const top = Math.max(1.0, foodBox.max.y) + 0.1, hw = Math.max(1.85, size.x / 2, size.z / 2);
-      const dist = Math.max(hw / (half * foodCam.aspect), top / half * 0.9) + hw * 0.2;
+      const dist = Math.max(hw / (half * aspect), top / half * 0.9) + hw * 0.2;
       foodDist = dist; foodCy = top * 0.38;
-      placeFoodCam();
-      foodCam.updateProjectionMatrix();
+      cam.updateProjectionMatrix();
     }
     function resize() {
       W = stage.clientWidth; H = stage.clientHeight;
@@ -951,11 +1024,7 @@
       if (foodPop < 1) { foodPop = Math.min(1, foodPop + dt * 4); }
       const p = foodPop, sc = 1 + Math.sin(p * Math.PI) * 0.08;
       foodRoot.scale.set(sc * p, sc * p, sc * p);
-      for (const s of fx) {
-        s.userData.t = (s.userData.t + dt * 0.5) % 1;
-        s.position.y = s.userData.y0 + s.userData.t * 1.0;
-        s.material.opacity = s.userData.op * Math.sin(s.userData.t * Math.PI); s.scale.setScalar(0.6 + s.userData.t);
-      }
+      for (const s of fx) setWisp(s, (s.userData.t + dt * 0.5) % 1);
       renderer.setScissorTest(true);
       renderer.setViewport(0, 0, W, drumH); renderer.setScissor(0, 0, W, drumH);
       renderer.render(scene, camera);
