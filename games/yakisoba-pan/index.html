@@ -124,11 +124,6 @@
     scene.add(new THREE.HemisphereLight(0xffffff, 0xb59a74, 0.6));
     const sun = new THREE.DirectionalLight(0xfff4e0, 2.0);
     sun.position.set(2, 5, 6);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = sun.shadow.camera.bottom = -3;
-    sun.shadow.camera.right = sun.shadow.camera.top = 3;
-    sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.02;
     scene.add(sun);
 
     // ---------- リール（横向きの円筒） ----------
@@ -195,15 +190,56 @@
     drums.forEach(d => { d.theta = thetaFor(0) + STEP * N * 10; d.index = 0; });
 
     // ---------- 食べ物 ----------
-    const FOOD_Y = 0.75;
+    // 料理は別のシーンに置き、テーブルの高さから見上げるカメラで写す
+    const foodScene = new THREE.Scene();
+    const foodCam = new THREE.PerspectiveCamera(24, 1, 0.1, 100);
+    foodScene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+    foodScene.environmentIntensity = 0.55;
+    foodScene.background = (() => {
+      const c = document.createElement('canvas'); c.width = 64; c.height = 256;
+      const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
+      gr.addColorStop(0, '#fbf3e4'); gr.addColorStop(1, '#ecd4ad');
+      g.fillStyle = gr; g.fillRect(0, 0, 64, 256);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+    })();
+    {
+      const key = new THREE.DirectionalLight(0xfff0d8, 2.6);
+      key.position.set(-3, 6, 2);
+      key.castShadow = true;
+      key.shadow.mapSize.set(2048, 2048);
+      key.shadow.camera.left = key.shadow.camera.bottom = -3;
+      key.shadow.camera.right = key.shadow.camera.top = 3;
+      key.shadow.radius = 4; key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02;
+      const rim = new THREE.DirectionalLight(0xffe2b0, 2.2);
+      rim.position.set(3, 3, -5);
+      foodScene.add(key, rim, new THREE.HemisphereLight(0xfff6e8, 0x8a6a48, 0.5));
+    }
+    // 木のテーブル
+    const table = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ roughness: 0.55, map: (() => {
+      const c = document.createElement('canvas'); c.width = c.height = 512;
+      const g = c.getContext('2d');
+      g.fillStyle = '#9a6a3e'; g.fillRect(0, 0, 512, 512);
+      for (let k = 0; k < 220; k++) {
+        const y = Math.random() * 512, v = Math.random();
+        g.strokeStyle = `rgba(${v < 0.5 ? '70,40,18' : '190,140,90'},${0.05 + Math.random() * 0.15})`;
+        g.lineWidth = 1 + Math.random() * 4;
+        g.beginPath(); g.moveTo(0, y);
+        for (let x = 0; x <= 512; x += 32) g.lineTo(x, y + Math.sin(x * 0.01 + k) * 6);
+        g.stroke();
+      }
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(25, 25); return t;
+    })() }));
+    table.rotation.x = -Math.PI / 2; table.position.y = -0.1; table.receiveShadow = true;
+    foodScene.add(table);
+    const plate = new THREE.Mesh(new THREE.LatheGeometry([[0, 0], [1.3, 0], [1.45, 0.05], [1.62, 0.12], [1.6, 0.13], [1.4, 0.07], [0, 0.07]].map(([x, y]) => new THREE.Vector2(x, y - 0.1)), 96),
+      new THREE.MeshPhysicalMaterial({ color: 0xfbfbf8, roughness: 0.12, clearcoat: 1 }));
+    plate.receiveShadow = true; plate.castShadow = true;
+    foodScene.add(plate);
     const foodRoot = new THREE.Group();
-    foodRoot.position.y = FOOD_Y;
-    scene.add(foodRoot);
-    const plate = new THREE.Mesh(new THREE.CylinderGeometry(1.55, 1.35, 0.1, 64), new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.15, clearcoat: 1 }));
-    plate.position.y = -0.05;
-    plate.receiveShadow = true;
-    foodRoot.add(plate);
-    let food = null, foodSpin = 0, foodPop = 1, foodScale = 1;
+    foodScene.add(foodRoot);
+    let food = null, foodSpin = 0, foodPop = 1;
+    const foodBox = new THREE.Box3();
     const fx = []; // 湯気・氷
 
     const M = (color, o = {}) => new THREE.MeshPhysicalMaterial({ color, roughness: 0.65, ...o });
@@ -224,30 +260,71 @@
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace;
       return tex;
     })();
-    // 高さで色を変える（上が焼き色、下が淡い色）
-    function shade(geo, top, bot, y0, y1, pow = 1) {
+    // 3D のなめらかなノイズ（形のゆがみ・焼きムラ用）
+    const PERM = new Uint8Array(512);
+    { const q = [...Array(256).keys()]; for (let i = 255; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [q[i], q[j]] = [q[j], q[i]]; } for (let i = 0; i < 512; i++) PERM[i] = q[i & 255]; }
+    function vnoise(x, y, z) {
+      const X = Math.floor(x), Y = Math.floor(y), Z = Math.floor(z);
+      const fx = x - X, fy = y - Y, fz = z - Z;
+      const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy), w = fz * fz * (3 - 2 * fz);
+      const h = (i, j, k) => PERM[(PERM[(PERM[(X + i) & 255] + Y + j) & 255] + Z + k) & 255] / 255;
+      const l = (a, b, t) => a + (b - a) * t;
+      return l(l(l(h(0, 0, 0), h(1, 0, 0), u), l(h(0, 1, 0), h(1, 1, 0), u), v),
+               l(l(h(0, 0, 1), h(1, 0, 1), u), l(h(0, 1, 1), h(1, 1, 1), u), v), w) * 2 - 1;
+    }
+    const fbm = (x, y, z) => vnoise(x, y, z) * 0.6 + vnoise(x * 2.1, y * 2.1, z * 2.1) * 0.28 + vnoise(x * 4.3, y * 4.3, z * 4.3) * 0.12;
+    // 法線方向にでこぼこさせて、手作りっぽい形にする
+    function organic(geo, amp, f = 2.5) {
+      geo.computeVertexNormals();
+      const p = geo.attributes.position, n = geo.attributes.normal;
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), y = p.getY(i), z = p.getZ(i), d = fbm(x * f, y * f, z * f) * amp;
+        p.setXYZ(i, x + n.getX(i) * d, y + n.getY(i) * d, z + n.getZ(i) * d);
+      }
+      geo.computeVertexNormals();
+      return geo;
+    }
+    // 高さで色を変える（上が焼き色、下が淡い色）。ノイズでムラを付ける
+    function shade(geo, top, bot, y0, y1, pow = 1, mottle = 0.25) {
       const pos = geo.attributes.position, col = [], a = new THREE.Color(bot), b = new THREE.Color(top), c = new THREE.Color();
       for (let i = 0; i < pos.count; i++) {
-        const t = Math.pow(THREE.MathUtils.clamp((pos.getY(i) - y0) / (y1 - y0), 0, 1), pow);
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        const t = THREE.MathUtils.clamp(Math.pow(THREE.MathUtils.clamp((y - y0) / (y1 - y0), 0, 1), pow) + fbm(x * 4, y * 4, z * 4) * mottle, 0, 1);
         c.copy(a).lerp(b, t); col.push(c.r, c.g, c.b);
       }
       geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
       return geo;
     }
-    const baked = (geo, top, bot, y0, y1, { pow, ...o } = {}) => new THREE.Mesh(shade(geo, top, bot, y0, y1, pow), M(0xffffff, { vertexColors: true, map: speckle, bumpMap: speckle, bumpScale: 1.5, roughness: 0.75, ...o }));
+    const baked = (geo, top, bot, y0, y1, { pow, mottle, ...o } = {}) => new THREE.Mesh(shade(geo, top, bot, y0, y1, pow, mottle), M(0xffffff, { vertexColors: true, map: speckle, bumpMap: speckle, bumpScale: 1.5, roughness: 0.75, ...o }));
 
-    function noodles(g, { color, r, count, w, d, h, wave }) {
+    function noodles(g, { color, r, count, w, d, h, curl = 0.7, rough = 0.32 }) {
       const base = new THREE.Color(color);
+      const mats = [-1, 0, 1].map(k => M(base.clone().offsetHSL(0, 0, k * 0.035), { roughness: rough, clearcoat: 0.4, clearcoatRoughness: 0.35 }));
       for (let k = 0; k < count; k++) {
-        const mat = M(base.clone().offsetHSL(0, 0, rnd(-0.06, 0.04)), { roughness: 0.35 });
+        const p = new THREE.Vector3(rnd(-w, w) * 0.9, rnd(0, h * 0.6), rnd(-d, d) * 0.9);
+        const dir = new THREE.Vector3(rnd(-1, 1), rnd(-0.2, 0.3), rnd(-0.6, 0.6)).normalize();
         const pts = [];
-        const z0 = rnd(-d, d), y0 = rnd(0, h), ph = rnd(0, 6);
-        for (let s = 0; s <= 10; s++) {
-          const x = -w + 2 * w * s / 10;
-          pts.push(new THREE.Vector3(x, y0 + Math.sin(s * 1.3 + ph) * h * 0.4 + h * 0.3, z0 + Math.sin(s * wave + ph) * 0.18));
+        for (let s = 0; s < 16; s++) {
+          pts.push(p.clone());
+          dir.add(new THREE.Vector3(rnd(-curl, curl), rnd(-curl, curl) * 0.5, rnd(-curl, curl))).normalize();
+          if (Math.abs(p.x + dir.x * 0.15) > w) dir.x *= -1;
+          if (Math.abs(p.z + dir.z * 0.15) > d) dir.z *= -1;
+          if (p.y + dir.y * 0.15 < 0 || p.y + dir.y * 0.15 > h) dir.y *= -1;
+          p.addScaledVector(dir, 0.15);
         }
-        g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 48, r * rnd(0.85, 1.15), 7), mat));
+        g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, r * rnd(0.85, 1.15), 6), mats[k % 3]));
       }
+    }
+    // 小さなかけら（青のり・ごまなど）をまとめて置く
+    function flakes(g, { color, n, size, w, d, y0, y1, flat = true }) {
+      const im = new THREE.InstancedMesh(new THREE.BoxGeometry(size, flat ? size * 0.15 : size, size), M(color, { roughness: 0.8 }), n);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+      for (let k = 0; k < n; k++) {
+        q.setFromEuler(e.set(rnd(-0.6, 0.6), rnd(0, 3), rnd(-0.6, 0.6)));
+        const sc = rnd(0.5, 1.3);
+        im.setMatrixAt(k, m4.compose(new THREE.Vector3(rnd(-w, w), rnd(y0, y1), rnd(-d, d)), q, new THREE.Vector3(sc, 1, sc)));
+      }
+      g.add(im);
     }
 
     const BASES = [
@@ -255,23 +332,28 @@
         const g = new THREE.Group();
         // コッペパンに切れ目。左右の山の間に具が入る
         for (const s of [-1, 1]) {
-          const geo = new THREE.CapsuleGeometry(0.34, 1.55, 10, 32).rotateZ(Math.PI / 2);
-          geo.scale(1, 1.1, 1);
-          const half = baked(geo, 0x8a3e0c, 0xe8c48a, -0.3, 0.2, { map: null, bumpMap: null, roughness: 0.55 });
-          half.position.set(0, 0.36, s * 0.24); half.rotation.x = -s * 0.32;
+          const geo = new THREE.SphereGeometry(1, 128, 64);
+          geo.scale(1.02, 0.4, 0.32);
+          organic(geo, 0.03, 2.2);
+          const half = baked(geo, 0x5a2004, 0xe9b874, -0.25, 0.25, { pow: 0.8, mottle: 0.2, map: null, bumpMap: speckle, bumpScale: 0.6, roughness: 0.5, sheen: 0.4, sheenColor: 0xffc070 });
+          half.position.set(0, 0.3, s * 0.27); half.rotation.x = -s * 0.42;
           g.add(half);
+          // 切れ目の内側の白い生地
+          const crumb = mesh(organic(new THREE.SphereGeometry(1, 64, 24).scale(0.95, 0.12, 0.2), 0.02, 4), M(0xf7ead0, { roughness: 0.95, bumpMap: speckle, bumpScale: 2 }), 0, 0.36, s * 0.14);
+          crumb.rotation.x = -s * 0.42;
+          g.add(crumb);
         }
-        return { g, top: 0.45, w: 0.95 };
+        return { g, top: 0.36, w: 0.92 };
       },
       () => { // ご飯
         const g = new THREE.Group();
-        const bowl = mesh(new THREE.SphereGeometry(0.95, 40, 20, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), M(0x2a2a3a, { side: THREE.DoubleSide, roughness: 0.3 }), 0, 0.85);
-        const rice = mesh(new THREE.SphereGeometry(0.9, 40, 16, 0, Math.PI * 2, 0, Math.PI / 2), M(0xfbfaf4, { roughness: 0.9 }), 0, 0.8);
+        const bowl = mesh(new THREE.SphereGeometry(0.95, 40, 20, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), M(0x2b2420, { side: THREE.DoubleSide, roughness: 0.25, clearcoat: 1 }), 0, 0.85);
+        const rice = mesh(organic(new THREE.SphereGeometry(0.9, 64, 24, 0, Math.PI * 2, 0, Math.PI / 2), 0.04, 3), M(0xf3f1e8, { roughness: 0.9 }), 0, 0.8);
         rice.scale.y = 0.3;
         g.add(bowl, rice);
-        const grains = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.03, 0.06, 2, 6), M(0xfdfcf6, { roughness: 0.5 }), 500);
+        const grains = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.028, 0.06, 3, 8), M(0xfdfcf6, { roughness: 0.35, sheen: 1, sheenColor: 0xffffff }), 1400);
         const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
-        for (let k = 0; k < 500; k++) {
+        for (let k = 0; k < 1400; k++) {
           const a = rnd(0, 6.28), r = Math.sqrt(Math.random()) * 0.86;
           const y = 0.8 + Math.sqrt(Math.max(0, 0.81 - r * r)) * 0.3;
           q.setFromEuler(e.set(rnd(0, 3), rnd(0, 3), rnd(0, 3)));
@@ -282,14 +364,14 @@
       },
       () => { // せんべい
         const g = new THREE.Group();
-        g.add(mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.14, 64, 2), M(0xb87436, { map: speckle, bumpMap: speckle, bumpScale: 4, roughness: 0.55 }), 0, 0.07));
+        g.add(mesh(shade(organic(new THREE.CylinderGeometry(1.1, 1.1, 0.14, 96, 4), 0.04, 3), 0x8a4a1a, 0xc98a48, 0, 0.07, 1, 0.5), M(0xffffff, { vertexColors: true, map: speckle, bumpMap: speckle, bumpScale: 4, roughness: 0.45, clearcoat: 0.3 }), 0, 0.07));
         const nori = mesh(new THREE.BoxGeometry(0.9, 0.02, 0.5), M(0x1d2a1a), 0, 0.15, 0.55);
         g.add(nori);
         return { g, top: 0.15, w: 0.9 };
       },
       () => { // まん
         const g = new THREE.Group();
-        const m = mesh(new THREE.SphereGeometry(0.85, 48, 32), M(0xf7f1e4, { roughness: 0.6, sheen: 1, map: speckle }), 0, 0.6);
+        const m = mesh(organic(new THREE.SphereGeometry(0.85, 96, 48), 0.025, 2.5), M(0xf7f1e4, { roughness: 0.55, sheen: 1, sheenColor: 0xffffff }), 0, 0.6);
         m.scale.y = 0.72;
         g.add(m);
         return { g, top: 1.15, w: 0.55 };
@@ -332,19 +414,33 @@
     const FILLS = [
       (w) => { // そば
         const g = new THREE.Group();
-        noodles(g, { color: 0x7a4a22, r: 0.04, count: 16, w, d: 0.3, h: 0.3, wave: 1.7 });
-        for (let k = 0; k < 6; k++) g.add(mesh(new THREE.BoxGeometry(0.12, 0.03, 0.03), M(0xe0304a), rnd(-w * 0.7, w * 0.7), 0.4, rnd(-0.2, 0.2)));
-        for (let k = 0; k < 12; k++) g.add(mesh(new THREE.BoxGeometry(0.05, 0.01, 0.05), M(0x2b4a1a), rnd(-w * 0.7, w * 0.7), 0.42, rnd(-0.25, 0.25)));
+        noodles(g, { color: 0x6e3a14, r: 0.026, count: 55, w, d: 0.26, h: 0.32 });
+        // キャベツ・豚肉・紅しょうが・青のり
+        for (let k = 0; k < 9; k++) {
+          const c = mesh(organic(new THREE.SphereGeometry(0.14, 12, 8, 0, rnd(1, 1.8), 0, rnd(0.8, 1.3)), 0.02, 6), M(0xd6e6a8, { side: THREE.DoubleSide, roughness: 0.5 }), rnd(-w, w) * 0.8, rnd(0.08, 0.3), rnd(-0.2, 0.2));
+          c.rotation.set(rnd(0, 3), rnd(0, 3), rnd(0, 3)); g.add(c);
+        }
+        for (let k = 0; k < 5; k++) {
+          const m = mesh(organic(new THREE.BoxGeometry(0.28, 0.025, 0.14, 8, 1, 4), 0.02, 8), M(0xb7785a, { roughness: 0.4 }), rnd(-w, w) * 0.7, rnd(0.15, 0.32), rnd(-0.15, 0.15));
+          m.rotation.set(rnd(-0.4, 0.4), rnd(0, 3), rnd(-0.4, 0.4)); g.add(m);
+        }
+        const gx = rnd(-0.3, 0.3);
+        for (let k = 0; k < 14; k++) {
+          const b = mesh(new THREE.BoxGeometry(0.14, 0.018, 0.018), M(0xe02848, { roughness: 0.3, clearcoat: 0.6 }), gx + rnd(-0.1, 0.1), 0.38 + rnd(0, 0.06), rnd(-0.08, 0.08));
+          b.rotation.set(rnd(0, 1), rnd(0, 3), rnd(0, 1)); g.add(b);
+        }
+        flakes(g, { color: 0x2f4f1a, n: 260, size: 0.035, w: w * 0.85, d: 0.22, y0: 0.3, y1: 0.4 });
         return g;
       },
       (w) => { // うどん
         const g = new THREE.Group();
-        noodles(g, { color: 0xf5f0de, r: 0.085, count: 9, w, d: 0.28, h: 0.3, wave: 0.8 });
+        noodles(g, { color: 0xf3eedb, r: 0.07, count: 16, w, d: 0.26, h: 0.3, curl: 0.45, rough: 0.25 });
+        flakes(g, { color: 0x5aa03a, n: 40, size: 0.06, w: w * 0.6, d: 0.18, y0: 0.32, y1: 0.4 });
         return g;
       },
       (w) => { // ラーメン
         const g = new THREE.Group();
-        noodles(g, { color: 0xf0cf5c, r: 0.04, count: 16, w, d: 0.3, h: 0.25, wave: 3 });
+        noodles(g, { color: 0xeac457, r: 0.028, count: 45, w, d: 0.26, h: 0.26, curl: 1.1 });
         const naruto = mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 24), M(0xffffff), -w * 0.4, 0.42, 0);
         naruto.rotation.x = 0.5;
         const swirl = mesh(new THREE.TorusGeometry(0.1, 0.025, 8, 24), M(0xe05080), 0, 0.03, 0);
@@ -357,23 +453,23 @@
       },
       (w) => { // カレー
         const g = new THREE.Group();
-        const roux = mesh(new THREE.SphereGeometry(1, 32, 16), M(0x9b5a1a, { roughness: 0.35 }), 0, 0.05);
+        const roux = mesh(organic(new THREE.SphereGeometry(1, 64, 32), 0.08, 3), M(0x8a4a12, { roughness: 0.2, clearcoat: 1, clearcoatRoughness: 0.15 }), 0, 0.05);
         roux.scale.set(w, 0.16, 0.42);
         g.add(roux);
         const cols = [0xf08a24, 0xf4e2a0, 0x7a3a1a];
-        for (let k = 0; k < 8; k++) g.add(mesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), M(cols[k % 3]), rnd(-w * 0.7, w * 0.7), 0.17, rnd(-0.22, 0.22)));
+        for (let k = 0; k < 8; k++) g.add(mesh(organic(new THREE.BoxGeometry(0.16, 0.16, 0.16, 4, 4, 4), 0.02, 9), M(cols[k % 3], { roughness: 0.35, clearcoat: 0.6 }), rnd(-w * 0.7, w * 0.7), 0.15, rnd(-0.22, 0.22)));
         return g;
       },
       () => { // プリン
         const g = new THREE.Group();
-        g.add(mesh(new THREE.CylinderGeometry(0.33, 0.45, 0.55, 32), M(0xf6d474, { roughness: 0.3 }), 0, 0.27));
-        g.add(mesh(new THREE.CylinderGeometry(0.33, 0.33, 0.06, 32), M(0x6b3510, { roughness: 0.2 }), 0, 0.57));
+        g.add(mesh(new THREE.CylinderGeometry(0.33, 0.45, 0.55, 64, 8), M(0xf3cf6a, { roughness: 0.15, clearcoat: 1 }), 0, 0.27));
+        g.add(mesh(new THREE.CylinderGeometry(0.33, 0.33, 0.06, 32), M(0x5a2a08, { roughness: 0.05, clearcoat: 1 }), 0, 0.57));
         g.add(mesh(new THREE.SphereGeometry(0.08, 16, 12), M(0xd2142a, { roughness: 0.2 }), 0, 0.66));
         return g;
       },
       (w) => { // 納豆
         const g = new THREE.Group();
-        const mat = M(0x9a6526, { roughness: 0.25 });
+        const mat = M(0x8a5a22, { roughness: 0.15, clearcoat: 1 });
         for (let k = 0; k < 40; k++) {
           const a = rnd(0, 6.28), r = Math.sqrt(Math.random());
           g.add(mesh(new THREE.SphereGeometry(0.075, 10, 8), mat, Math.cos(a) * r * w * 0.6, 0.07 + (1 - r) * 0.2 + rnd(0, 0.05), Math.sin(a) * r * 0.3));
@@ -393,8 +489,8 @@
       },
       () => { // たこ
         const g = new THREE.Group();
-        const red = M(0xd84a3a, { roughness: 0.4 });
-        const head = mesh(new THREE.SphereGeometry(0.32, 24, 16), red, 0, 0.55, 0);
+        const red = M(0xc8402e, { roughness: 0.3, clearcoat: 0.7, sheen: 0.5, sheenColor: 0xffb0a0 });
+        const head = mesh(organic(new THREE.SphereGeometry(0.32, 64, 32), 0.025, 5), red, 0, 0.55, 0);
         head.scale.y = 1.25;
         g.add(head);
         for (const s of [-1, 1]) g.add(mesh(new THREE.SphereGeometry(0.06, 12, 8), M(0x111111), s * 0.12, 0.42, 0.28));
@@ -464,6 +560,8 @@
       food.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       fx.forEach(f => { f.castShadow = false; });
       foodRoot.add(food);
+      foodBox.setFromObject(food);
+      fitFoodCam();
       foodPop = 0;
     }
 
@@ -569,36 +667,33 @@
     addEventListener('pointerup', () => { drag = null; });
 
     // ---------- 画面サイズ ----------
-    const camFar = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
-    const camClose = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
-    let view = 0, viewWait = 0;
-    const _p = new THREE.Vector3(), _l = new THREE.Vector3();
-    function applyCam() {
-      const k = view * view * (3 - 2 * view);
-      camera.position.copy(_p.copy(camFar.pos).lerp(camClose.pos, k));
-      camera.lookAt(_l.copy(camFar.look).lerp(camClose.look, k));
+    let W = 1, H = 1, drumH = 1, foodH = 1;
+    // テーブルの高さから少し見上げる。料理全体が収まる距離まで下がる
+    function fitFoodCam() {
+      const fh = foodH;
+      foodCam.aspect = W / Math.max(1, fh);
+      const half = Math.tan(THREE.MathUtils.degToRad(foodCam.fov / 2));
+      const size = foodBox.getSize(new THREE.Vector3());
+      const top = Math.max(1.0, foodBox.max.y) + 0.1, hw = Math.max(1.65, size.x / 2, size.z / 2);
+      const dist = Math.max(hw / (half * foodCam.aspect), top / half * 0.9) + hw * 0.2;
+      const el = THREE.MathUtils.degToRad(17), cy = top * 0.38;
+      foodCam.position.set(0, cy + Math.sin(el) * dist, Math.cos(el) * dist);
+      foodCam.lookAt(0, cy, 0);
+      foodCam.updateProjectionMatrix();
     }
     function resize() {
-      const w = stage.clientWidth, h = stage.clientHeight;
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
+      W = stage.clientWidth; H = stage.clientHeight;
+      renderer.setSize(W, H, false);
+      // 下はリール、上は料理
+      drumH = Math.round(Math.min(H * 0.42, W * 0.42));
+      foodH = H - drumH;
+      camera.aspect = W / drumH;
       const half = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-      const needW = 3.45, needH = 3.3; // 中心からの半幅・半高さ
-      const dist = Math.max(needH / half, needW / (half * camera.aspect));
-      // 縦長で余った高さは、リールを下へ寄せて食べ物を大きくするのに使う
-      const extra = Math.max(0, dist * half - needH);
-      const lift = extra * 0.75;
-      camFar.pos.set(0, 0.9 + lift, dist);
-      camFar.look.set(0, -0.05 + lift, 0);
-      foodScale = Math.min(1.8, 1 + extra * 0.45);
-      foodRoot.position.y = FOOD_Y + lift * 1.3;
-      // 結果: 食べ物に寄った斜め上からの眺め。上に料理名ぶんの余白を空ける
-      const fr = 1.75 * foodScale, cy = foodRoot.position.y + 0.55 * foodScale;
-      const cd = Math.max(fr / (half * camera.aspect), fr * 1.25 / half);
-      camClose.pos.set(0, cy + cd * 0.42, cd);
-      camClose.look.set(0, cy - fr * 0.12, 0);
-      applyCam();
+      const dist = Math.max(1.25 / half, 3.6 / (half * camera.aspect)) + R;
+      camera.position.set(0, DRUM_Y + 0.5, dist);
+      camera.lookAt(0, DRUM_Y, 0);
       camera.updateProjectionMatrix();
+      fitFoodCam();
     }
     addEventListener('resize', resize);
 
@@ -615,21 +710,22 @@
         if (d.bounce > 0) { d.bounce = Math.max(0, d.bounce - dt * 5); wob = Math.sin(d.bounce * Math.PI * 2) * 0.06 * d.bounce; }
         d.pivot.rotation.x = d.theta + wob;
       });
-      if (state === 'result') viewWait += dt; else viewWait = 0;
-      const goal = state === 'result' && viewWait > 0.35 ? 0.4 : 0;
-      view += Math.sign(goal - view) * Math.min(Math.abs(goal - view), dt * (goal ? 1.6 : 4));
-      applyCam();
       if (!drag) foodSpin += dt * 0.5;
       foodRoot.rotation.y = foodSpin;
       if (foodPop < 1) { foodPop = Math.min(1, foodPop + dt * 4); }
-      const p = foodPop, sc = (1 + Math.sin(p * Math.PI) * 0.12) * foodScale;
+      const p = foodPop, sc = 1 + Math.sin(p * Math.PI) * 0.08;
       foodRoot.scale.set(sc * p, sc * p, sc * p);
       for (const s of fx) {
         s.userData.t = (s.userData.t + dt * 0.5) % 1;
         s.position.y = s.userData.y0 + s.userData.t * 1.0;
         s.material.opacity = 0.28 * Math.sin(s.userData.t * Math.PI); s.scale.setScalar(0.6 + s.userData.t);
       }
+      renderer.setScissorTest(true);
+      renderer.setViewport(0, 0, W, drumH); renderer.setScissor(0, 0, W, drumH);
       renderer.render(scene, camera);
+      const fy = drumH + Math.round((H - drumH - foodH) * 0.35);
+      renderer.setViewport(0, fy, W, foodH); renderer.setScissor(0, fy, W, foodH);
+      renderer.render(foodScene, foodCam);
       requestAnimationFrame(loop);
     }
 
