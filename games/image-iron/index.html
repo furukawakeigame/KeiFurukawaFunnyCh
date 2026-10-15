@@ -273,17 +273,105 @@ function setPrint(sprite) {
   clothTex.needsUpdate = true;
 }
 
-// ハンガー
+// ---- 最後：ハンガーに掛けた服（ここだけクロス物理） ----
+// 吊るしたときの座標（hang の中）：x 右、y 上、z 手前。Tシャツの上の端が Y0
+const hangY = () => CH / 2 + 0.5, Y0 = CH + 0.5;
+const NECK_X = 0.13 * CW, TIP_X = 0.34 * CW, SL = 0.055 * CH / (0.19 * CW);
+const armY = x => Y0 - 0.03 * CH - 0.045 + SL * (NECK_X - Math.abs(x)); // 肩の線のすぐ下
 const hanger = new THREE.Group();
 {
   const mat = new THREE.MeshStandardMaterial({ color: 0xc9ccd2, metalness: 1, roughness: 0.25 });
+  const R = 0.035, top = armY(0) - R, tipY = armY(TIP_X) - R;
   const tube = (pts, r) => new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(...p))), 64, r, 10), mat);
-  const W = 1;
-  hanger.add(tube([[-W, 0, 0], [-W * 0.5, 0.28, 0], [-0.1, 0.55, 0], [0, 0.62, 0], [0.1, 0.55, 0], [W * 0.5, 0.28, 0], [W, 0, 0]], 0.035));
-  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, W * 2, 12), mat); bar.rotation.z = Math.PI / 2; hanger.add(bar);
-  hanger.add(tube([[0, 0.6, 0], [0, 0.85, 0], [0.12, 1.0, 0], [0.24, 0.9, 0], [0.22, 0.78, 0]], 0.03));
+  hanger.add(tube([[-TIP_X, tipY - 0.03, 0], [-TIP_X + 0.03, tipY, 0], [-TIP_X * 0.5, (top + tipY) / 2, 0], [-0.08, top - 0.01, 0], [0, top + 0.02, 0],
+    [0.08, top - 0.01, 0], [TIP_X * 0.5, (top + tipY) / 2, 0], [TIP_X - 0.03, tipY, 0], [TIP_X, tipY - 0.03, 0]], R));
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(R, R, TIP_X * 2, 12), mat); bar.rotation.z = Math.PI / 2; bar.position.y = tipY - 0.03; hanger.add(bar);
+  hanger.add(tube([[0, top, 0], [0, top + 0.3, 0], [0.16, top + 0.5, 0], [0.32, top + 0.36, 0], [0.29, top + 0.22, 0]], 0.03));
   for (const c of hanger.children) c.castShadow = true;
-  hanger.visible = false; hang.add(hanger);
+  hanger.position.z = -0.05; hanger.visible = false; hang.add(hanger);
+}
+// 粗い格子で布を動かし、細かい見た目の格子へなめらかにうつす
+const S = 40, SV = (S + 1) * (S + 1);
+const sp = new Float32Array(SV * 3), spp = new Float32Array(SV * 3), sn = new Float32Array(SV * 3), sAct = new Uint8Array(SV), sSup = new Uint8Array(SV);
+let cons = null, simOn = false;
+function initSim(dy) {
+  sAct.fill(0); sSup.fill(0);
+  // 服の点のまわり（2マス）を動かす
+  for (let v = 0; v < NV; v++) if (inShirt[v]) {
+    const i = v % (N + 1), j = (v - i) / (N + 1), fa = i / N * S, fb = j / N * S;
+    for (let b = Math.max(0, Math.floor(fb) - 2); b <= Math.min(S, Math.ceil(fb) + 2); b++)
+      for (let a = Math.max(0, Math.floor(fa) - 2); a <= Math.min(S, Math.ceil(fa) + 2); a++) sAct[b * (S + 1) + a] = 1;
+  }
+  const rx = new Float32Array(SV), ry = new Float32Array(SV);
+  for (let b = 0; b <= S; b++) for (let a = 0; a <= S; a++) {
+    const k = b * (S + 1) + a, v = Math.round(b / S * N) * (N + 1) + Math.round(a / S * N), w = wr[v] * amp;
+    rx[k] = (a / S - 0.5) * CW; ry[k] = Y0 - b / S * CH;
+    // 今のシワで縮んだ形から始める
+    sp[k * 3] = spp[k * 3] = bx[v] + ox[v] * w;
+    sp[k * 3 + 1] = spp[k * 3 + 1] = hangY() + dy - (bz[v] + oz[v] * w);
+    sp[k * 3 + 2] = spp[k * 3 + 2] = 0;
+    // 肩（ハンガーの腕の上に乗る所）
+    if (Math.abs(rx[k]) <= TIP_X && ry[k] >= armY(rx[k]) - 0.02 && sAct[k]) sSup[k] = 1;
+  }
+  const c = [];
+  const add = (p, q, st) => { if (sAct[p] && sAct[q]) c.push(p, q, Math.hypot(rx[p] - rx[q], ry[p] - ry[q]), st); };
+  for (let b = 0; b <= S; b++) for (let a = 0; a <= S; a++) {
+    const k = b * (S + 1) + a;
+    if (a < S) add(k, k + 1, 1); if (b < S) add(k, k + S + 1, 1);
+    if (a < S && b < S) { add(k, k + S + 2, 0.4); add(k + 1, k + S + 1, 0.4); }
+    if (a < S - 1) add(k, k + 2, 0.06); if (b < S - 1) add(k, k + 2 * (S + 1), 0.06);
+  }
+  cons = Float32Array.from(c); simOn = true;
+}
+function stepSim(dt) {
+  const h = dt / 2;
+  for (let sub = 0; sub < 2; sub++) {
+    for (let k = 0; k < SV; k++) {
+      if (!sAct[k]) continue;
+      const i = k * 3;
+      for (let d = 0; d < 3; d++) { const v = (sp[i + d] - spp[i + d]) * 0.985; spp[i + d] = sp[i + d]; sp[i + d] += v; }
+      sp[i + 1] -= 9 * h * h;
+    }
+    for (let it = 0; it < 8; it++) {
+      for (let n = 0; n < cons.length; n += 4) {
+        const p = cons[n] * 3, q = cons[n + 1] * 3;
+        const dx = sp[q] - sp[p], dy = sp[q + 1] - sp[p + 1], dz = sp[q + 2] - sp[p + 2];
+        const len = Math.hypot(dx, dy, dz) || 1e-6, f = (len - cons[n + 2]) / len * 0.5 * cons[n + 3];
+        sp[p] += dx * f; sp[p + 1] += dy * f; sp[p + 2] += dz * f;
+        sp[q] -= dx * f; sp[q + 1] -= dy * f; sp[q + 2] -= dz * f;
+      }
+      // 肩はハンガーの腕より下に落ちない（すべりにくく）
+      for (let k = 0; k < SV; k++) {
+        if (!sSup[k]) continue;
+        const i = k * 3, y = armY(sp[i]);
+        if (sp[i + 1] < y) { sp[i + 1] = y; sp[i] = spp[i] + (sp[i] - spp[i]) * 0.2; }
+        if (sp[i + 2] < 0) sp[i + 2] = 0;
+      }
+    }
+  }
+}
+function drawSim() {
+  const P = (a, b) => (Math.min(S, Math.max(0, b)) * (S + 1) + Math.min(S, Math.max(0, a))) * 3;
+  for (let b = 0; b <= S; b++) for (let a = 0; a <= S; a++) {
+    const ia = P(a + 1, b), ib = P(a - 1, b), ja = P(a, b + 1), jb = P(a, b - 1);
+    const ux = sp[ia] - sp[ib], uy = sp[ia + 1] - sp[ib + 1], uz = sp[ia + 2] - sp[ib + 2];
+    const vx = sp[ja] - sp[jb], vy = sp[ja + 1] - sp[jb + 1], vz = sp[ja + 2] - sp[jb + 2];
+    let nx = vy * uz - vz * uy, ny = vz * ux - vx * uz, nz = vx * uy - vy * ux; const l = Math.hypot(nx, ny, nz) || 1;
+    const k = P(a, b); sn[k] = nx / l; sn[k + 1] = ny / l; sn[k + 2] = nz / l;
+  }
+  for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+    const v = j * (N + 1) + i, fa = i / N * S, fb = j / N * S, a = Math.min(S - 1, Math.floor(fa)), b = Math.min(S - 1, Math.floor(fb));
+    const u = fa - a, t = fb - b, k00 = P(a, b), k10 = P(a + 1, b), k01 = P(a, b + 1), k11 = P(a + 1, b + 1);
+    const w00 = (1 - u) * (1 - t), w10 = u * (1 - t), w01 = (1 - u) * t, w11 = u * t;
+    // 残ったシワは布の面に沿って足す
+    const hgt = oy[v] * wr[v] * amp * 0.9;
+    for (let d = 0; d < 3; d++) {
+      const n = sn[k00 + d] * w00 + sn[k10 + d] * w10 + sn[k01 + d] * w01 + sn[k11 + d] * w11;
+      cpos[v * 3 + d] = sp[k00 + d] * w00 + sp[k10 + d] * w10 + sp[k01 + d] * w01 + sp[k11 + d] * w11 + n * hgt;
+    }
+  }
+  clothGeo.attributes.position.needsUpdate = true;
+  clothGeo.computeVertexNormals();
 }
 
 // くしゃくしゃの形：ところどころに鋭い折り目（三角波）を重ね、ふちはめくれ上がらせる
@@ -490,7 +578,6 @@ function resize() {
 // ---- 画面の流れ ----
 let mode = 'start'; // start | cut | crumple | play | result
 let anim = 0, demo = 0, clothTop = 0;
-const hangY = () => CH / 2 + 0.5;
 function setMode(m) {
   mode = m; anim = 0;
   $('cut').style.display = m === 'cut' ? 'block' : 'none';
@@ -500,6 +587,7 @@ function setMode(m) {
   $('barResult').classList.toggle('hide', m !== 'result');
   iron.visible = m !== 'result';
   hanger.visible = false;
+  simOn = false;
   if (m !== 'result') { hang.rotation.set(0, 0, 0); cloth.rotation.set(0, 0, 0); cloth.position.set(0, 0, 0); }
   if (m === 'result') { ir.pressing = false; setSound(0, 0); for (const P of puffs) P.s.visible = false; }
   if (m === 'cut') { erasing = false; $('erase').classList.remove('on'); updateCutDone(); }
@@ -730,12 +818,15 @@ function frame(dt) {
   if (mode === 'result') {
     anim += dt;
     const k = Math.min(1, anim / 1.1), e = k * k * (3 - 2 * k);
-    cloth.rotation.x = e * Math.PI / 2;
-    cloth.position.y = e * hangY();
-    hanger.visible = anim > 0.9;
-    hanger.position.y = hangY() + clothTop + 0.02;
-    hanger.scale.setScalar(CW * 0.27 * Math.min(1, (anim - 0.9) * 5));
-    hang.rotation.y = anim > 1.8 ? (anim - 1.8) * 0.7 : 0;
+    const dy = CH / 2 - clothTop; // シワで縮んだぶん上げて、肩をハンガーにそろえる
+    hanger.visible = true;
+    if (!simOn) {
+      cloth.rotation.x = e * Math.PI / 2;
+      cloth.position.y = e * (hangY() + dy);
+      if (k >= 1) { cloth.rotation.x = 0; cloth.position.y = 0; initSim(dy); }
+    }
+    if (simOn) { stepSim(dt); drawSim(); }
+    hang.rotation.y = anim > 3 ? Math.sin((anim - 3) * 0.6) * 0.5 : 0;
   }
   stepPuffs(dt);
   if (dirty) { updateCloth(); dirty = false; }
