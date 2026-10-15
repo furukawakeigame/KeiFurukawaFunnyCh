@@ -169,7 +169,7 @@ function setSound(steam, sizz) {
 // ---- 3D ----
 const gl = $('gl');
 const renderer = new THREE.WebGLRenderer({ canvas: gl, antialias: true, preserveDrawingBuffer: true });
-renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+renderer.setPixelRatio(Math.min(1.5, devicePixelRatio || 1));
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 const scene = new THREE.Scene();
@@ -179,7 +179,7 @@ const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
 scene.add(new THREE.HemisphereLight(0xffffff, 0xcbbfae, 0.55));
 const sun = new THREE.DirectionalLight(0xffffff, 2.3);
 sun.position.set(-3, 7, 4); sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(1024, 1024);
 sun.shadow.camera.left = sun.shadow.camera.bottom = -4.5; sun.shadow.camera.right = sun.shadow.camera.top = 4.5;
 sun.shadow.radius = 3; sun.shadow.bias = -0.0015; sun.shadow.normalBias = 0.02;
 scene.add(sun);
@@ -205,7 +205,7 @@ scene.add(sun);
 }
 
 // ---- Tシャツ（格子の点ごとにシワ・熱・焦げを持つ。形はテクスチャの透明で抜く） ----
-const N = 128, NV = (N + 1) * (N + 1), CW = 3.9, CH = 3.8, BASE_Y = 0.02, SOLE_Y = 0.025;
+const N = 96, NV = (N + 1) * (N + 1), CW = 3.9, CH = 3.8, BASE_Y = 0.02, SOLE_Y = 0.025;
 // Tシャツの輪郭（0〜1、左上が原点。'n' は首のくり）
 const SHIRT = [[0.37, 0.03], [0.5, 0.115, 'n'], [0.63, 0.03], [0.82, 0.085], [1.0, 0.31], [0.85, 0.42], [0.77, 0.34], [0.785, 0.985], [0.215, 0.985], [0.23, 0.34], [0.15, 0.42], [0.0, 0.31], [0.18, 0.085]];
 function shirtPath(g, w, h) {
@@ -216,6 +216,11 @@ function shirtPath(g, w, h) {
     else g.lineTo(x * w, y * h);
   }
   g.closePath();
+}
+// 服の形を塗る。縫い目（前後の布がつながる所）まで少し広げて、吊るしたときにすき間が見えないようにする
+function fillShirt(g, w, h, color) {
+  shirtPath(g, w, h); g.fillStyle = color; g.fill();
+  g.strokeStyle = color; g.lineJoin = 'round'; g.lineWidth = w * 1.6 / 40; g.stroke();
 }
 const SHIRT_COLOR = '#f7f5f1';
 const bx = new Float32Array(NV), bz = new Float32Array(NV);
@@ -228,6 +233,7 @@ const cpos = new Float32Array(NV * 3), ccol = new Float32Array(NV * 3).fill(1), 
 clothGeo.setAttribute('position', new THREE.BufferAttribute(cpos, 3).setUsage(THREE.DynamicDrawUsage));
 clothGeo.setAttribute('color', new THREE.BufferAttribute(ccol, 3).setUsage(THREE.DynamicDrawUsage));
 clothGeo.setAttribute('uv', new THREE.BufferAttribute(cuv, 2));
+const cnrm = new Float32Array(NV * 3); clothGeo.setAttribute('normal', new THREE.BufferAttribute(cnrm, 3).setUsage(THREE.DynamicDrawUsage));
 {
   const idx = [];
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = j * (N + 1) + i, b = a + 1, c = a + N + 2, d = a + N + 1; idx.push(a, d, b, b, d, c); }
@@ -239,7 +245,7 @@ clothGeo.setAttribute('uv', new THREE.BufferAttribute(cuv, 2));
   }
   // Tシャツの内側かどうかと、ふちからの距離
   const m = document.createElement('canvas'); m.width = m.height = N + 1;
-  const g = m.getContext('2d'); shirtPath(g, N + 1, N + 1); g.fillStyle = '#000'; g.fill();
+  const g = m.getContext('2d'); fillShirt(g, N + 1, N + 1, '#000');
   const d = g.getImageData(0, 0, N + 1, N + 1).data, q = [];
   for (let v = 0; v < NV; v++) { inShirt[v] = d[v * 4 + 3] > 0 ? 1 : 0; edgeDist[v] = inShirt[v] ? 1e9 : 0; if (!inShirt[v]) q.push(v); }
   for (let h = 0; h < q.length; h++) {
@@ -264,7 +270,8 @@ const hang = new THREE.Group(); hang.add(cloth); scene.add(hang);
 function setPrint(sprite) {
   const w = texCanvas.width, h = texCanvas.height, g = texCanvas.getContext('2d');
   g.clearRect(0, 0, w, h);
-  g.save(); shirtPath(g, w, h); g.fillStyle = SHIRT_COLOR; g.fill(); g.clip();
+  fillShirt(g, w, h, SHIRT_COLOR);
+  g.save(); shirtPath(g, w, h); g.clip();
   g.strokeStyle = 'rgba(0,0,0,0.08)'; g.lineWidth = w * 0.02; shirtPath(g, w, h); g.stroke(); // 縫い目のふち
   const bw = 0.48 * w, bh = 0.5 * h, k = Math.min(bw / sprite.width, bh / sprite.height);
   const dw = sprite.width * k, dh = sprite.height * k;
@@ -308,13 +315,14 @@ const plainCanvas = document.createElement('canvas'); plainCanvas.width = texCan
 const plainTex = new THREE.CanvasTexture(plainCanvas); plainTex.colorSpace = THREE.SRGBColorSpace;
 {
   const g = plainCanvas.getContext('2d'), w = plainCanvas.width, h = plainCanvas.height;
-  shirtPath(g, w, h); g.fillStyle = SHIRT_COLOR; g.fill();
-  g.save(); g.clip(); g.strokeStyle = 'rgba(0,0,0,0.08)'; g.lineWidth = w * 0.02; shirtPath(g, w, h); g.stroke(); g.restore();
+  fillShirt(g, w, h, SHIRT_COLOR);
+  g.save(); shirtPath(g, w, h); g.clip(); g.strokeStyle = 'rgba(0,0,0,0.08)'; g.lineWidth = w * 0.02; shirtPath(g, w, h); g.stroke(); g.restore();
 }
 const backGeo = new THREE.BufferGeometry();
 const bpos = new Float32Array(NV * 3);
 backGeo.setAttribute('position', new THREE.BufferAttribute(bpos, 3).setUsage(THREE.DynamicDrawUsage));
 backGeo.setAttribute('uv', new THREE.BufferAttribute(cuv, 2));
+const bnrm = new Float32Array(NV * 3); backGeo.setAttribute('normal', new THREE.BufferAttribute(bnrm, 3).setUsage(THREE.DynamicDrawUsage));
 {
   const idx = [];
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = j * (N + 1) + i, b = a + 1, c = a + N + 2, d = a + N + 1; idx.push(a, b, d, b, c, d); } // 外向きが奥
@@ -335,14 +343,10 @@ function initSim() {
   sAct.fill(0); sSeam.fill(0);
   const inside = new Uint8Array(SV);
   for (let b = 0; b <= S; b++) for (let a = 0; a <= S; a++) inside[b * (S + 1) + a] = inShirt[Math.round(b / S * N) * (N + 1) + Math.round(a / S * N)];
-  // 1マス外まで布にして、見た目の縁が格子の外れで崩れないようにする
-  for (let b = 0; b <= S; b++) for (let a = 0; a <= S; a++) {
-    let on = 0;
-    for (let db = -1; db <= 1 && !on; db++) for (let da = -1; da <= 1; da++) {
-      const aa = a + da, bb = b + db;
-      if (aa >= 0 && bb >= 0 && aa <= S && bb <= S && inside[bb * (S + 1) + aa]) { on = 1; break; }
-    }
-    sAct[b * (S + 1) + a] = on;
+  // 見えている点を含むマスの四隅を布にする（見た目の縁がちょうど布の縁の内側に入る）
+  for (let v = 0; v < NV; v++) if (inShirt[v]) {
+    const i = v % (N + 1), j = (v - i) / (N + 1), a = Math.min(S - 1, Math.floor(i / N * S)), b = Math.min(S - 1, Math.floor(j / N * S)), k = b * (S + 1) + a;
+    sAct[k] = sAct[k + 1] = sAct[k + S + 1] = sAct[k + S + 2] = 1;
   }
   const off = (a, b) => a < 0 || b < 0 || a > S || b > S || !sAct[b * (S + 1) + a];
   const cuffD = (x, y) => { const ax = 0, ay = 0.31, dx = 0.15, dy = 0.11, t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy))); return Math.hypot(x - ax - dx * t, y - ay - dy * t); };
@@ -386,87 +390,104 @@ function initSim() {
       if (a < S - 1) add(k, k + 2, 0.08); if (b < S - 1) add(k, k + 2 * (S + 1), 0.08);
     }
   }
-  cons = Float32Array.from(c); simOn = true;
+  cons = Float32Array.from(c); prepSim(); simOn = true;
   backOut.visible = backIn.visible = true;
 }
-const tmp3 = [0, 0, 0];
+let simMove = null, simCol = null, simSep = null;
+// 格子の面の向き（隣の点の差から。computeVertexNormals より軽い）
+function gridNormals(pos, nrm, n, sign) {
+  const W = n + 1;
+  for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
+    const ia = (j * W + Math.min(n, i + 1)) * 3, ib = (j * W + Math.max(0, i - 1)) * 3;
+    const ja = (Math.min(n, j + 1) * W + i) * 3, jb = (Math.max(0, j - 1) * W + i) * 3;
+    const ux = pos[ia] - pos[ib], uy = pos[ia + 1] - pos[ib + 1], uz = pos[ia + 2] - pos[ib + 2];
+    const vx = pos[ja] - pos[jb], vy = pos[ja + 1] - pos[jb + 1], vz = pos[ja + 2] - pos[jb + 2];
+    const nx = vy * uz - vz * uy, ny = vz * ux - vx * uz, nz = vx * uy - vy * ux, l = sign / (Math.sqrt(nx * nx + ny * ny + nz * nz) || 1);
+    const o = (j * W + i) * 3; nrm[o] = nx * l; nrm[o + 1] = ny * l; nrm[o + 2] = nz * l;
+  }
+}
+function prepSim() {
+  // 動く粒、ハンガーに当たりうる粒（上の方だけ）、前後の重なりを防ぐ組
+  const mv = [], col = [], sep = [], lowY = armY(TIP_X) - 0.6;
+  for (let k = 0; k < SV; k++) {
+    if (!sAct[k]) continue;
+    mv.push(k); if (!sSeam[k]) { mv.push(SV + k); sep.push(k); }
+    if (sry[k] > lowY) { col.push(k, sSup[k]); if (!sSeam[k]) col.push(SV + k, sSup[k]); }
+  }
+  simMove = Int32Array.from(mv); simCol = Int32Array.from(col); simSep = Int32Array.from(sep);
+}
 function stepSim(dt) {
-  const SUB = 2, h = dt / SUB, G = 22 * h * h;
+  const SUB = 2, h = dt / SUB, G = 22 * h * h, ITER = 7;
   for (let sub = 0; sub < SUB; sub++) {
-    for (let k = 0; k < SV; k++) {
-      if (!sAct[k]) continue;
-      for (const i of sSeam[k] ? [k] : [k, SV + k]) {
-        const o = i * 3;
-        for (let d = 0; d < 3; d++) { const v = (P[o + d] - PP[o + d]) * 0.993; PP[o + d] = P[o + d]; P[o + d] += v; }
-        P[o + 1] -= G;
-      }
+    for (let m = 0; m < simMove.length; m++) {
+      const o = simMove[m] * 3;
+      const vx = (P[o] - PP[o]) * 0.993, vy = (P[o + 1] - PP[o + 1]) * 0.993, vz = (P[o + 2] - PP[o + 2]) * 0.993;
+      PP[o] = P[o]; PP[o + 1] = P[o + 1]; PP[o + 2] = P[o + 2];
+      P[o] += vx; P[o + 1] += vy - G; P[o + 2] += vz;
     }
-    for (let it = 0; it < 9; it++) {
+    for (let it = 0; it < ITER; it++) {
       for (let n = 0; n < cons.length; n += 4) {
         const p = cons[n] * 3, q = cons[n + 1] * 3;
         const dx = P[q] - P[p], dy = P[q + 1] - P[p + 1], dz = P[q + 2] - P[p + 2];
-        const len = Math.hypot(dx, dy, dz) || 1e-6, f = (len - cons[n + 2]) / len * 0.5 * cons[n + 3];
+        const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6, f = (len - cons[n + 2]) / len * 0.5 * cons[n + 3];
         P[p] += dx * f; P[p + 1] += dy * f; P[p + 2] += dz * f;
         P[q] -= dx * f; P[q + 1] -= dy * f; P[q + 2] -= dz * f;
       }
-      for (let k = 0; k < SV; k++) {
-        if (!sAct[k]) continue;
-        // 前と後ろの布はすり抜けない
-        if (!sSeam[k]) {
-          const f = k * 3 + 2, bk = (SV + k) * 3 + 2, gap = P[f] - P[bk];
-          if (gap < 0.02) { const m = (0.02 - gap) / 2; P[f] += m; P[bk] -= m; }
+      // 前と後ろの布はすり抜けない
+      for (let m = 0; m < simSep.length; m++) {
+        const k = simSep[m], f = k * 3 + 2, bk = (SV + k) * 3 + 2, gap = P[f] - P[bk];
+        if (gap < 0.02) { const d = (0.02 - gap) / 2; P[f] += d; P[bk] -= d; }
+      }
+      // ハンガーにぶつかったら外へ押し出す（すべりにくく）。肩は腕の線より下へは抜けない
+      for (let m = 0; m < simCol.length; m += 2) {
+        const o = simCol[m] * 3;
+        if (simCol[m + 1] && P[o] <= TIP_X && P[o] >= -TIP_X) {
+          const az = Math.abs(P[o + 2]), zz = az < HR * 0.95 ? az : HR * 0.95, ymin = armY(P[o]) - 0.035 + Math.sqrt(HR * HR - zz * zz);
+          if (P[o + 1] < ymin) { P[o + 1] = ymin; P[o] = PP[o] + (P[o] - PP[o]) * 0.3; P[o + 2] = PP[o + 2] + (P[o + 2] - PP[o + 2]) * 0.6; }
         }
-        // ハンガーにぶつかったら外へ押し出す（すべりにくく）
-        for (const i of sSeam[k] ? [k] : [k, SV + k]) {
-          const o = i * 3;
-          if (sSup[k] && Math.abs(P[o]) <= TIP_X) {
-            // 肩は腕の線より下へは決して抜けない（引っぱられて飛び越えるのを防ぐ）
-            const zz = Math.min(Math.abs(P[o + 2]), HR * 0.95), ymin = armY(P[o]) - 0.035 + Math.sqrt(HR * HR - zz * zz);
-            if (P[o + 1] < ymin) { P[o + 1] = ymin; P[o] = PP[o] + (P[o] - PP[o]) * 0.3; P[o + 2] = PP[o + 2] + (P[o + 2] - PP[o + 2]) * 0.6; }
-          }
-          for (const sg of HSEG) {
-            const d = segDist(P[o], P[o + 1], P[o + 2], sg, tmp3);
-            if (d >= HR) continue;
-            if (d < 1e-5) { tmp3[0] = 0; tmp3[1] = 1; tmp3[2] = 0; } else { tmp3[0] /= d; tmp3[1] /= d; tmp3[2] /= d; }
-            const push = HR - d;
-            P[o] += tmp3[0] * push; P[o + 1] += tmp3[1] * push; P[o + 2] += tmp3[2] * push;
-            P[o] = PP[o] + (P[o] - PP[o]) * 0.6; P[o + 2] = PP[o + 2] + (P[o + 2] - PP[o + 2]) * 0.6;
-          }
+        for (let g = 0; g < HSEG.length; g++) {
+          const sg = HSEG[g], ax = sg[0], ay = sg[1], ex = sg[2] - ax, ey = sg[3] - ay;
+          let t = ((P[o] - ax) * ex + (P[o + 1] - ay) * ey) / (ex * ex + ey * ey); t = t < 0 ? 0 : t > 1 ? 1 : t;
+          let dx = P[o] - ax - ex * t, dy = P[o + 1] - ay - ey * t, dz = P[o + 2];
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 >= HR * HR) continue;
+          const d = Math.sqrt(d2);
+          if (d < 1e-5) { dx = 0; dy = 1; dz = 0; } else { dx /= d; dy /= d; dz /= d; }
+          const push = HR - d;
+          P[o] += dx * push; P[o + 1] += dy * push; P[o + 2] += dz * push;
+          P[o] = PP[o] + (P[o] - PP[o]) * 0.6; P[o + 2] = PP[o + 2] + (P[o + 2] - PP[o + 2]) * 0.6;
         }
       }
     }
   }
 }
+const SE = new Float32Array(SV * 3);
 function drawLayer(L, pos, detail) {
-  const base = L * SV;
   for (let k = 0; k < SV; k++) {
-    const nk = sNear[k], src = (L && !sSeam[nk] ? SV + nk : nk) * 3, o = (base + k) * 3;
-    E[o] = P[src] + (srx[k] - srx[nk]); E[o + 1] = P[src + 1] + (sry[k] - sry[nk]); E[o + 2] = P[src + 2];
-    if (nk === k) { E[o] = P[src]; E[o + 1] = P[src + 1]; }
+    const nk = sNear[k], src = (L && !sSeam[nk] ? SV + nk : nk) * 3, o = k * 3;
+    SE[o] = P[src] + (srx[k] - srx[nk]); SE[o + 1] = P[src + 1] + (sry[k] - sry[nk]); SE[o + 2] = P[src + 2];
   }
-  const Q = (a, b) => (base + Math.min(S, Math.max(0, b)) * (S + 1) + Math.min(S, Math.max(0, a))) * 3;
-  if (detail) for (let b = 0; b <= S; b++) for (let a = 0; a <= S; a++) {
-    const ia = Q(a + 1, b), ib = Q(a - 1, b), ja = Q(a, b + 1), jb = Q(a, b - 1);
-    const ux = E[ia] - E[ib], uy = E[ia + 1] - E[ib + 1], uz = E[ia + 2] - E[ib + 2];
-    const vx = E[ja] - E[jb], vy = E[ja + 1] - E[jb + 1], vz = E[ja + 2] - E[jb + 2];
-    const nx = vy * uz - vz * uy, ny = vz * ux - vx * uz, nz = vx * uy - vy * ux, l = Math.hypot(nx, ny, nz) || 1;
-    const k = (b * (S + 1) + a) * 3; SN[k] = nx / l; SN[k + 1] = ny / l; SN[k + 2] = nz / l;
-  }
-  for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
-    const v = j * (N + 1) + i, fa = i / N * S, fb = j / N * S, a = Math.min(S - 1, Math.floor(fa)), b = Math.min(S - 1, Math.floor(fb));
-    const u = fa - a, t = fb - b, k00 = Q(a, b), k10 = Q(a + 1, b), k01 = Q(a, b + 1), k11 = Q(a + 1, b + 1);
-    const w00 = (1 - u) * (1 - t), w10 = u * (1 - t), w01 = (1 - u) * t, w11 = u * t;
-    // 残ったシワは布の面に沿って少しだけ足す
-    const hgt = detail ? oy[v] * wr[v] * amp * hs : 0, n0 = k00 - base * 3, n1 = k10 - base * 3, n2 = k01 - base * 3, n3 = k11 - base * 3;
-    for (let d = 0; d < 3; d++) {
-      const n = detail ? SN[n0 + d] * w00 + SN[n1 + d] * w10 + SN[n2 + d] * w01 + SN[n3 + d] * w11 : 0;
-      pos[v * 3 + d] = E[k00 + d] * w00 + E[k10 + d] * w10 + E[k01 + d] * w01 + E[k11 + d] * w11 + n * hgt;
+  if (detail) gridNormals(SE, SN, S, 1);
+  for (let j = 0; j <= N; j++) {
+    const fb = j / N * S, b = Math.min(S - 1, Math.floor(fb)), t = fb - b;
+    for (let i = 0; i <= N; i++) {
+      const v = j * (N + 1) + i, fa = i / N * S, a = Math.min(S - 1, Math.floor(fa)), u = fa - a;
+      const k00 = (b * (S + 1) + a) * 3, k10 = k00 + 3, k01 = k00 + (S + 1) * 3, k11 = k01 + 3;
+      const w00 = (1 - u) * (1 - t), w10 = u * (1 - t), w01 = (1 - u) * t, w11 = u * t;
+      // 残ったシワは布の面に沿って少しだけ足す
+      const hgt = detail ? oy[v] * wr[v] * amp * hs : 0;
+      for (let d = 0; d < 3; d++) {
+        const n = detail ? SN[k00 + d] * w00 + SN[k10 + d] * w10 + SN[k01 + d] * w01 + SN[k11 + d] * w11 : 0;
+        pos[v * 3 + d] = SE[k00 + d] * w00 + SE[k10 + d] * w10 + SE[k01 + d] * w01 + SE[k11 + d] * w11 + n * hgt;
+      }
     }
   }
 }
 function drawSim() {
-  drawLayer(0, cpos, true); clothGeo.attributes.position.needsUpdate = true; clothGeo.computeVertexNormals();
-  drawLayer(1, bpos, false); backGeo.attributes.position.needsUpdate = true; backGeo.computeVertexNormals();
+  drawLayer(0, cpos, true); gridNormals(cpos, cnrm, N, 1);
+  clothGeo.attributes.position.needsUpdate = true; clothGeo.attributes.normal.needsUpdate = true;
+  drawLayer(1, bpos, false); gridNormals(bpos, bnrm, N, -1);
+  backGeo.attributes.position.needsUpdate = true; backGeo.attributes.normal.needsUpdate = true;
 }
 
 // くしゃくしゃの形：なめらかなデコボコ（値ノイズ）に、長さも向きもばらばらの折り目を重ね、ふちはめくれ上がらせる
@@ -480,31 +501,30 @@ function valueNoise(cells) {
   };
 }
 function makeCrumple() {
-  const n1 = valueNoise(3), n2 = valueNoise(7), n3 = valueNoise(15);
+  const n2 = valueNoise(6), n3 = valueNoise(14);
   const folds = [];
-  for (let k = 0; k < 120; k++) {
+  for (let k = 0; k < 180; k++) {
     const a = Math.random() * Math.PI * 2;
-    folds.push({ cx: (Math.random() - 0.5) * CW * 1.1, cz: (Math.random() - 0.5) * CH * 1.1, dx: Math.cos(a), dz: Math.sin(a),
-      len: 0.2 + Math.random() * 0.9, wid: 0.06 + Math.random() * 0.22, a: (Math.random() < 0.7 ? 1 : -1) * (0.05 + Math.random() * 0.12) });
+    folds.push({ cx: (Math.random() - 0.5) * CW * 1.05, cz: (Math.random() - 0.5) * CH * 1.05, dx: Math.cos(a), dz: Math.sin(a),
+      len: 0.15 + Math.random() * 0.8, wid: 0.07 + Math.random() * 0.22, a: 0.08 + Math.random() * 0.2 });
   }
-  let mn = Infinity;
   for (let v = 0; v < NV; v++) {
     const x = bx[v], z = bz[v];
-    let h = 0.26 * n1(x, z) + 0.13 * n2(x, z) + 0.05 * n3(x, z);
+    let h = 0.06 * n2(x, z) + 0.03 * n3(x, z);
     for (const F of folds) {
       const ex = x - F.cx, ez = z - F.cz, along = ex * F.dx + ez * F.dz;
-      if (Math.abs(along) > F.len * 2.2) continue;
+      if (along > F.len * 2.2 || along < -F.len * 2.2) continue;
       const across = Math.abs(-ex * F.dz + ez * F.dx);
       if (across > F.wid) continue;
-      // 折り目は鋭い山（または谷）で、両端に向かって消える
-      h += F.a * (1 - across / F.wid) * Math.exp(-(along * along) / (F.len * F.len));
+      // 折り目は台から立ち上がる鋭い山で、両端に向かって消える。重なった所は高い方
+      h = Math.max(h, F.a * (1 - across / F.wid) * Math.exp(-(along * along) / (F.len * F.len)) + 0.4 * h);
     }
     oy[v] = h;
   }
-  // 低い方の45%は台にぴったり付ける（浮いて見えないように）。ふちは少しめくれる
+  // 低い方の35%は台にぴったり付ける。ふちも台に付ける（浮いて見えないように）
   const hs0 = []; for (let v = 0; v < NV; v++) if (inShirt[v]) hs0.push(oy[v]);
-  hs0.sort((p, q) => p - q); mn = hs0[Math.floor(hs0.length * 0.45)];
-  for (let v = 0; v < NV; v++) { oy[v] = Math.max(0, oy[v] - mn) + 0.22 * Math.exp(-edgeDist[v] / 0.18); ox[v] = -bx[v] * 0.16; oz[v] = -bz[v] * 0.16; }
+  hs0.sort((p, q) => p - q); const mn = hs0[Math.floor(hs0.length * 0.25)];
+  for (let v = 0; v < NV; v++) { oy[v] = Math.max(0, oy[v] - mn) * sstep(0.03, 0.3, edgeDist[v]); ox[v] = -bx[v] * 0.16; oz[v] = -bz[v] * 0.16; }
 }
 function resetCloth() {
   wr.fill(1); heat.fill(0); burn.fill(0); cap.fill(Infinity); amp = 0; ccol.fill(1);
@@ -519,8 +539,8 @@ function updateCloth() {
   for (let v = 0; v < NV; v++) {
     cpos[v * 3] = bx[v] + ox[v] * sw; cpos[v * 3 + 1] = Math.min(BASE_Y + oy[v] * wr[v] * amp * hs, cap[v]); cpos[v * 3 + 2] = bz[v] + oz[v] * sw;
   }
-  clothGeo.attributes.position.needsUpdate = true;
-  clothGeo.computeVertexNormals();
+  gridNormals(cpos, cnrm, N, 1);
+  clothGeo.attributes.position.needsUpdate = true; clothGeo.attributes.normal.needsUpdate = true;
 }
 const BR1 = [0.62, 0.4, 0.2], BR2 = [0.07, 0.045, 0.03];
 const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
