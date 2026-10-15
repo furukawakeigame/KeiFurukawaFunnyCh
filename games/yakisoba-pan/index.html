@@ -669,7 +669,7 @@
       } else if (cook === 3) { // 煮汁の鉢
         const bowl = new THREE.LatheGeometry([[0, -0.1], [1.2, -0.1], [1.6, 0.15], [1.75, 0.45], [1.7, 0.47], [1.55, 0.2], [1.1, -0.03], [0, -0.03]].map(([x, y]) => new THREE.Vector2(x, y)), 96);
         g.add(mesh(bowl, M(0x3a1a12, { roughness: 0.2, clearcoat: 1, side: THREE.DoubleSide })));
-        const broth = mesh(new THREE.CircleGeometry(1.62, 96).rotateX(-Math.PI / 2), new THREE.MeshPhysicalMaterial({ color: 0x8a5a20, roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.82 }), 0, 0.3);
+        const broth = mesh(new THREE.CircleGeometry(1.62, 96).rotateX(-Math.PI / 2), new THREE.MeshPhysicalMaterial({ color: 0x8a5a20, roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.82 }), 0, 0.14);
         broth.castShadow = false; broth.userData.noShadow = true;
         g.add(broth);
         floor = -0.03;
@@ -705,13 +705,18 @@
     }
 
     // 料理そのものの見た目を調理法ごとに変える（頂点の色・形・質感）
-    function cookPass(food, cook) {
+    // 重い処理は少しずつ進めて、画面が固まらないようにする
+    const tick = () => new Promise(r => setTimeout(r));
+    let budget = 0;
+    async function breathe() { if (performance.now() - budget > 8) { await tick(); budget = performance.now(); } }
+    async function cookPass(food, cook) {
       food.updateMatrixWorld(true);
       const inv = new THREE.Matrix4().copy(food.matrixWorld).invert();
       const rel = new THREE.Matrix4(), nm = new THREE.Matrix3(), v = new THREE.Vector3(), n = new THREE.Vector3(), c = new THREE.Color();
-      const drops = [];
-      food.traverse(o => {
-        if (!o.isMesh || o.isInstancedMesh || o.userData.fx) return;
+      const drops = [], list = [];
+      food.traverse(o => { if (o.isMesh && !o.isInstancedMesh && !o.userData.fx) list.push(o); });
+      for (const o of list) {
+        await breathe();
         o.geometry = o.geometry.clone();
         const geo = o.geometry;
         if (cook === 1) organic(geo, 0.022, 16); // 衣のざらざら
@@ -758,7 +763,7 @@
           return m;
         });
         if (o.material.length === 1) o.material = o.material[0];
-      });
+      }
       // インスタンス（青のり・米粒）は色だけ寄せる
       food.traverse(o => {
         if (!o.isInstancedMesh) return;
@@ -772,7 +777,7 @@
       }
     }
 
-    function addWisps(food, top, color, opacity) {
+    function addWisps(food, top, color, opacity, fx) {
       for (let k = 0; k < 8; k++) {
         const s = mesh(new THREE.SphereGeometry(0.22, 16, 12), new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false }), rnd(-0.5, 0.5), 0, rnd(-0.3, 0.3));
         s.userData = { t: k / 8, y0: top + 0.2, op: opacity, fx: true };
@@ -787,73 +792,91 @@
     }
 
     // ---------- X投稿用の動画（料理が1周する。最初と最後がつながるループ） ----------
-    const VSIZE = 720, VFPS = 30, VFRAMES = 120; // 4秒で1周。湯気も4秒で2周するので切れ目がない
-    let vr = null, shareFile = null, shareKey = '';
+    // 画面と同じ renderer で、表示の合間に1コマずつ描いて MP4 にする（別の renderer を作ると固まるため）
+    const VFPS = 30, VFRAMES = 120; // 4秒で1周。湯気も4秒で2周するので切れ目がない
+    let shareFile = null, shareKey = '', videoJob = null;
     async function makeVideo(key) {
       if (!('VideoEncoder' in window) || !window.Mp4Muxer) return;
+      const cw = renderer.domElement.width, ch = renderer.domElement.height;
+      const size = Math.min(720, Math.floor(Math.min(cw, ch) / 2) * 2);
       let cfg = null;
       for (const codec of ['avc1.640028', 'avc1.4d0028', 'avc1.42001f']) {
-        const c = { codec, width: VSIZE, height: VSIZE, bitrate: 6e6, framerate: VFPS };
+        const c = { codec, width: size, height: size, bitrate: 6e6, framerate: VFPS };
         try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; break; } } catch {}
       }
       if (!cfg || shareKey !== key) return;
-      if (!vr) {
-        vr = new THREE.WebGLRenderer({ antialias: true });
-        vr.setPixelRatio(1); vr.setSize(VSIZE, VSIZE, false);
-        vr.outputColorSpace = renderer.outputColorSpace; vr.toneMapping = renderer.toneMapping; vr.toneMappingExposure = renderer.toneMappingExposure;
-        vr.shadowMap.enabled = true; vr.shadowMap.type = renderer.shadowMap.type;
-      }
       const cam = new THREE.PerspectiveCamera(foodCam.fov, 1, 0.1, 100);
       const keep = [foodDist, foodCy];
       fitCam(cam, 1);
       const el = THREE.MathUtils.degToRad(20);
       cam.position.set(0, foodCy + Math.sin(el) * foodDist, Math.cos(el) * foodDist); cam.lookAt(0, foodCy, 0);
       [foodDist, foodCy] = keep;
-      const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: VSIZE, height: VSIZE, frameRate: VFPS }, fastStart: 'in-memory' });
-      let failed = false;
-      const enc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: () => { failed = true; } });
-      enc.configure(cfg);
-      const t0 = fx.map(f => f.userData.t);
-      for (let i = 0; i < VFRAMES; i++) {
-        if (shareKey !== key || failed) { try { enc.close(); } catch {} return; }
-        const a = i / VFRAMES * Math.PI * 2;
-        foodRoot.rotation.y = vesselRoot.rotation.y = a;
-        foodRoot.scale.setScalar(1);
-        fx.forEach((f, k) => setWisp(f, (t0[k] + i / VFRAMES * 2) % 1));
-        vr.render(foodScene, cam);
-        const frame = new VideoFrame(vr.domElement, { timestamp: Math.round(i * 1e6 / VFPS), duration: Math.round(1e6 / VFPS) });
-        enc.encode(frame, { keyFrame: i % 60 === 0 }); frame.close();
-        if (i % 3 === 2) await new Promise(r => requestAnimationFrame(r));
-      }
-      fx.forEach((f, k) => setWisp(f, t0[k]));
-      await enc.flush(); enc.close(); muxer.finalize();
-      if (shareKey !== key || failed) return;
-      shareFile = new File([muxer.target.buffer], 'yakisoba-pan.mp4', { type: 'video/mp4' });
-      render();
+      const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: size, height: size, frameRate: VFPS }, fastStart: 'in-memory' });
+      const job = { key, cam, size, muxer, i: 0, failed: false, t0: fx.map(f => f.userData.t) };
+      job.enc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: () => { job.failed = true; } });
+      job.enc.configure(cfg);
+      videoJob = job;
+    }
+    // ループの中から呼ぶ。1回で1コマ
+    function videoFrame() {
+      const job = videoJob;
+      if (job.key !== shareKey || job.failed) { try { job.enc.close(); } catch {} videoJob = null; return; }
+      const i = job.i, pr = renderer.getPixelRatio(), ch = renderer.domElement.height, cur = fx.map(f => f.userData.t);
+      foodRoot.rotation.y = vesselRoot.rotation.y = i / VFRAMES * Math.PI * 2;
+      foodRoot.scale.setScalar(1);
+      fx.forEach((f, k) => setWisp(f, (job.t0[k] + i / VFRAMES * 2) % 1));
+      renderer.setScissorTest(true);
+      renderer.setViewport(0, 0, job.size / pr, job.size / pr); renderer.setScissor(0, 0, job.size / pr, job.size / pr);
+      renderer.render(foodScene, job.cam);
+      const frame = new VideoFrame(renderer.domElement, { visibleRect: { x: 0, y: ch - job.size, width: job.size, height: job.size }, timestamp: Math.round(i * 1e6 / VFPS), duration: Math.round(1e6 / VFPS) });
+      job.enc.encode(frame, { keyFrame: i % 60 === 0 }); frame.close();
+      fx.forEach((f, k) => setWisp(f, cur[k]));
+      job.i++;
+      if (job.i < VFRAMES) return;
+      videoJob = null;
+      (async () => {
+        await job.enc.flush(); job.enc.close(); job.muxer.finalize();
+        if (shareKey !== job.key || job.failed) return;
+        shareFile = new File([job.muxer.target.buffer], 'yakisoba-pan.mp4', { type: 'video/mp4' });
+        render();
+      })().catch(() => {});
     }
 
-    function buildFood(idx) {
-      if (food) { foodRoot.remove(food); food.traverse(o => { o.geometry?.dispose(); }); }
-      if (vessel) vesselRoot.remove(vessel.g);
-      fx.length = 0;
-      food = new THREE.Group();
+    // 料理と器を作る（少しずつ進める）。表示は showFood で切り替える
+    async function makeFood(idx) {
+      budget = performance.now();
+      const g = new THREE.Group(), wisps = [];
       const base = BASES[idx[2]]();
+      await breathe();
       const fill = FILLS[idx[1]](base.w);
       fill.position.y = base.top;
-      food.add(base.g, fill);
+      g.add(base.g, fill);
+      await breathe();
       // 大きすぎるものは縮める
-      const box = new THREE.Box3().setFromObject(food);
-      const size = box.getSize(new THREE.Vector3());
+      const size = new THREE.Box3().setFromObject(g).getSize(new THREE.Vector3());
       const s = Math.min(1, 2.9 / size.x, 2.6 / size.z, 1.9 / size.y);
-      food.scale.setScalar(s);
-      cookPass(food, idx[0]);
-      const top = new THREE.Box3().setFromObject(food).max.y / s;
-      if (idx[0] === 2) addWisps(food, top, 0xffffff, 0.28);
-      if (idx[0] === 6) addWisps(food, top, 0x8a8a8a, 0.22);
-      food.traverse(o => { if (o.isMesh) { o.castShadow = !o.userData.fx; o.receiveShadow = true; } });
-      vessel = makeVessel(idx[0]);
+      g.scale.setScalar(s);
+      await cookPass(g, idx[0]);
+      const top = new THREE.Box3().setFromObject(g).max.y / s;
+      if (idx[0] === 2) addWisps(g, top, 0xffffff, 0.28, wisps);
+      if (idx[0] === 6) addWisps(g, top, 0x8a8a8a, 0.22, wisps);
+      g.traverse(o => { if (o.isMesh) { o.castShadow = !o.userData.fx; o.receiveShadow = true; } });
+      await breathe();
+      const v = makeVessel(idx[0]);
+      g.position.y = v.floor;
+      // シェーダーを先に用意しておく（初めて見る質感で固まらないように）
+      const tmp = new THREE.Group(); tmp.position.y = -1000; tmp.add(g, v.g);
+      foodScene.add(tmp);
+      try { await (renderer.compileAsync ? renderer.compileAsync(foodScene, foodCam) : renderer.compile(foodScene, foodCam)); } catch {}
+      foodScene.remove(tmp);
+      return { food: g, vessel: v, wisps };
+    }
+    function showFood(pack) {
+      if (food) { foodRoot.remove(food); food.traverse(o => { o.geometry?.dispose(); }); }
+      if (vessel) vesselRoot.remove(vessel.g);
+      food = pack.food; vessel = pack.vessel;
+      fx.length = 0; fx.push(...pack.wisps);
       vesselRoot.add(vessel.g);
-      food.position.y = vessel.floor;
       foodRoot.add(food);
       foodBox.setFromObject(food);
       fitFoodCam();
@@ -877,6 +900,7 @@
 
     // ---------- 進行 ----------
     let state = 'idle'; // idle | spin | result
+    let pending = null, pendingKey = '';
     let spins = store.get('spins', 0);
     let result = [0, 0, 0];
     const controls = document.getElementById('controls');
@@ -894,6 +918,12 @@
       if (state !== 'spin' || !d.spinning || d.target !== null) return;
       // 次に正面へ来るコマで止まる（目押し）
       d.target = (Math.ceil(d.theta / STEP - 0.5) + 0.5) * STEP;
+      // 3つ目を押した時点で結果は決まるので、止まるまでの間に料理を作り始める
+      if (drums.every(x => x.target !== null)) {
+        const idx = drums.map(x => indexFor(x.target));
+        pendingKey = idx.join(',');
+        pending = makeFood(idx);
+      }
       render();
     }
     function landed(i) {
@@ -908,8 +938,14 @@
         state = 'result';
         shareFile = null; shareKey = result.join(',') + ':' + spins;
         const key = shareKey;
-        setTimeout(() => makeVideo(key).catch(() => {}), 700);
-        buildFood(result);
+        const job = pendingKey === result.join(',') && pending ? pending : makeFood(result);
+        pending = null;
+        job.then(pack => {
+          if (shareKey !== key) return;
+          showFood(pack);
+          // 料理が出てきてから動画を作る
+          setTimeout(() => makeVideo(key).catch(() => {}), 600);
+        });
         render();
       }
     }
@@ -1041,6 +1077,7 @@
       const p = foodPop, sc = 1 + Math.sin(p * Math.PI) * 0.08;
       foodRoot.scale.set(sc * p, sc * p, sc * p);
       for (const s of fx) setWisp(s, (s.userData.t + dt * 0.5) % 1);
+      if (videoJob) { videoFrame(); foodRoot.rotation.y = vesselRoot.rotation.y = foodSpin; foodRoot.scale.set(sc * p, sc * p, sc * p); }
       renderer.setScissorTest(true);
       renderer.setViewport(0, 0, W, drumH); renderer.setScissor(0, 0, W, drumH);
       renderer.render(scene, camera);
@@ -1051,11 +1088,20 @@
     }
 
     setDrumTextures();
-    buildFood(result);
-    foodPop = 1;
     resize();
     render();
     requestAnimationFrame(loop);
+    makeFood(result).then(async pack => {
+      if (state === 'idle') { showFood(pack); foodPop = 1; }
+      // 遊んでいない間に、全部の料理・調理法・器のシェーダーを用意しておく
+      for (let k = 0; k < 8; k++) {
+        await tick();
+        if (state !== 'idle' && state !== 'result') { k--; await new Promise(r => setTimeout(r, 500)); continue; }
+        const w = await makeFood([k, (k + 3) % 8, (k + 5) % 8]);
+        w.food.traverse(o => o.geometry?.dispose());
+        w.vessel.g.traverse(o => o.geometry?.dispose());
+      }
+    });
   </script>
 </body>
 </html>
