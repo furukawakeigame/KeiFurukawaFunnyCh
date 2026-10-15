@@ -797,8 +797,11 @@
     let shareFile = null, shareKey = '', videoJob = null;
     async function makeVideo(key) {
       if (!('VideoEncoder' in window) || !window.Mp4Muxer) return;
+      // 動画は常に 720×720。画面に描いた正方形を 2D キャンバスに写してから渡す（端末によって余白が出ないように）
+      const size = 720;
       const cw = renderer.domElement.width, ch = renderer.domElement.height;
-      const size = Math.min(720, Math.floor(Math.min(cw, ch) / 2) * 2);
+      const src = Math.floor(Math.min(cw, ch, 1440) / 2) * 2;
+      const out = document.createElement('canvas'); out.width = out.height = size;
       let cfg = null;
       for (const codec of ['avc1.640028', 'avc1.4d0028', 'avc1.42001f']) {
         const c = { codec, width: size, height: size, bitrate: 6e6, framerate: VFPS };
@@ -812,7 +815,7 @@
       cam.position.set(0, foodCy + Math.sin(el) * foodDist, Math.cos(el) * foodDist); cam.lookAt(0, foodCy, 0);
       [foodDist, foodCy] = keep;
       const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: size, height: size, frameRate: VFPS }, fastStart: 'in-memory' });
-      const job = { key, cam, size, muxer, i: 0, failed: false, t0: fx.map(f => f.userData.t) };
+      const job = { key, cam, size, src, out, ctx: out.getContext('2d'), muxer, i: 0, failed: false, t0: fx.map(f => f.userData.t) };
       job.enc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: () => { job.failed = true; } });
       job.enc.configure(cfg);
       videoJob = job;
@@ -826,9 +829,10 @@
       foodRoot.scale.setScalar(1);
       fx.forEach((f, k) => setWisp(f, (job.t0[k] + i / VFRAMES * 2) % 1));
       renderer.setScissorTest(true);
-      renderer.setViewport(0, 0, job.size / pr, job.size / pr); renderer.setScissor(0, 0, job.size / pr, job.size / pr);
+      renderer.setViewport(0, 0, job.src / pr, job.src / pr); renderer.setScissor(0, 0, job.src / pr, job.src / pr);
       renderer.render(foodScene, job.cam);
-      const frame = new VideoFrame(renderer.domElement, { visibleRect: { x: 0, y: ch - job.size, width: job.size, height: job.size }, timestamp: Math.round(i * 1e6 / VFPS), duration: Math.round(1e6 / VFPS) });
+      job.ctx.drawImage(renderer.domElement, 0, ch - job.src, job.src, job.src, 0, 0, job.size, job.size);
+      const frame = new VideoFrame(job.out, { timestamp: Math.round(i * 1e6 / VFPS), duration: Math.round(1e6 / VFPS) });
       job.enc.encode(frame, { keyFrame: i % 60 === 0 }); frame.close();
       fx.forEach((f, k) => setWisp(f, cur[k]));
       job.i++;
