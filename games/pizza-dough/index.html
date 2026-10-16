@@ -86,10 +86,8 @@
       <button id="pick" class="btn"></button>
     </div>
     <div id="barPaint" class="bar hide">
-      <button id="brush" class="btn sub" aria-label="brush"><span class="dot" style="width:11px;height:11px"></span></button>
-      <button id="erase" class="btn sub"></button>
-      <button id="undo" class="btn sub"></button>
-      <button id="done" class="btn" disabled></button>
+      <button id="shape" class="btn sub" aria-label="shape"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 3c3 0 4 1.5 6 3s3 3.5 3 6-1.5 4-3 5.5-3.5 3.5-6 3.5-4-1-6-2.5S3 15 3 12s2-4.5 3.5-6S9 3 12 3z"/></svg></button>
+      <button id="done" class="btn"></button>
     </div>
     <div id="barPlay" class="bar hide">
       <button id="bake" class="btn"></button>
@@ -111,16 +109,16 @@ const store = {
 };
 const TAG = '#画像ピザ生地ゲーム';
 const DICT = {
-  ja: { title: '画像ピザ生地', back: '← トップへ戻る', pick: '画像をえらぶ', erase: '消す', undo: '戻す', done: 'できた',
+  ja: { title: '画像ピザ生地', back: '← トップへ戻る', pick: '画像をえらぶ', done: 'できた',
     bake: '焼く', save: '保存', post: 'Xに投稿', again: '画像を変える', err: '画像を読み込めませんでした',
     cdn: '読み込みに失敗しました。通信を確認して再読み込みしてください。', share: '画像をピザ生地にして焼きました' },
-  ko: { title: '이미지 피자 반죽', back: '← 처음으로', pick: '이미지 선택', erase: '지우기', undo: '되돌리기', done: '완성',
+  ko: { title: '이미지 피자 반죽', back: '← 처음으로', pick: '이미지 선택', done: '완성',
     bake: '굽기', save: '저장', post: 'X에 게시', again: '이미지 바꾸기', err: '이미지를 불러올 수 없어요',
     cdn: '불러오지 못했어요. 연결을 확인하고 새로고침해 주세요.', share: '이미지를 피자 반죽으로 만들어 구웠어요' },
-  en: { title: 'Image Pizza Dough', back: '← Back to top', pick: 'Choose image', erase: 'Erase', undo: 'Undo', done: 'Done',
+  en: { title: 'Image Pizza Dough', back: '← Back to top', pick: 'Choose image', done: 'Done',
     bake: 'Bake', save: 'Save', post: 'Post on X', again: 'New image', err: 'Could not load the image',
     cdn: 'Failed to load. Check your connection and reload.', share: 'I turned my picture into pizza dough and baked it' },
-  th: { title: 'แป้งพิซซ่าจากรูป', back: '← กลับหน้าแรก', pick: 'เลือกรูป', erase: 'ลบ', undo: 'ย้อน', done: 'เสร็จ',
+  th: { title: 'แป้งพิซซ่าจากรูป', back: '← กลับหน้าแรก', pick: 'เลือกรูป', done: 'เสร็จ',
     bake: 'อบ', save: 'บันทึก', post: 'โพสต์ลง X', again: 'เปลี่ยนรูป', err: 'โหลดรูปไม่ได้',
     cdn: 'โหลดไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อแล้วโหลดใหม่', share: 'เอารูปมาทำเป็นแป้งพิซซ่าแล้วอบ' },
 };
@@ -161,14 +159,6 @@ function sndPeta(vol = 1) {
   n.buffer = noiseBuf(a, 0.08); f.type = 'lowpass'; f.frequency.value = 900;
   ng.gain.setValueAtTime(0.35 * vol, now); ng.gain.exponentialRampToValueAtTime(0.0001, now + 0.07);
   n.connect(f).connect(ng).connect(a.destination); n.start(now);
-}
-function sndHyun() {
-  const a = ac(); if (!a) return;
-  const now = a.currentTime, n = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
-  n.buffer = noiseBuf(a, 0.5); f.type = 'bandpass'; f.Q.value = 3;
-  f.frequency.setValueAtTime(500, now); f.frequency.exponentialRampToValueAtTime(2600, now + 0.35);
-  g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.5, now + 0.12); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
-  n.connect(f).connect(g).connect(a.destination); n.start(now);
 }
 function sndJuu(sec) {
   const a = ac(); if (!a) return;
@@ -312,7 +302,7 @@ function buildDough(spr) {
   D = { geo, top, bot, bx, bz, puff, rim, op, cw, ch, cellA, w, h, texs: [tex, baked, under], area0: 0, dirty: true };
   D.area0 = area();
   group.position.set(0, 0, 0); group.rotation.set(0, 0, 0); group.scale.set(1, 1, 1);
-  bakeU.value = 0; spinV = 0; toss = null; land = 0;
+  bakeU.value = 0; land = 0;
   updateGeom();
 }
 function area() {
@@ -361,8 +351,8 @@ function resize() {
   resizePaint();
 }
 
-// ---------- play: stretch & toss ----------
-let toss = null, spinV = 0, land = 0, drag = null;
+// ---------- play: stretch ----------
+let land = 0, drag = null;
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit = new THREE.Vector3();
 function boardPoint(e) {
   const r = gl.getBoundingClientRect();
@@ -382,37 +372,25 @@ function smudge(p, q, gain) {
   }
   D.dirty = true;
 }
-function startToss(vx) {
-  const e = doughExtent();
-  toss = { t: 0, T: 1.05, cx: e.cx, cz: e.cz };
-  spinV = (vx > 0 ? -1 : 1) * (7 + Math.min(8, Math.abs(vx) / 250));
-  sndHyun();
-}
 gl.addEventListener('pointerdown', e => {
   e.preventDefault();
   if (mode === 'start') { $('file').click(); return; }
-  if (mode !== 'play' || toss || drag) return;
+  if (mode !== 'play' || drag) return;
   ac();
   gl.setPointerCapture(e.pointerId);
   const p = boardPoint(e);
-  drag = { id: e.pointerId, p, hist: [{ x: e.clientX, y: e.clientY, t: performance.now() }], moved: 0 };
+  drag = { id: e.pointerId, p, moved: 0 };
   if (p) sndPeta(0.5);
 });
 gl.addEventListener('pointermove', e => {
-  if (!drag || drag.id !== e.pointerId || toss) return;
-  const now = performance.now();
-  drag.hist.push({ x: e.clientX, y: e.clientY, t: now });
-  while (drag.hist.length > 2 && now - drag.hist[0].t > 90) drag.hist.shift();
+  if (!drag || drag.id !== e.pointerId) return;
   const q = boardPoint(e);
   if (q && drag.p) { smudge(drag.p, q, 0.35 / (1 + drag.moved * 1.2)); drag.moved += Math.hypot(q.x - drag.p.x, q.z - drag.p.z); }
   drag.p = q;
 });
 const pUp = e => {
   if (!drag || drag.id !== e.pointerId) return;
-  const h = drag.hist, a = h[0], b = h[h.length - 1], dt = Math.max(16, b.t - a.t) / 1000;
-  const vx = (b.x - a.x) / dt, vy = (b.y - a.y) / dt;
   drag = null;
-  if (mode === 'play' && !toss && vy < -700 && -vy > Math.abs(vx) * 0.6 && performance.now() - b.t < 120) startToss(vx);
 };
 gl.addEventListener('pointerup', pUp);
 gl.addEventListener('pointercancel', pUp);
@@ -423,18 +401,6 @@ const camTarget = new THREE.Vector3();
 function frame(now) {
   const dt = Math.min(0.04, (now - last) / 1000); last = now;
   if (D) {
-    if (toss) {
-      toss.t += dt;
-      const u = Math.min(1, toss.t / toss.T), k = Math.exp(Math.log(1.32) / toss.T * dt);
-      const { bx, bz } = D;
-      for (let v = 0; v < bx.length; v++) { bx[v] = toss.cx + (bx[v] - toss.cx) * k; bz[v] = toss.cz + (bz[v] - toss.cz) * k; }
-      D.dirty = true;
-      group.position.y = 1.7 * 4 * u * (1 - u) * Math.max(1, Math.sqrt(1 / thin) * 0.8);
-      group.rotation.x = 0.12 * Math.sin(Math.PI * u * 2);
-      if (u >= 1) { toss = null; group.position.y = 0; group.rotation.x = 0; land = 1; sndPeta(1); }
-    }
-    group.rotation.y += spinV * dt;
-    spinV *= toss ? 1 : Math.pow(0.12, dt);
     if (mode === 'result') group.rotation.y += 0.25 * dt;
     if (land > 0) { land = Math.max(0, land - dt * 3); group.scale.y = 1 - 0.5 * Math.sin(land * Math.PI) * land; }
     if (bakeT >= 0) {
@@ -458,14 +424,30 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-// ---------- cut-out (same as Tapioca Maker) ----------
+// ---------- cut-out: a wobbly circle over the picture ----------
 const cv = $('cv'), ctx = cv.getContext('2d');
-let DPR = 1, img = null, mask = null, mctx = null, view = null, brushIdx = 1, erasing = false, undoStack = [];
+let DPR = 1, img = null, view = null, wob = null;
+const DOUGH = '#ecd2a8';
 function resizePaint() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
   cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
   if (img) placeImage();
   renderPaint();
+}
+function newWobble() {
+  const r = () => Math.random() * Math.PI * 2;
+  wob = [[3, 0.05 + Math.random() * 0.03, r()], [5, 0.03 + Math.random() * 0.02, r()], [8, 0.015 + Math.random() * 0.012, r()], [2, 0.03, r()]];
+}
+const circR = () => Math.min(W, H) * 0.38;
+function wobblePath(g, cx, cy, R, keep) {
+  if (!keep) g.beginPath();
+  for (let i = 0; i <= 120; i++) {
+    const a = i / 120 * Math.PI * 2;
+    let k = 1; for (const [n, amp, ph] of wob) k += amp * Math.sin(n * a + ph);
+    const x = cx + Math.cos(a) * R * k, y = cy + Math.sin(a) * R * k;
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.closePath();
 }
 function loadFile(f) {
   if (!f || !f.type.startsWith('image/')) return;
@@ -475,8 +457,7 @@ function loadFile(f) {
     const k = Math.min(1, 1600 / Math.max(im.width, im.height));
     img = mkCanvas(Math.max(1, Math.round(im.width * k)), Math.max(1, Math.round(im.height * k)));
     img.getContext('2d').drawImage(im, 0, 0, img.width, img.height);
-    mask = mkCanvas(img.width, img.height); mctx = mask.getContext('2d');
-    undoStack = []; erasing = false; touches.clear(); pinch = null;
+    touches.clear(); pinch = null; newWobble();
     placeImage(); setMode('paint');
   };
   im.onerror = () => { URL.revokeObjectURL(url); flashErr(); };
@@ -486,104 +467,77 @@ function flashErr() {
   const d = document.createElement('div'); d.id = 'err'; d.textContent = t('err');
   $('stage').appendChild(d); setTimeout(() => d.remove(), 2000);
 }
-function snapFit() { if (view.k <= view.fit * 1.001) { view.x = (W - img.width * view.k) / 2; view.y = (H - img.height * view.k) / 2; } }
 function placeImage() {
-  const pad = 12, k = Math.min((W - pad * 2) / img.width, (H - pad * 2) / img.height);
-  view = { k, fit: k, x: (W - img.width * k) / 2, y: (H - img.height * k) / 2 };
+  // fill the circle with the picture
+  const k = circR() * 2.3 / Math.min(img.width, img.height);
+  view = { k, min: k * 0.3, x: (W - img.width * k) / 2, y: (H - img.height * k) / 2 };
 }
-let lastPt = null, pinch = null;
+let pinch = null, panPt = null;
 const touches = new Map();
 const mid = (a, b) => { const r = cv.getBoundingClientRect(); return { x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top }; };
-function toImg(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left - view.x) / view.k, y: (e.clientY - r.top - view.y) / view.k }; }
-const BRUSH = [8, 22, 50];
-const brushPx = () => BRUSH[brushIdx] / view.k;
-function stroke(a, b) {
-  mctx.save();
-  mctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
-  mctx.strokeStyle = '#000'; mctx.fillStyle = '#000';
-  mctx.lineCap = 'round'; mctx.lineJoin = 'round'; mctx.lineWidth = brushPx();
-  mctx.beginPath(); mctx.moveTo(a.x, a.y); mctx.lineTo(b.x, b.y); mctx.stroke();
-  mctx.beginPath(); mctx.arc(b.x, b.y, brushPx() / 2, 0, Math.PI * 2); mctx.fill();
-  mctx.restore();
+function zoomAt(mx, my, k) {
+  k = Math.max(view.min, Math.min(view.min * 40, k));
+  view.x = mx - (mx - view.x) / view.k * k; view.y = my - (my - view.y) / view.k * k; view.k = k;
 }
-function maskBox() {
-  const d = mctx.getImageData(0, 0, mask.width, mask.height).data;
-  let x0 = mask.width, y0 = mask.height, x1 = -1, y1 = -1;
-  for (let y = 0; y < mask.height; y++) for (let x = 0; x < mask.width; x++) {
-    if (d[(y * mask.width + x) * 4 + 3] > 20) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-  }
-  return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
-}
-const updateDone = () => { $('done').disabled = !maskBox(); };
 function makeSprite() {
-  const b = maskBox(); if (!b) return null;
-  const m = Math.round(Math.max(b.w, b.h) * 0.06);   // margin so the soft edge is not clipped
-  const bw = b.w + m * 2, bh = b.h + m * 2, k = Math.min(1, 512 / Math.max(bw, bh));
-  const c = mkCanvas(Math.max(2, Math.round(bw * k)), Math.max(2, Math.round(bh * k))), g = c.getContext('2d');
-  g.drawImage(img, b.x - m, b.y - m, bw, bh, 0, 0, c.width, c.height);
-  g.globalCompositeOperation = 'destination-in';
-  g.drawImage(mask, b.x - m, b.y - m, bw, bh, 0, 0, c.width, c.height);
+  const R = circR(), S = 512, f = (S / 2) / (R * 1.3);
+  const c = mkCanvas(S, S), g = c.getContext('2d');
+  g.translate(S / 2, S / 2); g.scale(f, f); g.translate(-W / 2, -H / 2);
+  wobblePath(g, W / 2, H / 2, R); g.clip();
+  g.fillStyle = DOUGH; g.fillRect(0, 0, W, H);
+  g.drawImage(img, view.x, view.y, img.width * view.k, img.height * view.k);
   return c;
 }
-let tmpC = null;
 function renderPaint() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, W, H);
   if (mode !== 'paint' || !img) return;
-  const { k, x, y } = view;
-  ctx.fillStyle = '#3b2a20'; ctx.fillRect(x, y, img.width * k, img.height * k);
-  ctx.globalAlpha = 0.35; ctx.drawImage(img, x, y, img.width * k, img.height * k); ctx.globalAlpha = 1;
-  if (!tmpC || tmpC.width !== img.width || tmpC.height !== img.height) tmpC = mkCanvas(img.width, img.height);
-  const g = tmpC.getContext('2d');
-  g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, tmpC.width, tmpC.height); g.drawImage(mask, 0, 0);
-  g.globalCompositeOperation = 'source-in'; g.drawImage(img, 0, 0);
-  g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(60, 220, 110, 0.45)'; g.fillRect(0, 0, tmpC.width, tmpC.height);
-  ctx.drawImage(tmpC, x, y, img.width * k, img.height * k);
+  const R = circR();
+  ctx.fillStyle = DOUGH; wobblePath(ctx, W / 2, H / 2, R); ctx.fill();
+  ctx.drawImage(img, view.x, view.y, img.width * view.k, img.height * view.k);
+  // dim outside the circle
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, 0, W, H); wobblePath(ctx, W / 2, H / 2, R, true);
+  ctx.fillStyle = 'rgba(244, 230, 212, 0.82)'; ctx.fill('evenodd');
+  ctx.restore();
+  wobblePath(ctx, W / 2, H / 2, R);
+  ctx.lineWidth = 4; ctx.strokeStyle = '#fff'; ctx.setLineDash([10, 8]); ctx.stroke(); ctx.setLineDash([]);
 }
 cv.addEventListener('pointerdown', e => {
   e.preventDefault(); cv.setPointerCapture(e.pointerId);
   touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (touches.size === 1 && !pinch) {
-    undoStack.push(mctx.getImageData(0, 0, mask.width, mask.height));
-    if (undoStack.length > 20) undoStack.shift();
-    lastPt = toImg(e); stroke(lastPt, lastPt); renderPaint();
-  } else if (touches.size === 2) {
-    if (lastPt) { const d = undoStack.pop(); if (d) mctx.putImageData(d, 0, 0); lastPt = null; }
+  if (touches.size === 1) panPt = { x: e.clientX, y: e.clientY };
+  else if (touches.size === 2) {
     const [a, b] = [...touches.values()];
-    pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: mid(a, b), k0: view.k, x0: view.x, y0: view.y };
-    renderPaint();
+    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, m: mid(a, b) }; panPt = null;
   }
 });
 cv.addEventListener('pointermove', e => {
   if (!touches.has(e.pointerId)) return;
   touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pinch && touches.size >= 2) {
-    const [a, b] = [...touches.values()], m = mid(a, b);
-    const k = Math.max(view.fit, Math.min(view.fit * 12, pinch.k0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0));
-    view.x = m.x - (pinch.m0.x - pinch.x0) / pinch.k0 * k;
-    view.y = m.y - (pinch.m0.y - pinch.y0) / pinch.k0 * k;
-    view.k = k; snapFit(); renderPaint();
-  } else if (lastPt) { const p = toImg(e); stroke(lastPt, p); lastPt = p; renderPaint(); }
+    const [a, b] = [...touches.values()], m = mid(a, b), d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    view.x += m.x - pinch.m.x; view.y += m.y - pinch.m.y;
+    zoomAt(m.x, m.y, view.k * d / pinch.d);
+    pinch = { d, m }; renderPaint();
+  } else if (panPt) {
+    view.x += e.clientX - panPt.x; view.y += e.clientY - panPt.y;
+    panPt = { x: e.clientX, y: e.clientY }; renderPaint();
+  }
 });
 const cUp = e => {
   touches.delete(e.pointerId);
-  if (touches.size === 0) pinch = null;
-  if (lastPt) { lastPt = null; updateDone(); }
+  if (touches.size < 2) pinch = null;
+  if (touches.size === 1) { const p = [...touches.values()][0]; panPt = { x: p.x, y: p.y }; } else panPt = null;
 };
 cv.addEventListener('pointerup', cUp);
 cv.addEventListener('pointercancel', cUp);
 cv.addEventListener('wheel', e => {
   e.preventDefault();
-  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
-  const k = Math.max(view.fit, Math.min(view.fit * 12, view.k * Math.exp(-e.deltaY * 0.0015)));
-  view.x = mx - (mx - view.x) / view.k * k; view.y = my - (my - view.y) / view.k * k; view.k = k; snapFit();
+  const r = cv.getBoundingClientRect();
+  zoomAt(e.clientX - r.left, e.clientY - r.top, view.k * Math.exp(-e.deltaY * 0.0015));
   renderPaint();
 }, { passive: false });
-$('brush').onclick = () => {
-  brushIdx = (brushIdx + 1) % BRUSH.length;
-  const d = $('brush').firstChild; d.style.width = d.style.height = [5, 11, 20][brushIdx] + 'px';
-};
-$('erase').onclick = () => { erasing = !erasing; $('erase').classList.toggle('on', erasing); };
-$('undo').onclick = () => { const d = undoStack.pop(); if (d) { mctx.putImageData(d, 0, 0); renderPaint(); updateDone(); } };
+$('shape').onclick = () => { newWobble(); renderPaint(); };
 
 // ---------- buttons ----------
 $('pick').onclick = () => $('file').click();
@@ -595,7 +549,6 @@ $('done').onclick = () => {
   setMode('play'); sndPeta(1); land = 1;
 };
 $('bake').onclick = () => {
-  if (toss) return;
   setMode('baking'); bakeT = 0; sndJuu(3.2);
 };
 ['dragenter', 'dragover'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('hide'); }));
@@ -658,8 +611,7 @@ function setMode(m) {
   $('barResult').classList.toggle('hide', m !== 'result');
   gl.classList.toggle('hide', m === 'paint');
   cv.classList.toggle('hide', m !== 'paint');
-  if (m === 'paint') { $('erase').classList.remove('on'); updateDone(); }
-  if (m === 'result') { resultBlob = null; setTimeout(() => exportBlob().then(b => { if (mode === 'result') resultBlob = b; }), 50); }
+    if (m === 'result') { resultBlob = null; setTimeout(() => exportBlob().then(b => { if (mode === 'result') resultBlob = b; }), 50); }
   renderPaint();
 }
 function applyLang() {
@@ -667,7 +619,7 @@ function applyLang() {
   document.title = t('title');
   $('back').textContent = t('back');
   $('lang').value = lang;
-  for (const k of ['pick', 'erase', 'undo', 'done', 'bake', 'save', 'post', 'again']) $(k).textContent = t(k);
+  for (const k of ['pick', 'done', 'bake', 'save', 'post', 'again']) $(k).textContent = t(k);
   updatePost();
 }
 $('lang').onchange = () => { lang = $('lang').value; store.set('lang', lang); applyLang(); };
