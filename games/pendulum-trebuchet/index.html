@@ -119,9 +119,9 @@ const cv = $('cv'), mainCtx = cv.getContext('2d');
 const SH = { x: 0, y: 2.3 };              // pivot on top of the tower
 const LEN = [0.8, 0.75, 0.7];
 const G = 9.8, DT = 1 / 480;
-const CUP_W = 0.13, CUP_D = 0.18, CUP_TILT = 20 * Math.PI / 180; // opening tilted a bit downward so the rock always falls out eventually
-const ROCK_R = 0.09, BOOST = 1.8;
-let pts, rock, state, grab, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, wait = 0, swishT = 0;
+const CUP_W = 0.13, CUP_D = 0.35, CUP_TILT = -85 * Math.PI / 180; // opening points almost sideways from the link
+const ROCK_R = 0.09;
+let pts, rock, state, grab, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, wait = 0, swishT = 0, tipOver = 0, still = 0; // tipOver: when the swing has died down, the cup slowly tips so the rock always rolls out
 
 function reset() {
   pts = []; let y = SH.y;
@@ -129,15 +129,16 @@ function reset() {
   const c = cupFrame();
   rock = { x: pts[2].x + c.n.x * ROCK_R, y: pts[2].y + c.n.y * ROCK_R, px: 0, py: 0, free: false, vx: 0, vy: 0, land: null, stopped: false, spin: 0 };
   rock.px = rock.x; rock.py = rock.y;
-  camX = 0; camY = 0; grab = null; state = 'ready'; finalDist = 0; wait = 0;
+  camX = 0; camY = 0; grab = null; state = 'ready'; finalDist = 0; wait = 0; tipOver = 0; still = 0;
   rec = []; recT = 0; gameId++; shareFile = null; videoJob = null;
 }
-// u: along the last link (outward), n: direction the cup opens
+// n: direction the cup opens (tilted from the link), u: across the cup
 function cupFrame() {
   const a = pts[1], b = pts[2], d = Math.hypot(b.x - a.x, b.y - a.y) || 1;
   const u = { x: (b.x - a.x) / d, y: (b.y - a.y) / d };
-  const th = Math.PI / 2 - CUP_TILT;
-  return { u, n: { x: u.x * Math.cos(th) - u.y * Math.sin(th), y: u.x * Math.sin(th) + u.y * Math.cos(th) } };
+  const th = Math.PI + CUP_TILT - tipOver;
+  const n = { x: u.x * Math.cos(th) - u.y * Math.sin(th), y: u.x * Math.sin(th) + u.y * Math.cos(th) };
+  return { u: { x: n.y, y: -n.x }, n }; // u: across the cup (kept perpendicular to n)
 }
 
 function step(dt) {
@@ -169,7 +170,7 @@ function step(dt) {
       let a = ex * c.u.x + ey * c.u.y, b = ex * c.n.x + ey * c.n.y;
       if (b > CUP_D) {
         rock.free = true;
-        rock.vx = (rock.x - rock.px) / dt * BOOST; rock.vy = (rock.y - rock.py) / dt * BOOST;
+        rock.vx = (rock.x - rock.px) / dt; rock.vy = (rock.y - rock.py) / dt;
         beep(400, .25, 'sine', .2, 1100);
       } else {
         a = Math.max(-CUP_W + ROCK_R, Math.min(CUP_W - ROCK_R, a)); b = Math.max(ROCK_R, b);
@@ -178,6 +179,8 @@ function step(dt) {
     }
     if (state === 'swing') {
       const sp = Math.hypot(tip.x - tip.px, tip.y - tip.py) / dt;
+      still = sp < 0.5 ? still + dt : 0;
+      if (still > 1.5) tipOver = Math.min(1.2, tipOver + 0.5 * dt);
       swishT -= dt;
       if (sp > 6 && swishT <= 0) { beep(200 + sp * 15, .12, 'sine', .06, 120); swishT = 0.35; }
     }
