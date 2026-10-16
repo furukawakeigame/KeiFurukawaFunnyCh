@@ -20,6 +20,7 @@
   <meta property="og:url" content="https://keifurukawafunnych.com/games/pendulum-hammer/">
   <meta property="og:image" content="https://keifurukawafunnych.com/games/pendulum-hammer/icon.png">
   <meta name="twitter:card" content="summary">
+  <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.min.js"></script>
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; background: #bfe6ff; font-family: system-ui, sans-serif; color: #223; }
@@ -44,6 +45,7 @@
     .sub span.f { color: #e03131; }
     .btn { border: none; border-radius: 28px; background: #2b8a3e; color: #fff; font-size: 20px; font-weight: 700; padding: 14px 36px; cursor: pointer; text-decoration: none; }
     .btn.x { background: #111; font-size: 16px; padding: 10px 24px; }
+    .btn.x.wait { opacity: .55; }
   </style>
 </head>
 <body>
@@ -120,13 +122,13 @@ function beep(freq, dur, type = 'square', vol = .2, slide = 0) {
 
 // ---- world (meters) ----
 const catImg = new Image(); catImg.src = 'cat.png';
-const cv = $('cv'), ctx = cv.getContext('2d');
+const cv = $('cv'), mainCtx = cv.getContext('2d');
 const SH = { x: 0, y: 1.45 };            // shoulder
 const ARM = 0.75;                         // hand reach from shoulder
 const REST = { x: 0.35, y: 1.05 };
 const LEN = [0.45, 0.42, 0.4];
 const G = 9.8, BALL_R = 0.07, BOOST = 1.6;
-let hand, pts, ball, state, grab, camX = 0, camY = 0, best = store.get('best', null), throws = [], wait = 0, swishT = 0;
+let throwRecs = [], hand, pts, ball, state, grab, camX = 0, camY = 0, best = store.get('best', null), throws = [], wait = 0, swishT = 0;
 
 function newThrow() {
   hand = { ...REST, px: REST.x, py: REST.y };
@@ -134,7 +136,7 @@ function newThrow() {
   for (let i = 0; i < 3; i++) { y -= LEN[i]; pts.push({ x: hand.x, y: Math.max(0.05, y), px: hand.x, py: Math.max(0.05, y) }); }
   ball = null; grab = null; state = 'ready'; wait = 0;
 }
-function newGame() { throws = []; newThrow(); camX = 0; camY = 0; updTries(); }
+function newGame() { throws = []; throwRecs = []; rec = []; gameId++; shareFile = null; newThrow(); camX = 0; camY = 0; updTries(); }
 
 function step(dt) {
   // hand follows pointer, limited to arm reach
@@ -220,22 +222,42 @@ function showResult() {
   $('rBest').textContent = `${t('best')} ${best === null ? '-' : fmt(best)}`;
   const a = $('share');
   a.href = `https://x.com/intent/post?text=${encodeURIComponent(L[lang].post(top === null ? '0.00' : top.toFixed(2)))}&url=${encodeURIComponent(URL_)}`;
-  if (matchMedia('(pointer: coarse)').matches) { a.removeAttribute('target'); a.removeAttribute('rel'); }
+  if (coarse) { a.removeAttribute('target'); a.removeAttribute('rel'); }
   else { a.target = '_blank'; a.rel = 'noopener'; }
+  a.classList.toggle('wait', !shareFile && 'VideoEncoder' in window);
+  postText = `${L[lang].post(top === null ? '0.00' : top.toFixed(2))}\n${URL_}`;
 }
+const coarse = matchMedia('(pointer: coarse)').matches;
+let postText = '';
+// phones: always open the share sheet (with the video when it's ready). PC: save the video, then open the X post page
+$('share').addEventListener('click', e => {
+  if (coarse && navigator.share) {
+    e.preventDefault();
+    const data = shareFile && navigator.canShare?.({ files: [shareFile] }) ? { files: [shareFile], text: postText } : { text: postText };
+    navigator.share(data).catch(() => {});
+    return;
+  }
+  if (!coarse && shareFile) {
+    const d = document.createElement('a');
+    d.href = URL.createObjectURL(shareFile); d.download = shareFile.name; d.click();
+    setTimeout(() => URL.revokeObjectURL(d.href), 10000);
+  }
+});
 
 // ---- render ----
 function resize() {
   const r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
-  cv.width = r.width * dpr; cv.height = r.height * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  groundY = Math.min(r.height - 80 - Math.max(30, r.height * 0.08), Math.max(r.height * 0.62, 3.2 * Math.min(r.width / 4.2, 200)));
-  scale = Math.min((groundY - 90) / 2.4, r.width / 4.2);
-  originX = Math.max(r.width * 0.3, 1.4 * scale);
+  cv.width = r.width * dpr; cv.height = r.height * dpr; mainCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  layout(r.width, r.height, 80);
+}
+function layout(W, H, pad) {
+  groundY = Math.min(H - pad - Math.max(30, H * 0.08), Math.max(H * 0.62, 3.2 * Math.min(W / 4.2, 200)));
+  scale = Math.min((groundY - 90) / 2.4, W / 4.2);
+  originX = Math.max(W * 0.3, 1.4 * scale);
 }
 addEventListener('resize', resize);
 
-function draw() {
-  const W = cv.clientWidth, H = cv.clientHeight;
+function draw(ctx = mainCtx, W = cv.clientWidth, H = cv.clientHeight) {
   const X = x => originX + (x - camX) * scale, Y = y => groundY - (y - camY) * scale, GY = Y(0);
   // sky
   const gr = ctx.createLinearGradient(0, 0, 0, H);
@@ -304,14 +326,75 @@ function draw() {
   ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(X(hb.x), Y(hb.y), br, 0, 7); ctx.fill();
   // hint ring on hand
   if (state === 'ready') { const k = (performance.now() / 900) % 1; ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(X(hand.x), Y(hand.y), 15 + k * 30, 0, 7); ctx.stroke(); }
-  // dist readout
-  const dEl = $('dist');
-  if (ball && state !== 'done') {
-    const d = ball.land ?? ball.x;
-    const foul = ball.land !== null ? ball.land <= 0 : ball.vx < 0 && ball.x <= 0;
-    dEl.textContent = foul ? t('foul') : Math.max(0, d).toFixed(2) + 'm';
-    dEl.className = foul ? 'foul' : '';
-  } else dEl.textContent = '';
+}
+// distance readout: [text, isFoul] or null
+function readout() {
+  if (!ball) return null;
+  const d = ball.land ?? ball.x;
+  const foul = ball.land !== null ? ball.land <= 0 : ball.x <= 0 && ball.vx < 0;
+  return [foul ? t('foul') : Math.max(0, d).toFixed(2) + 'm', foul];
+}
+function follow(fdt, W, H) {
+  const k = Math.min(1, fdt * 6);
+  camX += (Math.max(0, ball.x - (W / 2 - originX) / scale) - camX) * k;
+  camY += (Math.max(0, ball.y - (groundY - H * 0.35) / scale) - camY) * k;
+}
+
+// ---- replay recording & result video ----
+let rec = [], recT = 0;
+const snap = () => ({ t: recT, hand: { x: hand.x, y: hand.y }, pts: pts.map(p => ({ x: p.x, y: p.y })), ball: ball && { x: ball.x, y: ball.y, vx: ball.vx, land: ball.land } });
+const VW = 720, VH = 1280, VFPS = 30;
+let shareFile = null, videoJob = null, gameId = 0;
+async function makeVideo() {
+  shareFile = null; videoJob = null;
+  if (!('VideoEncoder' in window) || !window.Mp4Muxer) return;
+  const valid = throws.map((d, i) => [d, i]).filter(([d]) => d !== null);
+  const idx = valid.length ? valid.reduce((a, b) => b[0] > a[0] ? b : a)[1] : throws.length - 1;
+  const frames = throwRecs[idx]; if (!frames || !frames.length) return;
+  const id = gameId;
+  let cfg = null;
+  for (const codec of ['avc1.640028', 'avc1.4d0028', 'avc1.42001f']) {
+    const c = { codec, width: VW, height: VH, bitrate: 5e6, framerate: VFPS };
+    try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; break; } } catch {}
+  }
+  if (!cfg || id !== gameId) return;
+  const rel = frames.findIndex(f => f.ball), t0 = Math.max(frames[0].t, frames[rel].t - 3), t1 = frames[frames.length - 1].t;
+  const out = document.createElement('canvas'); out.width = VW; out.height = VH;
+  const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: VW, height: VH, frameRate: VFPS }, fastStart: 'in-memory' });
+  const job = { id, frames, t0, n: Math.ceil((t1 - t0) * VFPS) + 1, i: 0, fi: 0, out, c: out.getContext('2d'), muxer, failed: false, cam: [0, 0] };
+  job.enc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: () => { job.failed = true; } });
+  job.enc.configure(cfg);
+  videoJob = job;
+}
+// called from the loop: draws a few frames per tick by swapping in the recorded state
+function videoFrames() {
+  const job = videoJob;
+  if (job.id !== gameId || job.failed) { try { job.enc.close(); } catch {} videoJob = null; return; }
+  const keep = [hand, pts, ball, camX, camY, state, scale, originX, groundY, best];
+  for (let k = 0; k < 4 && job.i < job.n; k++, job.i++) {
+    const tt = job.t0 + job.i / VFPS;
+    while (job.fi < job.frames.length - 1 && job.frames[job.fi + 1].t <= tt) job.fi++;
+    const f = job.frames[job.fi];
+    hand = f.hand; pts = f.pts; ball = f.ball; state = 'fly'; best = null;
+    layout(VW, VH, 120);
+    [camX, camY] = job.cam;
+    if (ball) follow(1 / VFPS, VW, VH);
+    job.cam = [camX, camY];
+    draw(job.c, VW, VH);
+    const r = readout();
+    if (r) { job.c.font = '800 72px system-ui'; job.c.textAlign = 'center'; job.c.lineWidth = 8; job.c.strokeStyle = '#fff'; job.c.strokeText(r[0], VW / 2, 150); job.c.fillStyle = r[1] ? '#e03131' : '#223'; job.c.fillText(r[0], VW / 2, 150); }
+    const frame = new VideoFrame(job.out, { timestamp: Math.round(job.i * 1e6 / VFPS), duration: Math.round(1e6 / VFPS) });
+    job.enc.encode(frame, { keyFrame: job.i % 60 === 0 }); frame.close();
+  }
+  [hand, pts, ball, camX, camY, state, scale, originX, groundY, best] = keep;
+  if (job.i < job.n) return;
+  videoJob = null;
+  (async () => {
+    await job.enc.flush(); job.enc.close(); job.muxer.finalize();
+    if (job.id !== gameId || job.failed) return;
+    shareFile = new File([job.muxer.target.buffer], 'pendulum-hammer.mp4', { type: 'video/mp4' });
+    $('share').classList.remove('wait');
+  })().catch(() => {});
 }
 
 let last = performance.now();
@@ -320,14 +403,17 @@ function loop(now) {
   const dt = 1 / 480, n = Math.round(fdt / dt);
   for (let i = 0; i < n; i++) step(dt);
   const W = cv.clientWidth, H = cv.clientHeight;
+  if (state === 'swing' || state === 'fly') {
+    recT += fdt; rec.push(snap());
+    if (!ball) while (rec.length && rec[0].t < recT - 4) rec.shift();
+  }
   if (state === 'fly') {
-    const k = Math.min(1, fdt * 6);
-    camX += (Math.max(0, ball.x - (W / 2 - originX) / scale) - camX) * k;
-    camY += (Math.max(0, ball.y - (groundY - H * 0.35) / scale) - camY) * k;
+    follow(fdt, W, H);
     if (ball.land !== null) {
       wait += fdt;
       if (wait > 1.6) {
-        if (throws.length >= 3) { state = 'done'; setTimeout(() => { showResult(); $('result').hidden = false; beep(500, .15); setTimeout(() => beep(800, .25), 150); }, 300); }
+        throwRecs.push(rec); rec = [];
+        if (throws.length >= 3) { state = 'done'; setTimeout(() => makeVideo().catch(() => {}), 400); setTimeout(() => { showResult(); $('result').hidden = false; beep(500, .15); setTimeout(() => beep(800, .25), 150); }, 300); }
         else { state = 'back'; }
       }
     }
@@ -337,6 +423,9 @@ function loop(now) {
     if (Math.abs(camX) < 0.05 && Math.abs(camY) < 0.05) { camX = camY = 0; newThrow(); }
   }
   draw();
+  const r = state !== 'done' && readout();
+  $('dist').textContent = r ? r[0] : ''; $('dist').className = r && r[1] ? 'foul' : '';
+  if (videoJob) videoFrames();
   requestAnimationFrame(loop);
 }
 newGame(); resize(); applyLang(); requestAnimationFrame(loop);
