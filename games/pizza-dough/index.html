@@ -243,7 +243,7 @@ function makeBaked(spr) {
   const id = g.getImageData(0, 0, w, h), d = id.data, soft = softAlpha(spr, w, h, 22);
   const sm = (a, b, x) => { const u = Math.max(0, Math.min(1, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
   for (let i = 0; i < d.length; i += 4) {
-    const s = soft[i + 3] / 255, inner = sm(0.62, 0.86, s), dark = Math.min(1, (1 - s) * 1.9);
+    const s = soft[i + 3] / 255, inner = sm(0.7, 0.93, s), dark = Math.min(1, (1 - s) * 1.9);
     // crust: golden toward the inside, browner toward the edge
     const cr = 232 + (160 - 232) * dark, cg = 182 + (92 - 182) * dark, cb = 104 + (36 - 104) * dark;
     const r = d[i] * 0.9 + 18, gg = d[i + 1] * 0.88 + 10, b = d[i + 2] * 0.82;
@@ -264,25 +264,6 @@ function makeBaked(spr) {
     rg.addColorStop(0, 'rgba(255,240,180,0.5)'); rg.addColorStop(0.7, 'rgba(250,215,120,0.38)'); rg.addColorStop(1, 'rgba(240,190,90,0)');
     g.fillStyle = rg; g.beginPath(); g.arc(0, 0, r, 0, 7); g.fill(); g.restore();
   }
-  // pepperoni
-  for (let n = 0; n < 4 * area + 2; n++) {
-    const p = inside(0.92); if (!p) break;
-    const r = (0.034 + Math.random() * 0.01) * M, [x, y] = p;
-    g.fillStyle = 'rgba(70,15,10,0.35)'; g.beginPath(); g.arc(x + r * 0.08, y + r * 0.1, r * 1.04, 0, 7); g.fill();
-    const rg = g.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
-    rg.addColorStop(0, '#d8483a'); rg.addColorStop(0.8, '#b02a20'); rg.addColorStop(1, '#7a1a12');
-    g.fillStyle = rg; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
-    for (let k = 0; k < 6; k++) { const a = Math.random() * 7, q = Math.random() * r * 0.7; g.fillStyle = 'rgba(240,170,150,0.55)'; g.beginPath(); g.arc(x + Math.cos(a) * q, y + Math.sin(a) * q, r * 0.08, 0, 7); g.fill(); }
-  }
-  // basil
-  for (let n = 0; n < 4 * area + 2; n++) {
-    const p = inside(0.9); if (!p) break;
-    const L = (0.04 + Math.random() * 0.02) * M;
-    g.save(); g.translate(p[0], p[1]); g.rotate(Math.random() * 7);
-    g.fillStyle = '#2f7a2a'; g.beginPath(); g.moveTo(-L, 0); g.quadraticCurveTo(0, -L * 0.75, L, 0); g.quadraticCurveTo(0, L * 0.75, -L, 0); g.fill();
-    g.strokeStyle = 'rgba(160,210,120,0.7)'; g.lineWidth = M * 0.003; g.beginPath(); g.moveTo(-L * 0.8, 0); g.lineTo(L * 0.8, 0); g.stroke();
-    g.restore();
-  }
   // browned blisters on the cheese and char spots on the crust
   for (let n = 0; n < 50 * area + 20; n++) {
     const x = Math.random() * w, y = Math.random() * h, s = at(x, y);
@@ -298,6 +279,7 @@ function makeUnder(spr) {
   return c;
 }
 function buildDough(spr) {
+  clearToppings();
   if (D) { group.remove(D.top, D.bot); D.geo.dispose(); D.top.material.dispose(); D.bot.material.dispose(); D.texs.forEach(x => x.dispose()); }
   const asp = spr.width / spr.height, S = 2.6;
   const w = asp >= 1 ? S : S * asp, h = asp >= 1 ? S / asp : S;
@@ -305,8 +287,8 @@ function buildDough(spr) {
   const cw = nx + 1, ch = ny + 1, N = cw * ch;
   const rawC = mkCanvas(cw, ch); rawC.getContext('2d').drawImage(spr, 0, 0, cw, ch);
   const raw = rawC.getContext('2d').getImageData(0, 0, cw, ch).data;
-  const blur = softAlpha(rawC, cw, ch, 6);
-  const bx = new Float32Array(N), bz = new Float32Array(N), puff = new Float32Array(N), rim = new Float32Array(N), op = new Uint8Array(N);
+  const blur = softAlpha(rawC, cw, ch, 6), blur2 = softAlpha(rawC, cw, ch, 14);
+  const bx = new Float32Array(N), bz = new Float32Array(N), puff = new Float32Array(N), rim = new Float32Array(N), op = new Uint8Array(N), inner = new Uint8Array(N);
   const pos = new Float32Array(N * 3), uv = new Float32Array(N * 2);
   for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) {
     const v = j * cw + i;
@@ -314,7 +296,9 @@ function buildDough(spr) {
     uv[v * 2] = i / nx; uv[v * 2 + 1] = 1 - j / ny;
     const b = blur[v * 4 + 3] / 255, s = Math.max(0, Math.min(1, (b - 0.4) / 0.6));
     puff[v] = s * s * (3 - 2 * s);
-    rim[v] = Math.exp(-(((b - 0.62) / 0.16) ** 2));
+    const u = (blur2[v * 4 + 3] / 255 - 0.5) / 0.45;
+    rim[v] = u > 0 && u < 1 ? Math.pow(Math.sin(Math.PI * u), 0.8) : 0;
+    inner[v] = blur2[v * 4 + 3] > 250 ? 1 : 0;
     op[v] = raw[v * 4 + 3] > 100 ? 1 : 0;
   }
   const idx = [], cellA = [];
@@ -334,7 +318,7 @@ function buildDough(spr) {
   const bot = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: under, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 }));
   bot.scale.y = -0.35;
   group.add(top, bot);
-  D = { geo, top, bot, bx, bz, puff, rim, op, cw, ch, cellA, w, h, texs: [tex, baked, under], area0: 0, dirty: true };
+  D = { geo, top, bot, bx, bz, puff, rim, op, inner, cw, ch, cellA, w, h, texs: [tex, baked, under], area0: 0, dirty: true };
   D.area0 = area();
   group.position.set(0, 0, 0); group.rotation.set(0, 0, 0); group.scale.set(1, 1, 1);
   bakeU.value = 0; land = 0;
@@ -352,7 +336,7 @@ let thin = 1;
 function updateGeom() {
   const { bx, bz, puff, rim, geo } = D, pos = geo.attributes.position.array;
   thin = Math.max(0.1, Math.min(1, D.area0 / area()));
-  const T = 0.2 * thin, R = 0.16 * bakeU.value * Math.max(0.5, Math.sqrt(1 / thin));
+  const T = 0.2 * thin, R = 0.2 * bakeU.value;
   for (let v = 0; v < bx.length; v++) {
     pos[v * 3] = bx[v]; pos[v * 3 + 1] = T * puff[v] + R * rim[v]; pos[v * 3 + 2] = bz[v];
   }
@@ -368,6 +352,72 @@ function doughExtent() {
   cx /= n; cz /= n; let r = 0;
   for (let v = 0; v < bx.length; v++) if (op[v]) r = Math.max(r, Math.hypot(bx[v] - cx, bz[v] - cz));
   return { cx, cz, r };
+}
+
+// ---------- toppings that fall from above ----------
+let tops = [], dropT = -1;
+const TOP_GEO = {
+  pep: new THREE.CylinderGeometry(0.12, 0.12, 0.03, 28),
+  cheese: new THREE.BoxGeometry(0.13, 0.022, 0.03),
+  basil: (() => { const sh = new THREE.Shape(); sh.moveTo(-0.11, 0); sh.quadraticCurveTo(0, -0.085, 0.11, 0); sh.quadraticCurveTo(0, 0.085, -0.11, 0);
+    const g = new THREE.ShapeGeometry(sh, 8); g.rotateX(-Math.PI / 2); return g; })(),
+};
+const pepTex = (() => {
+  const c = mkCanvas(128, 128), g = c.getContext('2d'), rg = g.createRadialGradient(54, 54, 8, 64, 64, 64);
+  rg.addColorStop(0, '#d8483a'); rg.addColorStop(0.85, '#b02a20'); rg.addColorStop(1, '#7a1a12');
+  g.fillStyle = rg; g.fillRect(0, 0, 128, 128);
+  for (let k = 0; k < 14; k++) { g.fillStyle = 'rgba(245,175,155,0.6)'; g.beginPath(); g.arc(20 + Math.random() * 88, 20 + Math.random() * 88, 3 + Math.random() * 3, 0, 7); g.fill(); }
+  return canvasTex(c);
+})();
+function clearToppings() {
+  for (const p of tops) { group.remove(p.m); p.m.material.dispose(); }
+  tops = []; dropT = -1;
+}
+function addToppings() {
+  const { inner, bx } = D, cand = [];
+  for (let v = 0; v < bx.length; v++) if (inner[v]) cand.push(v);
+  if (!cand.length) for (let v = 0; v < bx.length; v++) if (D.op[v]) cand.push(v);
+  const pick = () => cand[(Math.random() * cand.length) | 0];
+  const scale = Math.max(1, Math.sqrt(1 / thin) * 0.8);
+  const add = (kind, n, t0, t1, y, mat) => {
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(TOP_GEO[kind], mat.clone());
+      m.scale.setScalar(scale); m.rotation.order = 'YXZ';
+      m.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+      group.add(m); const c0 = m.material.color.clone();
+      tops.push({ m, c0, kind, v: pick(), off: y, delay: t0 + Math.random() * (t1 - t0), h: 5 + Math.random() * 2, vy: 0, landed: false, spin: (Math.random() - 0.5) * 12, yaw: Math.random() * 7 });
+    }
+  };
+  add('cheese', 70, 0, 0.9, 0.012, new THREE.MeshStandardMaterial({ color: '#fff1b8', roughness: 0.6, transparent: true }));
+  add('pep', Math.round(6 * scale), 0.8, 1.5, 0.03, new THREE.MeshStandardMaterial({ map: pepTex, roughness: 0.5 }));
+  add('basil', 5, 1.3, 1.8, 0.05, new THREE.MeshStandardMaterial({ color: '#2f7a2a', roughness: 0.7, side: THREE.DoubleSide }));
+  dropT = 0;
+}
+let pataN = 0;
+function stepToppings(dt) {
+  const pos = D.geo.attributes.position.array, sy = group.scale.y;
+  let done = true;
+  for (const p of tops) {
+    const sx = D.bx[p.v], sz = D.bz[p.v], surf = pos[p.v * 3 + 1] + p.off;
+    if (!p.landed) {
+      if (dropT < p.delay) { p.m.visible = false; done = false; continue; }
+      p.m.visible = true; done = false;
+      p.vy -= 22 * dt; p.h += p.vy * dt;
+      p.m.rotation.x += p.spin * dt; p.m.rotation.z += p.spin * 0.7 * dt;
+      if (p.h <= 0) {
+        p.h = 0; p.landed = true; p.m.rotation.set(0, p.yaw, 0);
+        if (p.kind !== 'cheese' || pataN++ % 6 === 0) sndPeta(p.kind === 'pep' ? 0.6 : 0.25);
+      }
+    }
+    p.m.position.set(sx, (surf + p.h) * sy, sz);
+    if (p.kind === 'cheese') {
+      // melts into the baked texture
+      const b = bakeU.value;
+      p.m.material.opacity = 1 - b;
+      p.m.scale.y = Math.max(0.2, 1 - b) * p.m.scale.x;
+    } else p.m.material.color.copy(p.c0).multiplyScalar(1 - 0.25 * bakeU.value);
+  }
+  return done;
 }
 
 // ---------- camera fit ----------
@@ -438,6 +488,10 @@ function frame(now) {
   if (D) {
     if (mode === 'result') group.rotation.y += 0.25 * dt;
     if (land > 0) { land = Math.max(0, land - dt * 3); group.scale.y = 1 - 0.5 * Math.sin(land * Math.PI) * land; }
+    if (tops.length) {
+      if (dropT >= 0) dropT += dt;
+      if (stepToppings(dt) && dropT >= 0) { dropT = -1; bakeT = 0; sndJuu(3.2); }
+    }
     if (bakeT >= 0) {
       bakeT += dt;
       const u = Math.min(1, bakeT / 2.6);
@@ -584,7 +638,7 @@ $('done').onclick = () => {
   setMode('play'); sndPeta(1); land = 1;
 };
 $('bake').onclick = () => {
-  setMode('baking'); bakeT = 0; sndJuu(3.2);
+  setMode('baking'); addToppings();
 };
 ['dragenter', 'dragover'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('hide'); }));
 ['dragleave', 'drop'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); $('drop').classList.add('hide'); }));
