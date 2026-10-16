@@ -51,6 +51,20 @@
       display: flex; align-items: center; text-decoration: none; box-shadow: 0 3px 10px rgba(0,0,0,.4); touch-action: manipulation;
     }
     .post.wait { opacity: .5; }
+    .post[hidden] { display: none; }
+    #face { width: 52px; height: 52px; border-radius: 50%; border: none; padding: 0; background: rgba(255,255,255,.95); cursor: pointer; box-shadow: 0 3px 10px rgba(0,0,0,.4); position: relative; touch-action: manipulation; overflow: visible; }
+    #face svg, #face img { display: block; width: 100%; height: 100%; border-radius: 50%; object-fit: contain; }
+    #faceX { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; background: #3a1512; border: 2px solid #fff; padding: 0; cursor: pointer; }
+    #faceX svg { width: 100%; height: 100%; display: block; }
+    #edit { position: fixed; inset: 0; background: #2a0f0d; display: flex; flex-direction: column; z-index: 10; padding-bottom: calc(80px + env(safe-area-inset-bottom)); touch-action: none; }
+    #edit[hidden] { display: none; }
+    #ecv { flex: 1; min-height: 0; width: 100%; display: block; touch-action: none; }
+    #ebar { display: flex; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap; padding: 10px 12px; }
+    #ebar button { height: 46px; min-width: 46px; padding: 0 16px; border-radius: 23px; border: none; font: inherit; font-size: 16px; font-weight: 800; background: #fff; color: #3a1512; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    #ebar button.on { background: #e8763c; color: #fff; }
+    #ebar #edone { background: #e0281a; color: #fff; }
+    #ebar #edone:disabled { opacity: .4; cursor: default; }
+    #ebar .dot { display: inline-block; background: currentColor; border-radius: 50%; }
     #msg { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
   </style>
 </head>
@@ -62,21 +76,33 @@
     <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
   </header>
   <div id="controls">
+    <button id="face" aria-label="face"></button>
     <button id="rec" aria-label="rec"></button>
     <a id="post" class="post" hidden></a>
   </div>
   <div id="msg"></div>
+  <input id="file" type="file" accept="image/*" hidden>
+  <div id="edit" hidden>
+    <canvas id="ecv"></canvas>
+    <div id="ebar">
+      <button id="ecancel" aria-label="cancel"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+      <button id="ebrush" aria-label="brush"><span class="dot" style="width:11px;height:11px"></span></button>
+      <button id="eerase"></button>
+      <button id="eundo"></button>
+      <button id="edone" disabled></button>
+    </div>
+  </div>
   <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.min.js"></script>
   <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
   <script type="module">
     const DICT = {
-      ja: { title: '麺ダンス', back: '← トップへ戻る', post: 'Xに投稿', rec: '撮影', load: '読み込めませんでした。通信を確認してください。',
+      ja: { title: '麺ダンス', back: '← トップへ戻る', post: 'Xに投稿', rec: '撮影', erase: '消す', undo: '戻す', done: 'できた', err: '画像を読み込めませんでした', load: '読み込めませんでした。通信を確認してください。',
             share: '火鍋の麺を踊りながら伸ばしました #麺ダンスゲーム' },
-      ko: { title: '면 댄스', back: '← 처음으로', post: 'X에 게시', rec: '촬영', load: '불러오지 못했습니다. 연결을 확인해 주세요.',
+      ko: { title: '면 댄스', back: '← 처음으로', post: 'X에 게시', rec: '촬영', erase: '지우기', undo: '되돌리기', done: '완성', err: '이미지를 불러오지 못했습니다', load: '불러오지 못했습니다. 연결을 확인해 주세요.',
             share: '훠궈 면을 춤추며 늘렸어요 #麺ダンスゲーム' },
-      en: { title: 'Noodle Dance', back: '← Back to top', post: 'Post', rec: 'Record', load: 'Could not load. Please check your connection.',
+      en: { title: 'Noodle Dance', back: '← Back to top', post: 'Post', rec: 'Record', erase: 'Erase', undo: 'Undo', done: 'Done', err: 'Could not load the image', load: 'Could not load. Please check your connection.',
             share: 'I danced and stretched hot pot noodles #麺ダンスゲーム' },
-      th: { title: 'เต้นดึงเส้น', back: '← กลับหน้าแรก', post: 'โพสต์ลง X', rec: 'บันทึก', load: 'โหลดไม่สำเร็จ โปรดตรวจสอบการเชื่อมต่อ',
+      th: { title: 'เต้นดึงเส้น', back: '← กลับหน้าแรก', post: 'โพสต์ลง X', rec: 'บันทึก', erase: 'ลบ', undo: 'ย้อนกลับ', done: 'เสร็จ', err: 'โหลดรูปไม่สำเร็จ', load: 'โหลดไม่สำเร็จ โปรดตรวจสอบการเชื่อมต่อ',
             share: 'เต้นไปดึงเส้นหม้อไฟไป #麺ダンスゲーム' },
     };
     const SHARE_URL = 'https://keifurukawafunnych.com/games/noodle-dance/';
@@ -152,8 +178,20 @@
     const face = new THREE.Mesh(ball, skin); face.scale.setScalar(.21); face.castShadow = true; head.add(face);
     const hair = new THREE.Mesh(new THREE.SphereGeometry(.22, 18, 12, 0, Math.PI * 2, 0, Math.PI * .45), std(0x111111)); hair.position.y = .02; hair.rotation.x = -.25; head.add(hair);
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(.2, .22, .1, 18), std(0xc8231a)); cap.position.set(0, .18, -.02); head.add(cap);
-    for (const s of [-1, 1]) { const e = new THREE.Mesh(ball, std(0x111111)); e.scale.set(.025, .035, .02); e.position.set(s * .07, .03, .195); head.add(e); }
+    const eyes = [-1, 1].map(s => { const e = new THREE.Mesh(ball, std(0x111111)); e.scale.set(.025, .035, .02); e.position.set(s * .07, .03, .195); head.add(e); return e; });
     const mouth = new THREE.Mesh(new THREE.TorusGeometry(.05, .012, 6, 12, Math.PI), std(0x7a1a10)); mouth.rotation.z = Math.PI; mouth.position.set(0, -.06, .195); head.add(mouth);
+    // 好きな画像の顔
+    const facePlane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, alphaTest: .05, side: THREE.DoubleSide }));
+    facePlane.position.set(0, 0, .23); facePlane.visible = false; head.add(facePlane);
+    function setFace(canvas) {
+      facePlane.material.map?.dispose();
+      if (!canvas) { facePlane.visible = false; eyes.forEach(e => e.visible = true); mouth.visible = true; return; }
+      const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace;
+      facePlane.material.map = tex; facePlane.material.needsUpdate = true;
+      const a = canvas.width / canvas.height, H = .56;
+      facePlane.scale.set(Math.min(H * a, .8), Math.min(H * a, .8) / a, 1);
+      facePlane.visible = true; eyes.forEach(e => e.visible = false); mouth.visible = false;
+    }
     const neck = new THREE.Mesh(cyl, skin); neck.scale.set(.07, .2, .07); neck.position.y = .72; torso.add(neck);
 
     const ARM = .46, LEG = .48;
@@ -487,6 +525,7 @@
       document.getElementById('back').textContent = t('back');
       document.getElementById('lang').value = lang;
       document.getElementById('sound').innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${muted ? '<path d="M17 9l5 6M22 9l-5 6"/>' : '<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>'}</svg>`;
+      for (const k of ['erase', 'undo', 'done']) document.getElementById('e' + k).textContent = t(k);
       recBtn.setAttribute('aria-label', t('rec')); recBtn.disabled = !!rec;
       drawRecRing(0);
       post.hidden = !everRec;
@@ -514,6 +553,139 @@
     document.getElementById('lang').addEventListener('change', e => { lang = e.target.value; store.set('lang', lang); render(); });
     document.getElementById('sound').addEventListener('click', () => { muted = !muted; store.set('muted', muted); audio(); render(); });
     render();
+
+
+    // ---------- 顔の画像（タピオカメーカーと同じく、指でなぞった所を切り抜く） ----------
+    const $ = id => document.getElementById(id);
+    const faceBtn = $('face'), edit = $('edit'), ecv = $('ecv'), ectx = ecv.getContext('2d');
+    let faceCanvas = null;
+    let eimg = null, emask = null, emctx = null, eview = null, brushIdx = 1, erasing = false, undoStack = [];
+    let eW = 0, eH = 0, eDPR = 1, lastPt = null, pinch = null;
+    const etouch = new Map(), BRUSH = [8, 22, 50];
+    function drawFaceBtn() {
+      faceBtn.innerHTML = faceCanvas
+        ? `<img src="${faceCanvas.toDataURL()}" alt=""><span id="faceX" role="button" aria-label="remove"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg></span>`
+        : `<svg viewBox="0 0 52 52"><circle cx="24" cy="25" r="13" fill="#f2c9a0" stroke="#3a1512" stroke-width="2.5"/><circle cx="19.5" cy="23" r="1.8" fill="#3a1512"/><circle cx="28.5" cy="23" r="1.8" fill="#3a1512"/><path d="M19 29q5 4 10 0" fill="none" stroke="#3a1512" stroke-width="2" stroke-linecap="round"/><circle cx="38" cy="36" r="8" fill="#e0281a"/><path d="M38 32v8M34 36h8" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>`;
+    }
+    function loadSavedFace() {
+      const url = store.get('face', null); if (!url) return;
+      const im = new Image();
+      im.onload = () => { const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; c.getContext('2d').drawImage(im, 0, 0); faceCanvas = c; setFace(c); drawFaceBtn(); };
+      im.src = url;
+    }
+    faceBtn.addEventListener('click', e => {
+      if (e.target.closest('#faceX')) { faceCanvas = null; setFace(null); store.set('face', null); drawFaceBtn(); return; }
+      $('file').click();
+    });
+    $('file').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+    function loadFile(f) {
+      if (!f || !f.type.startsWith('image/')) return;
+      const url = URL.createObjectURL(f), im = new Image();
+      im.onload = () => {
+        URL.revokeObjectURL(url);
+        const k = Math.min(1, 1600 / Math.max(im.width, im.height));
+        eimg = document.createElement('canvas');
+        eimg.width = Math.max(1, Math.round(im.width * k)); eimg.height = Math.max(1, Math.round(im.height * k));
+        eimg.getContext('2d').drawImage(im, 0, 0, eimg.width, eimg.height);
+        emask = document.createElement('canvas'); emask.width = eimg.width; emask.height = eimg.height; emctx = emask.getContext('2d');
+        undoStack = []; erasing = false; etouch.clear(); pinch = null; lastPt = null;
+        $('eerase').classList.remove('on'); $('edone').disabled = true;
+        edit.hidden = false; eresize(); placeImage(); erender();
+      };
+      im.onerror = () => { URL.revokeObjectURL(url); const m = $('msg'); m.textContent = t('err'); m.style.display = 'flex'; setTimeout(() => m.style.display = 'none', 2000); };
+      im.src = url;
+    }
+    function eresize() {
+      const r = ecv.getBoundingClientRect(); eDPR = Math.min(devicePixelRatio || 1, 2);
+      eW = r.width; eH = r.height; ecv.width = Math.round(eW * eDPR); ecv.height = Math.round(eH * eDPR);
+    }
+    function placeImage() {
+      const pad = 12, k = Math.min((eW - pad * 2) / eimg.width, (eH - pad * 2) / eimg.height);
+      eview = { k, fit: k, x: (eW - eimg.width * k) / 2, y: (eH - eimg.height * k) / 2 };
+    }
+    function snapFit() { if (eview.k <= eview.fit * 1.001) { eview.x = (eW - eimg.width * eview.k) / 2; eview.y = (eH - eimg.height * eview.k) / 2; } }
+    addEventListener('resize', () => { if (!edit.hidden && eimg) { eresize(); placeImage(); erender(); } });
+    let tmpC = null;
+    function erender() {
+      ectx.setTransform(eDPR, 0, 0, eDPR, 0, 0); ectx.clearRect(0, 0, eW, eH);
+      if (!eimg) return;
+      const { k, x, y } = eview, w = eimg.width * k, h = eimg.height * k;
+      ectx.fillStyle = '#000'; ectx.fillRect(x, y, w, h);
+      ectx.globalAlpha = .35; ectx.drawImage(eimg, x, y, w, h); ectx.globalAlpha = 1;
+      if (!tmpC || tmpC.width !== eimg.width || tmpC.height !== eimg.height) { tmpC = document.createElement('canvas'); tmpC.width = eimg.width; tmpC.height = eimg.height; }
+      const g = tmpC.getContext('2d');
+      g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, tmpC.width, tmpC.height); g.drawImage(emask, 0, 0);
+      g.globalCompositeOperation = 'source-in'; g.drawImage(eimg, 0, 0);
+      g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(60, 220, 110, 0.45)'; g.fillRect(0, 0, tmpC.width, tmpC.height);
+      ectx.drawImage(tmpC, x, y, w, h);
+    }
+    const toImg = e => { const r = ecv.getBoundingClientRect(); return { x: (e.clientX - r.left - eview.x) / eview.k, y: (e.clientY - r.top - eview.y) / eview.k }; };
+    const emid = (a, b) => { const r = ecv.getBoundingClientRect(); return { x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top }; };
+    function stroke(a, b) {
+      const bw = BRUSH[brushIdx] / eview.k;
+      emctx.save();
+      emctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
+      emctx.strokeStyle = emctx.fillStyle = '#000'; emctx.lineCap = emctx.lineJoin = 'round'; emctx.lineWidth = bw;
+      emctx.beginPath(); emctx.moveTo(a.x, a.y); emctx.lineTo(b.x, b.y); emctx.stroke();
+      emctx.beginPath(); emctx.arc(b.x, b.y, bw / 2, 0, Math.PI * 2); emctx.fill();
+      emctx.restore();
+    }
+    function maskBox() {
+      const d = emctx.getImageData(0, 0, emask.width, emask.height).data;
+      let x0 = emask.width, y0 = emask.height, x1 = -1, y1 = -1;
+      for (let y = 0; y < emask.height; y++) for (let x = 0; x < emask.width; x++) {
+        if (d[(y * emask.width + x) * 4 + 3] > 20) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      }
+      return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+    }
+    const updateDone = () => { $('edone').disabled = !maskBox(); };
+    ecv.addEventListener('pointerdown', e => {
+      e.preventDefault(); try { ecv.setPointerCapture(e.pointerId); } catch {}
+      etouch.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (etouch.size === 1 && !pinch) {
+        undoStack.push(emctx.getImageData(0, 0, emask.width, emask.height)); if (undoStack.length > 20) undoStack.shift();
+        lastPt = toImg(e); stroke(lastPt, lastPt); erender();
+      } else if (etouch.size === 2) {
+        // 2本目の指：塗りかけを取り消してズームにする
+        if (lastPt) { const d = undoStack.pop(); if (d) emctx.putImageData(d, 0, 0); lastPt = null; }
+        const [a, b] = [...etouch.values()];
+        pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: emid(a, b), k0: eview.k, x0: eview.x, y0: eview.y };
+        erender();
+      }
+    });
+    ecv.addEventListener('pointermove', e => {
+      if (!etouch.has(e.pointerId)) return;
+      etouch.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && etouch.size >= 2) {
+        const [a, b] = [...etouch.values()], m = emid(a, b);
+        const k = Math.max(eview.fit, Math.min(eview.fit * 12, pinch.k0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0));
+        eview.x = m.x - (pinch.m0.x - pinch.x0) / pinch.k0 * k; eview.y = m.y - (pinch.m0.y - pinch.y0) / pinch.k0 * k;
+        eview.k = k; snapFit(); erender();
+      } else if (lastPt) { const q = toImg(e); stroke(lastPt, q); lastPt = q; erender(); }
+    });
+    const eup = e => { etouch.delete(e.pointerId); if (etouch.size === 0) pinch = null; if (lastPt) { lastPt = null; updateDone(); } };
+    ecv.addEventListener('pointerup', eup); ecv.addEventListener('pointercancel', eup);
+    ecv.addEventListener('wheel', e => {
+      e.preventDefault();
+      const r = ecv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+      const k = Math.max(eview.fit, Math.min(eview.fit * 12, eview.k * Math.exp(-e.deltaY * .0015)));
+      eview.x = mx - (mx - eview.x) / eview.k * k; eview.y = my - (my - eview.y) / eview.k * k; eview.k = k; snapFit(); erender();
+    }, { passive: false });
+    $('ebrush').addEventListener('click', () => { brushIdx = (brushIdx + 1) % BRUSH.length; const d = $('ebrush').firstChild; d.style.width = d.style.height = [5, 11, 20][brushIdx] + 'px'; });
+    $('eerase').addEventListener('click', () => { erasing = !erasing; $('eerase').classList.toggle('on', erasing); });
+    $('eundo').addEventListener('click', () => { const d = undoStack.pop(); if (d) { emctx.putImageData(d, 0, 0); erender(); updateDone(); } });
+    $('ecancel').addEventListener('click', () => { edit.hidden = true; eimg = null; });
+    $('edone').addEventListener('click', () => {
+      const b = maskBox(); if (!b) return;
+      const k = Math.min(1, 256 / Math.max(b.w, b.h)), c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(b.w * k)); c.height = Math.max(1, Math.round(b.h * k));
+      const g = c.getContext('2d');
+      g.drawImage(eimg, b.x, b.y, b.w, b.h, 0, 0, c.width, c.height);
+      g.globalCompositeOperation = 'destination-in'; g.drawImage(emask, b.x, b.y, b.w, b.h, 0, 0, c.width, c.height);
+      faceCanvas = c; setFace(c); store.set('face', c.toDataURL('image/png'));
+      edit.hidden = true; eimg = null; drawFaceBtn();
+    });
+    drawFaceBtn(); loadSavedFace();
 
     // ---------- ループ ----------
     updateBody(1 / 60, 0);
