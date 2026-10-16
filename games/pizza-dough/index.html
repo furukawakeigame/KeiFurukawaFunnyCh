@@ -286,6 +286,7 @@ function makeUnder(spr) {
   g.fillStyle = '#ecd2a8'; g.fillRect(0, 0, c.width, c.height);
   return c;
 }
+const EDGE = 0.1, CRUST = 0.24;
 function buildDough(spr, shape) {
   // round (polar) mesh following the wobbly outline: smooth edge, closes exactly at the rim
   clearToppings();
@@ -293,7 +294,6 @@ function buildDough(spr, shape) {
   const S = 2.6, NR = 56, NS = 180, N = (NR + 1) * NS;
   const bx = new Float32Array(N), bz = new Float32Array(N), puff = new Float32Array(N), rim = new Float32Array(N), op = new Uint8Array(N).fill(1), inner = new Uint8Array(N);
   const pos = new Float32Array(N * 3), uv = new Float32Array(N * 2), crust = new Float32Array(N * 2);
-  const EDGE = 0.1, CRUST = 0.24;
   for (let jj = 0; jj < NS; jj++) {
     const a = jj / NS * Math.PI * 2;
     let k = 1; for (const [n, amp, ph] of shape.wob) k += amp * Math.sin(n * a + ph);
@@ -328,7 +328,7 @@ function buildDough(spr, shape) {
   const bot = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: under, side: THREE.DoubleSide, roughness: 0.9 }));
   bot.scale.y = -0.12;
   group.add(top, bot);
-  D = { geo, top, bot, bx, bz, puff, rim, op, inner, idx, texs: [tex, baked, under], area0: 0, dirty: true };
+  D = { geo, top, bot, bx, bz, puff, rim, op, inner, idx, NR, NS, crust, texs: [tex, baked, under], area0: 0, dirty: true };
   D.area0 = area();
   group.position.set(0, 0, 0); group.rotation.set(0, 0, 0); group.scale.set(1, 1, 1);
   bakeU.value = 0; land = 0;
@@ -465,7 +465,37 @@ function smudge(p, q, gain) {
     const k = Math.exp(-d2 / R2) * gain;
     bx[v] += dx * k; bz[v] += dz * k;
   }
+  smoothOutline();
   D.dirty = true;
+}
+function smoothOutline() {
+  // keep the edge rounded: relax the outer rings along the outline
+  const { bx, bz, NR, NS } = D;
+  for (let ii = NR - 4; ii <= NR; ii++) {
+    const w = 0.25 * (1 - (NR - ii) / 5);
+    for (let it = 0; it < 2; it++) {
+      const ox = [], oz = [];
+      for (let jj = 0; jj < NS; jj++) { const v = ii * NS + jj; ox.push(bx[v]); oz.push(bz[v]); }
+      for (let jj = 0; jj < NS; jj++) {
+        const v = ii * NS + jj, a = (jj + NS - 1) % NS, b = (jj + 1) % NS;
+        bx[v] += ((ox[a] + ox[b]) / 2 - ox[jj]) * w; bz[v] += ((oz[a] + oz[b]) / 2 - oz[jj]) * w;
+      }
+    }
+  }
+}
+function refitCrust() {
+  // after stretching: rebuild the rim from the real distance to the edge
+  const { bx, bz, NR, NS, puff, rim, inner, crust } = D, eb = NR * NS;
+  for (let v = 0; v < bx.length; v++) {
+    let m = 1e9;
+    for (let jj = 0; jj < NS; jj++) { const q = eb + jj, d = (bx[v] - bx[q]) ** 2 + (bz[v] - bz[q]) ** 2; if (d < m) m = d; }
+    const dw = Math.sqrt(m), e = Math.min(1, dw / EDGE), u = dw / CRUST;
+    puff[v] = Math.sqrt(1 - (1 - e) ** 2);
+    rim[v] = u > 0 && u < 1 ? Math.sqrt(1 - (2 * u - 1) ** 2) : 0;
+    inner[v] = dw > CRUST + 0.06 ? 1 : 0;
+    crust[v * 2] = Math.max(0, Math.min(1, (CRUST + 0.04 - dw) / 0.08)); crust[v * 2 + 1] = Math.pow(1 - Math.min(1, dw / CRUST), 1.5);
+  }
+  D.geo.attributes.aCrust.needsUpdate = true; D.dirty = true;
 }
 gl.addEventListener('pointerdown', e => {
   e.preventDefault();
@@ -648,7 +678,7 @@ $('done').onclick = () => {
   setMode('play'); sndPeta(1); land = 1;
 };
 $('bake').onclick = () => {
-  setMode('baking'); addToppings();
+  setMode('baking'); refitCrust(); updateGeom(); addToppings();
 };
 ['dragenter', 'dragover'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('hide'); }));
 ['dragleave', 'drop'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); $('drop').classList.add('hide'); }));
