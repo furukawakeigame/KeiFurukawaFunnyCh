@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>三重振り子投石機</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="三重振り子投石機">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/pendulum-trebuchet/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/pendulum-trebuchet/icon.png">
+  <meta name="twitter:card" content="summary">
+  <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #bfe6ff; font-family: system-ui, sans-serif; color: #223; }
+    body { display: flex; flex-direction: column; overflow: hidden; }
+    header { position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; gap: 8px; }
+    header a { color: #223; text-decoration: none; font-size: 14px; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill { height: 34px; min-width: 34px; border: none; border-radius: 17px; background: #fff; color: #223; font-size: 14px; padding: 0 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    select.pill { appearance: none; -webkit-appearance: none; }
+    #wrap { position: relative; flex: 1; min-height: 0; }
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+    #dist { position: absolute; top: 8px; left: 0; right: 0; text-align: center; font-size: 34px; font-weight: 800; pointer-events: none; text-shadow: 0 2px 0 #fff; }
+    #dist.neg, #rDist.neg { color: #e03131; }
+    .panel { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(191,230,255,.8); padding: 16px 16px calc(100px + env(safe-area-inset-bottom)); }
+    .panel[hidden] { display: none; }
+    .big { font-size: 56px; font-weight: 800; margin: 0; }
+    .sub { margin: 0; font-size: 16px; }
+    .btn { border: none; border-radius: 28px; background: #2b8a3e; color: #fff; font-size: 20px; font-weight: 700; padding: 14px 36px; cursor: pointer; text-decoration: none; }
+    .btn.x { background: #111; font-size: 16px; padding: 10px 24px; }
+    .btn.x.wait { opacity: .55; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <div class="hbtns">
+      <button id="sound" class="pill" aria-label="sound">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#223" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#223"/><path id="wave" d="M16 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/><path id="mute" d="M16 9l6 6M22 9l-6 6" style="display:none"/></svg>
+      </button>
+      <select id="lang" class="pill" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+    </div>
+  </header>
+  <div id="wrap">
+    <canvas id="cv"></canvas>
+    <div id="dist"></div>
+    <div id="result" class="panel" hidden>
+      <p class="big" id="rDist"></p>
+      <p class="sub" id="rBest"></p>
+      <button id="again" class="btn"></button>
+      <a id="share" class="btn x"></a>
+    </div>
+  </div>
+<script>
+const KEY = 'pendulum-trebuchet:';
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(KEY + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(KEY + k, JSON.stringify(v)); } catch {} },
+};
+const URL_ = 'https://keifurukawafunnych.com/games/pendulum-trebuchet/';
+const TAG = '#三重振り子投石機ゲーム';
+const L = {
+  ja: { title: '三重振り子投石機', back: '← トップへ戻る', again: 'もう一度', share: 'Xでポスト', best: '自己ベスト',
+        post: d => `三重振り子投石機で ${d}m 飛ばした\n${TAG}` },
+  ko: { title: '삼중 진자 투석기', back: '← 처음으로', again: '다시 하기', share: 'X에 게시', best: '최고 기록',
+        post: d => `삼중 진자 투석기로 ${d}m 날렸다\n${TAG}` },
+  en: { title: 'Triple Pendulum Trebuchet', back: '← Top', again: 'Retry', share: 'Post on X', best: 'Best',
+        post: d => `I launched a rock ${d}m with the Triple Pendulum Trebuchet\n${TAG}` },
+  th: { title: 'เครื่องยิงหินลูกตุ้มสามชั้น', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X', best: 'สถิติสูงสุด',
+        post: d => `ยิงหินได้ไกล ${d}m ด้วยเครื่องยิงหินลูกตุ้มสามชั้น\n${TAG}` },
+};
+const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
+let lang = store.get('lang', autoLang());
+if (!L[lang]) lang = 'en';
+const t = k => L[lang][k];
+const $ = id => document.getElementById(id);
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = t('title');
+  $('lang').value = lang;
+  $('back').textContent = t('back');
+  $('again').textContent = t('again'); $('share').textContent = t('share');
+  if (!$('result').hidden) showResult();
+}
+$('lang').onchange = () => { lang = $('lang').value; store.set('lang', lang); applyLang(); };
+
+// ---- sound ----
+let soundOn = store.get('sound', true), ac = null;
+function updSound() { $('wave').style.display = soundOn ? '' : 'none'; $('mute').style.display = soundOn ? 'none' : ''; }
+$('sound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updSound(); };
+updSound();
+function beep(freq, dur, type = 'square', vol = .2, slide = 0) {
+  if (!soundOn) return;
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain(), n = ac.currentTime;
+    o.type = type; o.frequency.setValueAtTime(freq, n);
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, n + dur);
+    g.gain.setValueAtTime(vol, n); g.gain.exponentialRampToValueAtTime(.001, n + dur);
+    o.connect(g).connect(ac.destination); o.start(n); o.stop(n + dur);
+  } catch {}
+}
+
+// ---- world (meters) ----
+const catImg = new Image(); catImg.src = 'cat.png';
+const cv = $('cv'), mainCtx = cv.getContext('2d');
+const SH = { x: 0, y: 2.3 };              // pivot on top of the tower
+const LEN = [0.8, 0.75, 0.7];
+const G = 9.8, DT = 1 / 480;
+const CUP_W = 0.13, CUP_D = 0.18, CUP_TILT = 20 * Math.PI / 180; // opening tilted a bit downward so the rock always falls out eventually
+const ROCK_R = 0.09, BOOST = 1.8;
+let pts, rock, state, grab, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, wait = 0, swishT = 0;
+
+function reset() {
+  pts = []; let y = SH.y;
+  for (let i = 0; i < 3; i++) { y -= LEN[i]; pts.push({ x: SH.x, y, px: SH.x, py: y }); }
+  const c = cupFrame();
+  rock = { x: pts[2].x + c.n.x * ROCK_R, y: pts[2].y + c.n.y * ROCK_R, px: 0, py: 0, free: false, vx: 0, vy: 0, land: null, stopped: false, spin: 0 };
+  rock.px = rock.x; rock.py = rock.y;
+  camX = 0; camY = 0; grab = null; state = 'ready'; finalDist = 0; wait = 0;
+  rec = []; recT = 0; gameId++; shareFile = null; videoJob = null;
+}
+// u: along the last link (outward), n: direction the cup opens
+function cupFrame() {
+  const a = pts[1], b = pts[2], d = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  const u = { x: (b.x - a.x) / d, y: (b.y - a.y) / d };
+  const th = Math.PI / 2 - CUP_TILT;
+  return { u, n: { x: u.x * Math.cos(th) - u.y * Math.sin(th), y: u.x * Math.sin(th) + u.y * Math.cos(th) } };
+}
+
+function step(dt) {
+  if (state !== 'ready') for (const p of pts) {
+    const vx = (p.x - p.px) * 0.9995, vy = (p.y - p.py) * 0.9995;
+    p.px = p.x; p.py = p.y; p.x += vx; p.y += vy - G * dt * dt;
+  }
+  if (grab) { const p = pts[2]; p.x += (grab.x - p.x) * 0.15; p.y += (grab.y - p.y) * 0.15; }
+  for (let it = 0; it < 12; it++) {
+    let prev = SH;
+    for (let i = 0; i < 3; i++) {
+      const p = pts[i], dx = p.x - prev.x, dy = p.y - prev.y, d = Math.hypot(dx, dy) || 1e-6, diff = (d - LEN[i]) / d;
+      if (i === 0) { p.x -= dx * diff; p.y -= dy * diff; }
+      else { prev.x += dx * diff * .5; prev.y += dy * diff * .5; p.x -= dx * diff * .5; p.y -= dy * diff * .5; }
+      prev = p;
+    }
+    for (const p of pts) if (p.y < 0.05) { p.y = 0.05; p.px += (p.x - p.px) * 0.3; }
+  }
+  if (state === 'ready' || grab) { for (const p of pts) { p.px = p.x; p.py = p.y; } }
+  const tip = pts[2];
+  if (!rock.free) {
+    const c = cupFrame();
+    if (state === 'ready') {
+      rock.x = tip.x + c.n.x * ROCK_R; rock.y = tip.y + c.n.y * ROCK_R; rock.px = rock.x; rock.py = rock.y;
+    } else {
+      const vx = rock.x - rock.px, vy = rock.y - rock.py;
+      rock.px = rock.x; rock.py = rock.y; rock.x += vx; rock.y += vy - G * dt * dt;
+      let ex = rock.x - tip.x, ey = rock.y - tip.y;
+      let a = ex * c.u.x + ey * c.u.y, b = ex * c.n.x + ey * c.n.y;
+      if (b > CUP_D) {
+        rock.free = true;
+        rock.vx = (rock.x - rock.px) / dt * BOOST; rock.vy = (rock.y - rock.py) / dt * BOOST;
+        beep(400, .25, 'sine', .2, 1100);
+      } else {
+        a = Math.max(-CUP_W + ROCK_R, Math.min(CUP_W - ROCK_R, a)); b = Math.max(ROCK_R, b);
+        rock.x = tip.x + c.u.x * a + c.n.x * b; rock.y = tip.y + c.u.y * a + c.n.y * b;
+      }
+    }
+    if (state === 'swing') {
+      const sp = Math.hypot(tip.x - tip.px, tip.y - tip.py) / dt;
+      swishT -= dt;
+      if (sp > 6 && swishT <= 0) { beep(200 + sp * 15, .12, 'sine', .06, 120); swishT = 0.35; }
+    }
+  } else if (!rock.stopped) {
+    rock.vy -= G * dt;
+    const drag = 1 - 0.01 * dt; rock.vx *= drag; rock.vy *= drag;
+    rock.x += rock.vx * dt; rock.y += rock.vy * dt;
+    rock.spin += rock.vx * dt / ROCK_R;
+    if (rock.y < ROCK_R) {
+      rock.y = ROCK_R;
+      if (rock.land === null) { rock.land = rock.x; beep(90, .25, 'triangle', .45); }
+      if (rock.vy < -2) { rock.vy = -rock.vy * 0.3; rock.vx *= 0.6; beep(140, .08, 'triangle', .25); }
+      else { rock.vy = 0; rock.vx *= (1 - 4 * dt); }
+      if (Math.abs(rock.vx) < 0.1 && rock.vy === 0) rock.stopped = true;
+    }
+  }
+}
+
+// ---- input ----
+let scale = 100, originX = 0, groundY = 0;
+function toWorld(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left - originX) / scale + camX, y: (groundY - (e.clientY - r.top)) / scale + camY }; }
+cv.addEventListener('pointerdown', e => {
+  if (state !== 'ready') return;
+  e.preventDefault(); cv.setPointerCapture(e.pointerId); grab = toWorld(e);
+  if (ac && ac.state === 'suspended') ac.resume();
+});
+cv.addEventListener('pointermove', e => { if (grab) grab = toWorld(e); });
+const up = () => {
+  if (!grab) return; grab = null; state = 'swing';
+  beep(300, .2, 'sine', .15, 700);
+};
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+$('again').onclick = () => { $('result').hidden = true; reset(); beep(600, .1); };
+
+const fmt = d => d.toFixed(2) + 'm';
+const coarse = matchMedia('(pointer: coarse)').matches;
+let postText = '';
+function showResult() {
+  $('rDist').textContent = fmt(finalDist);
+  $('rDist').className = 'big' + (finalDist < 0 ? ' neg' : '');
+  $('rBest').textContent = `${t('best')} ${fmt(best)}`;
+  const a = $('share');
+  a.href = `https://x.com/intent/post?text=${encodeURIComponent(L[lang].post(finalDist.toFixed(2)))}&url=${encodeURIComponent(URL_)}`;
+  if (coarse) { a.removeAttribute('target'); a.removeAttribute('rel'); }
+  else { a.target = '_blank'; a.rel = 'noopener'; }
+  a.classList.toggle('wait', !shareFile && 'VideoEncoder' in window);
+  postText = `${L[lang].post(finalDist.toFixed(2))}\n${URL_}`;
+}
+// phones: always open the share sheet (with the video when it's ready). PC: save the video, then open the X post page
+$('share').addEventListener('click', e => {
+  if (coarse && navigator.share) {
+    e.preventDefault();
+    const data = shareFile && navigator.canShare?.({ files: [shareFile] }) ? { files: [shareFile], text: postText } : { text: postText };
+    navigator.share(data).catch(() => {});
+    return;
+  }
+  if (!coarse && shareFile) {
+    const d = document.createElement('a');
+    d.href = URL.createObjectURL(shareFile); d.download = shareFile.name; d.click();
+    setTimeout(() => URL.revokeObjectURL(d.href), 10000);
+  }
+});
+function finish() {
+  state = 'done'; finalDist = rock.land;
+  if (best === null || finalDist > best) { best = finalDist; store.set('best', best); }
+  setTimeout(() => makeVideo().catch(() => {}), 400);
+  setTimeout(() => { showResult(); $('result').hidden = false; beep(500, .15); setTimeout(() => beep(800, .25), 150); }, 300);
+}
+
+// ---- render ----
+function resize() {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  cv.width = r.width * dpr; cv.height = r.height * dpr; mainCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  layout(r.width, r.height, 80);
+}
+function layout(W, H, pad) {
+  groundY = Math.min(H - pad - Math.max(30, H * 0.08), Math.max(H * 0.6, 3.4 * Math.min(W / 5, 170)));
+  scale = Math.min((groundY - 30) / 3.0, W / 5);
+  originX = W * 0.5;
+}
+addEventListener('resize', resize);
+
+function draw(ctx = mainCtx, W = cv.clientWidth, H = cv.clientHeight) {
+  const X = x => originX + (x - camX) * scale, Y = y => groundY - (y - camY) * scale, GY = Y(0);
+  const gr = ctx.createLinearGradient(0, 0, 0, H);
+  gr.addColorStop(0, '#8fd0ff'); gr.addColorStop(1, '#e3f4ff');
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+  // clouds
+  ctx.fillStyle = '#fff';
+  for (let i = -40; i < 60; i++) {
+    const cx = ((i * 9) - camX * 0.3) * scale * 0.4 + originX, cy = H * (0.12 + 0.07 * (((i * 7) % 3 + 3) % 3)) + camY * scale * 0.5;
+    if (cx < -100 || cx > W + 100) continue;
+    ctx.beginPath(); ctx.ellipse(cx, cy, 40, 14, 0, 0, 7); ctx.ellipse(cx + 25, cy - 8, 26, 14, 0, 0, 7); ctx.fill();
+  }
+  // hills (parallax)
+  const hill = (par, base, amp, wl, col, seed) => {
+    ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0, H);
+    for (let sx = 0; sx <= W + 10; sx += 10) {
+      const wx = (sx - originX) / scale + camX * par;
+      const h = amp * (0.6 + 0.4 * Math.sin(wx / wl + seed) * Math.sin(wx / (wl * 2.7) + seed * 3));
+      ctx.lineTo(sx, Y(camY * (1 - par)) - (base + h) * scale * 0.5);
+    }
+    ctx.lineTo(W, H); ctx.fill();
+  };
+  hill(0.1, 1.5, 5, 3, '#a5c8e4', 1);
+  hill(0.3, 0.5, 2.5, 1.6, '#8fcf8f', 4);
+  // ground
+  if (GY < H) {
+    ctx.fillStyle = '#6b4423'; ctx.fillRect(0, GY, W, H - GY);
+    ctx.fillStyle = '#5cb85c'; ctx.fillRect(0, GY, W, Math.max(8, scale * 0.2));
+  }
+  // markers
+  const stepM = scale < 40 ? 10 : 5;
+  ctx.font = 'bold 14px system-ui'; ctx.textAlign = 'center';
+  for (let m = Math.floor((camX - originX / scale) / stepM) * stepM; X(m) < W + 40; m += stepM) {
+    if (m === 0) continue;
+    const x = X(m);
+    ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.fillRect(x - 1, GY - 14, 2, 14);
+    ctx.fillStyle = m < 0 ? '#ffc9c9' : '#fff'; ctx.fillText(m + 'm', x, GY + 22);
+  }
+  // best line
+  if (best !== null) { const x = X(best); if (x > -20 && x < W + 20) { ctx.strokeStyle = '#ffd43b'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(x, GY - 60); ctx.lineTo(x, GY); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = '#e8b500'; ctx.fillText(t('best'), x, GY - 66); } }
+  // landing flag
+  if (rock.land !== null) { const x = X(rock.land); ctx.fillStyle = '#fff'; ctx.fillRect(x - 1, GY - 30, 3, 30); ctx.fillStyle = '#e03131'; ctx.beginPath(); ctx.moveTo(x + 2, GY - 30); ctx.lineTo(x + 18, GY - 25); ctx.lineTo(x + 2, GY - 20); ctx.fill(); }
+  // tower
+  ctx.strokeStyle = '#8b5a2b'; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(4, scale * 0.07);
+  ctx.beginPath(); ctx.moveTo(X(-0.45), Y(0)); ctx.lineTo(X(0), Y(SH.y)); ctx.lineTo(X(-0.15), Y(0));
+  ctx.moveTo(X(-0.36), Y(0.6)); ctx.lineTo(X(-0.1), Y(0.6)); ctx.moveTo(X(-0.27), Y(1.2)); ctx.lineTo(X(-0.06), Y(1.2)); ctx.stroke();
+  // cat-headed watcher
+  ctx.strokeStyle = '#334'; ctx.lineWidth = Math.max(3, scale * 0.05);
+  ctx.beginPath(); ctx.moveTo(X(-1.05), Y(0)); ctx.lineTo(X(-0.95), Y(0.55)); ctx.lineTo(X(-0.85), Y(0)); ctx.moveTo(X(-0.95), Y(0.55)); ctx.lineTo(X(-0.95), Y(1.05));
+  ctx.moveTo(X(-0.95), Y(0.95)); ctx.lineTo(X(-0.7), Y(0.75)); ctx.moveTo(X(-0.95), Y(0.95)); ctx.lineTo(X(-1.15), Y(0.7)); ctx.stroke();
+  { const hr = scale * 0.22, hx = X(-0.95), hy = Y(1.05 + 0.18);
+    if (catImg.complete && catImg.naturalWidth) ctx.drawImage(catImg, hx - hr, hy - hr, hr * 2, hr * 2);
+    else { ctx.fillStyle = '#334'; ctx.beginPath(); ctx.arc(hx, hy, hr, 0, 7); ctx.fill(); } }
+  // pendulum
+  const cols = ['#e8590c', '#1971c2', '#495057'];
+  let prev = SH;
+  for (let i = 0; i < 3; i++) {
+    const p = pts[i];
+    ctx.strokeStyle = cols[i]; ctx.lineWidth = Math.max(3, scale * 0.045);
+    ctx.beginPath(); ctx.moveTo(X(prev.x), Y(prev.y)); ctx.lineTo(X(p.x), Y(p.y)); ctx.stroke();
+    ctx.fillStyle = '#223'; ctx.beginPath(); ctx.arc(X(prev.x), Y(prev.y), Math.max(3, scale * 0.035), 0, 7); ctx.fill();
+    prev = p;
+  }
+  // cup (U shape opening toward n)
+  { const c = cupFrame(), tp = pts[2], P = (a, b) => [X(tp.x + c.u.x * a + c.n.x * b), Y(tp.y + c.u.y * a + c.n.y * b)];
+    ctx.strokeStyle = '#7a4a1e'; ctx.lineWidth = Math.max(3, scale * 0.03);
+    ctx.beginPath(); ctx.moveTo(...P(-CUP_W, CUP_D)); ctx.lineTo(...P(-CUP_W, 0)); ctx.lineTo(...P(CUP_W, 0)); ctx.lineTo(...P(CUP_W, CUP_D)); ctx.stroke(); }
+  // rock
+  if (rock.free) { ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(X(rock.x), GY + 2, ROCK_R * scale * 1.2, ROCK_R * scale * 0.35, 0, 0, 7); ctx.fill(); }
+  { const r = Math.max(5, ROCK_R * scale);
+    ctx.save(); ctx.translate(X(rock.x), Y(rock.y)); ctx.rotate(rock.spin);
+    ctx.fillStyle = '#868e96'; ctx.beginPath();
+    for (let k = 0; k < 7; k++) { const a = k / 7 * Math.PI * 2, rr = r * (0.85 + 0.15 * Math.sin(k * 2.3)); ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+    ctx.closePath(); ctx.fill(); ctx.fillStyle = '#adb5bd'; ctx.beginPath(); ctx.arc(-r * .25, -r * .25, r * .3, 0, 7); ctx.fill();
+    ctx.restore(); }
+  // drag line / hint ring
+  const h = pts[2];
+  if (grab) { ctx.strokeStyle = 'rgba(0,0,0,.3)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(X(h.x), Y(h.y)); ctx.lineTo(X(grab.x), Y(grab.y)); ctx.stroke(); ctx.setLineDash([]); }
+  else if (state === 'ready') { const k = (performance.now() / 900) % 1; ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(X(h.x), Y(h.y), 15 + k * 30, 0, 7); ctx.stroke(); }
+}
+function readout() {
+  if (!rock.free) return null;
+  const d = rock.land ?? rock.x;
+  return [fmt(d), d < 0];
+}
+function follow(fdt, W, H) {
+  const k = Math.min(1, fdt * 6);
+  camX += (rock.x - camX) * k;
+  camY += (Math.max(0, rock.y - (groundY - H * 0.35) / scale) - camY) * k;
+}
+
+// ---- replay recording & result video ----
+let rec = [], recT = 0;
+const snap = () => ({ t: recT, pts: pts.map(p => ({ x: p.x, y: p.y })), rock: { ...rock } });
+const VW = 720, VH = 1280, VFPS = 30;
+let shareFile = null, videoJob = null, gameId = 0;
+async function makeVideo() {
+  shareFile = null; videoJob = null;
+  if (!('VideoEncoder' in window) || !window.Mp4Muxer) return;
+  const frames = rec; if (!frames.length) return;
+  const id = gameId;
+  let cfg = null;
+  for (const codec of ['avc1.640028', 'avc1.4d0028', 'avc1.42001f']) {
+    const c = { codec, width: VW, height: VH, bitrate: 5e6, framerate: VFPS };
+    try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; break; } } catch {}
+  }
+  if (!cfg || id !== gameId) return;
+  // start a little before the rock leaves the cup (whole swing if short)
+  const out = frames.findIndex(f => f.rock.free), t0 = Math.max(frames[0].t, frames[out].t - 4), t1 = frames[frames.length - 1].t;
+  const cnv = document.createElement('canvas'); cnv.width = VW; cnv.height = VH;
+  const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: VW, height: VH, frameRate: VFPS }, fastStart: 'in-memory' });
+  const job = { id, frames, t0, n: Math.ceil((t1 - t0) * VFPS) + 1, i: 0, fi: 0, out: cnv, c: cnv.getContext('2d'), muxer, failed: false, cam: [0, 0] };
+  job.enc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: () => { job.failed = true; } });
+  job.enc.configure(cfg);
+  videoJob = job;
+}
+// called from the loop: draws a few frames per tick by swapping in the recorded state
+function videoFrames() {
+  const job = videoJob;
+  if (job.id !== gameId || job.failed) { try { job.enc.close(); } catch {} videoJob = null; return; }
+  const keep = [pts, rock, camX, camY, state, scale, originX, groundY];
+  for (let k = 0; k < 4 && job.i < job.n; k++, job.i++) {
+    const tt = job.t0 + job.i / VFPS;
+    while (job.fi < job.frames.length - 1 && job.frames[job.fi + 1].t <= tt) job.fi++;
+    const f = job.frames[job.fi];
+    pts = f.pts; rock = f.rock; state = 'swing';
+    layout(VW, VH, 120);
+    [camX, camY] = job.cam;
+    if (rock.free) follow(1 / VFPS, VW, VH);
+    job.cam = [camX, camY];
+    draw(job.c, VW, VH);
+    const r = readout();
+    if (r) { job.c.font = '800 72px system-ui'; job.c.textAlign = 'center'; job.c.lineWidth = 8; job.c.strokeStyle = '#fff'; job.c.strokeText(r[0], VW / 2, 150); job.c.fillStyle = r[1] ? '#e03131' : '#223'; job.c.fillText(r[0], VW / 2, 150); }
+    const frame = new VideoFrame(job.out, { timestamp: Math.round(job.i * 1e6 / VFPS), duration: Math.round(1e6 / VFPS) });
+    job.enc.encode(frame, { keyFrame: job.i % 60 === 0 }); frame.close();
+  }
+  [pts, rock, camX, camY, state, scale, originX, groundY] = keep;
+  if (job.i < job.n) return;
+  videoJob = null;
+  (async () => {
+    await job.enc.flush(); job.enc.close(); job.muxer.finalize();
+    if (job.id !== gameId || job.failed) return;
+    shareFile = new File([job.muxer.target.buffer], 'pendulum-trebuchet.mp4', { type: 'video/mp4' });
+    $('share').classList.remove('wait');
+  })().catch(() => {});
+}
+
+let last = performance.now();
+function loop(now) {
+  const fdt = Math.min(0.05, (now - last) / 1000); last = now;
+  const n = Math.round(fdt / DT);
+  for (let i = 0; i < n; i++) step(DT);
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (state === 'swing') {
+    recT += fdt; rec.push(snap());
+    if (!rock.free) while (rec.length && rec[0].t < recT - 4) rec.shift();
+    if (rock.free) follow(fdt, W, H);
+    if (rock.land !== null) { wait += fdt; if (rock.stopped || wait > 3) { if (wait > 0.8) finish(); } }
+  }
+  draw();
+  const r = state === 'swing' && readout();
+  $('dist').textContent = r ? r[0] : ''; $('dist').className = r && r[1] ? 'neg' : '';
+  if (videoJob) videoFrames();
+  requestAnimationFrame(loop);
+}
+reset(); resize(); applyLang(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
