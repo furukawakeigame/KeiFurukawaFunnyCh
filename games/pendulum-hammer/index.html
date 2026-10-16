@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>三重ハンマー投げ</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="三重ハンマー投げ">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/pendulum-hammer/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/pendulum-hammer/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #bfe6ff; font-family: system-ui, sans-serif; color: #223; }
+    body { display: flex; flex-direction: column; overflow: hidden; }
+    header { position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; gap: 8px; }
+    header a { color: #223; text-decoration: none; font-size: 14px; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill { height: 34px; min-width: 34px; border: none; border-radius: 17px; background: #fff; color: #223; font-size: 14px; padding: 0 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    select.pill { appearance: none; -webkit-appearance: none; }
+    #wrap { position: relative; flex: 1; min-height: 0; }
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+    #dist { position: absolute; top: 34px; left: 0; right: 0; text-align: center; font-size: 34px; font-weight: 800; pointer-events: none; text-shadow: 0 2px 0 #fff; }
+    #dist.foul { color: #e03131; }
+    #tries { position: absolute; top: 8px; left: 0; right: 0; display: flex; justify-content: center; gap: 8px; pointer-events: none; }
+    #tries i { width: 16px; height: 16px; border-radius: 50%; background: #495057; border: 2px solid #fff; }
+    #tries i.used { background: transparent; border-color: rgba(73,80,87,.4); }
+    .panel { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(191,230,255,.8); padding: 16px 16px calc(100px + env(safe-area-inset-bottom)); }
+    .panel[hidden] { display: none; }
+    .big { font-size: 56px; font-weight: 800; margin: 0; }
+    .sub { margin: 0; font-size: 16px; display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+    .sub span.top { font-weight: 800; }
+    .sub span.f { color: #e03131; }
+    .btn { border: none; border-radius: 28px; background: #2b8a3e; color: #fff; font-size: 20px; font-weight: 700; padding: 14px 36px; cursor: pointer; text-decoration: none; }
+    .btn.x { background: #111; font-size: 16px; padding: 10px 24px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <div class="hbtns">
+      <button id="sound" class="pill" aria-label="sound">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#223" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#223"/><path id="wave" d="M16 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/><path id="mute" d="M16 9l6 6M22 9l-6 6" style="display:none"/></svg>
+      </button>
+      <select id="lang" class="pill" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+    </div>
+  </header>
+  <div id="wrap">
+    <canvas id="cv"></canvas>
+    <div id="tries"><i></i><i></i><i></i></div>
+    <div id="dist"></div>
+    <div id="result" class="panel" hidden>
+      <p class="big" id="rDist"></p>
+      <p class="sub" id="rList"></p>
+      <p class="sub" id="rBest"></p>
+      <button id="again" class="btn"></button>
+      <a id="share" class="btn x"></a>
+    </div>
+  </div>
+<script>
+const KEY = 'pendulum-hammer:';
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(KEY + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(KEY + k, JSON.stringify(v)); } catch {} },
+};
+const URL_ = 'https://keifurukawafunnych.com/games/pendulum-hammer/';
+const TAG = '#三重ハンマー投げゲーム';
+const L = {
+  ja: { title: '三重ハンマー投げ', back: '← トップへ戻る', again: 'もう一度', share: 'Xでポスト', best: '自己ベスト', foul: 'ファウル',
+        post: d => `三重ハンマー投げで ${d}m 投げた\n${TAG}` },
+  ko: { title: '삼중 해머던지기', back: '← 처음으로', again: '다시 하기', share: 'X에 게시', best: '최고 기록', foul: '파울',
+        post: d => `삼중 해머던지기에서 ${d}m 던졌다\n${TAG}` },
+  en: { title: 'Triple Pendulum Hammer', back: '← Top', again: 'Retry', share: 'Post on X', best: 'Best', foul: 'FOUL',
+        post: d => `I threw ${d}m in Triple Pendulum Hammer\n${TAG}` },
+  th: { title: 'ขว้างค้อนลูกตุ้มสามชั้น', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X', best: 'สถิติสูงสุด', foul: 'ฟาวล์',
+        post: d => `ขว้างได้ ${d}m ในเกมขว้างค้อนลูกตุ้มสามชั้น\n${TAG}` },
+};
+const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
+let lang = store.get('lang', autoLang());
+if (!L[lang]) lang = 'en';
+const t = k => L[lang][k];
+const $ = id => document.getElementById(id);
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = t('title');
+  $('lang').value = lang;
+  $('back').textContent = t('back');
+  $('again').textContent = t('again'); $('share').textContent = t('share');
+  if (!$('result').hidden) showResult();
+}
+$('lang').onchange = () => { lang = $('lang').value; store.set('lang', lang); applyLang(); };
+
+// ---- sound ----
+let soundOn = store.get('sound', true), ac = null;
+function updSound() { $('wave').style.display = soundOn ? '' : 'none'; $('mute').style.display = soundOn ? 'none' : ''; }
+$('sound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updSound(); };
+updSound();
+function beep(freq, dur, type = 'square', vol = .2, slide = 0) {
+  if (!soundOn) return;
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain(), n = ac.currentTime;
+    o.type = type; o.frequency.setValueAtTime(freq, n);
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, n + dur);
+    g.gain.setValueAtTime(vol, n); g.gain.exponentialRampToValueAtTime(.001, n + dur);
+    o.connect(g).connect(ac.destination); o.start(n); o.stop(n + dur);
+  } catch {}
+}
+
+// ---- world (meters) ----
+const catImg = new Image(); catImg.src = 'cat.png';
+const cv = $('cv'), ctx = cv.getContext('2d');
+const SH = { x: 0, y: 1.45 };            // shoulder
+const ARM = 0.75;                         // hand reach from shoulder
+const REST = { x: 0.35, y: 1.05 };
+const LEN = [0.45, 0.42, 0.4];
+const G = 9.8, BALL_R = 0.07, BOOST = 1.6;
+let hand, pts, ball, state, grab, camX = 0, camY = 0, best = store.get('best', null), throws = [], wait = 0, swishT = 0;
+
+function newThrow() {
+  hand = { ...REST, px: REST.x, py: REST.y };
+  pts = []; let y = hand.y;
+  for (let i = 0; i < 3; i++) { y -= LEN[i]; pts.push({ x: hand.x, y: Math.max(0.05, y), px: hand.x, py: Math.max(0.05, y) }); }
+  ball = null; grab = null; state = 'ready'; wait = 0;
+}
+function newGame() { throws = []; newThrow(); camX = 0; camY = 0; updTries(); }
+
+function step(dt) {
+  // hand follows pointer, limited to arm reach
+  hand.px = hand.x; hand.py = hand.y;
+  const tgt = grab || REST;
+  hand.x += (tgt.x - hand.x) * 0.06; hand.y += (tgt.y - hand.y) * 0.06;
+  const dx = hand.x - SH.x, dy = hand.y - SH.y, d = Math.hypot(dx, dy);
+  if (d > ARM) { hand.x = SH.x + dx / d * ARM; hand.y = SH.y + dy / d * ARM; }
+  const n = ball ? 2 : 3; // chain links still attached
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], vx = (p.x - p.px) * 0.9995, vy = (p.y - p.py) * 0.9995;
+    p.px = p.x; p.py = p.y; p.x += vx; p.y += vy - G * dt * dt;
+  }
+  for (let it = 0; it < 12; it++) {
+    let prev = hand;
+    for (let i = 0; i < n; i++) {
+      const p = pts[i], ex = p.x - prev.x, ey = p.y - prev.y, dd = Math.hypot(ex, ey) || 1e-6, diff = (dd - LEN[i]) / dd;
+      if (i === 0) { p.x -= ex * diff; p.y -= ey * diff; }
+      else { prev.x += ex * diff * .5; prev.y += ey * diff * .5; p.x -= ex * diff * .5; p.y -= ey * diff * .5; }
+      prev = p;
+    }
+    for (let i = 0; i < n; i++) { const p = pts[i]; if (p.y < 0.05) { p.y = 0.05; p.px += (p.x - p.px) * 0.3; } }
+  }
+  if (state === 'swing') {
+    const tip = pts[2], sp = Math.hypot(tip.x - tip.px, tip.y - tip.py) / dt;
+    swishT -= dt;
+    if (sp > 6 && swishT <= 0) { beep(200 + sp * 15, .12, 'sine', .06, 120); swishT = 0.35; }
+  }
+  if (ball && !ball.stopped) {
+    ball.vy -= G * dt;
+    const drag = 1 - 0.01 * dt; ball.vx *= drag; ball.vy *= drag;
+    ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+    ball.maxY = Math.max(ball.maxY, ball.y);
+    if (ball.y < BALL_R) {
+      ball.y = BALL_R;
+      if (ball.land === null) { ball.land = ball.x; landed(); }
+      if (ball.vy < -2) { ball.vy = -ball.vy * 0.25; ball.vx *= 0.5; beep(120, .1, 'triangle', .3); }
+      else { ball.vy = 0; ball.vx *= (1 - 4 * dt); }
+      if (Math.abs(ball.vx) < 0.1 && ball.vy === 0) ball.stopped = true;
+    }
+  }
+}
+
+function landed() {
+  const d = ball.land;
+  const foul = d <= 0;
+  throws.push(foul ? null : d);
+  if (!foul && (best === null || d > best)) { best = d; store.set('best', best); }
+  if (foul) { beep(300, .3, 'sawtooth', .2, 120); }
+  else { beep(90, .25, 'triangle', .45); setTimeout(() => beep(700, .12), 120); }
+  updTries();
+}
+
+// ---- input ----
+let scale = 100, originX = 0, groundY = 0;
+function toWorld(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left - originX) / scale + camX, y: (groundY - (e.clientY - r.top)) / scale + camY }; }
+cv.addEventListener('pointerdown', e => {
+  if (state !== 'ready' && state !== 'swing') return;
+  e.preventDefault(); cv.setPointerCapture(e.pointerId); grab = toWorld(e); state = 'swing';
+  if (ac && ac.state === 'suspended') ac.resume();
+});
+cv.addEventListener('pointermove', e => { if (grab) grab = toWorld(e); });
+const up = () => {
+  if (!grab) return; grab = null;
+  if (state !== 'swing') return;
+  const tip = pts[2], dt = 1 / 480;
+  const vx = (tip.x - tip.px) / dt, vy = (tip.y - tip.py) / dt;
+  ball = { x: tip.x, y: tip.y, vx: vx * BOOST, vy: vy * BOOST, land: null, stopped: false, maxY: tip.y };
+  state = 'fly';
+  beep(500, .25, 'sine', .2, 1200);
+};
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+$('again').onclick = () => { $('result').hidden = true; newGame(); beep(600, .1); };
+
+function updTries() { [...$('tries').children].forEach((el, i) => el.classList.toggle('used', i < throws.length)); }
+const fmt = d => d.toFixed(2) + 'm';
+function showResult() {
+  const valid = throws.filter(d => d !== null), top = valid.length ? Math.max(...valid) : null;
+  $('rDist').textContent = top === null ? t('foul') : fmt(top);
+  $('rDist').style.color = top === null ? '#e03131' : '';
+  $('rList').innerHTML = '';
+  for (const d of throws) { const s = document.createElement('span'); s.textContent = d === null ? t('foul') : fmt(d); if (d === null) s.className = 'f'; else if (d === top) s.className = 'top'; $('rList').append(s); }
+  $('rBest').textContent = `${t('best')} ${best === null ? '-' : fmt(best)}`;
+  const a = $('share');
+  a.href = `https://x.com/intent/post?text=${encodeURIComponent(L[lang].post(top === null ? '0.00' : top.toFixed(2)))}&url=${encodeURIComponent(URL_)}`;
+  if (matchMedia('(pointer: coarse)').matches) { a.removeAttribute('target'); a.removeAttribute('rel'); }
+  else { a.target = '_blank'; a.rel = 'noopener'; }
+}
+
+// ---- render ----
+function resize() {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  cv.width = r.width * dpr; cv.height = r.height * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  groundY = Math.min(r.height - 80 - Math.max(30, r.height * 0.08), Math.max(r.height * 0.62, 3.2 * Math.min(r.width / 4.2, 200)));
+  scale = Math.min((groundY - 90) / 2.4, r.width / 4.2);
+  originX = Math.max(r.width * 0.3, 1.4 * scale);
+}
+addEventListener('resize', resize);
+
+function draw() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  const X = x => originX + (x - camX) * scale, Y = y => groundY - (y - camY) * scale, GY = Y(0);
+  // sky
+  const gr = ctx.createLinearGradient(0, 0, 0, H);
+  gr.addColorStop(0, '#8fd0ff'); gr.addColorStop(1, '#e3f4ff');
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+  // clouds
+  ctx.fillStyle = '#fff';
+  for (let i = -2; i < 60; i++) {
+    const cx = ((i * 9) - camX * 0.3) * scale * 0.4 + originX, cy = H * (0.12 + 0.07 * ((i * 7) % 3)) + camY * scale * 0.5;
+    if (cx < -100 || cx > W + 100) continue;
+    ctx.beginPath(); ctx.ellipse(cx, cy, 40, 14, 0, 0, 7); ctx.ellipse(cx + 25, cy - 8, 26, 14, 0, 0, 7); ctx.fill();
+  }
+  // stadium stands (parallax)
+  const sp = 0.5;
+  ctx.fillStyle = '#9aa7b8';
+  const sy = Y(camY * (1 - sp)) - 1.2 * scale * 0.6;
+  ctx.fillRect(0, sy, W, GY - sy);
+  for (let i = Math.floor((camX * sp - originX / scale) / 0.5) - 2; ; i++) {
+    const x = originX + (i * 0.5 - camX * sp) * scale * 0.6; if (x > W + 10) break;
+    const h = Math.abs(Math.sin(i * 12.9898) * 43758.5453) % 1;
+    ctx.fillStyle = ['#e64980', '#fab005', '#4dabf7', '#fff', '#51cf66'][Math.floor(h * 5)];
+    ctx.beginPath(); ctx.arc(x, sy + 8 + (i % 2) * 10, 5, 0, 7); ctx.fill();
+  }
+  // field
+  if (GY < H) { ctx.fillStyle = '#5cb85c'; ctx.fillRect(0, GY, W, H - GY); }
+  // throwing circle
+  ctx.fillStyle = '#c9c9c9'; ctx.fillRect(X(-0.9), GY, 1.8 * scale, Math.max(4, scale * 0.06));
+  ctx.fillStyle = '#fff'; ctx.fillRect(X(0) - 2, GY, 4, H - GY);
+  // markers
+  const step10 = scale < 40 ? 10 : 5;
+  ctx.font = 'bold 14px system-ui'; ctx.textAlign = 'center';
+  for (let m = Math.max(step10, Math.floor((camX - originX / scale) / step10) * step10); X(m) < W + 40; m += step10) {
+    const x = X(m);
+    ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.fillRect(x - 1, GY, 2, H - GY);
+    ctx.fillStyle = '#fff'; ctx.fillText(m + 'm', x, GY + 20);
+  }
+  // best line
+  if (best) { const x = X(best); if (x > -20 && x < W + 20) { ctx.strokeStyle = '#ffd43b'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(x, GY - 60); ctx.lineTo(x, GY + 10); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = '#e8b500'; ctx.fillText(t('best'), x, GY - 66); } }
+  // previous landing marks
+  throws.forEach((d, i) => { if (d === null) return; const x = X(d); ctx.fillStyle = '#fff'; ctx.fillRect(x - 1, GY - 22, 2, 22); ctx.fillStyle = ['#e03131', '#1971c2', '#f08c00'][i]; ctx.beginPath(); ctx.moveTo(x + 1, GY - 22); ctx.lineTo(x + 14, GY - 18); ctx.lineTo(x + 1, GY - 14); ctx.fill(); });
+  // thrower
+  ctx.strokeStyle = '#334'; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(3, scale * 0.07);
+  ctx.beginPath(); ctx.moveTo(X(-0.2), Y(0)); ctx.lineTo(X(-0.05), Y(0.8)); ctx.lineTo(X(0.12), Y(0)); ctx.moveTo(X(-0.05), Y(0.8)); ctx.lineTo(X(SH.x), Y(SH.y)); ctx.stroke();
+  ctx.lineWidth = Math.max(3, scale * 0.055);
+  ctx.beginPath(); ctx.moveTo(X(SH.x), Y(SH.y)); ctx.lineTo(X(hand.x), Y(hand.y)); ctx.stroke();
+  { const hr = scale * 0.25, hx = X(SH.x), hy = Y(SH.y + 0.22);
+    if (catImg.complete && catImg.naturalWidth) ctx.drawImage(catImg, hx - hr, hy - hr, hr * 2, hr * 2);
+    else { ctx.fillStyle = '#334'; ctx.beginPath(); ctx.arc(hx, hy, hr, 0, 7); ctx.fill(); } }
+  // chain
+  const cols = ['#e8590c', '#1971c2', '#868e96'];
+  let prev = hand;
+  for (let i = 0; i < 3; i++) {
+    if (ball && i === 2) break;
+    const p = pts[i];
+    ctx.strokeStyle = cols[i]; ctx.lineWidth = Math.max(3, scale * 0.035);
+    ctx.beginPath(); ctx.moveTo(X(prev.x), Y(prev.y)); ctx.lineTo(X(p.x), Y(p.y)); ctx.stroke();
+    ctx.fillStyle = '#223'; ctx.beginPath(); ctx.arc(X(prev.x), Y(prev.y), Math.max(3, scale * 0.03), 0, 7); ctx.fill();
+    prev = p;
+  }
+  const hb = ball || pts[2];
+  if (ball) { ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(X(ball.x), GY + 2, BALL_R * scale * 1.3, BALL_R * scale * 0.4, 0, 0, 7); ctx.fill(); }
+  const br = Math.max(6, BALL_R * scale * 1.3);
+  const bg = ctx.createRadialGradient(X(hb.x) - br * .3, Y(hb.y) - br * .3, 1, X(hb.x), Y(hb.y), br);
+  bg.addColorStop(0, '#adb5bd'); bg.addColorStop(1, '#212529');
+  ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(X(hb.x), Y(hb.y), br, 0, 7); ctx.fill();
+  // hint ring on hand
+  if (state === 'ready') { const k = (performance.now() / 900) % 1; ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(X(hand.x), Y(hand.y), 15 + k * 30, 0, 7); ctx.stroke(); }
+  // dist readout
+  const dEl = $('dist');
+  if (ball && state !== 'done') {
+    const d = ball.land ?? ball.x;
+    const foul = ball.land !== null ? ball.land <= 0 : ball.vx < 0 && ball.x <= 0;
+    dEl.textContent = foul ? t('foul') : Math.max(0, d).toFixed(2) + 'm';
+    dEl.className = foul ? 'foul' : '';
+  } else dEl.textContent = '';
+}
+
+let last = performance.now();
+function loop(now) {
+  const fdt = Math.min(0.05, (now - last) / 1000); last = now;
+  const dt = 1 / 480, n = Math.round(fdt / dt);
+  for (let i = 0; i < n; i++) step(dt);
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (state === 'fly') {
+    const k = Math.min(1, fdt * 6);
+    camX += (Math.max(0, ball.x - (W / 2 - originX) / scale) - camX) * k;
+    camY += (Math.max(0, ball.y - (groundY - H * 0.35) / scale) - camY) * k;
+    if (ball.land !== null) {
+      wait += fdt;
+      if (wait > 1.6) {
+        if (throws.length >= 3) { state = 'done'; setTimeout(() => { showResult(); $('result').hidden = false; beep(500, .15); setTimeout(() => beep(800, .25), 150); }, 300); }
+        else { state = 'back'; }
+      }
+    }
+  } else if (state === 'back') {
+    const k = Math.min(1, fdt * 4);
+    camX += (0 - camX) * k; camY += (0 - camY) * k;
+    if (Math.abs(camX) < 0.05 && Math.abs(camY) < 0.05) { camX = camY = 0; newThrow(); }
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+newGame(); resize(); applyLang(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
