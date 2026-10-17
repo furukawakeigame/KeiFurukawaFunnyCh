@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2択ゲーム</title>
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ふるかわけい面白チャンネル">
+<meta property="og:title" content="2択ゲーム">
+<meta property="og:url" content="https://keifurukawafunnych.com/games/two-doors/">
+<meta property="og:image" content="https://keifurukawafunnych.com/games/two-doors/icon.png">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="icon.png"><link rel="apple-touch-icon" href="icon.png">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#15121a;color:#f4ecdc;font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP","Noto Sans KR","Noto Sans Thai",sans-serif;overscroll-behavior:none}
+body{display:flex;flex-direction:column;padding:8px 12px calc(80px + env(safe-area-inset-bottom))}
+header{display:flex;align-items:center;gap:8px;flex:none}
+header a{color:#d9c9a8;text-decoration:none;font-size:14px;margin-right:auto}
+header button,header select{background:#2a2430;color:#f4ecdc;border:1px solid #4a4052;border-radius:8px;height:34px;padding:0 8px;font-size:14px}
+#sound{width:40px;display:grid;place-items:center}
+#stage{flex:1;min-height:0;display:grid;place-items:center;position:relative;margin-top:8px}
+#stage>canvas{grid-area:1/1;display:block;touch-action:none;border-radius:14px;cursor:pointer}
+#c{pointer-events:none}
+#msg{grid-area:1/1;align-self:center;text-align:center;color:#e8d7b0;padding:0 16px}
+.panel{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:0 16px calc(env(safe-area-inset-bottom))}
+.panel[hidden]{display:none}
+.panel button,.panel a{font:inherit;font-size:18px;font-weight:700;border:0;border-radius:999px;padding:12px 28px;min-width:180px;cursor:pointer;text-decoration:none;display:inline-block}
+.go{background:#f2c14e;color:#2a1a05;box-shadow:0 4px 0 #9b6f12}
+#share{background:#000;color:#fff;box-shadow:0 4px 0 #444}
+#result{background:rgba(10,6,12,.55);border-radius:14px}
+#rooms{font-size:clamp(44px,14vw,72px);font-weight:800;text-shadow:0 3px 0 #000}
+#dex{font-size:20px;font-weight:700;color:#fff;text-shadow:0 2px 0 #000}
+#dex.new{color:#ffd75a}
+#best{font-size:16px;color:#e8d7b0;min-height:1.2em}
+</style>
+</head>
+<body>
+<header>
+  <a id="back" href="../../">← トップへ戻る</a>
+  <button id="sound" aria-label="sound"></button>
+  <select id="lang" aria-label="language">
+    <option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option>
+  </select>
+</header>
+<div id="stage">
+  <canvas id="c"></canvas>
+  <div id="msg" hidden></div>
+  <div class="panel" id="result" hidden>
+    <div id="rooms"></div><div id="dex"></div><div id="best"></div>
+    <a id="share" href="#"></a>
+    <button class="go" id="retry"></button>
+  </div>
+</div>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+<script type="module">
+const $=id=>document.getElementById(id);
+const SHARE_URL='https://keifurukawafunnych.com/games/two-doors/',SHARE_NAME='two-doors.png',TAG='#2択ゲーム';
+const L={
+ ja:{title:'2択ゲーム',loadErr:'3Dの読み込みに失敗しました。通信を確認して再読み込みしてください',back:'← トップへ戻る',retry:'もう一度',share:'X に投稿',rooms:n=>`${n}部屋`,best:n=>`自己ベスト ${n}部屋`,newBest:'自己ベスト更新',saved:'画像を保存しました',dex:(n,m)=>`死 ${n}/${m}`,shareText:n=>`2択ゲームで${n}部屋まで進んだ\n${TAG}`},
+ ko:{title:'2지선다 게임',loadErr:'3D를 불러오지 못했어요. 연결을 확인하고 새로고침해 주세요',back:'← 처음으로',retry:'다시 하기',share:'X에 게시',rooms:n=>`${n}개의 방`,best:n=>`최고 기록 ${n}개의 방`,newBest:'최고 기록 갱신',saved:'이미지를 저장했어요',dex:(n,m)=>`죽음 ${n}/${m}`,shareText:n=>`2지선다 게임에서 ${n}개의 방까지 갔다\n${TAG}`},
+ en:{title:'2-Choice Game',loadErr:'Could not load 3D. Check your connection and reload',back:'← Back to top',retry:'Play again',share:'Post on X',rooms:n=>`${n} room${n===1?'':'s'}`,best:n=>`Best ${n} room${n===1?'':'s'}`,newBest:'New best',saved:'Image saved',dex:(n,m)=>`Deaths ${n}/${m}`,shareText:n=>`I made it through ${n} room${n===1?'':'s'} in 2-Choice Game\n${TAG}`},
+ th:{title:'เกม 2 ทางเลือก',loadErr:'โหลด 3D ไม่สำเร็จ โปรดตรวจสอบการเชื่อมต่อแล้วโหลดใหม่',back:'← กลับหน้าแรก',retry:'เล่นอีกครั้ง',share:'โพสต์ลง X',rooms:n=>`${n} ห้อง`,best:n=>`สถิติสูงสุด ${n} ห้อง`,newBest:'ทำสถิติใหม่',saved:'บันทึกรูปแล้ว',dex:(n,m)=>`ความตาย ${n}/${m}`,shareText:n=>`ผ่านไปได้ ${n} ห้องในเกม 2 ทางเลือก\n${TAG}`}
+};
+const LANGS=['ja','ko','en','th'];
+let lang=null;try{lang=localStorage.getItem('two-doors-lang')}catch{}
+if(!LANGS.includes(lang)){lang='en';for(const l of navigator.languages||[navigator.language||'']){const k=String(l).toLowerCase().slice(0,2);if(LANGS.includes(k)){lang=k;break}}}
+const t=k=>L[lang][k];
+let best=0;try{best=+localStorage.getItem('two-doors-best')||0}catch{}
+let sound=true;try{sound=localStorage.getItem('two-doors-sound')!=='0'}catch{}
+
+// ---- 音 ----
+let ac=null;
+function tone(f,d,v=.08,type='square',slide=0,delay=0){if(!sound)return;try{ac=ac||new AudioContext();if(ac.state==='suspended')ac.resume();const o=ac.createOscillator(),g=ac.createGain(),s=ac.currentTime+delay;o.type=type;o.frequency.setValueAtTime(f,s);if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(20,f+slide),s+d);g.gain.setValueAtTime(v,s);g.gain.exponentialRampToValueAtTime(.0001,s+d);o.connect(g).connect(ac.destination);o.start(s);o.stop(s+d)}catch{}}
+function noise(d,v=.15,delay=0){if(!sound)return;try{ac=ac||new AudioContext();const b=ac.createBuffer(1,ac.sampleRate*d,ac.sampleRate),a=b.getChannelData(0);for(let i=0;i<a.length;i++)a[i]=(Math.random()*2-1)*(1-i/a.length);const s=ac.createBufferSource(),g=ac.createGain();s.buffer=b;g.gain.value=v;s.connect(g).connect(ac.destination);s.start(ac.currentTime+delay)}catch{}}
+const SFX={
+ creak:()=>tone(180,.18,.05,'sawtooth',-80),
+ win:()=>{tone(880,.08,.06);tone(1320,.12,.05,'square',0,.06)},
+ pit:()=>tone(700,.7,.08,'triangle',-640),crush:()=>{noise(.5,.4,.2);tone(60,.4,.2,'sine',-30,.2)},
+ spikes:()=>{tone(1200,.08,.08,'sawtooth',-400,.1);noise(.2,.2,.12)},fire:()=>noise(.8,.25),
+ monster:()=>{tone(90,.6,.15,'sawtooth',-40);noise(.15,.4,.33)},bolt:()=>{noise(.8,.5,.12);tone(50,.6,.2,'square',0,.12)},
+ flood:()=>noise(.9,.2),boulder:()=>{tone(50,1,.18,'sine',20);noise(.4,.4,.3)},
+ ghost:()=>{tone(500,1,.05,'sine',300);tone(510,1,.04,'sine',290)},arrows:()=>{for(let i=0;i<4;i++)tone(900,.07,.06,'square',-500,.12+i*.07)}
+};
+
+// ---- 3D ----
+const THREE=await import('three').catch(()=>null);
+const W=360,H=560,RW=7,RH=4,RD=9,DXW=1.6,DOW=1.2,DOH=2.4,EYE=1.55,BACK=1.3;
+// 開けたドアの画面上の位置（死に方の2D演出はこれに合わせて描く）
+let FL=400,DW=88,DH=170,DY=315;
+const cv=$('c'),cx=cv.getContext('2d');let gl=null,renderer,scene,camera,scale=1,rooms=[];
+function theme(lv){const h=(28+lv*37)%360,d=26+8*Math.sin(lv*1.3);return{wall:`hsl(${h},22%,${d}%)`,wall2:`hsl(${h},22%,${d-6}%)`,floor:`hsl(${h},18%,${d-12}%)`,mat:lv<5?['#8b5a2b','#6a4220']:lv<10?['#88939c','#5c656d']:lv<20?['#a3262a','#741b1e']:['#e0b324','#a8820e']}}
+function ell(c,x,y,rx,ry,col){c.fillStyle=col;c.beginPath();c.ellipse(x,y,Math.max(.1,rx),Math.max(.1,ry),0,0,7);c.fill()}
+const mat=col=>new THREE.MeshLambertMaterial({color:new THREE.Color(col)});
+const plane=(w,h,m)=>new THREE.Mesh(new THREE.PlaneGeometry(w,h),m);
+const box=(w,h,d,m)=>new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);
+// 部屋：奥の壁(z=oz)にドアが2枚。手前側は開いていて、前の部屋のドアからそのまま入ってこられる
+function buildRoom(rx,oz,lv){
+ const th=theme(lv),g=new THREE.Group(),wall=mat(th.wall),m0=mat(th.mat[0]),m1=mat(th.mat[1]),frame=mat('#1c1714'),knob=mat('#f6e3a1');
+ g.position.set(rx,0,oz);
+ const f=plane(RW,RD,mat(th.floor));f.rotation.x=-Math.PI/2;f.position.set(0,0,RD/2);g.add(f);
+ const ce=plane(RW,RD,mat(th.wall2));ce.rotation.x=Math.PI/2;ce.position.set(0,RH,RD/2);g.add(ce);
+ for(const sd of[-1,1]){const w=plane(RD,RH,wall);w.rotation.y=-sd*Math.PI/2;w.position.set(sd*RW/2,RH/2,RD/2);g.add(w)}
+ const a=DXW-DOW/2,b=DXW+DOW/2;
+ for(const [x0,x1] of [[-RW/2,-b],[-a,a],[b,RW/2]]){const w=plane(x1-x0,DOH,wall);w.position.set((x0+x1)/2,DOH/2,0);g.add(w)}
+ const top=plane(RW,RH-DOH,wall);top.position.set(0,(RH+DOH)/2,0);g.add(top);
+ const doors=[];
+ for(const dx of[-DXW,DXW]){
+  for(const sx of[-1,1]){const j=box(.12,DOH+.12,.25,frame);j.position.set(dx+sx*(DOW/2+.06),DOH/2,0);g.add(j)}
+  const l=box(DOW+.24,.12,.25,frame);l.position.set(dx,DOH+.06,0);g.add(l);
+  const pv=new THREE.Group();pv.position.set(dx-DOW/2,0,0);
+  const leaf=box(DOW-.02,DOH-.02,.07,m0);leaf.position.set(DOW/2,DOH/2,0);pv.add(leaf);
+  for(const py of[.3,.72]){const pn=box(DOW*.68,DOH*.32,.02,m1);pn.position.set(DOW/2,DOH*py,.045);pv.add(pn)}
+  const k=new THREE.Mesh(new THREE.SphereGeometry(.05,12,8),knob);k.position.set(DOW*.86,DOH*.5,.08);pv.add(k);
+  g.add(pv);doors.push(pv)}
+ scene.add(g);return{g,rx,oz,doors};
+}
+function disposeRoom(r){scene.remove(r.g);r.g.traverse(o=>{o.geometry?.dispose();o.material?.dispose()})}
+function resetRooms(){if(!scene)return;rooms.forEach(disposeRoom);rooms=[buildRoom(0,0,0)]}
+function initGL(){
+ renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});gl=renderer.domElement;$('stage').insertBefore(gl,cv);
+ scene=new THREE.Scene();scene.background=new THREE.Color(0);scene.fog=new THREE.Fog(0,7,22);
+ camera=new THREE.PerspectiveCamera(60,W/H,.05,60);scene.add(camera);
+ const lamp=new THREE.PointLight(0xfff0dd,30,0,1.6);lamp.position.set(0,.3,0);camera.add(lamp);
+ scene.add(new THREE.AmbientLight(0xffffff,.8));
+ resetRooms();
+}
+function fit(){const r=$('stage').getBoundingClientRect(),s=Math.min(r.width/W,r.height/H),dpr=Math.min(devicePixelRatio||1,2);for(const el of[cv,gl]){el.style.width=W*s+'px';el.style.height=H*s+'px'}cv.width=Math.round(W*s*dpr);cv.height=Math.round(H*s*dpr);scale=s*dpr;renderer.setPixelRatio(dpr);renderer.setSize(W*s,H*s,false)}
+const lerp=(a,b,k)=>a+(b-a)*k,cl=k=>Math.max(0,Math.min(1,k)),ease=k=>k*k*(3-2*k);
+function flame(c,x,y,s,k){for(let i=0;i<3;i++){const h=s*(1-i*.3)*(0.85+.15*Math.sin(k*40+i));c.fillStyle=['#e8481c','#f59a1f','#ffe066'][i];c.beginPath();c.moveTo(x-s*.45*(1-i*.3),y);c.quadraticCurveTo(x-s*.5*(1-i*.3),y-h*.6,x,y-h);c.quadraticCurveTo(x+s*.5*(1-i*.3),y-h*.6,x+s*.45*(1-i*.3),y);c.fill()}}
+// 画面のひび（目の前に当たった跡）
+function crack(c,x,y,r,col='rgba(255,255,255,.85)'){c.strokeStyle=col;c.lineWidth=2;for(let i=0;i<9;i++){const a=i*.7+.3;c.beginPath();c.moveTo(x,y);let px=x,py=y;for(let j=1;j<=3;j++){px=x+Math.cos(a+j*.15*(i%2?1:-1))*r*j/3;py=y+Math.sin(a+j*.15*(i%2?1:-1))*r*j/3;c.lineTo(px,py)}c.stroke()}}
+function redEdge(c,a){const g=c.createRadialGradient(W/2,H/2,H*.2,W/2,H/2,H*.7);g.addColorStop(0,'rgba(170,0,0,0)');g.addColorStop(1,`rgba(170,0,0,${a})`);c.fillStyle=g;c.fillRect(0,0,W,H)}
+function monsterFace(c,m){ell(c,0,0,48,44,'#5b2a7a');ell(c,-18,-18,9,9,'#ffe94a');ell(c,18,-18,9,9,'#ffe94a');ell(c,-18,-18,3,6,'#000');ell(c,18,-18,3,6,'#000');ell(c,0,14,34,m,'#1a0a14');c.fillStyle='#fff';for(let i=-3;i<=3;i++){c.beginPath();c.moveTo(i*9-4,14-m);c.lineTo(i*9,14-m+10);c.lineTo(i*9+4,14-m);c.fill();c.beginPath();c.moveTo(i*9-4,14+m);c.lineTo(i*9,14+m-10);c.lineTo(i*9+4,14+m);c.fill()}}
+function rock(c,x,y,r,rot){c.save();c.translate(x,y);c.rotate(rot);ell(c,0,0,r,r,'#7c7468');ell(c,-r*.3,-r*.2,r*.2,r*.15,'#5f584e');ell(c,r*.35,r*.3,r*.25,r*.18,'#5f584e');ell(c,r*.1,-r*.5,r*.15,r*.1,'#5f584e');c.restore()}
+function ghostShape(c){c.fillStyle='#f4f6ff';c.beginPath();c.arc(0,0,34,Math.PI,0);c.lineTo(34,40);for(let i=0;i<4;i++)c.quadraticCurveTo(34-i*17-8,50,34-(i+1)*17,40);c.fill();ell(c,-12,-6,6,8,'#111');ell(c,12,-6,6,8,'#111');ell(c,0,14,7,9,'#111')}
+// 死に方：k は 0〜1、x は外れドアの中心。すべて自分の目線で起きる
+const DEATHS={
+ pit(){},
+ crush(c,k){const f=cl(k/.35),by=lerp(-H,0,f*f);c.fillStyle='#555a60';c.fillRect(0,by,W,H);c.fillStyle='#3d4146';for(let i=0;i<7;i++)c.fillRect(0,by+40+i*80,W,10);if(f>=1){crack(c,W/2,H*.55,200,'rgba(0,0,0,.6)');redEdge(c,.5)}},
+ spikes(c,k){const f=ease(cl((k-.05)/.2));c.fillStyle='#cfd3d8';for(let i=0;i<7;i++){const sx=i*60;c.beginPath();c.moveTo(sx-10,H);c.lineTo(sx+20,H-f*H*(.55+.15*(i%2)));c.lineTo(sx+50,H);c.fill()}if(f>=1)redEdge(c,.6)},
+ fire(c,k,x){const f=cl(k/.5);for(let i=0;i<7;i++)flame(c,x+(i-3)*lerp(14,70,f),FL+lerp(0,200,f),lerp(40,700,f*f)*(1-Math.abs(i-3)*.1),k+i);if(k>.55){const b=cl((k-.55)/.3);c.fillStyle=`rgba(20,14,12,${b*.92})`;c.fillRect(0,0,W,H);for(let i=0;i<6;i++){const s=(k*.8+i/6)%1;ell(c,40+i*55,H-s*H,20+s*40,20+s*40,`rgba(110,110,110,${.5*b*(1-s)})`)}}},
+ monster(c,k,x){const ap=cl(k/.3),ln=ease(cl((k-.35)/.2)),bite=cl((k-.55)/.08);c.save();c.translate(lerp(x,W/2,ln),lerp(DY,H/2,ln));const s=lerp(.6,1,ap)*lerp(1,5,ln);c.scale(s,s);monsterFace(c,lerp(4,26,ap)+ln*10);c.restore();if(bite>0){const h=bite*H/2;c.fillStyle='#1a0a14';c.fillRect(0,0,W,h);c.fillRect(0,H-h,W,h);c.fillStyle='#fff';for(let i=0;i<8;i++){c.beginPath();c.moveTo(i*46,h);c.lineTo(i*46+23,h+40);c.lineTo(i*46+46,h);c.fill();c.beginPath();c.moveTo(i*46,H-h);c.lineTo(i*46+23,H-h-40);c.lineTo(i*46+46,H-h);c.fill()}}},
+ bolt(c,k,x){const fl=k>.2&&k<.45&&Math.floor(k*40)%2===0;if(k>.15&&k<.45){c.strokeStyle='#fff8a0';c.lineWidth=10;c.beginPath();c.moveTo(x,DY);let yy=DY,xx=x;while(yy<H){yy+=50;xx+=(Math.floor(yy/50)%2?-50:45);c.lineTo(xx,yy)}c.stroke()}if(fl){c.fillStyle='rgba(255,255,255,.85)';c.fillRect(0,0,W,H)}if(k>=.45){c.fillStyle='rgba(15,12,10,.85)';c.fillRect(0,0,W,H);for(let i=0;i<5;i++){const s=((k-.45)*.8+i/5)%1;ell(c,50+i*65,H-s*H*.8,18+s*30,18+s*30,`rgba(120,120,120,${.5*(1-s)})`)}}},
+ flood(c,k,x){const f=ease(cl((k-.15)/.5)),wy=lerp(H+20,-30,f);c.fillStyle='rgba(60,150,230,.9)';c.fillRect(x-DW/2,FL-DH,DW,DH);c.fillStyle='rgba(40,120,210,.88)';c.beginPath();c.moveTo(0,wy);for(let i=0;i<=12;i++)c.lineTo(i*30,wy+Math.sin(k*12+i)*8);c.lineTo(W,H);c.lineTo(0,H);c.fill();for(let i=0;i<14;i++){const b=(k*1.2+i/14)%1;if(H-b*H>wy)ell(c,(i*53+20)%W,H-b*H,4+i%4,4+i%4,'rgba(220,240,255,.7)')}},
+ boulder(c,k,x){const f=cl(k/.5);if(f<1)rock(c,lerp(x,W/2,f),lerp(FL-40,H/2,f),lerp(30,420,f*f*f),k*6);else{c.fillStyle='#4a443c';c.fillRect(0,0,W,H);crack(c,W/2,H/2,260,'rgba(0,0,0,.6)');redEdge(c,.5)}},
+ ghost(c,k,x){const g=ease(cl(k/.6));c.save();c.translate(lerp(x,W/2,g),lerp(DY,H/2,g)+Math.sin(k*9)*6*(1-g));const s=lerp(.6,7,g*g);c.scale(s,s);c.globalAlpha=.95;ghostShape(c);c.restore();if(k>.6){c.fillStyle=`rgba(244,246,255,${cl((k-.6)/.3)})`;c.fillRect(0,0,W,H)}},
+ arrows(c,k,x){const hits=[[90,190],[260,250],[150,370],[230,120]];hits.forEach(([hx,hy],i)=>{const a=cl((k-.15-i*.1)/.1);if(a<=0)return;if(a<1){const px=lerp(x,hx,a),py=lerp(DY,hy,a),s=lerp(.3,1.4,a);c.save();c.translate(px,py);c.scale(s,s);c.fillStyle='#ccc';c.beginPath();c.moveTo(0,-12);c.lineTo(10,8);c.lineTo(-10,8);c.fill();c.restore()}else{crack(c,hx,hy,60);c.fillStyle='#ccc';c.beginPath();c.moveTo(hx,hy-16);c.lineTo(hx+14,hy+10);c.lineTo(hx-14,hy+10);c.fill()}});if(k>.55)redEdge(c,cl((k-.55)/.3)*.7)}
+};
+const DKEYS=Object.keys(DEATHS);
+// 見た死に方（図鑑）
+let seen=[];try{seen=JSON.parse(localStorage.getItem('two-doors-deaths'))||[]}catch{}
+let newDeath=false;
+
+// ---- 状態 ----
+let mode='play',level=0,phase='idle',pt=0,side=0,good=false,death=null,lastDeath=null,isNew=false,paused=false;
+function choose(s){if(mode!=='play'||phase!=='idle'||!THREE)return;side=s;good=Math.random()<.5;phase='open';pt=0;SFX.creak();
+ // 当たりのときだけ、ドアの奥に次の部屋を作る（外れの奥は真っ暗）
+ if(good){const r=rooms[0];rooms.push(buildRoom(r.rx+(s?DXW:-DXW),r.oz-RD,level+1))}}
+function step(dt){
+ if(mode!=='play'||paused)return;pt+=dt;
+ if(phase==='open'&&pt>=.22){pt=0;if(good){phase='enter';SFX.win()}else{phase='death';let d;do d=DKEYS[Math.floor(Math.random()*DKEYS.length)];while(d===lastDeath);death=lastDeath=d;newDeath=!seen.includes(d);if(newDeath){seen.push(d);try{localStorage.setItem('two-doors-deaths',JSON.stringify(seen))}catch{}}SFX[d]()}}
+ else if(phase==='enter'&&pt>=.5){disposeRoom(rooms.shift());level++;phase='idle';pt=0}
+ else if(phase==='death'&&pt>=1.3){mode='result';isNew=level>best;if(isNew){best=level;try{localStorage.setItem('two-doors-best',best)}catch{}}showResult();tone(220,.4,.06,'triangle')}
+}
+const shaking=dk=>phase==='death'&&mode==='play'&&((death==='crush'&&dk>.3&&dk<.45)||(death==='boulder'&&dk>.45&&dk<.6)||(death==='bolt'&&dk>.2&&dk<.4)||(death==='arrows'&&dk>.25&&dk<.55));
+let pv=null;
+// 落とし穴：足元に穴が開く → のぞき込んで落ちる → 穴の底から入口を見上げる
+function fall(r,dk,hz){
+ if(!r.pit){const g=new THREE.Group(),d=new THREE.Mesh(new THREE.CircleGeometry(1,40),new THREE.MeshBasicMaterial({color:0}));d.rotation.x=-Math.PI/2;d.position.y=.003;g.add(d);
+  const sh=new THREE.Mesh(new THREE.CylinderGeometry(1,1,14,32,1,true),new THREE.MeshBasicMaterial({color:0x050505,side:THREE.BackSide}));sh.position.y=-7;g.add(sh);for(let y=-.8;y>-14;y-=1.3){const band=new THREE.Mesh(new THREE.CylinderGeometry(.99,.99,.25,32,1,true),new THREE.MeshBasicMaterial({color:0x2e241b,side:THREE.BackSide}));band.position.y=y;g.add(band)}const lt=new THREE.PointLight(0xfff0dd,25,0,1.4);lt.position.y=2.5;g.add(lt);g.position.set(0,0,RD-BACK-1.6);r.g.add(g);r.pit=g}
+ const tilt=ease(cl(dk/.2)),hr=Math.max(.001,ease(cl((dk-.05)/.2))*1.1),a=ease(cl((dk-.25)/.15)),b=ease(cl((dk-.4)/.5)),up=ease(cl((dk-.4)/.15));r.pit.scale.set(hr,1,hr);
+ camera.position.z=lerp(hz,r.oz+RD-BACK-1.6,a);camera.position.y=lerp(EYE,-.4,a)-7*b;camera.rotation.x=dk<.4?-1.1*tilt:lerp(-1.1,1.5,up);
+}
+// カメラとドアを動かし、開けたドアの画面上の中心xを返す
+function update(dk){
+ const r=rooms[0],dx=r.rx+(side?DXW:-DXW),hz=r.oz+RD-BACK;
+ r.doors.forEach((d,i)=>d.rotation.y=phase!=='idle'&&i===side?(phase==='open'?ease(cl(pt/.22)):1)*1.75:0);
+ camera.position.set(r.rx,EYE,hz);camera.rotation.set(0,0,0);
+ if(phase==='death'&&death==='pit')fall(r,dk,hz);
+ // 当たり：先に横へ寄ってから、ドアをくぐって次の部屋の定位置まで歩く
+ if(phase==='enter'){const k=cl(pt/.5);camera.position.x=lerp(r.rx,dx,ease(cl(k*1.8)));camera.position.z=lerp(hz,r.oz-BACK,ease(k));camera.position.y=EYE+Math.sin(k*Math.PI*3)*.04}
+ if(shaking(dk))camera.position.add(new THREE.Vector3((Math.random()-.5)*.12,(Math.random()-.5)*.12,0));
+ camera.updateMatrixWorld();
+ pv=pv||new THREE.Vector3();const pr=(x,y)=>{pv.set(x,y,r.oz).project(camera);return[(pv.x+1)/2*W,(1-pv.y)/2*H]};
+ const [x0,y0]=pr(dx-DOW/2,DOH),[x1,y1]=pr(dx+DOW/2,0);DW=x1-x0;DH=y1-y0;FL=y1;DY=(y0+y1)/2;return(x0+x1)/2;
+}
+function render(){
+ const dk=phase==='death'?cl(pt/1.1):0,x=update(dk);renderer.render(scene,camera);
+ cx.setTransform(scale,0,0,scale,0,0);cx.clearRect(0,0,W,H);
+ if(phase==='death'){cx.save();if(shaking(dk))cx.translate((Math.random()-.5)*12,(Math.random()-.5)*12);DEATHS[death](cx,dk,x);cx.restore()}
+}
+let last=performance.now();
+function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;step(dt);render();requestAnimationFrame(loop)}
+
+// ---- 入力 ----
+$('stage').addEventListener('pointerdown',e=>{if(e.target.closest('.panel'))return;e.preventDefault();const r=e.currentTarget.getBoundingClientRect();choose((e.clientX-r.left)<r.width/2?0:1)});
+addEventListener('keydown',e=>{if(e.key==='ArrowLeft')choose(0);else if(e.key==='ArrowRight')choose(1);else if((e.key==='Enter'||e.key===' ')&&mode!=='play'&&document.activeElement.tagName!=='A'&&document.activeElement.tagName!=='BUTTON'){e.preventDefault();begin()}});
+function begin(){mode='play';level=0;phase='idle';pt=0;death=null;resetRooms();$('result').hidden=true;tone(440,.1,.05)}
+$('retry').onclick=begin;
+
+// ---- 結果・共有 ----
+function resultImage(){
+ const S=1080,c=document.createElement('canvas');c.width=c.height=S;const g=c.getContext('2d');
+ g.fillStyle='#000';g.fillRect(0,0,S,S);
+ render();const k=S/H*.86,ox=(S-W*k)/2;g.drawImage(gl,ox,0,W*k,H*k);g.drawImage(cv,ox,0,W*k,H*k);
+ g.fillStyle='rgba(0,0,0,.6)';g.fillRect(0,S*.8,S,S*.2);
+ g.fillStyle='#fff';g.textAlign='center';g.textBaseline='middle';
+ g.font='800 96px system-ui,"Hiragino Sans","Noto Sans JP","Noto Sans KR","Noto Sans Thai",sans-serif';g.fillText(t('rooms')(level),S/2,S*.87);g.font='700 48px system-ui,"Hiragino Sans","Noto Sans JP","Noto Sans KR","Noto Sans Thai",sans-serif';g.fillText(t('dex')(seen.length,DKEYS.length),S/2,S*.955);
+ return c;
+}
+let shareFile=null,shareKey='';
+function prepareShare(){if(mode!=='result')return;const key=lang+':'+level+':'+death;if(key===shareKey)return;shareKey=key;shareFile=null;resultImage().toBlob(b=>{if(b&&shareKey===key)shareFile=new File([b],SHARE_NAME,{type:'image/png'})},'image/png')}
+const coarse=()=>matchMedia('(pointer: coarse)').matches;
+const intent=()=>`https://x.com/intent/post?text=${encodeURIComponent(t('shareText')(level))}&url=${encodeURIComponent(SHARE_URL)}`;
+function showResult(){renderResult();$('result').hidden=false;setTimeout(prepareShare,30)}
+function renderResult(){$('rooms').textContent=t('rooms')(level);$('dex').textContent=t('dex')(seen.length,DKEYS.length);$('dex').classList.toggle('new',newDeath);$('best').textContent=isNew&&level>0?t('newBest'):t('best')(best);const a=$('share');a.textContent=t('share');a.href=intent();if(coarse()){a.removeAttribute('target');a.removeAttribute('rel')}else{a.target='_blank';a.rel='noopener'}}
+$('share').onclick=e=>{
+ if(coarse()&&typeof navigator.share==='function'&&shareFile&&navigator.canShare?.({files:[shareFile]})){e.preventDefault();navigator.share({files:[shareFile],text:`${t('shareText')(level)}\n${SHARE_URL}`}).catch(err=>{if(err.name!=='AbortError')location.href=intent()});return}
+ if(coarse())return;
+ const a=document.createElement('a');a.href=resultImage().toDataURL('image/png');a.download=SHARE_NAME;a.click();$('best').textContent=t('saved')};
+
+// ---- 言語・音 ----
+function drawSpeaker(){$('sound').innerHTML=`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${sound?'<path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/>':'<path d="M16 9l6 6M22 9l-6 6"/>'}</svg>`}
+$('sound').onclick=()=>{sound=!sound;try{localStorage.setItem('two-doors-sound',sound?'1':'0')}catch{}drawSpeaker();tone(660,.08,.05)};
+function applyLang(){document.documentElement.lang=lang;document.title=t('title');$('lang').value=lang;$('back').textContent=t('back');if(!THREE)$('msg').textContent=t('loadErr');$('retry').textContent=t('retry');if(mode==='result'){renderResult();prepareShare()}}
+$('lang').onchange=()=>{lang=$('lang').value;try{localStorage.setItem('two-doors-lang',lang)}catch{}applyLang()};
+drawSpeaker();applyLang();
+if(THREE){initGL();addEventListener('resize',fit);fit();requestAnimationFrame(loop)}else{$('msg').hidden=false;$('msg').textContent=t('loadErr')}
+</script>
+</body>
+</html>
