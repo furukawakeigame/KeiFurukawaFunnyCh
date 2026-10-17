@@ -152,7 +152,7 @@ function buildRoom(rx,oz,lv){
   const k=new THREE.Mesh(new THREE.SphereGeometry(.045,20,14),brass);k.position.set(DOW*.86,DOH*.45,.08);k.castShadow=true;pv.add(k);
   for(const hy of[.15,.85]){const hg=box(.02,.1,.03,brass);hg.position.set(.01,DOH*hy,.02);pv.add(hg)}
   g.add(pv);doors.push(pv)}
- scene.add(g);return{g,rx,oz,doors};
+ scene.add(g);return{g,rx,oz,doors,floor:f};
 }
 function disposeRoom(r){scene.remove(r.g);r.g.traverse(o=>{o.geometry?.dispose();if(o.material){o.material.map?.dispose();o.material.dispose()}})}
 function resetRooms(){if(!scene)return;rooms.forEach(disposeRoom);rooms=[buildRoom(0,0,0)]}
@@ -299,13 +299,23 @@ function step(dt){
  else if(phase==='death'&&pt>=1.5){mode='result';isNew=level>best;if(isNew){best=level;try{localStorage.setItem('two-doors-best',best)}catch{}}showResult();tone(220,.4,.06,'triangle')}
 }
 let pv=null,vig=null;
-// 落とし穴：足元に穴が開く → のぞき込んで落ちる → 穴の底から入口を見上げる
+// 落とし穴：足元の床が落とし戸のように割れて開き、石の縦穴を後ろ向きに落ちていく（入口の四角い光が遠ざかる）
+const HW=.7;
 function fall(r,dk,hz){
- if(!r.pit){const g=new THREE.Group(),d=new THREE.Mesh(new THREE.CircleGeometry(1,40),new THREE.MeshBasicMaterial({color:0}));d.rotation.x=-Math.PI/2;d.position.y=.003;g.add(d);
-  const sh=new THREE.Mesh(new THREE.CylinderGeometry(1,1,14,32,1,true),new THREE.MeshBasicMaterial({color:0x050505,side:THREE.BackSide}));sh.position.y=-7;g.add(sh);for(let y=-.8;y>-14;y-=1.3){const band=new THREE.Mesh(new THREE.CylinderGeometry(.99,.99,.25,32,1,true),new THREE.MeshBasicMaterial({color:0x2e241b,side:THREE.BackSide}));band.position.y=y;g.add(band)}g.position.set(0,0,RD-BACK-1.6);r.g.add(g);r.pit=g}
- nextL.position.set(r.rx,2.5,r.oz+RD-BACK-1.6);nextL.intensity=25;
- const tilt=ease(cl(dk/.2)),hr=Math.max(.001,ease(cl((dk-.05)/.2))*1.1),a=ease(cl((dk-.25)/.15)),b=ease(cl((dk-.4)/.5)),up=ease(cl((dk-.4)/.15));r.pit.scale.set(hr,1,hr);
- camera.position.z=lerp(hz,r.oz+RD-BACK-1.6,a);camera.position.y=lerp(EYE,-.4,a)-7*b;camera.rotation.x=dk<.4?-1.1*tilt:lerp(-1.1,1.5,up);
+ if(!r.pit){const g=new THREE.Group();g.position.set(0,0,CZ);r.g.add(g);r.floor.visible=false;
+  // 穴のまわりの床（元の床と同じ板の柄がつながるように、テクスチャの位置を合わせる）
+  const fm=r.floor.material,piece=(x0,x1,z0,z1)=>{const t=fm.map.clone();t.repeat.set((x1-x0)/1.8,(z1-z0)/1.8);t.offset.set((x0+RW/2)/1.8,(RD-z1)/1.8);t.needsUpdate=true;const m=plane(x1-x0,z1-z0,std({map:t,roughness:.5}));m.rotation.x=-Math.PI/2;m.position.set((x0+x1)/2,0,(z0+z1)/2-CZ);m.receiveShadow=true;g.add(m);return m};
+  piece(-RW/2,-HW,0,RD);piece(HW,RW/2,0,RD);piece(-HW,HW,0,CZ-HW);piece(-HW,HW,CZ+HW,RD);
+  const leaves=[];for(const sd of[-1,1]){const pv=new THREE.Group();pv.position.set(sd*HW,0,0);const t=fm.map.clone();t.repeat.set(HW/1.8,2*HW/1.8);t.needsUpdate=true;const l=box(HW,.05,2*HW,std({map:t,roughness:.5}));l.position.set(-sd*HW/2,-.025,0);pv.add(l);g.add(pv);leaves.push(pv)}
+  // 石積みの縦穴
+  const stone=canvasTex(256,256,(c,w,h)=>{c.fillStyle='#3a332c';c.fillRect(0,0,w,h);for(let y=0;y<h;y+=32)for(let x=-(y/32%2)*32;x<w;x+=64){c.fillStyle=`hsl(30,${rnd(8,16)}%,${rnd(30,42)}%)`;c.fillRect(x+2,y+2,60,28)}speckle(c,w,h,9000,.18)});
+  const D=14;for(let i=0;i<4;i++){const t=stone.clone();t.repeat.set(1,D/1.4);t.needsUpdate=true;const m=plane(2*HW,D,std({map:t,roughness:.95}));const a=i*Math.PI/2;m.position.set(-Math.sin(a)*HW,-D/2,-Math.cos(a)*HW);m.rotation.y=a;m.receiveShadow=true;g.add(m)}
+  const bot=plane(2*HW,2*HW,std({color:'#1a1612',roughness:1}));bot.rotation.x=-Math.PI/2;bot.position.y=-D;g.add(bot);
+  r.pit={g,leaves}}
+ // ガタッと足元を見る → 床が割れて開く → 落ちながら仰向けになり、入口を見上げる
+ const look=ease(cl(dk/.1)),op=ease(cl((dk-.1)/.12));r.pit.leaves.forEach((l,i)=>l.rotation.z=(i?1:-1)*op*1.55);
+ const f=cl((dk-.2)/.75),fallY=12*f*f;camera.position.y=EYE-fallY;camera.position.z=hz+.25*look;
+ camera.rotation.x=dk<.28?-1.05*look:lerp(-1.05,1.45,ease(cl((dk-.28)/.3)));camera.rotation.z=Math.sin(dk*7)*.1*cl((dk-.2)*4);if(dk>.08&&dk<.2)shake(.035)
 }
 // カメラとドアを動かし、開けたドアの画面上の中心xを返す
 function update(dk){
