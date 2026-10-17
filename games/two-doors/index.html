@@ -27,7 +27,9 @@ header a{color:#d9c9a8;text-decoration:none;font-size:14px;margin-right:auto}
 header button,header select{background:#2a2430;color:#f4ecdc;border:1px solid #4a4052;border-radius:8px;height:34px;padding:0 8px;font-size:14px}
 #sound{width:40px;display:grid;place-items:center}
 #stage{flex:1;min-height:0;display:grid;place-items:center;position:relative;margin-top:8px}
-canvas{display:block;touch-action:none;border-radius:14px;cursor:pointer;max-width:100%}
+#stage>canvas{grid-area:1/1;display:block;touch-action:none;border-radius:14px;cursor:pointer}
+#c{pointer-events:none}
+#msg{grid-area:1/1;align-self:center;text-align:center;color:#e8d7b0;padding:0 16px}
 .panel{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:0 16px calc(env(safe-area-inset-bottom))}
 .panel[hidden]{display:none}
 .panel button,.panel a{font:inherit;font-size:18px;font-weight:700;border:0;border-radius:999px;padding:12px 28px;min-width:180px;cursor:pointer;text-decoration:none;display:inline-block}
@@ -48,20 +50,22 @@ canvas{display:block;touch-action:none;border-radius:14px;cursor:pointer;max-wid
 </header>
 <div id="stage">
   <canvas id="c"></canvas>
+  <div id="msg" hidden></div>
   <div class="panel" id="result" hidden>
     <div id="rooms"></div><div id="best"></div>
     <a id="share" href="#"></a>
     <button class="go" id="retry"></button>
   </div>
 </div>
-<script>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+<script type="module">
 const $=id=>document.getElementById(id);
 const SHARE_URL='https://keifurukawafunnych.com/games/two-doors/',SHARE_NAME='two-doors.png',TAG='#運命のドアゲーム';
 const L={
- ja:{title:'運命のドア',back:'← トップへ戻る',retry:'もう一度',share:'X に投稿',rooms:n=>`${n}部屋`,best:n=>`自己ベスト ${n}部屋`,newBest:'自己ベスト更新',saved:'画像を保存しました',shareText:n=>`運命のドアで${n}部屋まで進んだ\n${TAG}`},
- ko:{title:'운명의 문',back:'← 처음으로',retry:'다시 하기',share:'X에 게시',rooms:n=>`${n}개의 방`,best:n=>`최고 기록 ${n}개의 방`,newBest:'최고 기록 갱신',saved:'이미지를 저장했어요',shareText:n=>`운명의 문에서 ${n}개의 방까지 갔다\n${TAG}`},
- en:{title:'Doors of Fate',back:'← Back to top',retry:'Play again',share:'Post on X',rooms:n=>`${n} room${n===1?'':'s'}`,best:n=>`Best ${n} room${n===1?'':'s'}`,newBest:'New best',saved:'Image saved',shareText:n=>`I made it through ${n} room${n===1?'':'s'} in Doors of Fate\n${TAG}`},
- th:{title:'ประตูแห่งโชคชะตา',back:'← กลับหน้าแรก',retry:'เล่นอีกครั้ง',share:'โพสต์ลง X',rooms:n=>`${n} ห้อง`,best:n=>`สถิติสูงสุด ${n} ห้อง`,newBest:'ทำสถิติใหม่',saved:'บันทึกรูปแล้ว',shareText:n=>`ผ่านไปได้ ${n} ห้องในประตูแห่งโชคชะตา\n${TAG}`}
+ ja:{title:'運命のドア',loadErr:'3Dの読み込みに失敗しました。通信を確認して再読み込みしてください',back:'← トップへ戻る',retry:'もう一度',share:'X に投稿',rooms:n=>`${n}部屋`,best:n=>`自己ベスト ${n}部屋`,newBest:'自己ベスト更新',saved:'画像を保存しました',shareText:n=>`運命のドアで${n}部屋まで進んだ\n${TAG}`},
+ ko:{title:'운명의 문',loadErr:'3D를 불러오지 못했어요. 연결을 확인하고 새로고침해 주세요',back:'← 처음으로',retry:'다시 하기',share:'X에 게시',rooms:n=>`${n}개의 방`,best:n=>`최고 기록 ${n}개의 방`,newBest:'최고 기록 갱신',saved:'이미지를 저장했어요',shareText:n=>`운명의 문에서 ${n}개의 방까지 갔다\n${TAG}`},
+ en:{title:'Doors of Fate',loadErr:'Could not load 3D. Check your connection and reload',back:'← Back to top',retry:'Play again',share:'Post on X',rooms:n=>`${n} room${n===1?'':'s'}`,best:n=>`Best ${n} room${n===1?'':'s'}`,newBest:'New best',saved:'Image saved',shareText:n=>`I made it through ${n} room${n===1?'':'s'} in Doors of Fate\n${TAG}`},
+ th:{title:'ประตูแห่งโชคชะตา',loadErr:'โหลด 3D ไม่สำเร็จ โปรดตรวจสอบการเชื่อมต่อแล้วโหลดใหม่',back:'← กลับหน้าแรก',retry:'เล่นอีกครั้ง',share:'โพสต์ลง X',rooms:n=>`${n} ห้อง`,best:n=>`สถิติสูงสุด ${n} ห้อง`,newBest:'ทำสถิติใหม่',saved:'บันทึกรูปแล้ว',shareText:n=>`ผ่านไปได้ ${n} ห้องในประตูแห่งโชคชะตา\n${TAG}`}
 };
 const LANGS=['ja','ko','en','th'];
 let lang=null;try{lang=localStorage.getItem('two-doors-lang')}catch{}
@@ -84,36 +88,51 @@ const SFX={
  ghost:()=>{tone(500,1,.05,'sine',300);tone(510,1,.04,'sine',290)},arrows:()=>{for(let i=0;i<4;i++)tone(900,.07,.06,'square',-500,.12+i*.07)}
 };
 
-// ---- 描画 ----
-const W=360,H=560,FL=400,DW=88,DH=170,DX=[105,255];
-const cv=$('c'),cx=cv.getContext('2d');
-function fit(){const r=$('stage').getBoundingClientRect(),s=Math.min(r.width/W,r.height/H),dpr=Math.min(devicePixelRatio||1,3);cv.style.width=W*s+'px';cv.style.height=H*s+'px';cv.width=Math.round(W*s*dpr);cv.height=Math.round(H*s*dpr);scale=s*dpr}
-let scale=1;
+// ---- 3D ----
+const THREE=await import('three').catch(()=>null);
+const W=360,H=560,RW=7,RH=4,RD=9,DXW=1.6,DOW=1.2,DOH=2.4,EYE=1.55,BACK=1.3;
+// 開けたドアの画面上の位置（死に方の2D演出はこれに合わせて描く）
+let FL=400,DW=88,DH=170,DY=315;
+const cv=$('c'),cx=cv.getContext('2d');let gl=null,renderer,scene,camera,scale=1,rooms=[];
 function theme(lv){const h=(28+lv*37)%360,d=26+8*Math.sin(lv*1.3);return{wall:`hsl(${h},22%,${d}%)`,wall2:`hsl(${h},22%,${d-6}%)`,floor:`hsl(${h},18%,${d-12}%)`,mat:lv<5?['#8b5a2b','#6a4220']:lv<10?['#88939c','#5c656d']:lv<20?['#a3262a','#741b1e']:['#e0b324','#a8820e']}}
 function ell(c,x,y,rx,ry,col){c.fillStyle=col;c.beginPath();c.ellipse(x,y,Math.max(.1,rx),Math.max(.1,ry),0,0,7);c.fill()}
-function drawRoom(c,lv,open){
- const th=theme(lv);c.fillStyle=th.wall;c.fillRect(0,0,W,FL);
- c.fillStyle=th.floor;c.fillRect(0,FL,W,H-FL);
- // ランプ（クリアした部屋の数）
- // 進んだ数：上の段が10部屋ごとの大きい玉、下の段が1部屋ごとの小さい玉。どこまで進んでも画面に収まる
- const tens=Math.floor(lv/10),ones=lv%10,big=Math.min(7,180/Math.max(1,tens));for(let i=0;i<tens;i++)ell(c,180+(i-(tens-1)/2)*big*2.6,22,big,big,'#ffe27a');for(let i=0;i<ones;i++)ell(c,180+(i-4.5)*16,tens?44:26,5,5,'#f2c14e')
- for(let s=0;s<2;s++){
-  const x=DX[s]-DW/2,y=FL-DH;
-  c.fillStyle='rgba(0,0,0,.35)';c.fillRect(x-8,y-8,DW+16,DH+8);
-  const o=open&&open.side===s?open:null;
-  if(o){
-   if(o.good){const nt=theme(lv+1);c.fillStyle=nt.floor;c.fillRect(x,y,DW,DH);c.fillStyle=nt.wall;c.fillRect(x,y,DW,DH*.72);c.fillStyle=nt.mat[0];c.fillRect(x+DW*.15,y+DH*.38,DW*.22,DH*.34);c.fillRect(x+DW*.63,y+DH*.38,DW*.22,DH*.34);c.fillStyle='rgba(0,0,0,0)'}
-   else c.fillStyle='#050207';
-   c.fillRect(x,y,DW,DH);
-  }
-  const p=o?o.p:0,w=DW*(1-p*.85);
-  c.fillStyle=th.mat[0];c.fillRect(x,y,w,DH);
-  c.fillStyle=th.mat[1];c.fillRect(x+w*.12,y+14,w*.76,DH*.36);c.fillRect(x+w*.12,y+DH*.52,w*.76,DH*.38);
-  c.fillStyle=th.mat[0];c.fillRect(x+w*.18,y+20,w*.64,DH*.36-12);c.fillRect(x+w*.18,y+DH*.52+6,w*.64,DH*.38-12);
-  if(lv>=20){c.fillStyle='rgba(255,255,255,.25)';c.fillRect(x+w*.1,y,w*.08,DH)}
-  ell(c,x+w*.82,y+DH*.52,5*(1-p*.6),5,'#f6e3a1');
- }
+// 進んだ数：上の段が10部屋ごとの大きい玉、下の段が1部屋ごとの小さい玉。どこまで進んでも画面に収まる
+function drawLamps(c,lv){const tens=Math.floor(lv/10),ones=lv%10,big=Math.min(7,180/Math.max(1,tens));for(let i=0;i<tens;i++)ell(c,180+(i-(tens-1)/2)*big*2.6,22,big,big,'#ffe27a');for(let i=0;i<ones;i++)ell(c,180+(i-4.5)*16,tens?44:26,5,5,'#f2c14e')}
+const mat=col=>new THREE.MeshLambertMaterial({color:new THREE.Color(col)});
+const plane=(w,h,m)=>new THREE.Mesh(new THREE.PlaneGeometry(w,h),m);
+const box=(w,h,d,m)=>new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);
+// 部屋：奥の壁(z=oz)にドアが2枚。手前側は開いていて、前の部屋のドアからそのまま入ってこられる
+function buildRoom(rx,oz,lv){
+ const th=theme(lv),g=new THREE.Group(),wall=mat(th.wall),m0=mat(th.mat[0]),m1=mat(th.mat[1]),frame=mat('#1c1714'),knob=mat('#f6e3a1');
+ g.position.set(rx,0,oz);
+ const f=plane(RW,RD,mat(th.floor));f.rotation.x=-Math.PI/2;f.position.set(0,0,RD/2);g.add(f);
+ const ce=plane(RW,RD,mat(th.wall2));ce.rotation.x=Math.PI/2;ce.position.set(0,RH,RD/2);g.add(ce);
+ for(const sd of[-1,1]){const w=plane(RD,RH,wall);w.rotation.y=-sd*Math.PI/2;w.position.set(sd*RW/2,RH/2,RD/2);g.add(w)}
+ const a=DXW-DOW/2,b=DXW+DOW/2;
+ for(const [x0,x1] of [[-RW/2,-b],[-a,a],[b,RW/2]]){const w=plane(x1-x0,DOH,wall);w.position.set((x0+x1)/2,DOH/2,0);g.add(w)}
+ const top=plane(RW,RH-DOH,wall);top.position.set(0,(RH+DOH)/2,0);g.add(top);
+ const doors=[];
+ for(const dx of[-DXW,DXW]){
+  for(const sx of[-1,1]){const j=box(.12,DOH+.12,.25,frame);j.position.set(dx+sx*(DOW/2+.06),DOH/2,0);g.add(j)}
+  const l=box(DOW+.24,.12,.25,frame);l.position.set(dx,DOH+.06,0);g.add(l);
+  const pv=new THREE.Group();pv.position.set(dx-DOW/2,0,0);
+  const leaf=box(DOW-.02,DOH-.02,.07,m0);leaf.position.set(DOW/2,DOH/2,0);pv.add(leaf);
+  for(const py of[.3,.72]){const pn=box(DOW*.68,DOH*.32,.02,m1);pn.position.set(DOW/2,DOH*py,.045);pv.add(pn)}
+  const k=new THREE.Mesh(new THREE.SphereGeometry(.05,12,8),knob);k.position.set(DOW*.86,DOH*.5,.08);pv.add(k);
+  g.add(pv);doors.push(pv)}
+ scene.add(g);return{g,rx,oz,doors};
 }
+function disposeRoom(r){scene.remove(r.g);r.g.traverse(o=>{o.geometry?.dispose();o.material?.dispose()})}
+function resetRooms(){if(!scene)return;rooms.forEach(disposeRoom);rooms=[buildRoom(0,0,0)]}
+function initGL(){
+ renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});gl=renderer.domElement;$('stage').insertBefore(gl,cv);
+ scene=new THREE.Scene();scene.background=new THREE.Color(0);scene.fog=new THREE.Fog(0,7,22);
+ camera=new THREE.PerspectiveCamera(60,W/H,.05,60);scene.add(camera);
+ const lamp=new THREE.PointLight(0xfff0dd,30,0,1.6);lamp.position.set(0,.3,0);camera.add(lamp);
+ scene.add(new THREE.AmbientLight(0xffffff,.8));
+ resetRooms();
+}
+function fit(){const r=$('stage').getBoundingClientRect(),s=Math.min(r.width/W,r.height/H),dpr=Math.min(devicePixelRatio||1,2);for(const el of[cv,gl]){el.style.width=W*s+'px';el.style.height=H*s+'px'}cv.width=Math.round(W*s*dpr);cv.height=Math.round(H*s*dpr);scale=s*dpr;renderer.setPixelRatio(dpr);renderer.setSize(W*s,H*s,false)}
 const lerp=(a,b,k)=>a+(b-a)*k,cl=k=>Math.max(0,Math.min(1,k)),ease=k=>k*k*(3-2*k);
 function flame(c,x,y,s,k){for(let i=0;i<3;i++){const h=s*(1-i*.3)*(0.85+.15*Math.sin(k*40+i));c.fillStyle=['#e8481c','#f59a1f','#ffe066'][i];c.beginPath();c.moveTo(x-s*.45*(1-i*.3),y);c.quadraticCurveTo(x-s*.5*(1-i*.3),y-h*.6,x,y-h);c.quadraticCurveTo(x+s*.5*(1-i*.3),y-h*.6,x+s*.45*(1-i*.3),y);c.fill()}}
 // 画面のひび（目の前に当たった跡）
@@ -122,10 +141,9 @@ function redEdge(c,a){const g=c.createRadialGradient(W/2,H/2,H*.2,W/2,H/2,H*.7);
 function monsterFace(c,m){ell(c,0,0,48,44,'#5b2a7a');ell(c,-18,-18,9,9,'#ffe94a');ell(c,18,-18,9,9,'#ffe94a');ell(c,-18,-18,3,6,'#000');ell(c,18,-18,3,6,'#000');ell(c,0,14,34,m,'#1a0a14');c.fillStyle='#fff';for(let i=-3;i<=3;i++){c.beginPath();c.moveTo(i*9-4,14-m);c.lineTo(i*9,14-m+10);c.lineTo(i*9+4,14-m);c.fill();c.beginPath();c.moveTo(i*9-4,14+m);c.lineTo(i*9,14+m-10);c.lineTo(i*9+4,14+m);c.fill()}}
 function rock(c,x,y,r,rot){c.save();c.translate(x,y);c.rotate(rot);ell(c,0,0,r,r,'#7c7468');ell(c,-r*.3,-r*.2,r*.2,r*.15,'#5f584e');ell(c,r*.35,r*.3,r*.25,r*.18,'#5f584e');ell(c,r*.1,-r*.5,r*.15,r*.1,'#5f584e');c.restore()}
 function ghostShape(c){c.fillStyle='#f4f6ff';c.beginPath();c.arc(0,0,34,Math.PI,0);c.lineTo(34,40);for(let i=0;i<4;i++)c.quadraticCurveTo(34-i*17-8,50,34-(i+1)*17,40);c.fill();ell(c,-12,-6,6,8,'#111');ell(c,12,-6,6,8,'#111');ell(c,0,14,7,9,'#111')}
-const DY=FL-DH/2;
 // 死に方：k は 0〜1、x は外れドアの中心。すべて自分の目線で起きる
 const DEATHS={
- pit(){},
+ pit(c,k){const f=ease(cl((k-.1)/.6));c.fillStyle='#000';c.fillRect(0,0,W,H);c.save();c.translate(W/2,lerp(H*.5,H*.12,f));c.scale(lerp(1,.16,f),lerp(1,.16,f));c.translate(-W/2,-H*.5);c.drawImage(gl,0,0,W,H);c.restore()},
  crush(c,k){const f=cl(k/.35),by=lerp(-H,0,f*f);c.fillStyle='#555a60';c.fillRect(0,by,W,H);c.fillStyle='#3d4146';for(let i=0;i<7;i++)c.fillRect(0,by+40+i*80,W,10);if(f>=1){crack(c,W/2,H*.55,200,'rgba(0,0,0,.6)');redEdge(c,.5)}},
  spikes(c,k){const f=ease(cl((k-.05)/.2));c.fillStyle='#cfd3d8';for(let i=0;i<7;i++){const sx=i*60;c.beginPath();c.moveTo(sx-10,H);c.lineTo(sx+20,H-f*H*(.55+.15*(i%2)));c.lineTo(sx+50,H);c.fill()}if(f>=1)redEdge(c,.6)},
  fire(c,k,x){const f=cl(k/.5);for(let i=0;i<7;i++)flame(c,x+(i-3)*lerp(14,70,f),FL+lerp(0,200,f),lerp(40,700,f*f)*(1-Math.abs(i-3)*.1),k+i);if(k>.55){const b=cl((k-.55)/.3);c.fillStyle=`rgba(20,14,12,${b*.92})`;c.fillRect(0,0,W,H);for(let i=0;i<6;i++){const s=(k*.8+i/6)%1;ell(c,40+i*55,H-s*H,20+s*40,20+s*40,`rgba(110,110,110,${.5*b*(1-s)})`)}}},
@@ -139,38 +157,50 @@ const DEATHS={
 const DKEYS=Object.keys(DEATHS);
 
 // ---- 状態 ----
-let mode='play',level=0,phase='idle',pt=0,side=0,good=false,death=null,lastDeath=null,isNew=false;
-function choose(s){if(mode!=='play'||phase!=='idle')return;side=s;good=Math.random()<.5;phase='open';pt=0;SFX.creak()}
+let mode='play',level=0,phase='idle',pt=0,side=0,good=false,death=null,lastDeath=null,isNew=false,paused=false;
+window._dbg=o=>{({mode=mode,level=level,phase=phase,pt=pt,side=side,good=good,death=death,paused=paused}=o)};
+function choose(s){if(mode!=='play'||phase!=='idle'||!THREE)return;side=s;good=Math.random()<.5;phase='open';pt=0;SFX.creak();
+ // 当たりのときだけ、ドアの奥に次の部屋を作る（外れの奥は真っ暗）
+ if(good){const r=rooms[0];rooms.push(buildRoom(r.rx+(s?DXW:-DXW),r.oz-RD,level+1))}}
 function step(dt){
- if(mode!=='play')return;pt+=dt;
- if(phase==='open'&&pt>=.2){pt=0;if(good){phase='enter';SFX.win()}else{phase='death';let d;do d=DKEYS[Math.floor(Math.random()*DKEYS.length)];while(d===lastDeath);death=lastDeath=d;SFX[d]()}}
- else if(phase==='enter'&&pt>=.36){level++;phase='idle';pt=0}
+ if(mode!=='play'||paused)return;pt+=dt;
+ if(phase==='open'&&pt>=.22){pt=0;if(good){phase='enter';SFX.win()}else{phase='death';let d;do d=DKEYS[Math.floor(Math.random()*DKEYS.length)];while(d===lastDeath);death=lastDeath=d;SFX[d]()}}
+ else if(phase==='enter'&&pt>=.5){disposeRoom(rooms.shift());level++;phase='idle';pt=0}
  else if(phase==='death'&&pt>=1.3){mode='result';isNew=level>best;if(isNew){best=level;try{localStorage.setItem('two-doors-best',best)}catch{}}showResult();tone(220,.4,.06,'triangle')}
 }
-function drawScene(c,shake=true){
- c.save();const dk=phase==='death'?cl(pt/1.1):0,x=DX[side];
- if(shake&&phase==='death'&&mode==='play'&&((death==='crush'&&dk>.3&&dk<.45)||(death==='boulder'&&dk>.45&&dk<.6)||(death==='bolt'&&dk>.2&&dk<.4)||(death==='arrows'&&dk>.25&&dk<.55)))c.translate((Math.random()-.5)*12,(Math.random()-.5)*12);
- // 当たり：ドアの奥へズームしながら光に包まれる。落とし穴：部屋ごと上へ流れていく
- if(phase==='enter'){const z=ease(cl(pt/.3));c.translate(lerp(0,W/2-x,z),lerp(0,H/2-DY,z));c.translate(x,DY);c.scale(1+z*3,1+z*3);c.translate(-x,-DY)}
- if(phase==='death'&&death==='pit'){const f=ease(cl((dk-.1)/.6));c.fillStyle='#000';c.fillRect(0,0,W,H);c.translate(W/2,lerp(H*.5,H*.12,f));c.scale(lerp(1,.16,f),lerp(1,.16,f));c.translate(-W/2,-H*.5)}
- drawRoom(c,level,phase==='idle'?null:{side,good,p:phase==='open'?ease(cl(pt/.2)):1});
- if(phase==='death')DEATHS[death](c,dk,x);
- c.restore();
+const shaking=dk=>phase==='death'&&mode==='play'&&((death==='crush'&&dk>.3&&dk<.45)||(death==='boulder'&&dk>.45&&dk<.6)||(death==='bolt'&&dk>.2&&dk<.4)||(death==='arrows'&&dk>.25&&dk<.55));
+let pv=null;
+// カメラとドアを動かし、開けたドアの画面上の中心xを返す
+function update(dk){
+ const r=rooms[0],dx=r.rx+(side?DXW:-DXW),hz=r.oz+RD-BACK;
+ r.doors.forEach((d,i)=>d.rotation.y=phase!=='idle'&&i===side?(phase==='open'?ease(cl(pt/.22)):1)*1.75:0);
+ camera.position.set(r.rx,EYE,hz);
+ // 当たり：先に横へ寄ってから、ドアをくぐって次の部屋の定位置まで歩く
+ if(phase==='enter'){const k=cl(pt/.5);camera.position.x=lerp(r.rx,dx,ease(cl(k*1.8)));camera.position.z=lerp(hz,r.oz-BACK,ease(k));camera.position.y=EYE+Math.sin(k*Math.PI*3)*.04}
+ if(shaking(dk))camera.position.add(new THREE.Vector3((Math.random()-.5)*.12,(Math.random()-.5)*.12,0));
+ camera.updateMatrixWorld();
+ pv=pv||new THREE.Vector3();const pr=(x,y)=>{pv.set(x,y,r.oz).project(camera);return[(pv.x+1)/2*W,(1-pv.y)/2*H]};
+ const [x0,y0]=pr(dx-DOW/2,DOH),[x1,y1]=pr(dx+DOW/2,0);DW=x1-x0;DH=y1-y0;FL=y1;DY=(y0+y1)/2;return(x0+x1)/2;
+}
+function render(){
+ const dk=phase==='death'?cl(pt/1.1):0,x=update(dk);renderer.render(scene,camera);
+ cx.setTransform(scale,0,0,scale,0,0);cx.clearRect(0,0,W,H);drawLamps(cx,level);
+ if(phase==='death'){cx.save();if(shaking(dk))cx.translate((Math.random()-.5)*12,(Math.random()-.5)*12);DEATHS[death](cx,dk,x);cx.restore()}
 }
 let last=performance.now();
-function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;step(dt);cx.setTransform(scale,0,0,scale,0,0);cx.clearRect(0,0,W,H);drawScene(cx);requestAnimationFrame(loop)}
+function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;step(dt);render();requestAnimationFrame(loop)}
 
 // ---- 入力 ----
-cv.addEventListener('pointerdown',e=>{e.preventDefault();const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)/r.width*W,y=(e.clientY-r.top)/r.height*H;if(y>FL-DH-30&&y<H)choose(x<180?0:1)});
+$('stage').addEventListener('pointerdown',e=>{if(e.target.closest('.panel'))return;e.preventDefault();const r=e.currentTarget.getBoundingClientRect();choose((e.clientX-r.left)<r.width/2?0:1)});
 addEventListener('keydown',e=>{if(e.key==='ArrowLeft')choose(0);else if(e.key==='ArrowRight')choose(1);else if((e.key==='Enter'||e.key===' ')&&mode!=='play'&&document.activeElement.tagName!=='A'&&document.activeElement.tagName!=='BUTTON'){e.preventDefault();begin()}});
-function begin(){mode='play';level=0;phase='idle';pt=0;death=null;$('result').hidden=true;tone(440,.1,.05)}
+function begin(){mode='play';level=0;phase='idle';pt=0;death=null;resetRooms();$('result').hidden=true;tone(440,.1,.05)}
 $('retry').onclick=begin;
 
 // ---- 結果・共有 ----
 function resultImage(){
  const S=1080,c=document.createElement('canvas');c.width=c.height=S;const g=c.getContext('2d');
- g.fillStyle=theme(level).wall2;g.fillRect(0,0,S,S);
- const k=S/H*.86;g.save();g.translate((S-W*k)/2,0);g.scale(k,k);g.beginPath();g.rect(0,0,W,H);g.clip();drawScene(g,false);g.restore();
+ g.fillStyle='#000';g.fillRect(0,0,S,S);
+ render();const k=S/H*.86,ox=(S-W*k)/2;g.drawImage(gl,ox,0,W*k,H*k);g.drawImage(cv,ox,0,W*k,H*k);
  g.fillStyle='rgba(0,0,0,.6)';g.fillRect(0,S*.84,S,S*.16);
  g.fillStyle='#fff';g.textAlign='center';g.textBaseline='middle';
  g.font='800 96px system-ui,"Hiragino Sans","Noto Sans JP","Noto Sans KR","Noto Sans Thai",sans-serif';g.fillText(t('rooms')(level),S/2,S*.92);
@@ -190,9 +220,10 @@ $('share').onclick=e=>{
 // ---- 言語・音 ----
 function drawSpeaker(){$('sound').innerHTML=`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${sound?'<path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/>':'<path d="M16 9l6 6M22 9l-6 6"/>'}</svg>`}
 $('sound').onclick=()=>{sound=!sound;try{localStorage.setItem('two-doors-sound',sound?'1':'0')}catch{}drawSpeaker();tone(660,.08,.05)};
-function applyLang(){document.documentElement.lang=lang;document.title=t('title');$('lang').value=lang;$('back').textContent=t('back');$('retry').textContent=t('retry');if(mode==='result'){renderResult();prepareShare()}}
+function applyLang(){document.documentElement.lang=lang;document.title=t('title');$('lang').value=lang;$('back').textContent=t('back');if(!THREE)$('msg').textContent=t('loadErr');$('retry').textContent=t('retry');if(mode==='result'){renderResult();prepareShare()}}
 $('lang').onchange=()=>{lang=$('lang').value;try{localStorage.setItem('two-doors-lang',lang)}catch{}applyLang()};
-addEventListener('resize',fit);fit();drawSpeaker();applyLang();requestAnimationFrame(loop);
+drawSpeaker();applyLang();
+if(THREE){initGL();addEventListener('resize',fit);fit();requestAnimationFrame(loop)}else{$('msg').hidden=false;$('msg').textContent=t('loadErr')}
 </script>
 </body>
 </html>
