@@ -89,19 +89,20 @@ const W=360,H=560,FL=400,DW=88,DH=170,DX=[105,255];
 const cv=$('c'),cx=cv.getContext('2d');
 function fit(){const r=$('stage').getBoundingClientRect(),s=Math.min(r.width/W,r.height/H),dpr=Math.min(devicePixelRatio||1,3);cv.style.width=W*s+'px';cv.style.height=H*s+'px';cv.width=Math.round(W*s*dpr);cv.height=Math.round(H*s*dpr);scale=s*dpr}
 let scale=1;
-function theme(lv){const h=(28+lv*37)%360,d=Math.max(10,34-lv*.8);return{wall:`hsl(${h},22%,${d}%)`,wall2:`hsl(${h},22%,${d-6}%)`,floor:`hsl(${h},18%,${d-12}%)`,mat:lv<5?['#8b5a2b','#6a4220']:lv<10?['#88939c','#5c656d']:lv<20?['#a3262a','#741b1e']:['#e0b324','#a8820e']}}
+function theme(lv){const h=(28+lv*37)%360,d=26+8*Math.sin(lv*1.3);return{wall:`hsl(${h},22%,${d}%)`,wall2:`hsl(${h},22%,${d-6}%)`,floor:`hsl(${h},18%,${d-12}%)`,mat:lv<5?['#8b5a2b','#6a4220']:lv<10?['#88939c','#5c656d']:lv<20?['#a3262a','#741b1e']:['#e0b324','#a8820e']}}
 function ell(c,x,y,rx,ry,col){c.fillStyle=col;c.beginPath();c.ellipse(x,y,Math.max(.1,rx),Math.max(.1,ry),0,0,7);c.fill()}
 function drawRoom(c,lv,open){
  const th=theme(lv);c.fillStyle=th.wall;c.fillRect(0,0,W,FL);
  c.fillStyle=th.floor;c.fillRect(0,FL,W,H-FL);
  // ランプ（クリアした部屋の数）
- const per=10,r=lv>30?4:6;for(let i=0;i<lv;i++){const row=Math.floor(i/per),col=i%per;ell(c,180+(col-4.5)*(r*2.8),26+row*(r*2.8),r,r,i%10===9?'#ffe27a':'#f2c14e')}
+ // 進んだ数：上の段が10部屋ごとの大きい玉、下の段が1部屋ごとの小さい玉。どこまで進んでも画面に収まる
+ const tens=Math.floor(lv/10),ones=lv%10,big=Math.min(7,180/Math.max(1,tens));for(let i=0;i<tens;i++)ell(c,180+(i-(tens-1)/2)*big*2.6,22,big,big,'#ffe27a');for(let i=0;i<ones;i++)ell(c,180+(i-4.5)*16,tens?44:26,5,5,'#f2c14e')
  for(let s=0;s<2;s++){
   const x=DX[s]-DW/2,y=FL-DH;
   c.fillStyle='rgba(0,0,0,.35)';c.fillRect(x-8,y-8,DW+16,DH+8);
   const o=open&&open.side===s?open:null;
   if(o){
-   if(o.good){const g=c.createRadialGradient(DX[s],FL-60,5,DX[s],FL-60,DH);g.addColorStop(0,'#fffbe0');g.addColorStop(1,'#f5c64a');c.fillStyle=g}
+   if(o.good){const nt=theme(lv+1);c.fillStyle=nt.floor;c.fillRect(x,y,DW,DH);c.fillStyle=nt.wall;c.fillRect(x,y,DW,DH*.72);c.fillStyle=nt.mat[0];c.fillRect(x+DW*.15,y+DH*.38,DW*.22,DH*.34);c.fillRect(x+DW*.63,y+DH*.38,DW*.22,DH*.34);c.fillStyle='rgba(0,0,0,0)'}
    else c.fillStyle='#050207';
    c.fillRect(x,y,DW,DH);
   }
@@ -155,7 +156,6 @@ function drawScene(c,shake=true){
  drawRoom(c,level,phase==='idle'?null:{side,good,p:phase==='open'?ease(cl(pt/.2)):1});
  if(phase==='death')DEATHS[death](c,dk,x);
  c.restore();
- if(phase==='enter'){const f=cl((pt-.14)/.22);c.fillStyle=`rgba(255,248,220,${Math.sin(f*Math.PI)})`;c.fillRect(0,0,W,H)}
 }
 let last=performance.now();
 function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;step(dt);cx.setTransform(scale,0,0,scale,0,0);cx.clearRect(0,0,W,H);drawScene(cx);requestAnimationFrame(loop)}
