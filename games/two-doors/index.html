@@ -221,16 +221,30 @@ const DEATH3D={
   return k=>{const on=k>.15&&k<.42,fr=Math.floor(k*30);if(on&&fr!==lf){lf=fr;build()}ms.forEach(m=>m.visible=on&&fr%3!==2);
    nextL.color.set(0xbfd4ff);nextL.position.set(r.rx+dx*.5,2.2,r.oz+3);nextL.intensity=on&&fr%2?400:0;if(on)shake(.05);
    const d=ease(cl((k-.42)/.35));camera.position.y=lerp(camera.position.y,.25,d);camera.rotation.z=1.3*d;camera.rotation.x=.15*d}},
- // 洪水：ドアから水があふれて部屋が水没する
- flood(r,dx,g){const geo=new THREE.PlaneGeometry(RW,RD,40,40);geo.rotateX(-Math.PI/2);const base=geo.attributes.position.array.slice();
-  const wm=std({color:'#24596b',transparent:true,opacity:.8,roughness:.06,metalness:.25,envMapIntensity:1.4,side:THREE.DoubleSide}),w=new THREE.Mesh(geo,wm);w.position.z=RD/2;g.add(w);
-  const gush=new THREE.Mesh(new THREE.BoxGeometry(DOW,DOH,1),wm);g.add(gush);
-  const bt=softTex([[0,'rgba(230,250,255,.9)'],[.5,'rgba(200,235,255,.3)'],[1,'rgba(200,235,255,0)']]),B=[];for(let i=0;i<40;i++){const s=sprite(bt,false);g.add(s);B.push({s,x:rnd(-1.2,1.2),z:CZ-rnd(.4,3),d:Math.random(),v:rnd(.6,1.4)})}
-  return k=>{const lvl=lerp(-.02,RH+.3,ease(cl((k-.1)/.55))),t=k*12,p=geo.attributes.position;for(let i=0;i<p.count;i++){const x=base[i*3],z=base[i*3+2];p.setY(i,Math.sin(x*2.2+t)*.05+Math.cos(z*2.8+t*.8)*.04)}p.needsUpdate=true;geo.computeVertexNormals();w.position.y=lvl;
-   const gl2=cl(k/.3)*3;gush.visible=k<.6;gush.scale.z=Math.max(.01,gl2);gush.position.set(dx,DOH/2*Math.min(1,.4+lvl/DOH),gl2/2);
-   const under=lvl>camera.position.y;if(under){scene.fog.color.set(0x0b3440);scene.fog.near=0;scene.fog.far=6}
-   for(const b of B){b.s.visible=under;const f=(k*b.v+b.d)%1;b.s.position.set(b.x,lerp(.3,lvl,f),b.z);b.s.scale.set(.06,.06,1)}
-   if(under){camera.position.y+=cl((k-.4)/.6)*.5+Math.sin(k*9)*.04;camera.rotation.z=Math.sin(k*6)*.08;camera.rotation.x=.15*cl((k-.4)/.6)}}},
+ // 洪水：ドアから水が滝のように流れ込み、波打つ水面が上がって水没する
+ flood(r,dx,g){
+  // 波の法線マップ（周期の合う sin の和なので継ぎ目なくつながる）
+  const N=128,nm=canvasTex(N,N,(c)=>{const im=c.createImageData(N,N),h=(x,y)=>{const u=x/N*Math.PI*2,v=y/N*Math.PI*2;return Math.sin(u*3+v)+.6*Math.sin(u*5-v*4+1)+.4*Math.sin(u*2+v*7+2)+.3*Math.sin(-u*9+v*3)};
+   for(let y=0;y<N;y++)for(let x=0;x<N;x++){const sx=h(x+1,y)-h(x-1,y),sy=h(x,y+1)-h(x,y-1),l=Math.hypot(sx,sy,1.2),i=(y*N+x)*4;im.data[i]=(-sx/l*.5+.5)*255;im.data[i+1]=(-sy/l*.5+.5)*255;im.data[i+2]=(1.2/l*.5+.5)*255;im.data[i+3]=255}c.putImageData(im,0,0)});
+  nm.colorSpace=THREE.NoColorSpace;nm.repeat.set(5,6);
+  const streak=canvasTex(64,256,(c,w,h)=>{c.clearRect(0,0,w,h);for(let i=0;i<70;i++){const x=rnd(0,w),y=rnd(0,h),l=rnd(20,90),gr=c.createLinearGradient(0,y,0,y+l);gr.addColorStop(0,'rgba(230,245,255,0)');gr.addColorStop(.5,`rgba(230,245,255,${rnd(.3,.8)})`);gr.addColorStop(1,'rgba(230,245,255,0)');c.fillStyle=gr;c.fillRect(x,y,rnd(1,4),l)}c.globalCompositeOperation='destination-over';c.fillStyle='rgba(40,110,140,.55)';c.fillRect(0,0,w,h)});
+  const geo=new THREE.PlaneGeometry(RW,RD,40,40);geo.rotateX(-Math.PI/2);const base=geo.attributes.position.array.slice();
+  const wm=std({color:'#0e3d4c',roughness:.04,metalness:.1,normalMap:nm,normalScale:new THREE.Vector2(.7,.7),envMapIntensity:2,transparent:true,opacity:.86,side:THREE.DoubleSide}),w=new THREE.Mesh(geo,wm);w.position.z=RD/2;g.add(w);
+  const fallM=new THREE.MeshBasicMaterial({map:streak,transparent:true,depthWrite:false,fog:false}),fall=new THREE.Mesh(new THREE.PlaneGeometry(DOW,DOH),fallM);fall.position.set(dx,DOH/2,.02);g.add(fall);
+  const st2=streak.clone();st2.needsUpdate=true;const runM=new THREE.MeshBasicMaterial({map:st2,transparent:true,depthWrite:false,opacity:.8}),run=new THREE.Mesh(new THREE.PlaneGeometry(1,1),runM);run.rotation.x=-Math.PI/2;g.add(run);
+  const ft=softTex([[0,'rgba(240,250,255,.9)'],[.5,'rgba(210,235,250,.35)'],[1,'rgba(210,235,250,0)']]),F=[],B=[];
+  for(let i=0;i<30;i++){const s=sprite(ft,false);g.add(s);F.push({s,d:Math.random(),x:rnd(-.6,.6)})}
+  for(let i=0;i<50;i++){const s=sprite(ft,false);g.add(s);B.push({s,x:rnd(-.9,.9),z:CZ-rnd(.3,2.5),d:Math.random(),v:rnd(.5,1.2),sz:rnd(.02,.07)})}
+  return k=>{const lvl=lerp(.005,RH+.3,ease(cl((k-.12)/.55))),amp=cl(lvl/.5),t=k*10,p=geo.attributes.position;w.visible=k>.1;
+   for(let i=0;i<p.count;i++){const x=base[i*3],z=base[i*3+2],near=Math.max(0,1-Math.hypot(x-dx,z+RD/2)/3);p.setY(i,amp*(Math.sin(x*2.2+t)*.04+Math.cos(z*2.8+t*.8)*.035+near*.12*Math.sin(t*3+z*4)))}
+   p.needsUpdate=true;geo.computeVertexNormals();w.position.y=lvl;nm.offset.set(k*.6,k*.9);
+   // ドアからの滝と、床を手前に流れてくる水の筋
+   const on=cl(k/.08)*(1-cl((lvl-DOH)/.3));fall.visible=run.visible=on>0;fallM.opacity=on*.9;streak.offset.y=k*6;
+   const L=Math.min(CZ,cl(k/.3)*CZ);run.scale.set(DOW*1.6+L*.5,L,1);run.position.set(dx*(1-L/CZ*.5),lvl+.012,L/2);st2.offset.y=-k*5;runM.opacity=on*.75;
+   for(const f of F){const q=(k*2.5+f.d)%1;f.s.visible=on>0;f.s.position.set(dx+f.x*DOW*.6,lvl+.05+q*.5,.15+q*.4);const sc=.2+q*.5;f.s.scale.set(sc,sc,1);f.s.material.opacity=on*(1-q)*.8}
+   const under=lvl>camera.position.y;if(under){scene.fog.color.set(0x0a3542);scene.fog.near=0;scene.fog.far=7}
+   for(const b of B){b.s.visible=under;const q=(k*b.v+b.d)%1;b.s.position.set(b.x+Math.sin(q*12+b.d*9)*.05,lerp(.2,lvl,q),b.z);b.s.scale.set(b.sz,b.sz,1)}
+   if(under){const u=cl((k-.38)/.6);camera.position.y+=u*.6+Math.sin(k*9)*.04;camera.rotation.z=Math.sin(k*6)*.07;camera.rotation.x=.55*ease(u)}}},
  // 大岩：ドアから岩が転がり出てきて轢かれる
  boulder(r,dx,g){const R=.56,geo=new THREE.IcosahedronGeometry(R,4),p=geo.attributes.position,v=V(0,0,0);
   for(let i=0;i<p.count;i++){v.fromBufferAttribute(p,i);v.multiplyScalar(1+.12*Math.sin(v.x*7+v.y*3)*Math.cos(v.z*6-v.x*2)+.05*Math.sin(v.y*17));p.setXYZ(i,v.x,v.y,v.z)}geo.computeVertexNormals();
@@ -260,7 +274,8 @@ const OVERLAY={
  fire(c,k){veil(c,`rgba(255,130,40,${.3*Math.sin(cl((k-.3)/.4)*Math.PI)})`);if(k>.6)veil(c,`rgba(25,14,8,${.7*cl((k-.6)/.3)})`)},
  monster(c,k){if(k>.55){veil(c,`rgba(0,0,0,${cl((k-.55)/.07)*.92})`);redEdge(c,.7)}},
  bolt(c,k){if(k>.15&&k<.42&&Math.floor(k*30)%2)veil(c,'rgba(235,242,255,.75)');if(k>.42){veil(c,`rgba(0,0,0,${.45*cl((k-.42)/.4)})`);redEdge(c,.35)}},
- flood(c,k){if(k>.33)veil(c,`rgba(10,60,80,${.35*cl((k-.33)/.2)})`)},
+ // 水中：青緑に沈み、水面から光の筋が差し込む
+ flood(c,k){const u=cl((k-.36)/.15);if(!u)return;veil(c,`rgba(8,55,70,${.3*u})`);c.save();c.globalCompositeOperation='lighter';for(let i=0;i<6;i++){const x=40+i*58+Math.sin(k*4+i*2)*14,gr=c.createLinearGradient(0,0,0,H*.9);gr.addColorStop(0,`rgba(150,220,230,${.16*u})`);gr.addColorStop(1,'rgba(150,220,230,0)');c.fillStyle=gr;c.beginPath();c.moveTo(x-8,0);c.lineTo(x+14,0);c.lineTo(x+60,H*.9);c.lineTo(x+18,H*.9);c.fill()}c.restore();const v=c.createLinearGradient(0,0,0,H);v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(1,`rgba(0,15,25,${.5*u})`);c.fillStyle=v;c.fillRect(0,0,W,H)},
  boulder(c,k){if(k>.5&&k<.58)veil(c,'rgba(0,0,0,.9)');if(k>.5)redEdge(c,.75*cl((k-.5)/.2))},
  ghost(c,k){if(k>.52)veil(c,`rgba(225,232,255,${.85*Math.sin(cl((k-.52)/.2)*Math.PI)})`);if(k>.62)veil(c,`rgba(110,130,165,${.35*cl((k-.62)/.3)})`)},
  arrows(c,k){const h=[.28,.38,.46,.54].filter(t=>k>t).length;if(h)redEdge(c,Math.min(.85,h*.2+.15*Math.max(0,1-(k-[.28,.38,.46,.54][h-1])*8)))}
