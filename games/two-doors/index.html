@@ -96,7 +96,6 @@ const W=360,H=560,RW=7,RH=4,RD=9,DXW=1.6,DOW=1.2,DOH=2.4,EYE=1.55,BACK=1.3;
 // 開けたドアの画面上の位置（死に方の2D演出はこれに合わせて描く）
 let FL=400,DW=88,DH=170,DY=315;
 const cv=$('c'),cx=cv.getContext('2d');let gl=null,renderer,scene,camera,scale=1,rooms=[];
-function theme(lv){const h=(28+lv*37)%360,d=26+8*Math.sin(lv*1.3);return{wall:`hsl(${h},22%,${d}%)`,wall2:`hsl(${h},22%,${d-6}%)`,floor:`hsl(${h},18%,${d-12}%)`,mat:lv<5?['#8b5a2b','#6a4220']:lv<10?['#88939c','#5c656d']:lv<20?['#a3262a','#741b1e']:['#e0b324','#a8820e']}}
 function ell(c,x,y,rx,ry,col){c.fillStyle=col;c.beginPath();c.ellipse(x,y,Math.max(.1,rx),Math.max(.1,ry),0,0,7);c.fill()}
 // ---- 質感（テクスチャはすべて Canvas で描く） ----
 const rnd=(a,b)=>a+Math.random()*(b-a);
@@ -125,14 +124,11 @@ const std=o=>new THREE.MeshStandardMaterial({envMapIntensity:.35,...o});
 const rep=(t,x,y,ox=0,oy=0)=>{const c=t.clone();c.repeat.set(x,y);c.offset.set(ox,oy);c.needsUpdate=true;return c};
 const plane=(w,h,m)=>new THREE.Mesh(new THREE.PlaneGeometry(w,h),m);
 const box=(w,h,d,m)=>{const b=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);b.castShadow=b.receiveShadow=true;return b};
-function doorMat(lv){const th=theme(lv);
- if(lv<5)return std({map:woodTex(th.mat[0]),roughness:.55});
- if(lv<10)return std({color:'#8d969e',metalness:.75,roughness:.38});
- if(lv<20)return std({color:'#8f1d22',roughness:.22});
- return std({color:'#d8a93a',metalness:1,roughness:.28,envMapIntensity:.8})}
+// ドアの色は固定：左が青、右が赤（ペンキ塗り）
+const doorMat=i=>std({color:i?'#a3222a':'#1f4f94',roughness:.38});
 // 部屋：奥の壁(z=oz)にドアが2枚。手前側は開いていて、前の部屋のドアからそのまま入ってこられる
 function buildRoom(rx,oz,lv){
- const hue=(28+lv*37)%360,g=new THREE.Group(),wt=wallTex(hue),trim=std({color:'#ece6da',roughness:.55}),dm=doorMat(lv),brass=std({color:'#c9a85a',metalness:1,roughness:.25,envMapIntensity:1});
+ const hue=(28+lv*37)%360,g=new THREE.Group(),wt=wallTex(hue),trim=std({color:'#ece6da',roughness:.55}),brass=std({color:'#c9a85a',metalness:1,roughness:.25,envMapIntensity:1});
  g.position.set(rx,0,oz);
  const fl=floorTex();fl.repeat.set(RW/1.8,RD/1.8);const f=plane(RW,RD,std({map:fl,roughness:.5}));f.rotation.x=-Math.PI/2;f.position.set(0,0,RD/2);f.receiveShadow=true;g.add(f);
  const ct=ceilTex();ct.repeat.set(3,4);const ce=plane(RW,RD,std({map:ct,roughness:1}));ce.rotation.x=Math.PI/2;ce.position.set(0,RH,RD/2);g.add(ce);
@@ -146,12 +142,12 @@ function buildRoom(rx,oz,lv){
  const base=new THREE.Mesh(new THREE.CylinderGeometry(.18,.22,.06,24),trim);base.position.set(0,RH-.03,RD/2);g.add(base);
  const bulb=new THREE.Mesh(new THREE.SphereGeometry(.16,24,16),new THREE.MeshStandardMaterial({color:'#fff',emissive:'#ffe2b0',emissiveIntensity:3}));bulb.position.set(0,RH-.2,RD/2);g.add(bulb);
  const doors=[];
- for(const dx of[-DXW,DXW]){
+ for(const [di,dx] of[[0,-DXW],[1,DXW]]){const dm=doorMat(di);
   for(const sx of[-1,1]){const j=box(.1,DOH+.1,.08,trim);j.position.set(dx+sx*(DOW/2+.05),DOH/2,.04);g.add(j);const jamb=box(.04,DOH,.2,trim);jamb.position.set(dx+sx*(DOW/2-.02),DOH/2,-.1);g.add(jamb)}
   const l=box(DOW+.3,.12,.08,trim);l.position.set(dx,DOH+.06,.04);g.add(l);
   const pv=new THREE.Group();pv.position.set(dx-DOW/2,0,-.04);
   const leaf=box(DOW-.04,DOH-.02,.05,dm);leaf.position.set(DOW/2,DOH/2,0);pv.add(leaf);
-  const dm2=dm.clone();dm2.color.multiplyScalar(.8);for(const py of[.3,.73]){const pn=box(DOW*.66,DOH*.33,.03,dm);pn.position.set(DOW/2,DOH*py,.035);pv.add(pn);const pn2=box(DOW*.56,DOH*.28,.03,dm2);pn2.position.set(DOW/2,DOH*py,.055);pv.add(pn2)}
+  const dm2=dm.clone();dm2.color.multiplyScalar(.82);for(const py of[.3,.73]){const pn=box(DOW*.66,DOH*.33,.03,dm);pn.position.set(DOW/2,DOH*py,.035);pv.add(pn);const pn2=box(DOW*.56,DOH*.28,.03,dm2);pn2.position.set(DOW/2,DOH*py,.055);pv.add(pn2)}
   const rose=new THREE.Mesh(new THREE.CylinderGeometry(.035,.035,.02,20),brass);rose.rotation.x=Math.PI/2;rose.position.set(DOW*.86,DOH*.45,.035);pv.add(rose);
   const k=new THREE.Mesh(new THREE.SphereGeometry(.045,20,14),brass);k.position.set(DOW*.86,DOH*.45,.08);k.castShadow=true;pv.add(k);
   for(const hy of[.15,.85]){const hg=box(.02,.1,.03,brass);hg.position.set(.01,DOH*hy,.02);pv.add(hg)}
@@ -174,36 +170,110 @@ async function initGL(){
  nextL=new THREE.PointLight(0xffd6a0,0,0,2);scene.add(nextL);
  resetRooms();
 }
-function placeLights(){const a=rooms[0],b=rooms[1];mainL.position.set(a.rx,RH-.45,a.oz+RD/2);if(b){nextL.position.set(b.rx,RH-.45,b.oz+RD/2);nextL.intensity=32}else nextL.intensity=0}
+function placeLights(){nextL.color.set(0xffd6a0);const a=rooms[0],b=rooms[1];mainL.position.set(a.rx,RH-.45,a.oz+RD/2);if(b){nextL.position.set(b.rx,RH-.45,b.oz+RD/2);nextL.intensity=32}else nextL.intensity=0}
 function fit(){const r=$('stage').getBoundingClientRect(),s=Math.min(r.width/W,r.height/H),dpr=Math.min(devicePixelRatio||1,2);for(const el of[cv,gl]){el.style.width=W*s+'px';el.style.height=H*s+'px'}cv.width=Math.round(W*s*dpr);cv.height=Math.round(H*s*dpr);scale=s*dpr;renderer.setPixelRatio(dpr);renderer.setSize(W*s,H*s,false)}
 const lerp=(a,b,k)=>a+(b-a)*k,cl=k=>Math.max(0,Math.min(1,k)),ease=k=>k*k*(3-2*k);
-function flame(c,x,y,s,k){for(let i=0;i<3;i++){const h=s*(1-i*.3)*(0.85+.15*Math.sin(k*40+i));c.fillStyle=['#e8481c','#f59a1f','#ffe066'][i];c.beginPath();c.moveTo(x-s*.45*(1-i*.3),y);c.quadraticCurveTo(x-s*.5*(1-i*.3),y-h*.6,x,y-h);c.quadraticCurveTo(x+s*.5*(1-i*.3),y-h*.6,x+s*.45*(1-i*.3),y);c.fill()}}
-// 画面のひび（目の前に当たった跡）
-function crack(c,x,y,r,col='rgba(255,255,255,.85)'){c.strokeStyle=col;c.lineWidth=2;for(let i=0;i<9;i++){const a=i*.7+.3;c.beginPath();c.moveTo(x,y);let px=x,py=y;for(let j=1;j<=3;j++){px=x+Math.cos(a+j*.15*(i%2?1:-1))*r*j/3;py=y+Math.sin(a+j*.15*(i%2?1:-1))*r*j/3;c.lineTo(px,py)}c.stroke()}}
-function redEdge(c,a){const g=c.createRadialGradient(W/2,H/2,H*.2,W/2,H/2,H*.7);g.addColorStop(0,'rgba(170,0,0,0)');g.addColorStop(1,`rgba(170,0,0,${a})`);c.fillStyle=g;c.fillRect(0,0,W,H)}
-function monsterFace(c,m){ell(c,0,0,48,44,'#5b2a7a');ell(c,-18,-18,9,9,'#ffe94a');ell(c,18,-18,9,9,'#ffe94a');ell(c,-18,-18,3,6,'#000');ell(c,18,-18,3,6,'#000');ell(c,0,14,34,m,'#1a0a14');c.fillStyle='#fff';for(let i=-3;i<=3;i++){c.beginPath();c.moveTo(i*9-4,14-m);c.lineTo(i*9,14-m+10);c.lineTo(i*9+4,14-m);c.fill();c.beginPath();c.moveTo(i*9-4,14+m);c.lineTo(i*9,14+m-10);c.lineTo(i*9+4,14+m);c.fill()}}
-function rock(c,x,y,r,rot){c.save();c.translate(x,y);c.rotate(rot);ell(c,0,0,r,r,'#7c7468');ell(c,-r*.3,-r*.2,r*.2,r*.15,'#5f584e');ell(c,r*.35,r*.3,r*.25,r*.18,'#5f584e');ell(c,r*.1,-r*.5,r*.15,r*.1,'#5f584e');c.restore()}
-function ghostShape(c){c.fillStyle='#f4f6ff';c.beginPath();c.arc(0,0,34,Math.PI,0);c.lineTo(34,40);for(let i=0;i<4;i++)c.quadraticCurveTo(34-i*17-8,50,34-(i+1)*17,40);c.fill();ell(c,-12,-6,6,8,'#111');ell(c,12,-6,6,8,'#111');ell(c,0,14,7,9,'#111')}
-// 死に方：k は 0〜1、x は外れドアの中心。すべて自分の目線で起きる
-const DEATHS={
- pit(){},
- crush(c,k){const f=cl(k/.35),by=lerp(-H,0,f*f);c.fillStyle='#555a60';c.fillRect(0,by,W,H);c.fillStyle='#3d4146';for(let i=0;i<7;i++)c.fillRect(0,by+40+i*80,W,10);if(f>=1){crack(c,W/2,H*.55,200,'rgba(0,0,0,.6)');redEdge(c,.5)}},
- spikes(c,k){const f=ease(cl((k-.05)/.2));c.fillStyle='#cfd3d8';for(let i=0;i<7;i++){const sx=i*60;c.beginPath();c.moveTo(sx-10,H);c.lineTo(sx+20,H-f*H*(.55+.15*(i%2)));c.lineTo(sx+50,H);c.fill()}if(f>=1)redEdge(c,.6)},
- fire(c,k,x){const f=cl(k/.5);for(let i=0;i<7;i++)flame(c,x+(i-3)*lerp(14,70,f),FL+lerp(0,200,f),lerp(40,700,f*f)*(1-Math.abs(i-3)*.1),k+i);if(k>.55){const b=cl((k-.55)/.3);c.fillStyle=`rgba(20,14,12,${b*.92})`;c.fillRect(0,0,W,H);for(let i=0;i<6;i++){const s=(k*.8+i/6)%1;ell(c,40+i*55,H-s*H,20+s*40,20+s*40,`rgba(110,110,110,${.5*b*(1-s)})`)}}},
- monster(c,k,x){const ap=cl(k/.3),ln=ease(cl((k-.35)/.2)),bite=cl((k-.55)/.08);c.save();c.translate(lerp(x,W/2,ln),lerp(DY,H/2,ln));const s=lerp(.6,1,ap)*lerp(1,5,ln);c.scale(s,s);monsterFace(c,lerp(4,26,ap)+ln*10);c.restore();if(bite>0){const h=bite*H/2;c.fillStyle='#1a0a14';c.fillRect(0,0,W,h);c.fillRect(0,H-h,W,h);c.fillStyle='#fff';for(let i=0;i<8;i++){c.beginPath();c.moveTo(i*46,h);c.lineTo(i*46+23,h+40);c.lineTo(i*46+46,h);c.fill();c.beginPath();c.moveTo(i*46,H-h);c.lineTo(i*46+23,H-h-40);c.lineTo(i*46+46,H-h);c.fill()}}},
- bolt(c,k,x){const fl=k>.2&&k<.45&&Math.floor(k*40)%2===0;if(k>.15&&k<.45){c.strokeStyle='#fff8a0';c.lineWidth=10;c.beginPath();c.moveTo(x,DY);let yy=DY,xx=x;while(yy<H){yy+=50;xx+=(Math.floor(yy/50)%2?-50:45);c.lineTo(xx,yy)}c.stroke()}if(fl){c.fillStyle='rgba(255,255,255,.85)';c.fillRect(0,0,W,H)}if(k>=.45){c.fillStyle='rgba(15,12,10,.85)';c.fillRect(0,0,W,H);for(let i=0;i<5;i++){const s=((k-.45)*.8+i/5)%1;ell(c,50+i*65,H-s*H*.8,18+s*30,18+s*30,`rgba(120,120,120,${.5*(1-s)})`)}}},
- flood(c,k,x){const f=ease(cl((k-.15)/.5)),wy=lerp(H+20,-30,f);c.fillStyle='rgba(60,150,230,.9)';c.fillRect(x-DW/2,FL-DH,DW,DH);c.fillStyle='rgba(40,120,210,.88)';c.beginPath();c.moveTo(0,wy);for(let i=0;i<=12;i++)c.lineTo(i*30,wy+Math.sin(k*12+i)*8);c.lineTo(W,H);c.lineTo(0,H);c.fill();for(let i=0;i<14;i++){const b=(k*1.2+i/14)%1;if(H-b*H>wy)ell(c,(i*53+20)%W,H-b*H,4+i%4,4+i%4,'rgba(220,240,255,.7)')}},
- boulder(c,k,x){const f=cl(k/.5);if(f<1)rock(c,lerp(x,W/2,f),lerp(FL-40,H/2,f),lerp(30,420,f*f*f),k*6);else{c.fillStyle='#4a443c';c.fillRect(0,0,W,H);crack(c,W/2,H/2,260,'rgba(0,0,0,.6)');redEdge(c,.5)}},
- ghost(c,k,x){const g=ease(cl(k/.6));c.save();c.translate(lerp(x,W/2,g),lerp(DY,H/2,g)+Math.sin(k*9)*6*(1-g));const s=lerp(.6,7,g*g);c.scale(s,s);c.globalAlpha=.95;ghostShape(c);c.restore();if(k>.6){c.fillStyle=`rgba(244,246,255,${cl((k-.6)/.3)})`;c.fillRect(0,0,W,H)}},
- arrows(c,k,x){const hits=[[90,190],[260,250],[150,370],[230,120]];hits.forEach(([hx,hy],i)=>{const a=cl((k-.15-i*.1)/.1);if(a<=0)return;if(a<1){const px=lerp(x,hx,a),py=lerp(DY,hy,a),s=lerp(.3,1.4,a);c.save();c.translate(px,py);c.scale(s,s);c.fillStyle='#ccc';c.beginPath();c.moveTo(0,-12);c.lineTo(10,8);c.lineTo(-10,8);c.fill();c.restore()}else{crack(c,hx,hy,60);c.fillStyle='#ccc';c.beginPath();c.moveTo(hx,hy-16);c.lineTo(hx+14,hy+10);c.lineTo(hx-14,hy+10);c.fill()}});if(k>.55)redEdge(c,cl((k-.55)/.3)*.7)}
+const CZ=RD-BACK;
+function redEdge(c,a){const g=c.createRadialGradient(W/2,H/2,H*.15,W/2,H/2,H*.7);g.addColorStop(0,'rgba(120,0,0,0)');g.addColorStop(1,`rgba(120,0,0,${a})`);c.fillStyle=g;c.fillRect(0,0,W,H)}
+const veil=(c,col)=>{c.fillStyle=col;c.fillRect(0,0,W,H)};
+const shake=a=>{camera.position.x+=(Math.random()-.5)*a;camera.position.y+=(Math.random()-.5)*a};
+const softTex=stops=>canvasTex(128,128,(g,w,h)=>{const r=g.createRadialGradient(64,64,0,64,64,64);stops.forEach(([o,c])=>r.addColorStop(o,c));g.fillStyle=r;g.fillRect(0,0,w,h)});
+const sprite=(tex,add)=>new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false,fog:false,blending:add?THREE.AdditiveBlending:THREE.NormalBlending}));
+const V=(x,y,z)=>new THREE.Vector3(x,y,z);
+// 死に方：部屋の中(ローカル座標)に物を置き、k(0〜1)で動かす。カメラはワールド座標なので r.rx / r.oz を足す
+// 3Dの後に2Dで重ねるのは、赤み・暗転・閃光だけ
+const DEATH3D={
+ // 吊り天井：石の天井が落ちてきて床まで押しつぶされる
+ crush(r,dx,g){const tex=canvasTex(256,256,(c,w,h)=>{c.fillStyle='#6d6a64';c.fillRect(0,0,w,h);speckle(c,w,h,9000,.14)});tex.repeat.set(3,2);
+  const b=new THREE.Mesh(new THREE.BoxGeometry(RW,2,4.4),std({map:tex,roughness:.95}));b.castShadow=true;g.add(b);
+  return k=>{const f=cl((k-.08)/.24),bot=lerp(RH,.42,f*f);b.position.set(0,bot+1,CZ-1.4);
+   const s=cl((k-.32)/.12);camera.position.y=Math.max(.2,Math.min(EYE,bot-.12));camera.rotation.x=-.12*s;camera.rotation.z=.22*s;if(k>.3&&k<.45)shake(.06)}},
+ // トゲ：床から鉄のトゲが一斉に突き出る
+ spikes(r,dx,g){const m=std({color:'#d0d4da',metalness:.85,roughness:.35,envMapIntensity:1.6}),cs=[];
+  for(let i=0;i<16;i++){const c=new THREE.Mesh(new THREE.ConeGeometry(.055,1.9,10),m);c.castShadow=true;const a=i*2.4,rr=.2+(i%4)*.3;c.position.set(Math.cos(a)*rr,-1,CZ-1+Math.sin(a)*rr*.9);g.add(c);cs.push(c)}
+  return k=>{const f=ease(cl((k-.08)/.07));cs.forEach((c,i)=>c.position.y=lerp(-1,.95,cl(f*1.3-i%3*.15)));
+   const hit=cl((k-.12)/.08);camera.position.y+=hit*.1-cl((k-.4)/.5)*.45;camera.rotation.x=-.85*ease(cl((k-.14)/.3));camera.rotation.z=.18*cl((k-.4)/.5);if(k>.12&&k<.24)shake(.05)}},
+ // 炎：ドアの奥から火の玉が噴き出して包まれる
+ fire(r,dx,g){const ft=softTex([[0,'rgba(255,245,210,1)'],[.25,'rgba(255,170,60,.9)'],[.6,'rgba(220,60,10,.35)'],[1,'rgba(120,20,0,0)']]),st=softTex([[0,'rgba(45,40,38,.75)'],[1,'rgba(45,40,38,0)']]);
+  const P=[],S=[];for(let i=0;i<45;i++){const s=sprite(ft,true);g.add(s);P.push({s,d:Math.random()*.3,o:V(rnd(-1.3,1.3),rnd(-.8,.9),rnd(-.3,.4)),sp:rnd(.8,1.6)})}
+  for(let i=0;i<24;i++){const s=sprite(st,false);g.add(s);S.push({s,d:.45+Math.random()*.3,x:rnd(-1.5,1.5),z:CZ-rnd(.5,3)})}
+  const D=V(dx,1.2,-.4);
+  return k=>{for(const p of P){const f=cl((k-p.d)/.4);p.s.visible=f>0;if(!f)continue;p.s.position.copy(D).lerp(V(p.o.x,EYE+p.o.y,CZ+p.o.z),ease(f));const sc=lerp(.25,1.3,f)*p.sp;p.s.scale.set(sc,sc,1);p.s.material.opacity=.55*(1-f*.6)}
+   for(const p of S){const f=cl((k-p.d)/.5);p.s.visible=f>0;p.s.position.set(p.x,lerp(.5,3.2,f),p.z);const sc=lerp(.8,2.6,f);p.s.scale.set(sc,sc,1);p.s.material.opacity=.8*(1-f)}
+   nextL.color.set(0xff7a20);nextL.intensity=90*cl(k/.15)*(1-cl((k-.7)/.3));nextL.position.set(r.rx+lerp(dx,0,k),1.4,r.oz+lerp(0,CZ-.5,cl(k*2)));
+   const d=ease(cl((k-.6)/.35));camera.position.y=lerp(camera.position.y,.5,d);camera.rotation.z=.45*d;camera.rotation.x=.15*d}},
+ // 怪物：暗闇に目が光り、口を開けて飛びかかってくる
+ monster(r,dx,g){const skin=std({color:'#3b2c27',roughness:.7}),tooth=std({color:'#e6dcc2',roughness:.35}),gum=std({color:'#3d0a0f',roughness:.6});
+  const head=new THREE.Group(),sk=new THREE.Mesh(new THREE.SphereGeometry(.55,32,24),skin);sk.scale.set(1.15,.8,1);sk.position.y=.12;head.add(sk);
+  for(const sx of[-1,1]){const e=new THREE.Mesh(new THREE.SphereGeometry(.065,16,12),new THREE.MeshStandardMaterial({color:0,emissive:'#ffb020',emissiveIntensity:5}));e.position.set(sx*.24,.3,.42);head.add(e)}
+  const inner=new THREE.Mesh(new THREE.SphereGeometry(.42,24,16),gum);inner.scale.set(1,.55,.7);inner.position.set(0,-.1,.18);head.add(inner);
+  const low=new THREE.Group();low.position.set(0,-.05,0);head.add(low);const jaw=new THREE.Mesh(new THREE.SphereGeometry(.5,24,16,0,Math.PI*2,Math.PI/2,Math.PI/2),skin);jaw.scale.set(1.05,.5,1);low.add(jaw);
+  for(let i=0;i<11;i++){const a=-1.25+i*.25;for(const up of[1,0]){const t=new THREE.Mesh(new THREE.ConeGeometry(.032,.17,8),tooth);t.position.set(Math.sin(a)*.38,up?-.02:-.06,.12+Math.cos(a)*.3);if(up){t.rotation.x=Math.PI;head.add(t)}else{t.position.y=-.06;low.add(t)}}}
+  g.add(head);const cw=V(0,0,0);
+  return k=>{const ln=ease(cl((k-.3)/.25));head.position.set(lerp(dx,0,ln),lerp(1.3,EYE-.5,ln),lerp(-1.3,CZ-1.15,ln));const sc=lerp(1,1.35,ln);head.scale.set(sc,sc,sc);
+   cw.set(camera.position.x-r.rx,camera.position.y,camera.position.z-r.oz);head.lookAt(cw.add(r.g.position));head.rotateX(-.55*ln);
+   low.rotation.x=k<.55?lerp(.15,1,cl((k-.22)/.2)):lerp(1,0,cl((k-.55)/.06));if(k>.55&&k<.68)shake(.08)}},
+ // 落雷：ドアの奥から稲妻が飛んできて、倒れる
+ bolt(r,dx,g){const core=new THREE.MeshBasicMaterial({color:'#eef4ff'}),glow=new THREE.MeshBasicMaterial({color:'#7fa8ff',transparent:true,opacity:.35,blending:THREE.AdditiveBlending,depthWrite:false});
+  let ms=[],lf=-1;const build=()=>{ms.forEach(m=>{g.remove(m);m.geometry.dispose()});ms=[];const A=V(dx,DOH*.85,-.3),B=V(rnd(-.15,.15),EYE-.25,CZ-.5),pts=[];
+   for(let i=0;i<=14;i++){const p=A.clone().lerp(B,i/14);if(i&&i<14)p.add(V(rnd(-.25,.25),rnd(-.25,.25),rnd(-.2,.2)));pts.push(p)}
+   const cur=new THREE.CatmullRomCurve3(pts,false,'catmullrom',0);for(const [rad,m] of[[.014,core],[.07,glow]]){const t=new THREE.Mesh(new THREE.TubeGeometry(cur,56,rad,6),m);g.add(t);ms.push(t)}};
+  return k=>{const on=k>.15&&k<.42,fr=Math.floor(k*30);if(on&&fr!==lf){lf=fr;build()}ms.forEach(m=>m.visible=on&&fr%3!==2);
+   nextL.color.set(0xbfd4ff);nextL.position.set(r.rx+dx*.5,2.2,r.oz+3);nextL.intensity=on&&fr%2?400:0;if(on)shake(.05);
+   const d=ease(cl((k-.42)/.35));camera.position.y=lerp(camera.position.y,.25,d);camera.rotation.z=1.3*d;camera.rotation.x=.15*d}},
+ // 洪水：ドアから水があふれて部屋が水没する
+ flood(r,dx,g){const geo=new THREE.PlaneGeometry(RW,RD,40,40);geo.rotateX(-Math.PI/2);const base=geo.attributes.position.array.slice();
+  const wm=std({color:'#24596b',transparent:true,opacity:.8,roughness:.06,metalness:.25,envMapIntensity:1.4,side:THREE.DoubleSide}),w=new THREE.Mesh(geo,wm);w.position.z=RD/2;g.add(w);
+  const gush=new THREE.Mesh(new THREE.BoxGeometry(DOW,DOH,1),wm);g.add(gush);
+  const bt=softTex([[0,'rgba(230,250,255,.9)'],[.5,'rgba(200,235,255,.3)'],[1,'rgba(200,235,255,0)']]),B=[];for(let i=0;i<40;i++){const s=sprite(bt,false);g.add(s);B.push({s,x:rnd(-1.2,1.2),z:CZ-rnd(.4,3),d:Math.random(),v:rnd(.6,1.4)})}
+  return k=>{const lvl=lerp(-.02,RH+.3,ease(cl((k-.1)/.55))),t=k*12,p=geo.attributes.position;for(let i=0;i<p.count;i++){const x=base[i*3],z=base[i*3+2];p.setY(i,Math.sin(x*2.2+t)*.05+Math.cos(z*2.8+t*.8)*.04)}p.needsUpdate=true;geo.computeVertexNormals();w.position.y=lvl;
+   const gl2=cl(k/.3)*3;gush.visible=k<.6;gush.scale.z=Math.max(.01,gl2);gush.position.set(dx,DOH/2*Math.min(1,.4+lvl/DOH),gl2/2);
+   const under=lvl>camera.position.y;if(under){scene.fog.color.set(0x0b3440);scene.fog.near=0;scene.fog.far=6}
+   for(const b of B){b.s.visible=under;const f=(k*b.v+b.d)%1;b.s.position.set(b.x,lerp(.3,lvl,f),b.z);b.s.scale.set(.06,.06,1)}
+   if(under){camera.position.y+=cl((k-.4)/.6)*.5+Math.sin(k*9)*.04;camera.rotation.z=Math.sin(k*6)*.08;camera.rotation.x=.15*cl((k-.4)/.6)}}},
+ // 大岩：ドアから岩が転がり出てきて轢かれる
+ boulder(r,dx,g){const R=.56,geo=new THREE.IcosahedronGeometry(R,4),p=geo.attributes.position,v=V(0,0,0);
+  for(let i=0;i<p.count;i++){v.fromBufferAttribute(p,i);v.multiplyScalar(1+.12*Math.sin(v.x*7+v.y*3)*Math.cos(v.z*6-v.x*2)+.05*Math.sin(v.y*17));p.setXYZ(i,v.x,v.y,v.z)}geo.computeVertexNormals();
+  const tex=canvasTex(256,256,(c,w,h)=>{c.fillStyle='#77706a';c.fillRect(0,0,w,h);for(let i=0;i<60;i++){c.fillStyle=`rgba(${Math.random()<.5?'30,28,25':'160,150,140'},${rnd(.1,.25)})`;c.beginPath();c.ellipse(rnd(0,w),rnd(0,h),rnd(5,30),rnd(4,20),rnd(0,3),0,7);c.fill()}speckle(c,w,h,8000,.15)});
+  const b=new THREE.Mesh(geo,std({map:tex,roughness:.95,side:THREE.DoubleSide}));b.castShadow=true;g.add(b);
+  return k=>{const f=cl((k-.05)/.55),z=lerp(-3,CZ+4,f*f);b.position.set(lerp(dx,0,cl((z+1)/5)),R,z);b.rotation.x=z/R;
+   const d=ease(cl((k-.48)/.14));camera.position.y=lerp(EYE,.22,d);camera.rotation.z=1.25*d;camera.rotation.x=.2*d;if(k>.46&&k<.62)shake(.1)}},
+ // 幽霊：暗闇から白い顔が迫ってきて、崩れ落ちる
+ ghost(r,dx,g){const tex=canvasTex(256,256,(c)=>{c.filter='blur(7px)';const gr=c.createRadialGradient(128,110,10,128,130,120);gr.addColorStop(0,'rgba(235,240,255,.95)');gr.addColorStop(.6,'rgba(195,205,230,.5)');gr.addColorStop(1,'rgba(195,205,230,0)');c.fillStyle=gr;c.beginPath();c.ellipse(128,128,78,112,0,0,7);c.fill();
+   c.filter='blur(3px)';c.fillStyle='rgba(8,8,16,.92)';for(const [x,y,rx,ry] of[[100,102,13,20],[156,102,13,20],[128,165,15,27]]){c.beginPath();c.ellipse(x,y,rx,ry,0,0,7);c.fill()}});
+  const s=sprite(tex,false);g.add(s);
+  return k=>{const f=ease(cl(k/.6));s.position.copy(V(dx,1.35,-.9)).lerp(V(0,EYE,CZ-.32),f);s.scale.set(lerp(.8,1.1,f),lerp(1.12,1.55,f),1);s.material.opacity=k<.6?.45+.35*Math.abs(Math.sin(k*47)):cl(1-(k-.6)*4);
+   const d=ease(cl((k-.62)/.35));camera.position.y=lerp(camera.position.y,.35,d);camera.rotation.x=.3*d;camera.rotation.z=.8*d}},
+ // 矢の罠：ドアの奥から矢が次々と飛んできて刺さる
+ arrows(r,dx,g){const wood=std({color:'#6b4a2b',roughness:.8}),iron=std({color:'#5a5a5a',metalness:1,roughness:.4}),fm=std({color:'#d8d2c4',side:THREE.DoubleSide,roughness:.9});
+  const mk=()=>{const a=new THREE.Group(),sh=new THREE.Mesh(new THREE.CylinderGeometry(.008,.008,.75,6),wood);sh.rotation.x=Math.PI/2;a.add(sh);const hd=new THREE.Mesh(new THREE.ConeGeometry(.024,.09,8),iron);hd.rotation.x=Math.PI/2;hd.position.z=.42;a.add(hd);
+   for(let i=0;i<3;i++){const fg=new THREE.Group(),f=new THREE.Mesh(new THREE.PlaneGeometry(.12,.035),fm);f.rotation.y=Math.PI/2;f.position.y=.02;fg.add(f);fg.rotation.z=i*Math.PI*2/3;fg.position.z=-.32;a.add(fg)}g.add(a);return a};
+  const A=[[.1,-.14,.2],[-.12,-.2,.3],[.03,-.26,.38],[-.04,-.12,.46]].map(([x,y,t0])=>({a:mk(),T:V(x,EYE+y,CZ-.12),t0}));const S=V(dx,1.3,-.6);
+  return k=>{let hits=0;for(const o of A){const f=cl((k-o.t0)/.08);o.a.visible=f>0;o.a.position.copy(S).lerp(o.T,f);if(f>=1)hits++;if(f>=1&&k<o.t0+.12)shake(.04)}
+   for(const o of A){const dir=o.T.clone().sub(S).normalize();o.a.lookAt(o.a.getWorldPosition(V(0,0,0)).add(dir))}
+   const d=ease(cl((k-.55)/.4));camera.position.y=lerp(camera.position.y,.85,d)-hits*.02;camera.rotation.x=-.45*ease(cl((k-.5)/.25));camera.rotation.z=.35*d}}
 };
-const DKEYS=Object.keys(DEATHS);
+const OVERLAY={
+ pit(){},
+ crush(c,k){if(k>.32){redEdge(c,.85*cl((k-.32)/.3));veil(c,`rgba(0,0,0,${.45*cl((k-.4)/.5)})`)}},
+ spikes(c,k){if(k>.12){redEdge(c,.9*cl((k-.12)/.3));veil(c,`rgba(20,0,0,${.35*cl((k-.4)/.5)})`)}},
+ fire(c,k){veil(c,`rgba(255,130,40,${.3*Math.sin(cl((k-.3)/.4)*Math.PI)})`);if(k>.6)veil(c,`rgba(25,14,8,${.7*cl((k-.6)/.3)})`)},
+ monster(c,k){if(k>.55){veil(c,`rgba(0,0,0,${cl((k-.55)/.07)*.92})`);redEdge(c,.7)}},
+ bolt(c,k){if(k>.15&&k<.42&&Math.floor(k*30)%2)veil(c,'rgba(235,242,255,.75)');if(k>.42){veil(c,`rgba(0,0,0,${.45*cl((k-.42)/.4)})`);redEdge(c,.35)}},
+ flood(c,k){if(k>.33)veil(c,`rgba(10,60,80,${.35*cl((k-.33)/.2)})`)},
+ boulder(c,k){if(k>.5&&k<.58)veil(c,'rgba(0,0,0,.9)');if(k>.5)redEdge(c,.75*cl((k-.5)/.2))},
+ ghost(c,k){if(k>.52)veil(c,`rgba(225,232,255,${.85*Math.sin(cl((k-.52)/.2)*Math.PI)})`);if(k>.62)veil(c,`rgba(110,130,165,${.35*cl((k-.62)/.3)})`)},
+ arrows(c,k){const h=[.28,.38,.46,.54].filter(t=>k>t).length;if(h)redEdge(c,Math.min(.85,h*.2+.15*Math.max(0,1-(k-[.28,.38,.46,.54][h-1])*8)))}
+};
+const DKEYS=['pit',...Object.keys(DEATH3D)];
+
 // 見た死に方（図鑑）
 let seen=[];try{seen=JSON.parse(localStorage.getItem('two-doors-deaths'))||[]}catch{}
 let newDeath=false;
 
 // ---- 状態 ----
 let mode='play',level=0,phase='idle',pt=0,side=0,good=false,death=null,lastDeath=null,isNew=false,paused=false;
+window._dbg=o=>{({mode=mode,level=level,phase=phase,pt=pt,side=side,good=good,death=death,paused=paused}=o)};
 function choose(s){if(mode!=='play'||phase!=='idle'||!THREE)return;side=s;good=Math.random()<.5;phase='open';pt=0;SFX.creak();
  // 当たりのときだけ、ドアの奥に次の部屋を作る（外れの奥は真っ暗）
  if(good){const r=rooms[0];rooms.push(buildRoom(r.rx+(s?DXW:-DXW),r.oz-RD,level+1))}}
@@ -211,9 +281,8 @@ function step(dt){
  if(mode!=='play'||paused)return;pt+=dt;
  if(phase==='open'&&pt>=.22){pt=0;if(good){phase='enter';SFX.win()}else{phase='death';let d;do d=DKEYS[Math.floor(Math.random()*DKEYS.length)];while(d===lastDeath);death=lastDeath=d;newDeath=!seen.includes(d);if(newDeath){seen.push(d);try{localStorage.setItem('two-doors-deaths',JSON.stringify(seen))}catch{}}SFX[d]()}}
  else if(phase==='enter'&&pt>=.5){disposeRoom(rooms.shift());level++;phase='idle';pt=0}
- else if(phase==='death'&&pt>=1.3){mode='result';isNew=level>best;if(isNew){best=level;try{localStorage.setItem('two-doors-best',best)}catch{}}showResult();tone(220,.4,.06,'triangle')}
+ else if(phase==='death'&&pt>=1.5){mode='result';isNew=level>best;if(isNew){best=level;try{localStorage.setItem('two-doors-best',best)}catch{}}showResult();tone(220,.4,.06,'triangle')}
 }
-const shaking=dk=>phase==='death'&&mode==='play'&&((death==='crush'&&dk>.3&&dk<.45)||(death==='boulder'&&dk>.45&&dk<.6)||(death==='bolt'&&dk>.2&&dk<.4)||(death==='arrows'&&dk>.25&&dk<.55));
 let pv=null,vig=null;
 // 落とし穴：足元に穴が開く → のぞき込んで落ちる → 穴の底から入口を見上げる
 function fall(r,dk,hz){
@@ -230,18 +299,18 @@ function update(dk){
  camera.position.set(r.rx,EYE,hz);camera.rotation.set(0,0,0);
  placeLights();
  if(phase==='idle'){const tm=performance.now()/1000;camera.position.y+=Math.sin(tm*1.4)*.012;camera.position.x+=Math.sin(tm*.9)*.01}
- if(phase==='death'&&death==='pit')fall(r,dk,hz);
+ scene.fog.color.set(0);scene.fog.near=9;scene.fog.far=24;
+ if(phase==='death'){if(death==='pit')fall(r,dk,hz);else{if(r.fx?.name!==death){const g=new THREE.Group();r.g.add(g);r.fx={name:death,fn:DEATH3D[death](r,side?DXW:-DXW,g)}}r.fx.fn(dk)}}
  // 当たり：先に横へ寄ってから、ドアをくぐって次の部屋の定位置まで歩く
  if(phase==='enter'){const k=cl(pt/.5);camera.position.x=lerp(r.rx,dx,ease(cl(k*1.8)));camera.position.z=lerp(hz,r.oz-BACK,ease(k));camera.position.y=EYE+Math.sin(k*Math.PI*3)*.04}
- if(shaking(dk))camera.position.add(new THREE.Vector3((Math.random()-.5)*.12,(Math.random()-.5)*.12,0));
  camera.updateMatrixWorld();
  pv=pv||new THREE.Vector3();const pr=(x,y)=>{pv.set(x,y,r.oz).project(camera);return[(pv.x+1)/2*W,(1-pv.y)/2*H]};
  const [x0,y0]=pr(dx-DOW/2,DOH),[x1,y1]=pr(dx+DOW/2,0);DW=x1-x0;DH=y1-y0;FL=y1;DY=(y0+y1)/2;return(x0+x1)/2;
 }
 function render(){
- const dk=phase==='death'?cl(pt/1.1):0,x=update(dk);renderer.render(scene,camera);
+ const dk=phase==='death'?cl(pt/1.3):0,x=update(dk);renderer.render(scene,camera);
  cx.setTransform(scale,0,0,scale,0,0);cx.clearRect(0,0,W,H);cx.fillStyle=vig||(vig=(()=>{const v=cx.createRadialGradient(W/2,H*.45,H*.25,W/2,H*.45,H*.75);v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(1,'rgba(0,0,0,.55)');return v})());cx.fillRect(0,0,W,H);
- if(phase==='death'){cx.save();if(shaking(dk))cx.translate((Math.random()-.5)*12,(Math.random()-.5)*12);DEATHS[death](cx,dk,x);cx.restore()}
+ if(phase==='death'){OVERLAY[death](cx,dk)}
 }
 let last=performance.now();
 function loop(now){const dt=Math.min(.1,(now-last)/1000);last=now;step(dt);render();requestAnimationFrame(loop)}
