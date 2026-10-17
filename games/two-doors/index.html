@@ -143,7 +143,7 @@ function rock(c,x,y,r,rot){c.save();c.translate(x,y);c.rotate(rot);ell(c,0,0,r,r
 function ghostShape(c){c.fillStyle='#f4f6ff';c.beginPath();c.arc(0,0,34,Math.PI,0);c.lineTo(34,40);for(let i=0;i<4;i++)c.quadraticCurveTo(34-i*17-8,50,34-(i+1)*17,40);c.fill();ell(c,-12,-6,6,8,'#111');ell(c,12,-6,6,8,'#111');ell(c,0,14,7,9,'#111')}
 // 死に方：k は 0〜1、x は外れドアの中心。すべて自分の目線で起きる
 const DEATHS={
- pit(c,k){const f=ease(cl((k-.1)/.6));c.fillStyle='#000';c.fillRect(0,0,W,H);c.save();c.translate(W/2,lerp(H*.5,H*.12,f));c.scale(lerp(1,.16,f),lerp(1,.16,f));c.translate(-W/2,-H*.5);c.drawImage(gl,0,0,W,H);c.restore()},
+ pit(){},
  crush(c,k){const f=cl(k/.35),by=lerp(-H,0,f*f);c.fillStyle='#555a60';c.fillRect(0,by,W,H);c.fillStyle='#3d4146';for(let i=0;i<7;i++)c.fillRect(0,by+40+i*80,W,10);if(f>=1){crack(c,W/2,H*.55,200,'rgba(0,0,0,.6)');redEdge(c,.5)}},
  spikes(c,k){const f=ease(cl((k-.05)/.2));c.fillStyle='#cfd3d8';for(let i=0;i<7;i++){const sx=i*60;c.beginPath();c.moveTo(sx-10,H);c.lineTo(sx+20,H-f*H*(.55+.15*(i%2)));c.lineTo(sx+50,H);c.fill()}if(f>=1)redEdge(c,.6)},
  fire(c,k,x){const f=cl(k/.5);for(let i=0;i<7;i++)flame(c,x+(i-3)*lerp(14,70,f),FL+lerp(0,200,f),lerp(40,700,f*f)*(1-Math.abs(i-3)*.1),k+i);if(k>.55){const b=cl((k-.55)/.3);c.fillStyle=`rgba(20,14,12,${b*.92})`;c.fillRect(0,0,W,H);for(let i=0;i<6;i++){const s=(k*.8+i/6)%1;ell(c,40+i*55,H-s*H,20+s*40,20+s*40,`rgba(110,110,110,${.5*b*(1-s)})`)}}},
@@ -170,11 +170,19 @@ function step(dt){
 }
 const shaking=dk=>phase==='death'&&mode==='play'&&((death==='crush'&&dk>.3&&dk<.45)||(death==='boulder'&&dk>.45&&dk<.6)||(death==='bolt'&&dk>.2&&dk<.4)||(death==='arrows'&&dk>.25&&dk<.55));
 let pv=null;
+// 落とし穴：足元に穴が開く → のぞき込んで落ちる → 穴の底から入口を見上げる
+function fall(r,dk,hz){
+ if(!r.pit){const g=new THREE.Group(),d=new THREE.Mesh(new THREE.CircleGeometry(1,40),new THREE.MeshBasicMaterial({color:0}));d.rotation.x=-Math.PI/2;d.position.y=.003;g.add(d);
+  const sh=new THREE.Mesh(new THREE.CylinderGeometry(1,1,14,32,1,true),new THREE.MeshBasicMaterial({color:0x050505,side:THREE.BackSide}));sh.position.y=-7;g.add(sh);for(let y=-.8;y>-14;y-=1.3){const band=new THREE.Mesh(new THREE.CylinderGeometry(.99,.99,.25,32,1,true),new THREE.MeshBasicMaterial({color:0x2e241b,side:THREE.BackSide}));band.position.y=y;g.add(band)}const lt=new THREE.PointLight(0xfff0dd,25,0,1.4);lt.position.y=2.5;g.add(lt);g.position.set(0,0,RD-BACK-1.6);r.g.add(g);r.pit=g}
+ const tilt=ease(cl(dk/.2)),hr=Math.max(.001,ease(cl((dk-.05)/.2))*1.1),a=ease(cl((dk-.25)/.15)),b=ease(cl((dk-.4)/.5)),up=ease(cl((dk-.4)/.15));r.pit.scale.set(hr,1,hr);
+ camera.position.z=lerp(hz,r.oz+RD-BACK-1.6,a);camera.position.y=lerp(EYE,-.4,a)-7*b;camera.rotation.x=dk<.4?-1.1*tilt:lerp(-1.1,1.5,up);
+}
 // カメラとドアを動かし、開けたドアの画面上の中心xを返す
 function update(dk){
  const r=rooms[0],dx=r.rx+(side?DXW:-DXW),hz=r.oz+RD-BACK;
  r.doors.forEach((d,i)=>d.rotation.y=phase!=='idle'&&i===side?(phase==='open'?ease(cl(pt/.22)):1)*1.75:0);
- camera.position.set(r.rx,EYE,hz);
+ camera.position.set(r.rx,EYE,hz);camera.rotation.set(0,0,0);
+ if(phase==='death'&&death==='pit')fall(r,dk,hz);
  // 当たり：先に横へ寄ってから、ドアをくぐって次の部屋の定位置まで歩く
  if(phase==='enter'){const k=cl(pt/.5);camera.position.x=lerp(r.rx,dx,ease(cl(k*1.8)));camera.position.z=lerp(hz,r.oz-BACK,ease(k));camera.position.y=EYE+Math.sin(k*Math.PI*3)*.04}
  if(shaking(dk))camera.position.add(new THREE.Vector3((Math.random()-.5)*.12,(Math.random()-.5)*.12,0));
