@@ -24,6 +24,10 @@ The full flow (企画 → 仕様 → 実装 → 確認 → デプロイ) is the 
 1. Put the game in `games/<game-name>/` with an `index.html` entry point (use relative paths for any assets), plus a square `icon.png` (512×512 recommended).
 2. Copy an existing `<li>` in `index.html` (the icon-style one) and update the links (`games/<game-name>/`), icon path, title, and description. Every game on the top page shows its icon.
 
+## View counts
+
+Each game card on the top page shows its all-time Google Analytics page views. The browser can't read GA directly, so `.claude/ga-views.gs` runs as a free Google Apps Script web app (owner's Google account, Analytics Data API advanced service) and returns `{ "/games/<name>/": views }`, cached for 1 hour. Its deploy URL goes in `VIEWS_URL` in `index.html`; if empty, no counts are shown. When a game is renamed, add the old path to `OLD_PATHS` there so its past views carry over.
+
 ## Running locally
 
 No build. Open `index.html` directly in a browser, or serve the folder so relative paths behave like production. This PC has no Python, so use the PowerShell server `.claude/serve.ps1` (also launchable as `site` from `.claude/launch.json`); elsewhere:
