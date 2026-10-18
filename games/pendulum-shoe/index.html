@@ -11,14 +11,14 @@
   </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>三重振り子投石機</title>
+  <title>振り子靴飛ばし</title>
   <link rel="icon" href="icon.png">
   <link rel="apple-touch-icon" href="icon.png">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="ふるかわけい面白チャンネル">
-  <meta property="og:title" content="三重振り子投石機">
-  <meta property="og:url" content="https://keifurukawafunnych.com/games/pendulum-trebuchet/">
-  <meta property="og:image" content="https://keifurukawafunnych.com/games/pendulum-trebuchet/icon.png">
+  <meta property="og:title" content="振り子靴飛ばし">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/pendulum-shoe/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/pendulum-shoe/icon.png">
   <meta name="twitter:card" content="summary">
   <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.min.js"></script>
   <style>
@@ -64,22 +64,22 @@
     </div>
   </div>
 <script>
-const KEY = 'pendulum-trebuchet:';
+const KEY = 'pendulum-shoe:';
 const store = {
   get(k, d) { try { const v = localStorage.getItem(KEY + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem(KEY + k, JSON.stringify(v)); } catch {} },
 };
-const URL_ = 'https://keifurukawafunnych.com/games/pendulum-trebuchet/';
-const TAG = '#三重振り子投石機ゲーム';
+const URL_ = 'https://keifurukawafunnych.com/games/pendulum-shoe/';
+const TAG = '#振り子靴飛ばしゲーム';
 const L = {
-  ja: { title: '三重振り子投石機', back: '← トップへ戻る', again: 'もう一度', share: 'Xでポスト', best: '自己ベスト',
-        post: d => `三重振り子投石機で ${d}m 飛ばした\n${TAG}` },
-  ko: { title: '삼중 진자 투석기', back: '← 처음으로', again: '다시 하기', share: 'X에 게시', best: '최고 기록',
-        post: d => `삼중 진자 투석기로 ${d}m 날렸다\n${TAG}` },
-  en: { title: 'Triple Pendulum Trebuchet', back: '← Top', again: 'Retry', share: 'Post on X', best: 'Best',
-        post: d => `I launched a rock ${d}m with the Triple Pendulum Trebuchet\n${TAG}` },
-  th: { title: 'เครื่องยิงหินลูกตุ้มสามชั้น', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X', best: 'สถิติสูงสุด',
-        post: d => `ยิงหินได้ไกล ${d}m ด้วยเครื่องยิงหินลูกตุ้มสามชั้น\n${TAG}` },
+  ja: { title: '振り子靴飛ばし', back: '← トップへ戻る', again: 'もう一度', share: 'Xでポスト', best: '自己ベスト',
+        post: d => `振り子靴飛ばしで靴を ${d}m 飛ばした\n${TAG}` },
+  ko: { title: '진자 신발 날리기', back: '← 처음으로', again: '다시 하기', share: 'X에 게시', best: '최고 기록',
+        post: d => `진자 신발 날리기에서 신발을 ${d}m 날렸다\n${TAG}` },
+  en: { title: 'Pendulum Shoe Kick', back: '← Top', again: 'Retry', share: 'Post on X', best: 'Best',
+        post: d => `I kicked my shoe ${d}m in Pendulum Shoe Kick\n${TAG}` },
+  th: { title: 'เตะรองเท้าลูกตุ้ม', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X', best: 'สถิติสูงสุด',
+        post: d => `เตะรองเท้าไปได้ไกล ${d}m ในเกมเตะรองเท้าลูกตุ้ม\n${TAG}` },
 };
 const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
 let lang = store.get('lang', autoLang());
@@ -114,67 +114,100 @@ function beep(freq, dur, type = 'square', vol = .2, slide = 0) {
 }
 
 // ---- world (meters) ----
+// the kicking leg is a double pendulum: hip (fixed) -> knee -> ankle, solved in joint angles
+// angles are measured from straight down, positive = swinging forward (+x)
 const catImg = new Image(); catImg.src = 'cat.png';
 const cv = $('cv'), mainCtx = cv.getContext('2d');
-const SH = { x: 0, y: 2.85 };             // pivot on top of the tower
-const LEN = [0.8, 0.75, 0.7];
+const PLAT = 0.6;                          // height of the step the kicker stands on
+const HIP = { x: 0, y: PLAT + 0.92 };
+const L1 = 0.46, L2 = 0.46, M1 = 1, M2 = 0.8; // thigh / shin (mass at knee / ankle)
 const G = 9.8, DT = 1 / 480;
-// the rock is fixed to the pendulum tip and is let go when the player taps
-const ROCK_R = 0.15;
-// states: ready (drag to pose) -> set (posed: drag again, or tap to start) -> swing (tap to let go) -> done
+const HIP_MIN = -45 * Math.PI / 180, HIP_MAX = 130 * Math.PI / 180;  // hip: 45deg back .. 130deg forward
+const KNEE_MIN = -150 * Math.PI / 180, KNEE_MAX = 0;                 // knee only bends backward (shin - thigh)
+const STOP_E = 0.15;                                                 // bounce at a joint stop
+const SHOE_R = 0.13;
+// states: ready (drag to pose) -> set (posed: drag again, or tap to start) -> swing (tap to kick off the shoe) -> done
 const posing = () => state === 'ready' || state === 'set';
-let pts, rock, state, grab, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, wait = 0, swishT = 0
+let leg, pts, shoe, state, grab, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, wait = 0, swishT = 0;
 
 function reset() {
-  pts = []; let y = SH.y;
-  for (let i = 0; i < 3; i++) { y -= LEN[i]; pts.push({ x: SH.x, y, px: SH.x, py: y }); }
-  rock = { x: 0, y: 0, px: 0, py: 0, free: false, vx: 0, vy: 0, land: null, stopped: false, spin: 0 };
+  leg = { a1: 0, a2: 0, w1: 0, w2: 0 };
+  updPts();
+  shoe = { x: pts[1].x, y: pts[1].y, ang: 0, vx: 0, vy: 0, va: 0, free: false, land: null, stopped: false };
   camX = 0; camY = 0; grab = null; down = null; letGo = false; state = 'ready'; finalDist = 0; wait = 0;
   rec = []; recT = 0; gameId++; shareFile = null; videoJob = null;
 }
+function updPts() {
+  const k = { x: HIP.x + L1 * Math.sin(leg.a1), y: HIP.y - L1 * Math.cos(leg.a1) };
+  pts = [k, { x: k.x + L2 * Math.sin(leg.a2), y: k.y - L2 * Math.cos(leg.a2) }];
+}
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+// pose the leg so the ankle points at the target, keeping the joint limits
+function aim(tx, ty) {
+  const dx = tx - HIP.x, dy = ty - HIP.y, d = clamp(Math.hypot(dx, dy), 0.05, L1 + L2 - 1e-4);
+  const dir = Math.atan2(dx, -dy);
+  const bend = Math.acos(clamp((L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2), -1, 1)); // inner knee angle
+  const knee = -(Math.PI - bend);                                                  // shin folds back
+  const off = Math.asin(clamp(L2 * Math.sin(-knee) / d, -1, 1));
+  leg.a1 = clamp(dir + off, HIP_MIN, HIP_MAX);
+  leg.a2 = leg.a1 + clamp(knee, KNEE_MIN, KNEE_MAX);
+  leg.w1 = leg.w2 = 0;
+}
+// joint stop as an impulse on the generalized velocities (J = constraint row)
+function stopImpulse(j1, j2) {
+  const c = Math.cos(leg.a1 - leg.a2);
+  const m11 = (M1 + M2) * L1 * L1, m12 = M2 * L1 * L2 * c, m22 = M2 * L2 * L2, det = m11 * m22 - m12 * m12;
+  const i11 = m22 / det, i12 = -m12 / det, i22 = m11 / det;
+  const v = j1 * leg.w1 + j2 * leg.w2;
+  const k = j1 * (i11 * j1 + i12 * j2) + j2 * (i12 * j1 + i22 * j2);
+  const lam = -(1 + STOP_E) * v / k;
+  leg.w1 += (i11 * j1 + i12 * j2) * lam; leg.w2 += (i12 * j1 + i22 * j2) * lam;
+}
 
 function step(dt) {
-  if (!posing()) for (const p of pts) {
-    const vx = (p.x - p.px) * 0.9995, vy = (p.y - p.py) * 0.9995;
-    p.px = p.x; p.py = p.y; p.x += vx; p.y += vy - G * dt * dt;
+  if (grab) aim(grab.x, grab.y);
+  if (!posing()) {
+    const { a1, a2, w1, w2 } = leg, d = a1 - a2, den = 2 * M1 + M2 - M2 * Math.cos(2 * d);
+    const al1 = (-G * (2 * M1 + M2) * Math.sin(a1) - M2 * G * Math.sin(a1 - 2 * a2) - 2 * Math.sin(d) * M2 * (w2 * w2 * L2 + w1 * w1 * L1 * Math.cos(d))) / (L1 * den);
+    const al2 = (2 * Math.sin(d) * (w1 * w1 * L1 * (M1 + M2) + G * (M1 + M2) * Math.cos(a1) + w2 * w2 * L2 * M2 * Math.cos(d))) / (L2 * den);
+    leg.w1 = (w1 + al1 * dt) * 0.9997; leg.w2 = (w2 + al2 * dt) * 0.9997;
+    leg.a1 += leg.w1 * dt; leg.a2 += leg.w2 * dt;
+    // joint limits
+    if (leg.a1 > HIP_MAX) { leg.a1 = HIP_MAX; if (leg.w1 > 0) stopImpulse(1, 0); }
+    if (leg.a1 < HIP_MIN) { leg.a1 = HIP_MIN; if (leg.w1 < 0) stopImpulse(1, 0); }
+    const kn = leg.a2 - leg.a1;
+    if (kn > KNEE_MAX) { leg.a2 = leg.a1 + KNEE_MAX; if (leg.w2 - leg.w1 > 0) { stopImpulse(-1, 1); if (Math.abs(leg.w2 - leg.w1) > 2) beep(180, .05, 'triangle', .15); } }
+    if (kn < KNEE_MIN) { leg.a2 = leg.a1 + KNEE_MIN; if (leg.w2 - leg.w1 < 0) stopImpulse(-1, 1); }
   }
-  if (grab) { const p = pts[2]; p.x += (grab.x - p.x) * 0.15; p.y += (grab.y - p.y) * 0.15; }
-  for (let it = 0; it < 12; it++) {
-    let prev = SH;
-    for (let i = 0; i < 3; i++) {
-      const p = pts[i], dx = p.x - prev.x, dy = p.y - prev.y, d = Math.hypot(dx, dy) || 1e-6, diff = (d - LEN[i]) / d;
-      if (i === 0) { p.x -= dx * diff; p.y -= dy * diff; }
-      else { prev.x += dx * diff * .5; prev.y += dy * diff * .5; p.x -= dx * diff * .5; p.y -= dy * diff * .5; }
-      prev = p;
-    }
-    for (const p of pts) if (p.y < ROCK_R) { p.y = ROCK_R; p.px += (p.x - p.px) * 0.3; }
-  }
-  if (posing()) { for (const p of pts) { p.px = p.x; p.py = p.y; } }
-  const tip = pts[2];
-  if (!rock.free) {
-    // the rock rides on the tip until the player taps
-    rock.x = tip.x; rock.y = tip.y; rock.px = tip.px; rock.py = tip.py;
+  updPts();
+  const ft = pts[1];
+  if (!shoe.free) {
+    shoe.x = ft.x; shoe.y = ft.y; shoe.ang = leg.a2;
     if (letGo && !posing()) {
-      letGo = false; rock.free = true;
-      rock.vx = (tip.x - tip.px) / dt; rock.vy = (tip.y - tip.py) / dt;
+      letGo = false; shoe.free = true;
+      // ankle velocity from the joint speeds
+      shoe.vx = L1 * Math.cos(leg.a1) * leg.w1 + L2 * Math.cos(leg.a2) * leg.w2;
+      shoe.vy = L1 * Math.sin(leg.a1) * leg.w1 + L2 * Math.sin(leg.a2) * leg.w2;
+      shoe.va = leg.w2;
       beep(400, .25, 'sine', .2, 1100);
     }
     if (state === 'swing') {
-      const sp = Math.hypot(tip.x - tip.px, tip.y - tip.py) / dt;
+      const sp = Math.hypot(L1 * leg.w1, L2 * leg.w2);
       swishT -= dt;
-      if (sp > 6 && swishT <= 0) { beep(200 + sp * 15, .12, 'sine', .06, 120); swishT = 0.35; }
+      if (sp > 5 && swishT <= 0) { beep(200 + sp * 20, .12, 'sine', .06, 120); swishT = 0.35; }
     }
-  } else if (!rock.stopped) {
-    rock.vy -= G * dt;
-    const drag = 1 - 0.01 * dt; rock.vx *= drag; rock.vy *= drag;
-    rock.x += rock.vx * dt; rock.y += rock.vy * dt;
-    rock.spin += rock.vx * dt / ROCK_R;
-    if (rock.y < ROCK_R) {
-      rock.y = ROCK_R;
-      if (rock.land === null) { rock.land = rock.x; beep(90, .25, 'triangle', .45); }
-      if (rock.vy < -2) { rock.vy = -rock.vy * 0.3; rock.vx *= 0.6; beep(140, .08, 'triangle', .25); }
-      else { rock.vy = 0; rock.vx *= (1 - 4 * dt); }
-      if (Math.abs(rock.vx) < 0.1 && rock.vy === 0) rock.stopped = true;
+  } else if (!shoe.stopped) {
+    shoe.vy -= G * dt;
+    const drag = 1 - 0.01 * dt; shoe.vx *= drag; shoe.vy *= drag;
+    shoe.x += shoe.vx * dt; shoe.y += shoe.vy * dt; shoe.ang += shoe.va * dt;
+    // the step the kicker stands on
+    const floor = shoe.x < -0.1 && shoe.x > -2 ? PLAT : 0;
+    if (shoe.y < floor + SHOE_R * 0.5) {
+      shoe.y = floor + SHOE_R * 0.5;
+      if (shoe.land === null) { shoe.land = shoe.x; beep(90, .25, 'triangle', .45); }
+      if (shoe.vy < -2) { shoe.vy = -shoe.vy * 0.3; shoe.vx *= 0.6; shoe.va *= 0.5; beep(140, .08, 'triangle', .25); }
+      else { shoe.vy = 0; shoe.vx *= (1 - 4 * dt); shoe.va *= (1 - 6 * dt); }
+      if (Math.abs(shoe.vx) < 0.1 && shoe.vy === 0) shoe.stopped = true;
     }
   }
 }
@@ -182,10 +215,10 @@ function step(dt) {
 // ---- input ----
 let scale = 100, originX = 0, groundY = 0;
 function toWorld(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left - originX) / scale + camX, y: (groundY - (e.clientY - r.top)) / scale + camY }; }
-let letGo = false, down = null;
+var letGo = false, down = null;
 cv.addEventListener('pointerdown', e => {
   if (ac && ac.state === 'suspended') ac.resume();
-  if (state === 'swing' && !rock.free) { e.preventDefault(); letGo = true; return; }
+  if (state === 'swing' && !shoe.free) { e.preventDefault(); letGo = true; return; }
   if (!posing()) return;
   e.preventDefault(); cv.setPointerCapture(e.pointerId);
   down = { x: e.clientX, y: e.clientY, moved: state === 'ready' };
@@ -234,7 +267,7 @@ $('share').addEventListener('click', e => {
   }
 });
 function finish() {
-  state = 'done'; finalDist = rock.land;
+  state = 'done'; finalDist = shoe.land;
   if (best === null || finalDist > best) { best = finalDist; store.set('best', best); }
   setTimeout(() => makeVideo().catch(() => {}), 400);
   setTimeout(() => { showResult(); $('result').hidden = false; beep(500, .15); setTimeout(() => beep(800, .25), 150); }, 300);
@@ -248,8 +281,8 @@ function resize() {
 }
 function layout(W, H, pad) {
   groundY = Math.min(H - pad - Math.max(30, H * 0.08), Math.max(H * 0.68, 4.0 * Math.min(W / 5, 170)));
-  scale = Math.min((groundY - 30) / 3.6, W / 5);
-  originX = W * 0.5;
+  scale = Math.min((groundY - 30) / 2.6, W / 3.6);
+  originX = W * 0.4;
 }
 addEventListener('resize', resize);
 
@@ -294,55 +327,51 @@ function draw(ctx = mainCtx, W = cv.clientWidth, H = cv.clientHeight) {
   // best line
   if (best !== null) { const x = X(best); if (x > -20 && x < W + 20) { ctx.strokeStyle = '#ffd43b'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(x, GY - 60); ctx.lineTo(x, GY); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = '#e8b500'; ctx.fillText(t('best'), x, GY - 66); } }
   // landing flag
-  if (rock.land !== null) { const x = X(rock.land); ctx.fillStyle = '#fff'; ctx.fillRect(x - 1, GY - 30, 3, 30); ctx.fillStyle = '#e03131'; ctx.beginPath(); ctx.moveTo(x + 2, GY - 30); ctx.lineTo(x + 18, GY - 25); ctx.lineTo(x + 2, GY - 20); ctx.fill(); }
-  // tower
-  ctx.strokeStyle = '#8b5a2b'; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(4, scale * 0.07);
-  ctx.beginPath(); ctx.moveTo(X(-0.45), Y(0)); ctx.lineTo(X(0), Y(SH.y)); ctx.lineTo(X(-0.15), Y(0));
-  for (const y of [0.6, 1.2, 1.8]) { ctx.moveTo(X(-0.45 * (1 - y / SH.y)), Y(y)); ctx.lineTo(X(-0.15 * (1 - y / SH.y)), Y(y)); } ctx.stroke();
-  // cat-headed watcher
-  ctx.strokeStyle = '#334'; ctx.lineWidth = Math.max(3, scale * 0.05);
-  ctx.beginPath(); ctx.moveTo(X(-1.05), Y(0)); ctx.lineTo(X(-0.95), Y(0.55)); ctx.lineTo(X(-0.85), Y(0)); ctx.moveTo(X(-0.95), Y(0.55)); ctx.lineTo(X(-0.95), Y(1.05));
-  ctx.moveTo(X(-0.95), Y(0.95)); ctx.lineTo(X(-0.7), Y(0.75)); ctx.moveTo(X(-0.95), Y(0.95)); ctx.lineTo(X(-1.15), Y(0.7)); ctx.stroke();
-  { const hr = scale * 0.22, hx = X(-0.95), hy = Y(1.05 + 0.18);
+  if (shoe.land !== null) { const x = X(shoe.land); ctx.fillStyle = '#fff'; ctx.fillRect(x - 1, GY - 30, 3, 30); ctx.fillStyle = '#e03131'; ctx.beginPath(); ctx.moveTo(x + 2, GY - 30); ctx.lineTo(x + 18, GY - 25); ctx.lineTo(x + 2, GY - 20); ctx.fill(); }
+  // step
+  ctx.fillStyle = '#adb5bd'; ctx.fillRect(X(-2), Y(PLAT), (2 - 0.1) * scale, PLAT * scale);
+  ctx.fillStyle = '#868e96'; ctx.fillRect(X(-2), Y(PLAT), (2 - 0.1) * scale, Math.max(3, scale * 0.05));
+  // kicker (cat head), standing leg on the step
+  ctx.strokeStyle = '#334'; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(4, scale * 0.08);
+  const sh = { x: -0.05, y: HIP.y + 0.55 };
+  ctx.beginPath(); ctx.moveTo(X(-0.28), Y(PLAT)); ctx.lineTo(X(-0.22), Y(PLAT + 0.46)); ctx.lineTo(X(HIP.x), Y(HIP.y)); ctx.lineTo(X(sh.x), Y(sh.y));
+  ctx.moveTo(X(sh.x), Y(sh.y - 0.05)); ctx.lineTo(X(-0.3), Y(sh.y - 0.35)); ctx.lineTo(X(-0.45), Y(sh.y - 0.15));
+  ctx.moveTo(X(sh.x), Y(sh.y - 0.05)); ctx.lineTo(X(0.2), Y(sh.y - 0.3)); ctx.lineTo(X(0.4), Y(sh.y - 0.2)); ctx.stroke();
+  { const hr = scale * 0.2, hx = X(sh.x), hy = Y(sh.y + 0.18);
     if (catImg.complete && catImg.naturalWidth) ctx.drawImage(catImg, hx - hr, hy - hr, hr * 2, hr * 2);
     else { ctx.fillStyle = '#334'; ctx.beginPath(); ctx.arc(hx, hy, hr, 0, 7); ctx.fill(); } }
-  // pendulum
-  const cols = ['#e8590c', '#1971c2', '#495057'];
-  let prev = SH;
-  for (let i = 0; i < 3; i++) {
-    const p = pts[i];
-    ctx.strokeStyle = cols[i]; ctx.lineWidth = Math.max(3, scale * 0.045);
-    ctx.beginPath(); ctx.moveTo(X(prev.x), Y(prev.y)); ctx.lineTo(X(p.x), Y(p.y)); ctx.stroke();
-    ctx.fillStyle = '#223'; ctx.beginPath(); ctx.arc(X(prev.x), Y(prev.y), Math.max(3, scale * 0.035), 0, 7); ctx.fill();
-    prev = p;
-  }
-  // rock
-  if (rock.free) { ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(X(rock.x), GY + 2, ROCK_R * scale * 1.2, ROCK_R * scale * 0.35, 0, 0, 7); ctx.fill(); }
-  { const r = Math.max(5, ROCK_R * scale);
-    ctx.save(); ctx.translate(X(rock.x), Y(rock.y)); ctx.rotate(rock.spin);
-    ctx.fillStyle = '#868e96'; ctx.beginPath();
-    for (let k = 0; k < 7; k++) { const a = k / 7 * Math.PI * 2, rr = r * (0.85 + 0.15 * Math.sin(k * 2.3)); ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
-    ctx.closePath(); ctx.fill(); ctx.fillStyle = '#adb5bd'; ctx.beginPath(); ctx.arc(-r * .25, -r * .25, r * .3, 0, 7); ctx.fill();
+  // kicking leg
+  ctx.strokeStyle = '#1971c2'; ctx.lineWidth = Math.max(5, scale * 0.1);
+  ctx.beginPath(); ctx.moveTo(X(HIP.x), Y(HIP.y)); ctx.lineTo(X(pts[0].x), Y(pts[0].y)); ctx.stroke();
+  ctx.strokeStyle = '#f1c9a5'; ctx.lineWidth = Math.max(4, scale * 0.08);
+  ctx.beginPath(); ctx.moveTo(X(pts[0].x), Y(pts[0].y)); ctx.lineTo(X(pts[1].x), Y(pts[1].y)); ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(X(pts[1].x), Y(pts[1].y), Math.max(3, scale * 0.045), 0, 7); ctx.fill(); // sock
+  // shoe
+  if (shoe.free) { ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(X(shoe.x), GY + 2, SHOE_R * scale * 1.3, SHOE_R * scale * 0.3, 0, 0, 7); ctx.fill(); }
+  { const r = Math.max(6, SHOE_R * scale);
+    ctx.save(); ctx.translate(X(shoe.x), Y(shoe.y)); ctx.rotate(-shoe.ang);
+    ctx.fillStyle = '#e03131'; ctx.beginPath(); ctx.moveTo(-r * 0.45, -r * 0.5); ctx.lineTo(r * 0.15, -r * 0.5); ctx.quadraticCurveTo(r * 0.25, 0, r * 1.15, r * 0.05); ctx.quadraticCurveTo(r * 1.3, r * 0.45, r * 0.9, r * 0.45); ctx.lineTo(-r * 0.5, r * 0.45); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillRect(-r * 0.55, r * 0.35, r * 1.75, r * 0.18);
     ctx.restore(); }
   // drag line / hint ring
-  const h = pts[2];
+  const h = pts[1];
   if (grab) { ctx.strokeStyle = 'rgba(0,0,0,.3)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(X(h.x), Y(h.y)); ctx.lineTo(X(grab.x), Y(grab.y)); ctx.stroke(); ctx.setLineDash([]); }
-  else if (posing() || (state === 'swing' && !rock.free)) { const k = (performance.now() / 900) % 1, h = state === 'swing' ? rock : pts[2]; ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(X(h.x), Y(h.y), 15 + k * 30, 0, 7); ctx.stroke(); }
+  else if (posing() || (state === 'swing' && !shoe.free)) { const k = (performance.now() / 900) % 1, h = state === 'swing' ? shoe : pts[1]; ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(X(h.x), Y(h.y), 15 + k * 30, 0, 7); ctx.stroke(); }
 }
 function readout() {
-  if (!rock.free) return null;
-  const d = rock.land ?? rock.x;
+  if (!shoe.free) return null;
+  const d = shoe.land ?? shoe.x;
   return [fmt(d), d < 0];
 }
 function follow(fdt, W, H) {
   const k = Math.min(1, fdt * 6);
-  camX += (rock.x - camX) * k;
-  camY += (Math.max(0, rock.y - (groundY - H * 0.35) / scale) - camY) * k;
+  camX += (shoe.x - camX) * k;
+  camY += (Math.max(0, shoe.y - (groundY - H * 0.35) / scale) - camY) * k;
 }
 
 // ---- replay recording & result video ----
 let rec = [], recT = 0;
-const snap = () => ({ t: recT, pts: pts.map(p => ({ x: p.x, y: p.y })), rock: { ...rock } });
+const snap = () => ({ t: recT, pts: pts.map(p => ({ x: p.x, y: p.y })), shoe: { ...shoe } });
 const VW = 720, VH = 1280, VFPS = 30;
 let shareFile = null, videoJob = null, gameId = 0;
 async function makeVideo() {
@@ -356,8 +385,8 @@ async function makeVideo() {
     try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; break; } } catch {}
   }
   if (!cfg || id !== gameId) return;
-  // start a little before the rock leaves the cup (whole swing if short)
-  const out = frames.findIndex(f => f.rock.free), t0 = Math.max(frames[0].t, frames[out].t - 4), t1 = frames[frames.length - 1].t;
+  // start a little before the shoe leaves the cup (whole swing if short)
+  const out = frames.findIndex(f => f.shoe.free), t0 = Math.max(frames[0].t, frames[out].t - 4), t1 = frames[frames.length - 1].t;
   const cnv = document.createElement('canvas'); cnv.width = VW; cnv.height = VH;
   const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: VW, height: VH, frameRate: VFPS }, fastStart: 'in-memory' });
   const job = { id, frames, t0, n: Math.ceil((t1 - t0) * VFPS) + 1, i: 0, fi: 0, out: cnv, c: cnv.getContext('2d'), muxer, failed: false, cam: [0, 0] };
@@ -369,15 +398,15 @@ async function makeVideo() {
 function videoFrames() {
   const job = videoJob;
   if (job.id !== gameId || job.failed) { try { job.enc.close(); } catch {} videoJob = null; return; }
-  const keep = [pts, rock, camX, camY, state, scale, originX, groundY];
+  const keep = [pts, shoe, camX, camY, state, scale, originX, groundY];
   for (let k = 0; k < 4 && job.i < job.n; k++, job.i++) {
     const tt = job.t0 + job.i / VFPS;
     while (job.fi < job.frames.length - 1 && job.frames[job.fi + 1].t <= tt) job.fi++;
     const f = job.frames[job.fi];
-    pts = f.pts; rock = f.rock; state = 'swing';
+    pts = f.pts; shoe = f.shoe; state = 'swing';
     layout(VW, VH, 120);
     [camX, camY] = job.cam;
-    if (rock.free) follow(1 / VFPS, VW, VH);
+    if (shoe.free) follow(1 / VFPS, VW, VH);
     job.cam = [camX, camY];
     draw(job.c, VW, VH);
     const r = readout();
@@ -385,13 +414,13 @@ function videoFrames() {
     const frame = new VideoFrame(job.out, { timestamp: Math.round(job.i * 1e6 / VFPS), duration: Math.round(1e6 / VFPS) });
     job.enc.encode(frame, { keyFrame: job.i % 60 === 0 }); frame.close();
   }
-  [pts, rock, camX, camY, state, scale, originX, groundY] = keep;
+  [pts, shoe, camX, camY, state, scale, originX, groundY] = keep;
   if (job.i < job.n) return;
   videoJob = null;
   (async () => {
     await job.enc.flush(); job.enc.close(); job.muxer.finalize();
     if (job.id !== gameId || job.failed) return;
-    shareFile = new File([job.muxer.target.buffer], 'pendulum-trebuchet.mp4', { type: 'video/mp4' });
+    shareFile = new File([job.muxer.target.buffer], 'pendulum-shoe.mp4', { type: 'video/mp4' });
     $('share').classList.remove('wait');
   })().catch(() => {});
 }
@@ -404,9 +433,9 @@ function loop(now) {
   const W = cv.clientWidth, H = cv.clientHeight;
   if (state === 'swing') {
     recT += fdt; rec.push(snap());
-    if (!rock.free) while (rec.length && rec[0].t < recT - 4) rec.shift();
-    if (rock.free) follow(fdt, W, H);
-    if (rock.land !== null) { wait += fdt; if (rock.stopped || wait > 3) { if (wait > 0.8) finish(); } }
+    if (!shoe.free) while (rec.length && rec[0].t < recT - 4) rec.shift();
+    if (shoe.free) follow(fdt, W, H);
+    if (shoe.land !== null) { wait += fdt; if (shoe.stopped || wait > 3) { if (wait > 0.8) finish(); } }
   }
   draw();
   const r = state === 'swing' && readout();
