@@ -49,8 +49,8 @@
     #stick { position: absolute; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%;
       border: 3px solid rgba(255,255,255,.5); display: none; pointer-events: none; }
     #stick i { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(255,255,255,.6); }
-    #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
-      padding: 20px; text-align: center; }
+    #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 16px;
+      padding: 20px 20px 28px; text-align: center; }
     #big { font-size: 56px; font-weight: 900; text-shadow: 0 3px 0 #000; }
     #big svg { width: 110px; height: 110px; display: block; }
     #btns { display: flex; gap: 10px; width: min(100%, 360px); }
@@ -157,135 +157,90 @@
     stage.prepend(renderer.domElement);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x2a1a12);
-    scene.fog = new THREE.Fog(0x2a1a12, 14, 34);
-    const camera = new THREE.PerspectiveCamera(55, 1, .1, 100);
-    scene.add(new THREE.HemisphereLight(0xffe2b8, 0x3a2414, 1.1));
-    const sun = new THREE.DirectionalLight(0xffd9a0, 1.4);
+    scene.fog = new THREE.Fog(0x2a1a12, 8, 22);
+    const camera = new THREE.PerspectiveCamera(50, 1, .1, 100);
+    scene.add(new THREE.HemisphereLight(0xffe2b8, 0x3a2414, 1.2));
+    const sun = new THREE.DirectionalLight(0xffd9a0, 1.5);
     sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
-    Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8, near: 1, far: 30 });
+    Object.assign(sun.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4, near: 1, far: 20 });
     scene.add(sun, sun.target);
 
     const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
-    world.allowSleep = true;
-    const mFloor = new CANNON.Material(), mBody = new CANNON.Material(), mProp = new CANNON.Material();
-    world.addContactMaterial(new CANNON.ContactMaterial(mFloor, mBody, { friction: 0, restitution: 0 }));
-    world.addContactMaterial(new CANNON.ContactMaterial(mFloor, mProp, { friction: .4, restitution: .1 }));
-    world.addContactMaterial(new CANNON.ContactMaterial(mBody, mProp, { friction: .2, restitution: .2 }));
+    world.solver.iterations = 15;
+    world.defaultContactMaterial.friction = .6;
+    world.defaultContactMaterial.restitution = 0;
+    const G_WORLD = 1, G_BODY = 2;
 
-    const W = 5, L = 34, GOAL_Z = -L + 2;
+    const L = 16, W = 3, GOAL_Z = -L + 1;
     const mat = c => new THREE.MeshStandardMaterial({ color: c, roughness: .8 });
     const box = (w, h, d, c) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(c)); m.castShadow = m.receiveShadow = true; return m; };
 
-    // 床・壁
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, L + 6), mat(0x8a5a36));
+    // 床・壁・トイレのドアだけ
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, L + 8), mat(0x8a5a36));
     floor.rotation.x = -Math.PI / 2; floor.position.z = -L / 2 + 2; floor.receiveShadow = true; scene.add(floor);
-    for (let z = 3; z > -L; z -= 2) { const s = box(W, .01, .05, 0x6b4428); s.position.set(0, .005, z); scene.add(s); }
-    const fb = new CANNON.Body({ mass: 0, material: mFloor, shape: new CANNON.Plane() });
+    const fb = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), collisionFilterGroup: G_WORLD });
     fb.quaternion.setFromEuler(-Math.PI / 2, 0, 0); world.addBody(fb);
-    function wall(x, z, w, d, h = 3, c = 0xc98f5a, show = true) {
-      if (show) { const m = box(w, h, d, c); m.position.set(x, h / 2, z); scene.add(m); }
-      const b = new CANNON.Body({ mass: 0, material: mProp, shape: new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)) });
+    function wall(x, z, w, d, show = true) {
+      const h = 3;
+      if (show) { const m = box(w, h, d, 0xc98f5a); m.position.set(x, h / 2, z); scene.add(m); }
+      const b = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)), collisionFilterGroup: G_WORLD });
       b.position.set(x, h / 2, z); world.addBody(b);
     }
-    wall(-W / 2 - .1, -L / 2 + 2, .2, L + 6); wall(W / 2 + .1, -L / 2 + 2, .2, L + 6);
-    wall(0, 4.5, W, .2, 3, 0, false); wall(-1.6, -L, 1.8, .2); wall(1.6, -L, 1.8, .2);
-    // 提灯
-    for (let z = -2; z > -L; z -= 6) for (const x of [-2.2, 2.2]) {
-      const p = new THREE.Mesh(new THREE.SphereGeometry(.25, 16, 12), new THREE.MeshStandardMaterial({ color: 0xff3a1a, emissive: 0xc81e00, emissiveIntensity: 1 }));
-      p.scale.y = 1.3; p.position.set(x, 2.3, z); scene.add(p);
-    }
-    // トイレのドア（青い扉と人のマーク）
-    const door = box(1.4, 2.4, .1, 0x2f6fd6); door.position.set(0, 1.2, -L - .05); scene.add(door);
-    const sign = new THREE.Group();
-    const ms = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const hd = new THREE.Mesh(new THREE.CircleGeometry(.09, 20), ms); hd.position.y = .22;
-    const bd = new THREE.Mesh(new THREE.PlaneGeometry(.18, .3), ms);
-    sign.add(hd, bd); sign.position.set(0, 1.75, -L + .01); scene.add(sign);
-    const lamp = new THREE.PointLight(0x9fd0ff, 4, 6); lamp.position.set(0, 2.2, -L + 1); scene.add(lamp);
+    wall(-W / 2 - .1, -L / 2 + 2, .2, L + 8); wall(W / 2 + .1, -L / 2 + 2, .2, L + 8);
+    wall(0, 5, W, .2, false); wall(0, -L - .1, W, .2);
+    const door = box(1.2, 2.2, .06, 0x2f6fd6); door.position.set(0, 1.1, -L); scene.add(door);
+    const sign = new THREE.Group(), ms = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const sh = new THREE.Mesh(new THREE.CircleGeometry(.09, 20), ms); sh.position.y = .22;
+    sign.add(sh, new THREE.Mesh(new THREE.PlaneGeometry(.18, .3), ms)); sign.position.set(0, 1.6, -L + .04); scene.add(sign);
+    const lamp = new THREE.PointLight(0x9fd0ff, 3, 5); lamp.position.set(0, 2.2, -L + 1); scene.add(lamp);
 
-    // ---------- 障害物 ----------
-    const props = [];
-    function addProp(mesh, shape, mass, x, y, z, ry = 0, kind = 'thing') {
-      const b = new CANNON.Body({ mass, material: mProp, shape, angularDamping: .2, linearDamping: .1 });
-      b.position.set(x, y, z); b.quaternion.setFromEuler(0, ry, 0);
-      b.sleepSpeedLimit = .2; world.addBody(b); scene.add(mesh);
-      const p = { mesh, body: b, init: [x, y, z, ry], kind }; props.push(p);
-      if (kind === 'bottle') b.addEventListener('collide', e => { if (Math.abs(e.contact.getImpactVelocityAlongNormal()) > 1.5) clink(); });
-      return p;
+    // ---------- ラグドール ----------
+    const skin = 0xf2b48a, shirt = 0xffffff, pants = 0x2b3550, red = 0xd02a2a;
+    const parts = [];
+    function part(name, shape, mass, x, y, z, mesh) {
+      const b = new CANNON.Body({ mass, shape, linearDamping: .05, angularDamping: .3, collisionFilterGroup: G_BODY, collisionFilterMask: G_WORLD });
+      b.position.set(x, y, z); world.addBody(b); scene.add(mesh);
+      const p = { name, body: b, mesh, init: [x, y, z] }; parts.push(p); return p;
     }
-    function table(x, z) {
-      const g = new THREE.Group();
-      const top = box(1.2, .08, .8, 0x5a3820); top.position.y = .36; g.add(top);
-      for (const [a, c] of [[-.5, -.3], [.5, -.3], [-.5, .3], [.5, .3]]) { const l = box(.08, .72, .08, 0x3d2614); l.position.set(a, 0, c); g.add(l); }
-      addProp(g, new CANNON.Box(new CANNON.Vec3(.6, .39, .4)), 12, x, .39, z, 0, 'table');
-      for (let i = 0; i < 2; i++) bottle(x - .3 + i * .5, .8 + .3, z + (i ? .1 : -.1));
+    const bpart = (name, w, h, d, mass, x, y, c) => part(name, new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)), mass, x, y, 0, box(w, h, d, c));
+    const pelvis = bpart('pelvis', .34, .2, .22, 10, 0, .98, pants);
+    const torso = bpart('torso', .4, .5, .24, 14, 0, 1.33, shirt);
+    const tieM = box(.07, .36, .02, red); tieM.position.set(0, 0, .13); tieM.rotation.z = .3; torso.mesh.add(tieM);
+    const headM = new THREE.Mesh(new THREE.SphereGeometry(.15, 20, 16), mat(skin)); headM.castShadow = true;
+    const head = part('head', new CANNON.Sphere(.15), 4, 0, 1.75, 0, headM);
+    const cheek = new THREE.Mesh(new THREE.SphereGeometry(.04, 10, 8), mat(0xff4a4a)); cheek.position.set(-.08, -.03, .12); headM.add(cheek);
+    const cheek2 = cheek.clone(); cheek2.position.x = .08; headM.add(cheek2);
+    const band = new THREE.Mesh(new THREE.TorusGeometry(.152, .025, 8, 24), mat(red)); band.position.y = .06; band.rotation.x = Math.PI / 2 - .3; headM.add(band);
+    const legs = [-1, 1].map(s => ({
+      s,
+      thigh: bpart('thigh', .14, .42, .14, 5, s * .1, .67, pants),
+      shin: bpart('shin', .12, .44, .12, 3, s * .1, .23, pants),
+    }));
+    const arms = [-1, 1].map(s => ({
+      upper: bpart('upper', .1, .32, .1, 2, s * .27, 1.39, shirt),
+      lower: bpart('lower', .09, .3, .09, 1.5, s * .27, 1.08, skin),
+    }));
+    const bottle = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, .24, 10), new THREE.MeshStandardMaterial({ color: 0x3b7a2a, roughness: .2 }));
+    bottle.position.set(0, -.17, .05); arms[1].lower.mesh.add(bottle);
+    const V = (x, y, z) => new CANNON.Vec3(x, y, z);
+    function cone(a, b, pa, pb, angle, twist = .3) {
+      world.addConstraint(new CANNON.ConeTwistConstraint(a.body, b.body, { pivotA: pa, pivotB: pb, axisA: V(0, 1, 0), axisB: V(0, 1, 0), angle, twistAngle: twist }));
     }
-    function chair(x, z, ry) {
-      const g = new THREE.Group();
-      const s = box(.45, .06, .45, 0x7a4a26); g.add(s);
-      const bk = box(.45, .5, .06, 0x7a4a26); bk.position.set(0, .28, -.2); g.add(bk);
-      for (const [a, c] of [[-.19, -.19], [.19, -.19], [-.19, .19], [.19, .19]]) { const l = box(.05, .45, .05, 0x3d2614); l.position.set(a, -.25, c); g.add(l); }
-      const p = addProp(g, new CANNON.Box(new CANNON.Vec3(.23, .25, .23)), 4, x, .48, z, ry, 'chair');
-      p.body.shapeOffsets[0].set(0, -.23, 0); p.body.updateBoundingRadius();
+    function hinge(a, b, pa, pb) {
+      world.addConstraint(new CANNON.HingeConstraint(a.body, b.body, { pivotA: pa, pivotB: pb, axisA: V(1, 0, 0), axisB: V(1, 0, 0) }));
     }
-    function bottle(x, y, z) {
-      const g = new THREE.Group();
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(.08, .08, .3, 12), new THREE.MeshStandardMaterial({ color: 0x3b7a2a, roughness: .2, metalness: .1 }));
-      m.castShadow = true; g.add(m);
-      const n = new THREE.Mesh(new THREE.CylinderGeometry(.03, .06, .12, 10), m.material); n.position.y = .21; g.add(n);
-      addProp(g, new CANNON.Cylinder(.08, .08, .3, 10), .5, x, y, z, 0, 'bottle');
+    cone(pelvis, torso, V(0, .1, 0), V(0, -.25, 0), .35);
+    cone(torso, head, V(0, .25, 0), V(0, -.17, 0), .5);
+    for (const l of legs) {
+      cone(pelvis, l.thigh, V(l.s * .1, -.1, 0), V(0, .21, 0), .9);
+      hinge(l.thigh, l.shin, V(0, -.21, 0), V(0, .22, 0));
     }
-    function guest(x, z, c) {
-      const g = new THREE.Group();
-      const b = new THREE.Mesh(new THREE.CylinderGeometry(.28, .3, 1.2, 14), mat(c)); b.castShadow = true; g.add(b);
-      const h = new THREE.Mesh(new THREE.SphereGeometry(.22, 16, 12), mat(0xf0c8a0)); h.position.y = .8; h.castShadow = true; g.add(h);
-      const p = addProp(g, new CANNON.Cylinder(.3, .3, 1.2, 12), 40, x, .6, z, 0, 'guest');
-      p.body.addShape(new CANNON.Sphere(.22), new CANNON.Vec3(0, .8, 0));
-      p.body.angularDamping = .6;
-    }
-    // コース（手作り）
-    table(-1.2, -5); chair(-1.2, -4.2, Math.PI); chair(-1.2, -5.8, 0);
-    guest(1.2, -8, 0x3a6ea5);
-    table(1.1, -11); chair(1.1, -10.2, Math.PI); chair(.2, -11, Math.PI / 2);
-    bottle(-.6, .15, -13); bottle(-.3, .15, -13.4); bottle(.1, .15, -13.1);
-    guest(-1, -15.5, 0xa53a5a); guest(1.4, -17, 0x4a8a4a);
-    table(-1.1, -20); chair(0, -20, -Math.PI / 2); chair(-1.1, -19.2, Math.PI);
-    table(1.2, -24); chair(1.2, -23.2, Math.PI); chair(1.2, -24.8, 0);
-    bottle(-.8, .15, -26); bottle(-1.2, .15, -26.3); bottle(.6, .15, -27.4);
-    guest(0, -29, 0x8a6a2a);
-
-    // ---------- 酔っ払い ----------
-    // 体は「下が球・上が箱」の1つの剛体。倒れないように戻す力をかけつつ、勝手にふらつかせる
-    const man = new THREE.Group();
-    const skin = mat(0xf2b48a), shirt = mat(0xffffff), pants = mat(0x2b3550), tie = mat(0xd02a2a);
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(.55, .65, .32), shirt); torso.position.y = .95; torso.castShadow = true;
-    const tieM = new THREE.Mesh(new THREE.BoxGeometry(.08, .4, .02), tie); tieM.position.set(0, .98, .17); tieM.rotation.z = .4;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(.24, 20, 16), skin); head.position.y = 1.5; head.castShadow = true;
-    const cheekL = new THREE.Mesh(new THREE.SphereGeometry(.06, 10, 8), mat(0xff4a4a)); cheekL.position.set(-.13, 1.45, .19);
-    const cheekR = cheekL.clone(); cheekR.position.x = .13;
-    const hband = new THREE.Mesh(new THREE.TorusGeometry(.245, .035, 8, 24), tie); hband.position.y = 1.6; hband.rotation.x = Math.PI / 2 - .3; hband.rotation.z = .2;
-    man.add(torso, tieM, head, cheekL, cheekR, hband);
-    const limb = (w, h, m, x, y) => { const p = new THREE.Group(); p.position.set(x, y, 0); const l = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), m); l.position.y = -h / 2; l.castShadow = true; p.add(l); man.add(p); return p; };
-    const legL = limb(.18, .65, pants, -.13, .65), legR = limb(.18, .65, pants, .13, .65);
-    const armL = limb(.13, .55, shirt, -.36, 1.22), armR = limb(.13, .55, shirt, .36, 1.22);
-    const holdBottle = new THREE.Mesh(new THREE.CylinderGeometry(.06, .06, .25, 10), new THREE.MeshStandardMaterial({ color: 0x3b7a2a, roughness: .2 }));
-    armR.children[0].add(holdBottle); holdBottle.position.set(0, -.3, .05);
-    // 体の中心（重心）を腰のあたりに置く
-    const H = .9, rig = new THREE.Group(); man.position.y = -H; rig.add(man); scene.add(rig);
-
-    const player = new CANNON.Body({ mass: 60, material: mBody, linearDamping: .3, angularDamping: .5, allowSleep: false });
-    player.addShape(new CANNON.Sphere(.25), new CANNON.Vec3(0, .25 - H, 0));
-    player.addShape(new CANNON.Box(new CANNON.Vec3(.28, .45, .16)), new CANNON.Vec3(0, .95 - H, 0));
-    player.addShape(new CANNON.Sphere(.24), new CANNON.Vec3(0, 1.5 - H, 0));
-    world.addBody(player);
-    player.addEventListener('collide', e => {
-      const v = Math.abs(e.contact.getImpactVelocityAlongNormal());
-      if (e.body === fb || v < .6) return;
-      // ぶつかるとよろける
-      const n = player.position.vsub(e.body.position); n.y = 0; n.normalize();
-      player.angularVelocity.x += n.z * 3 * v; player.angularVelocity.z -= n.x * 3 * v;
-      if (v > 1) { thud(Math.min(1, v / 4) * .6); hic(); }
+    arms.forEach((a, i) => {
+      const s = i ? 1 : -1;
+      cone(torso, a.upper, V(s * .23, .2, 0), V(0, .16, 0), 1.6);
+      hinge(a.upper, a.lower, V(0, -.16, 0), V(0, .15, 0));
     });
+    const TOTAL = parts.reduce((m, p) => m + p.body.mass, 0);
 
     // ---------- 入力 ----------
     const keys = {};
@@ -319,21 +274,19 @@
     }
 
     // ---------- 状態 ----------
-    let riseT = 0, state = "title", time = 0, bladder = 0, fallenT = 0, walkPhase = 0, yaw = Math.PI, result = null;
-    let seed = Math.random() * 100;
+    let state = 'title', time = 0, bladder = 0, limpT = 0, power = 1, gait = 0, yaw = Math.PI, result = null, seed = 0;
     const gauge = document.getElementById('gauge'), gfill = gauge.firstElementChild, pee = document.getElementById('pee');
-    const UP = new CANNON.Vec3(0, 1, 0);
+    const UP = V(0, 1, 0);
 
     function reset() {
-      player.position.set(0, H + .02, 2.5); player.velocity.setZero(); player.angularVelocity.setZero();
-      player.quaternion.setFromEuler(0, 0, 0); yaw = Math.PI;
-      for (const p of props) { const [x, y, z, ry] = p.init; p.body.position.set(x, y, z); p.body.quaternion.setFromEuler(0, ry, 0); p.body.velocity.setZero(); p.body.angularVelocity.setZero(); p.body.wakeUp(); }
-      time = 0; bladder = .15; fallenT = 0; riseT = 0; seed = Math.random() * 100; result = null;
+      for (const p of parts) {
+        const [x, y, z] = p.init; p.body.position.set(x, y, z + 3); p.body.quaternion.set(0, 0, 0, 1);
+        p.body.velocity.setZero(); p.body.angularVelocity.setZero();
+      }
+      yaw = Math.PI; time = 0; bladder = .15; limpT = 0; power = 1; gait = 0; lean.x = lean.z = 0; seed = Math.random() * 100; result = null;
       pee.style.opacity = 0;
     }
-    function start() {
-      audio(); reset(); state = 'play'; hic(); render();
-    }
+    function start() { audio(); reset(); state = 'play'; hic(); render(); }
     function finish(win) {
       state = 'result'; result = win ? { win: true, s: time.toFixed(1) } : { win: false };
       touch = null; stick.style.display = 'none';
@@ -341,117 +294,124 @@
       render();
     }
 
-    // 1ステップごとの体の制御
-    const tmpV = new CANNON.Vec3();
+    // 体を立たせる力（アクティブ・ラグドール）。target の向きに背すじを合わせる
+    function uprightTorque(b, k, d, target, yawTarget, ky) {
+      const up = b.quaternion.vmult(UP), c = up.cross(target);
+      b.torque.x += (c.x * k - b.angularVelocity.x * d) * power;
+      b.torque.z += (c.z * k - b.angularVelocity.z * d) * power;
+      if (yawTarget !== undefined) {
+        const f = b.quaternion.vmult(V(0, 0, 1)); // 体の前
+        let dy = yawTarget - Math.atan2(f.x, f.z);
+        while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+        b.torque.y += (dy * ky - b.angularVelocity.y * ky * .15) * power;
+      }
+    }
+    // 酔いの傾き：放っておくとどんどん傾く。傾いた方向へ歩くと持ち直し、逆へ行くと倒れる
+    const lean = { x: 0, z: 0 }, GROW = .6, FIX = 2.5;
+    let clock = 0;
     function control(dt) {
-      const up = player.quaternion.vmult(UP);
-      const tilt = up.y;
-      const tt = performance.now() / 1000 + seed;
-      const drunk = state === "play" ? 1 : .4;
-      // 床との摩擦は0にして、ここで横の動きを弱める（cannon の摩擦だと足が床に貼りつくため）
-      const damp = Math.exp(-(fallenT > 0 ? 4 : 3) * dt);
-      player.velocity.x *= damp; player.velocity.z *= damp;
-      if (fallenT > 0) {
-        fallenT -= dt;
-        if (fallenT <= 0) { riseT = .9; hic(); } // 起き上がる
-        return;
-      }
-      if (riseT > 0) {
-        // 起き上がり中は少しずつまっすぐに戻す
-        riseT -= dt;
-        const q = new CANNON.Quaternion(); q.setFromEuler(0, yaw, 0);
-        player.quaternion.slerp(q, Math.min(1, dt * 6), player.quaternion);
-        player.angularVelocity.scale(.5, player.angularVelocity);
-        if (player.position.y < H) player.velocity.y = Math.max(player.velocity.y, (H - player.position.y) * 4);
-        return;
-      }
-      if (tilt < .45) { fallenT = 1.4; thud(); if (state === 'play') bladder += .1; return; }
-      // まっすぐに戻す力（ちょっと弱め）
-      const k = 2600, d = 320;
-      const corr = up.cross(UP);
-      // ふらつき（ゆっくり変わる揺れ）
-      const wx = (Math.sin(tt * 1.3) + Math.sin(tt * 2.9 + 1) * .6) * 450 * drunk;
-      const wz = (Math.sin(tt * 1.7 + 2) + Math.sin(tt * 3.7) * .5) * 450 * drunk;
-      player.torque.x += corr.x * k - player.angularVelocity.x * d + wx;
-      player.torque.z += corr.z * k - player.angularVelocity.z * d + wz;
-      // 向き：進みたい方向へゆっくり回る
+      const tt = (clock += dt) + seed;
+      const P = pelvis.body, T = torso.body;
+      // 倒れたら少しの間ぐったりして、だんだん力を戻して起き上がる
+      if (limpT > 0) { limpT -= dt; power = 0; if (limpT <= 0) { hic(); lean.x = lean.z = 0; } return; }
+      power = Math.min(1, power + dt * .9);
       const inp = state === 'play' ? inputDir() : { x: 0, z: 0, l: 0 };
-      // 千鳥足：進む方向が勝手に左右へぶれる
-      const sway = Math.sin(tt * 2.2) * .7 + Math.sin(tt * 5.1) * .3;
-      let mx = inp.x, mz = inp.z;
-      if (inp.l > .1) {
-        const c = Math.cos(sway * 1.1), s = Math.sin(sway * 1.1);
-        [mx, mz] = [mx * c - mz * s, mx * s + mz * c];
-        yaw = Math.atan2(mx, mz);
+      const drunk = state === 'play' ? 1 : .35;
+      // 左右の傾きは不安定（傾いた側へ寄ると戻る。逆へ行くと少し悪化）。前後は軽く揺れるだけ
+      let fix = inp.x * Math.sign(lean.x); if (fix < 0) fix *= .4;
+      const nx = Math.sin(tt * 1.3) + Math.sin(tt * 2.9 + 1) * .6, nz = Math.sin(tt * 1.7 + 2) + Math.sin(tt * 3.3) * .5;
+      lean.x += (lean.x * GROW + nx * .3 * drunk - Math.sign(lean.x) * fix * FIX) * dt;
+      lean.z += (nz * .25 * drunk - lean.z * 1.5) * dt;
+      // タイトル中と起き上がり中は傾きを戻す
+      if (state !== 'play' || power < 1) { lean.x *= .97; lean.z *= .97; }
+      if (Math.abs(lean.x) > .7 && power > .8) {
+        limpT = 1.6; thud(); if (state === 'play') bladder += .08;
+        T.applyImpulse(V(lean.x * 60, 0, lean.z * 60), T.position.vadd(V(0, .2, 0)));
+        return;
       }
-      // 体の傾きがある方向へ足を取られる
-      const lean = 220;
-      player.force.x += mx * 520 + up.x * lean * 3 + Math.sin(tt * 1.1) * 60;
-      player.force.z += mz * 520 + up.z * lean * 3;
-      // y軸回りの向きをそろえる
-      const e = new CANNON.Vec3(); player.quaternion.toEuler(e, 'YZX');
-      let dy = yaw - e.y; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
-      player.torque.y += dy * 300 - player.angularVelocity.y * 60;
-      // 速さの上限
-      const hv = Math.hypot(player.velocity.x, player.velocity.z), max = 2.1;
-      if (hv > max) { player.velocity.x *= max / hv; player.velocity.z *= max / hv; }
-      walkPhase += hv * dt * 5;
+      // 進む向き：入力に傾きの分だけ足を取られる
+      let mx = inp.x + lean.x * 1.2, mz = inp.z + lean.z * 1.2;
+      const ml = Math.hypot(mx, mz);
+      if (inp.l > .1) yaw = Math.atan2(mx, mz);
+      const target = V(lean.x, 1, lean.z); target.normalize();
+      uprightTorque(T, 900, 90, target, yaw, 160);
+      uprightTorque(P, 500, 50, target, yaw, 120);
+      uprightTorque(head.body, 30, 3, UP);
+      // 足が地面に近いときだけ腰を支える（転んだらこの支えが消える）
+      const footY = Math.min(...legs.map(l => l.shin.body.position.y));
+      const h = P.position.y, targetH = .98;
+      if (footY < .45) P.force.y += (TOTAL * 9.82 * .9 + (targetH - h) * 2500 - P.velocity.y * 300) * power;
+      // 歩く：腰を進みたい方向へ
+      const vx = mx * 1.9, vz = mz * 1.9;
+      P.force.x += (vx - P.velocity.x) * 300 * power;
+      P.force.z += (vz - P.velocity.z) * 300 * power;
+      // 足を交互に前へ出す
+      const hv = Math.hypot(P.velocity.x, P.velocity.z);
+      gait += dt * (ml > .15 ? 8 : 0);
+      const fx = Math.sin(yaw), fz = Math.cos(yaw);
+      legs.forEach((l, i) => {
+        const ph = gait + i * Math.PI, sw = Math.sin(ph), lift = Math.max(0, Math.cos(ph));
+        const walking = ml > .15, stride = walking ? .3 : 0;
+        const tx = P.position.x + fx * sw * stride + fz * l.s * .12, tz = P.position.z + fz * sw * stride - fx * l.s * .12;
+        const ty = .23 + lift * (walking ? .18 : 0);
+        const S = l.shin.body;
+        S.force.x += ((tx - S.position.x) * 400 - S.velocity.x * 20) * power;
+        S.force.z += ((tz - S.position.z) * 400 - S.velocity.z * 20) * power;
+        S.force.y += ((ty - S.position.y) * 300 - S.velocity.y * 10) * power;
+      });
+      // 腕をぶらぶら（瓶を持つ手は少し上げる）
+      arms.forEach((a, i) => { a.upper.body.torque.x += Math.sin(gait + i * Math.PI) * 4 * power; });
       // ランダムなしゃっくり
-      if (Math.random() < dt * .25) { hic(); player.applyImpulse(new CANNON.Vec3((Math.random() - .5) * 60, 30, (Math.random() - .5) * 40), player.position.vadd(new CANNON.Vec3(0, .5, 0))); }
-    }
-
-    function safety() {
-      const p = player.position, v = player.velocity;
-      if (v.length() > 8) v.scale(8 / v.length(), v);
-      if (player.angularVelocity.length() > 15) player.angularVelocity.scale(15 / player.angularVelocity.length(), player.angularVelocity);
-      if (p.y > 3 || Math.abs(p.x) > W / 2 || p.y < -1) { p.set(0, H + .02, Math.min(2.5, p.z + 1)); v.setZero(); player.angularVelocity.setZero(); player.quaternion.setFromEuler(0, yaw, 0); fallenT = 0; riseT = 0; }
-    }
-    function syncMan() {
-      rig.position.copy(player.position); rig.quaternion.copy(player.quaternion);
-      const s = Math.sin(walkPhase);
-      if (fallenT > 0) { legL.rotation.x = .6; legR.rotation.x = -.3; armL.rotation.z = -1.2; armR.rotation.z = 1.2; }
-      else {
-        legL.rotation.x = s * .6; legR.rotation.x = -s * .6;
-        armL.rotation.x = -s * .5; armR.rotation.x = -.9 + s * .2;
-        armL.rotation.z = -.25 + Math.sin(performance.now() / 300) * .15; armR.rotation.z = .1;
+      if (state === 'play' && Math.random() < dt * .3) {
+        hic();
+        lean.x += (Math.random() - .5) * .4;
       }
-      head.rotation.z = Math.sin(performance.now() / 400) * .3;
     }
+    function safety() {
+      for (const p of parts) {
+        const b = p.body;
+        if (b.velocity.length() > 12) b.velocity.scale(12 / b.velocity.length(), b.velocity);
+      }
+      const P = pelvis.body.position;
+      if (P.y > 4 || P.y < -1 || Math.abs(P.x) > W) { const z = P.z; reset(); for (const p of parts) p.body.position.z += z - 3; }
+    }
+    for (const p of [torso, head]) p.body.addEventListener("collide", e => { if (Math.abs(e.contact.getImpactVelocityAlongNormal()) > 2) thud(.7); });
 
     // ---------- 画面 ----------
     function resize() {
       const w = stage.clientWidth, h = stage.clientHeight;
       renderer.setSize(w, h, false); camera.aspect = w / h;
-      camera.fov = w / h < .8 ? 70 : 55; camera.updateProjectionMatrix();
+      camera.fov = w / h < .8 ? 62 : 48; camera.updateProjectionMatrix();
     }
     new ResizeObserver(resize).observe(stage); resize();
 
-    const camPos = new THREE.Vector3(0, 4, 8), camLook = new THREE.Vector3();
-    let last = performance.now();
+    const camPos = new THREE.Vector3(0, 2, 6), camLook = new THREE.Vector3();
+    let last = performance.now(), acc = 0;
+    const STEP = 1 / 240;
     function loop(now) {
       const dt = Math.min(.05, (now - last) / 1000); last = now;
       if (state === 'play') {
         time += dt;
-        bladder += dt / 42;
-        if (player.position.z < GOAL_Z && Math.abs(player.position.x) < 1.4) finish(true);
+        bladder += dt / 32;
+        if (pelvis.body.position.z < GOAL_Z) finish(true);
         else if (bladder >= 1) { bladder = 1; finish(false); }
       }
-      const steps = 3;
-      for (let i = 0; i < steps; i++) { control(dt / steps); world.step(dt / steps); safety(); }
-      syncMan();
-      for (const p of props) { p.mesh.position.copy(p.body.position); p.mesh.quaternion.copy(p.body.quaternion); }
+      // 物理は 1/240 秒の固定刻みで進める（刻みが大きいと人形が暴れるため）
+      acc += dt;
+      while (acc >= STEP) { control(STEP); world.step(STEP); safety(); acc -= STEP; }
+      for (const p of parts) { p.mesh.position.copy(p.body.position); p.mesh.quaternion.copy(p.body.quaternion); }
       gfill.style.width = (bladder * 100) + '%';
       gauge.classList.toggle('danger', bladder > .75);
       gauge.style.display = state === 'title' ? 'none' : 'block';
-      // カメラ：後ろ上から追いかけ、少し揺れる
-      const p = player.position, tt = now / 1000;
-      const target = state === 'title' ? new THREE.Vector3(p.x + Math.sin(tt * .3) * 2, 2.2, p.z - 4) : new THREE.Vector3(p.x * .6, 4.2, p.z + 5.5);
-      camPos.lerp(target, 1 - Math.pow(.02, dt));
-      camLook.lerp(new THREE.Vector3(p.x * .8, state === "title" ? 1.2 : .9, state === "title" ? p.z : p.z - 2.5), 1 - Math.pow(.01, dt));
+      // カメラ：人のすぐ後ろから追いかける（タイトルでは正面から）
+      const p = torso.body.position, tt = now / 1000;
+      const target = state === 'title' ? new THREE.Vector3(p.x + Math.sin(tt * .4) * .8, 1.5, p.z - 2.6) : new THREE.Vector3(p.x * .7, 2.1, p.z + 3.2);
+      camPos.lerp(target, 1 - Math.pow(.03, dt));
+      camLook.lerp(new THREE.Vector3(p.x, state === 'title' ? 1.2 : 1, state === 'title' ? p.z : p.z - 1), 1 - Math.pow(.01, dt));
       camera.position.copy(camPos);
       camera.lookAt(camLook);
-      camera.rotation.z += Math.sin(tt * 1.1) * .04;
-      sun.position.set(p.x + 3, 8, p.z + 3); sun.target.position.set(p.x, 0, p.z - 2);
+      camera.rotation.z += Math.sin(tt * 1.1) * .03;
+      sun.position.set(p.x + 2, 6, p.z + 2); sun.target.position.set(p.x, 0, p.z - 1);
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
     }
