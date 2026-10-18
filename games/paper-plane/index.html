@@ -83,10 +83,10 @@ function windSet(v){if(!wind)return;const n=Math.min(1,v/30);wind.g.gain.setTarg
 function windStop(){if(!wind)return;try{wind.g.gain.setTargetAtTime(0,ac.currentTime,.05);const s=wind.s;setTimeout(()=>s.stop(),300)}catch{}wind=null}
 
 // ---- canvas ----
-const cv=$('c'),cx=cv.getContext('2d');
-let W=0,H=0,DPR=1;
-function resize(){const r=$('stage').getBoundingClientRect();DPR=Math.min(2,devicePixelRatio||1);W=r.width;H=r.height;cv.width=Math.round(W*DPR);cv.height=Math.round(H*DPR)}
-addEventListener('resize',resize);
+const cv=$('c'),cx=cv.getContext('2d',{alpha:false});
+let W=0,H=0,DPR=1,sky=null;
+function resize(){const r=$('stage').getBoundingClientRect();DPR=Math.min(1.5,devicePixelRatio||1);W=r.width;H=r.height;cv.width=Math.round(W*DPR);cv.height=Math.round(H*DPR);sky=cx.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#5fa8e0');sky.addColorStop(1,'#d6effb')}
+addEventListener('resize',()=>{resize();if(p)draw(performance.now()/1000)});
 
 // ---- physics (meters, seconds, y up) ----
 const G=9.8,AIR=.255,STALL=.28,CLMAX=2*Math.PI*STALL*.55,MAXPULL=120,LAUNCH_V=28,SLING={x:0,y:1.6};
@@ -139,7 +139,7 @@ function frame(now){
     if(trail.length===0||Math.hypot(p.x-trail[trail.length-1].x,p.y-trail[trail.length-1].y)>.6)trail.push({x:p.x,y:p.y});
     windSet(Math.hypot(p.vx,p.vy));
     if(!passedBest&&best>0&&p.x>best){passedBest=true;tone(880,.12,.06);setTimeout(()=>tone(1320,.15,.06),90)}}
-  updateCam(dt);draw(now/1000);requestAnimationFrame(frame);
+  if($('result').hidden){updateCam(dt);draw(now/1000)}requestAnimationFrame(frame);
 }
 function land(){mode='result';windStop();noise(.18,.3,300);tone(90,.2,.1,'sine',-40);
   const d=Math.max(0,p.x);isNew=d>best;if(isNew){best=d;try{localStorage.setItem('paper-plane-best',best)}catch{}}
@@ -156,25 +156,25 @@ function updateCam(dt){
 const clouds=Array.from({length:14},(_,i)=>({x:i*37+((i*53)%17),y:8+((i*29)%23),r:1.6+((i*7)%5)*.5}));
 function draw(time){
   const c=cx;c.setTransform(DPR,0,0,DPR,0,0);
-  const g=c.createLinearGradient(0,0,0,H);g.addColorStop(0,'#5fa8e0');g.addColorStop(1,'#d6effb');c.fillStyle=g;c.fillRect(0,0,W,H);
+  c.fillStyle=sky;c.fillRect(0,0,W,H);
   const gy=toScr(0,0).y;
   // far mountains (parallax)
-  c.fillStyle='#a9cbe0';c.beginPath();c.moveTo(0,gy);for(let sx=0;sx<=W+20;sx+=20){const wx=(sx+cam.x*cam.s*.15)/60;c.lineTo(sx,gy-H*.12-Math.sin(wx)*H*.05-Math.sin(wx*2.3)*H*.03)}c.lineTo(W,gy);c.fill();
+  if(gy-H*.2<H){c.fillStyle='#a9cbe0';c.beginPath();c.moveTo(0,gy);for(let sx=0;sx<=W+40;sx+=40){const wx=(sx+cam.x*cam.s*.15)/60;c.lineTo(sx,gy-H*.12-Math.sin(wx)*H*.05-Math.sin(wx*2.3)*H*.03)}c.lineTo(W,gy);c.fill()}
   // clouds (parallax)
   c.fillStyle='rgba(255,255,255,.85)';
   for(const cl of clouds){const per=520,wx=((cl.x-cam.x*.5)%per+per)%per-60;const s=toScr(cam.x+wx*0+0,cl.y);const sx=W*.35+(wx-0)*cam.s*.6, sy=s.y;const r=cl.r*cam.s*.3;if(sx<-r*3||sx>W+r*3)continue;c.beginPath();c.arc(sx,sy,r,0,7);c.arc(sx+r*1.1,sy+r*.2,r*.8,0,7);c.arc(sx-r*1.1,sy+r*.25,r*.7,0,7);c.fill()}
   // ground
-  c.fillStyle='#7cc46a';c.fillRect(0,gy,W,H-gy);c.fillStyle='#5ea84f';c.fillRect(0,gy,W,4);
+  if(gy<H){c.fillStyle='#7cc46a';c.fillRect(0,gy,W,H-gy);c.fillStyle='#5ea84f';c.fillRect(0,gy,W,4);
   // ground ticks
   const x0=cam.x-(W*.35)/cam.s,x1=x0+W/cam.s,stepM=cam.s>12?5:cam.s>4?10:50;
   c.fillStyle='#3f7d34';c.font='bold 12px system-ui';c.textAlign='center';
-  for(let m=Math.max(0,Math.ceil(x0/stepM)*stepM);m<=x1;m+=stepM){const s=toScr(m,0);const big=m%(stepM*2)===0;c.fillRect(s.x-1,gy,2,big?12:6);if(big&&m>0)c.fillText(m+'m',s.x,gy+26)}
+  for(let m=Math.max(0,Math.ceil(x0/stepM)*stepM);m<=x1;m+=stepM){const s=toScr(m,0);const big=m%(stepM*2)===0;c.fillRect(s.x-1,gy,2,big?12:6);if(big&&m>0)c.fillText(m+'m',s.x,gy+26)}}
   // best flag
   if(best>0){const s=toScr(best,0),h=Math.max(30,2.2*cam.s);c.fillStyle='#6b4a2a';c.fillRect(s.x-1.5,gy-h,3,h);c.fillStyle='#e8453c';c.beginPath();c.moveTo(s.x+1.5,gy-h);c.lineTo(s.x+h*.5,gy-h+h*.15);c.lineTo(s.x+1.5,gy-h+h*.3);c.fill()}
   // slingshot
   drawSling(c,true);
   // trail
-  if(trail.length>1){c.strokeStyle='rgba(255,255,255,.7)';c.lineWidth=2;c.setLineDash([6,6]);c.beginPath();trail.forEach((q,i)=>{const s=toScr(q.x,q.y);i?c.lineTo(s.x,s.y):c.moveTo(s.x,s.y)});const s=toScr(p.x,p.y);c.lineTo(s.x,s.y);c.stroke();c.setLineDash([])}
+  if(trail.length>1){c.fillStyle='rgba(255,255,255,.75)';c.beginPath();const xmin=cam.x-W*.35/cam.s-1;for(let i=trail.length-1;i>=0&&trail[i].x>xmin;i--){const s=toScr(trail[i].x,trail[i].y);c.rect(s.x-1.5,s.y-1.5,3,3)}c.fill()}
   // plane
   let px=p.x,py=p.y;if(mode==='pull'){px+=pull.dx/cam.s;py=Math.max(.35,py+pull.dy/cam.s)}
   const ps=toScr(px,py);
