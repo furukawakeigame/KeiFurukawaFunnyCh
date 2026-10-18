@@ -116,29 +116,26 @@ function beep(freq, dur, type = 'square', vol = .2, slide = 0) {
 // ---- world (meters) ----
 const catImg = new Image(); catImg.src = 'cat.png';
 const cv = $('cv'), mainCtx = cv.getContext('2d');
-const SH = { x: 0, y: 2.3 };              // pivot on top of the tower
+const SH = { x: 0, y: 2.85 };             // pivot on top of the tower
 const LEN = [0.8, 0.75, 0.7];
 const G = 9.8, DT = 1 / 480;
-const CUP_W = 0.13, CUP_D = 0.35, CUP_TILT = -85 * Math.PI / 180; // opening points almost sideways from the link
+// sling (like a real trebuchet): the rock hangs from the tip on a rope; the rope's ring slips off the pin
+// when the rope swings out to line up with the last link (after having been folded back)
 const ROCK_R = 0.09;
-let pts, rock, state, grab, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, wait = 0, swishT = 0, tipOver = 0, still = 0; // tipOver: when the swing has died down, the cup slowly tips so the rock always rolls out
+const SLING = 0.4, ARM_ANG = 100 * Math.PI / 180, REL_ANG = 25 * Math.PI / 180;
+let pts, rock, state, grab, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, wait = 0, swishT = 0
 
 function reset() {
   pts = []; let y = SH.y;
   for (let i = 0; i < 3; i++) { y -= LEN[i]; pts.push({ x: SH.x, y, px: SH.x, py: y }); }
-  const c = cupFrame();
-  rock = { x: pts[2].x + c.n.x * ROCK_R, y: pts[2].y + c.n.y * ROCK_R, px: 0, py: 0, free: false, vx: 0, vy: 0, land: null, stopped: false, spin: 0 };
-  rock.px = rock.x; rock.py = rock.y;
-  camX = 0; camY = 0; grab = null; state = 'ready'; finalDist = 0; wait = 0; tipOver = 0; still = 0;
+  rock = { x: 0, y: 0, px: 0, py: 0, armed: false, free: false, vx: 0, vy: 0, land: null, stopped: false, spin: 0 };
+  camX = 0; camY = 0; grab = null; state = 'ready'; finalDist = 0; wait = 0;
   rec = []; recT = 0; gameId++; shareFile = null; videoJob = null;
 }
-// n: direction the cup opens (tilted from the link), u: across the cup
-function cupFrame() {
+// unit vector along the last link (outward)
+function linkDir() {
   const a = pts[1], b = pts[2], d = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-  const u = { x: (b.x - a.x) / d, y: (b.y - a.y) / d };
-  const th = Math.PI + CUP_TILT - tipOver;
-  const n = { x: u.x * Math.cos(th) - u.y * Math.sin(th), y: u.x * Math.sin(th) + u.y * Math.cos(th) };
-  return { u: { x: n.y, y: -n.x }, n }; // u: across the cup (kept perpendicular to n)
+  return { x: (b.x - a.x) / d, y: (b.y - a.y) / d };
 }
 
 function step(dt) {
@@ -160,27 +157,27 @@ function step(dt) {
   if (state === 'ready' || grab) { for (const p of pts) { p.px = p.x; p.py = p.y; } }
   const tip = pts[2];
   if (!rock.free) {
-    const c = cupFrame();
+    const u = linkDir();
     if (state === 'ready') {
-      rock.x = tip.x + c.n.x * ROCK_R; rock.y = tip.y + c.n.y * ROCK_R; rock.px = rock.x; rock.py = rock.y;
+      // rope folded back along the last link
+      rock.x = tip.x - u.x * SLING; rock.y = Math.max(ROCK_R, tip.y - u.y * SLING); rock.px = rock.x; rock.py = rock.y; rock.armed = false;
     } else {
       const vx = rock.x - rock.px, vy = rock.y - rock.py;
       rock.px = rock.x; rock.py = rock.y; rock.x += vx; rock.y += vy - G * dt * dt;
-      let ex = rock.x - tip.x, ey = rock.y - tip.y;
-      let a = ex * c.u.x + ey * c.u.y, b = ex * c.n.x + ey * c.n.y;
-      if (b > CUP_D) {
+      // rope: can only pull
+      let ex = rock.x - tip.x, ey = rock.y - tip.y, d = Math.hypot(ex, ey) || 1e-6;
+      if (d > SLING) { rock.x = tip.x + ex / d * SLING; rock.y = tip.y + ey / d * SLING; d = SLING; }
+      if (rock.y < ROCK_R) { rock.y = ROCK_R; rock.px += (rock.x - rock.px) * 0.3; }
+      const ang = Math.acos(Math.max(-1, Math.min(1, (ex * u.x + ey * u.y) / d)));
+      if (ang > ARM_ANG) rock.armed = true;
+      if (rock.armed && ang < REL_ANG && d > SLING * 0.97) {
         rock.free = true;
         rock.vx = (rock.x - rock.px) / dt; rock.vy = (rock.y - rock.py) / dt;
         beep(400, .25, 'sine', .2, 1100);
-      } else {
-        a = Math.max(-CUP_W + ROCK_R, Math.min(CUP_W - ROCK_R, a)); b = Math.max(ROCK_R, b);
-        rock.x = tip.x + c.u.x * a + c.n.x * b; rock.y = tip.y + c.u.y * a + c.n.y * b;
       }
     }
     if (state === 'swing') {
       const sp = Math.hypot(tip.x - tip.px, tip.y - tip.py) / dt;
-      still = sp < 0.5 ? still + dt : 0;
-      if (still > 1.5) tipOver = Math.min(1.2, tipOver + 0.5 * dt);
       swishT -= dt;
       if (sp > 6 && swishT <= 0) { beep(200 + sp * 15, .12, 'sine', .06, 120); swishT = 0.35; }
     }
@@ -257,8 +254,8 @@ function resize() {
   layout(r.width, r.height, 80);
 }
 function layout(W, H, pad) {
-  groundY = Math.min(H - pad - Math.max(30, H * 0.08), Math.max(H * 0.6, 3.4 * Math.min(W / 5, 170)));
-  scale = Math.min((groundY - 30) / 3.0, W / 5);
+  groundY = Math.min(H - pad - Math.max(30, H * 0.08), Math.max(H * 0.68, 4.0 * Math.min(W / 5, 170)));
+  scale = Math.min((groundY - 30) / 3.6, W / 5);
   originX = W * 0.5;
 }
 addEventListener('resize', resize);
@@ -308,7 +305,7 @@ function draw(ctx = mainCtx, W = cv.clientWidth, H = cv.clientHeight) {
   // tower
   ctx.strokeStyle = '#8b5a2b'; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(4, scale * 0.07);
   ctx.beginPath(); ctx.moveTo(X(-0.45), Y(0)); ctx.lineTo(X(0), Y(SH.y)); ctx.lineTo(X(-0.15), Y(0));
-  ctx.moveTo(X(-0.36), Y(0.6)); ctx.lineTo(X(-0.1), Y(0.6)); ctx.moveTo(X(-0.27), Y(1.2)); ctx.lineTo(X(-0.06), Y(1.2)); ctx.stroke();
+  for (const y of [0.6, 1.2, 1.8]) { ctx.moveTo(X(-0.45 * (1 - y / SH.y)), Y(y)); ctx.lineTo(X(-0.15 * (1 - y / SH.y)), Y(y)); } ctx.stroke();
   // cat-headed watcher
   ctx.strokeStyle = '#334'; ctx.lineWidth = Math.max(3, scale * 0.05);
   ctx.beginPath(); ctx.moveTo(X(-1.05), Y(0)); ctx.lineTo(X(-0.95), Y(0.55)); ctx.lineTo(X(-0.85), Y(0)); ctx.moveTo(X(-0.95), Y(0.55)); ctx.lineTo(X(-0.95), Y(1.05));
@@ -326,10 +323,8 @@ function draw(ctx = mainCtx, W = cv.clientWidth, H = cv.clientHeight) {
     ctx.fillStyle = '#223'; ctx.beginPath(); ctx.arc(X(prev.x), Y(prev.y), Math.max(3, scale * 0.035), 0, 7); ctx.fill();
     prev = p;
   }
-  // cup (U shape opening toward n)
-  { const c = cupFrame(), tp = pts[2], P = (a, b) => [X(tp.x + c.u.x * a + c.n.x * b), Y(tp.y + c.u.y * a + c.n.y * b)];
-    ctx.strokeStyle = '#7a4a1e'; ctx.lineWidth = Math.max(3, scale * 0.03);
-    ctx.beginPath(); ctx.moveTo(...P(-CUP_W, CUP_D)); ctx.lineTo(...P(-CUP_W, 0)); ctx.lineTo(...P(CUP_W, 0)); ctx.lineTo(...P(CUP_W, CUP_D)); ctx.stroke(); }
+  // sling rope
+  if (!rock.free) { ctx.strokeStyle = '#7a4a1e'; ctx.lineWidth = Math.max(2, scale * 0.015); ctx.beginPath(); ctx.moveTo(X(pts[2].x), Y(pts[2].y)); ctx.lineTo(X(rock.x), Y(rock.y)); ctx.stroke(); }
   // rock
   if (rock.free) { ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(X(rock.x), GY + 2, ROCK_R * scale * 1.2, ROCK_R * scale * 0.35, 0, 0, 7); ctx.fill(); }
   { const r = Math.max(5, ROCK_R * scale);
