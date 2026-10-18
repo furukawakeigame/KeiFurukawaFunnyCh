@@ -89,7 +89,7 @@ function resize(){const r=$('stage').getBoundingClientRect();DPR=Math.min(1.5,de
 addEventListener('resize',()=>{resize();if(p)draw(performance.now()/1000)});
 
 // ---- physics (meters, seconds, y up) ----
-const G=9.8,AIR=.255,STALL=.28,CLMAX=2*Math.PI*STALL*.55,MAXPULL=120,LAUNCH_V=28,SLING={x:0,y:1.6};
+const VIEW=22,G=9.8,AIR=.255,STALL=.28,CLMAX=2*Math.PI*STALL*.55,MAXPULL=120,LAUNCH_V=28,SLING={x:0,y:1.6};
 let mode='ready',p,trail,pull=null,drag=null,cam={x:0,y:0,s:30},t0=0,flyT=0,passedBest=false,isNew=false;
 function reset(){p={x:SLING.x,y:SLING.y,vx:0,vy:0,th:0,tt:0,stall:0};trail=[];pull=null;drag=null;mode='ready';passedBest=false;flyT=0;$('result').hidden=true}
 function cl(a){const s=Math.sign(a),x=Math.abs(a);if(x<STALL)return 2*Math.PI*a*.55;return s*Math.max(CLMAX*.25,CLMAX*(1-(x-STALL)*2.5))}
@@ -132,9 +132,9 @@ function up(){
 cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
 
 // ---- game loop ----
-let last=0;
+let last=0,sdt=1/60;
 function frame(now){
-  const dt=Math.min(.05,(now-(last||now))/1000);last=now;
+  const raw=Math.min(.05,(now-(last||now))/1000);last=now;sdt+=(raw-sdt)*.1;const dt=sdt;
   if(mode==='fly'){flyT+=dt;const n=Math.max(1,Math.ceil(dt*240)),h=dt/n;for(let i=0;i<n;i++){step(h);if(p.y<=0){p.y=0;land();break}}
     if(trail.length===0||Math.hypot(p.x-trail[trail.length-1].x,p.y-trail[trail.length-1].y)>.6)trail.push({x:p.x,y:p.y});
     windSet(Math.hypot(p.vx,p.vy));
@@ -146,9 +146,9 @@ function land(){mode='result';windStop();noise(.18,.3,300);tone(90,.2,.1,'sine',
   setTimeout(()=>{if(mode==='result'){renderResult();$('result').hidden=false}},700)}
 function updateCam(dt){
   // fixed zoom; follow the plane vertically once it climbs above mid-screen
-  cam.s=H/14;
-  const ty=Math.max(0,p.y-14*.45);cam.y+=(ty-cam.y)*Math.min(1,dt*(mode==='fly'?10:4));
-  if(mode==='fly'||mode==='result'){cam.x=p.x;return}
+  cam.s=H/VIEW;
+  if(mode==='fly'||mode==='result'){cam.x=p.x;cam.y=Math.max(0,p.y-VIEW*.45);return}
+  cam.y+=(0-cam.y)*Math.min(1,dt*4);
   const tx=SLING.x-W*.25/cam.s;
   cam.x+=(tx-cam.x)*Math.min(1,dt*(mode==='fly'?10:4));
 }
