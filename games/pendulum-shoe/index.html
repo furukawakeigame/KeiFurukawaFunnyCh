@@ -126,14 +126,14 @@ const HIP_T = 6, KNEE_T = 12, MUS_W = 25; // muscle torques and the joint speed 
 const KICK_T = 0.6, FRICTION = 0.8;        // the muscles fire once, for this long after the tap; joints lose speed to friction after that
 const SHOE_R = 0.13;
 // states: ready (drag to pose) -> set (posed: drag again, or tap to start) -> swing (tap to kick off the shoe) -> done
-const posing = () => state === 'ready' || state === 'set';
+const posing = () => state === 'ready' || state === 'set' || state === 'kick'; // kick: tapped, waiting for the tap's moment in the physics
 let leg, pts, shoe, state, grab, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, wait = 0, swishT = 0;
 
 function reset() {
   leg = { a1: 0, a2: 0, w1: 0, w2: 0, t: 0 };
   updPts();
   shoe = { x: pts[1].x, y: pts[1].y, ang: 0, vx: 0, vy: 0, va: 0, free: false, land: null, stopped: false };
-  camX = 0; camY = 0; grab = null; down = null; letGo = false; state = 'ready'; finalDist = 0; wait = 0;
+  camX = 0; camY = 0; grab = null; down = null; letGo = false; state = 'ready'; inputs.length = 0; finalDist = 0; wait = 0;
   rec = []; recT = 0; gameId++; shareFile = null; videoJob = null;
 }
 function updPts() {
@@ -209,7 +209,7 @@ function toWorld(e) { const r = cv.getBoundingClientRect(); return { x: (e.clien
 var letGo = false, down = null;
 cv.addEventListener('pointerdown', e => {
   if (ac && ac.state === 'suspended') ac.resume();
-  if (state === 'swing' && !shoe.free) { e.preventDefault(); letGo = true; return; }
+  if (state === 'swing' && !shoe.free) { e.preventDefault(); at(e, () => { letGo = true; }); return; }
   if (!posing()) return;
   e.preventDefault(); cv.setPointerCapture(e.pointerId);
   down = { x: e.clientX, y: e.clientY, moved: state === 'ready' };
@@ -219,13 +219,17 @@ cv.addEventListener('pointermove', e => {
   if (!down.moved && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) down.moved = true;
   if (down.moved) grab = toWorld(e);
 });
-const up = () => {
+const up = e => {
   if (!down) return;
   const moved = down.moved; down = null;
   if (moved) { if (grab) { grab = null; state = 'set'; beep(500, .06, 'sine', .1); } return; }
   // a tap on a posed pendulum starts the swing
-  state = 'swing'; beep(300, .2, 'sine', .15, 700);
+  state = 'kick'; beep(300, .2, 'sine', .15, 700);
+  at(e, () => { state = 'swing'; });
 };
+// inputs are applied to the physics at the moment they happened, not at the next frame
+const inputs = [];
+function at(e, fn) { inputs.push({ t: e.timeStamp || performance.now(), fn }); }
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
 $('again').onclick = () => { $('result').hidden = true; reset(); beep(600, .1); };
 
@@ -416,11 +420,15 @@ function videoFrames() {
   })().catch(() => {});
 }
 
-let last = performance.now();
+let last = performance.now(), simT = performance.now();
 function loop(now) {
-  const fdt = Math.min(0.05, (now - last) / 1000); last = now;
-  const n = Math.round(fdt / DT);
-  for (let i = 0; i < n; i++) step(DT);
+  const fdt = Math.min(0.25, (now - last) / 1000); last = now;
+  // fixed-step physics in real time, whatever the frame rate or screen size
+  if (now - simT > 250) simT = now - 250;
+  while (simT + DT * 1000 <= now) {
+    while (inputs.length && inputs[0].t <= simT) inputs.shift().fn();
+    step(DT); simT += DT * 1000;
+  }
   const W = cv.clientWidth, H = cv.clientHeight;
   if (state === 'swing') {
     recT += fdt; rec.push(snap());
