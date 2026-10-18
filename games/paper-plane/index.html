@@ -157,7 +157,17 @@ function updateCam(dt){
 }
 
 // ---- drawing ----
-const clouds=Array.from({length:14},(_,i)=>({x:i*37+((i*53)%17),y:8+((i*29)%23),r:1.6+((i*7)%5)*.5}));
+// clouds tile the whole sky (every altitude) from a hash grid, in two parallax layers
+const hash=(i,j,k)=>{const h=Math.sin(i*127.1+j*311.7+k*74.7)*43758.5453;return h-Math.floor(h)};
+function cloudLayer(c,par,cell,rr,col,k){
+  const cx0=cam.x*par,cy0=cam.y*par,ox=W*.35,oy=H*.88,w=W/cam.s,h=H/cam.s;
+  c.fillStyle=col;c.beginPath();
+  for(let i=Math.floor((cx0-ox/cam.s)/cell)-1;i<=Math.ceil((cx0+w)/cell);i++)for(let j=Math.max(0,Math.floor((cy0-1)/cell));j<=Math.ceil((cy0+h)/cell)+1;j++){
+    if(hash(i,j,k)<.45)continue;
+    const wx=(i+hash(i,j,k+1))*cell,wy=(j+hash(i,j,k+2))*cell;if(wy<4)continue;
+    const sx=ox+(wx-cx0)*cam.s,sy=oy-(wy-cy0)*cam.s,r=rr*(.7+hash(i,j,k+3)*.6)*cam.s;
+    c.moveTo(sx+r,sy);c.arc(sx,sy,r,0,7);c.moveTo(sx+r*2,sy+r*.2);c.arc(sx+r*1.1,sy+r*.2,r*.8,0,7);c.moveTo(sx-r*.4,sy+r*.25);c.arc(sx-r*1.1,sy+r*.25,r*.7,0,7)}
+  c.fill()}
 function draw(time){
   const c=cx;c.setTransform(DPR,0,0,DPR,0,0);
   c.fillStyle=sky;c.fillRect(0,0,W,H);
@@ -165,8 +175,7 @@ function draw(time){
   // far mountains (parallax)
   if(gy-H*.2<H){c.fillStyle='#a9cbe0';c.beginPath();c.moveTo(0,gy);const off=cam.x*cam.s*.15,s0=Math.floor(off/6)*6-off;for(let sx=s0;sx<=W+6;sx+=6){const wx=(sx+off)/60;c.lineTo(sx,gy-H*.12-Math.sin(wx)*H*.05-Math.sin(wx*2.3)*H*.03)}c.lineTo(W,gy);c.fill()}
   // clouds (parallax)
-  c.fillStyle='rgba(255,255,255,.85)';
-  for(const cl of clouds){const per=520,wx=((cl.x-cam.x*.5)%per+per)%per-60;const s=toScr(cam.x+wx*0+0,cl.y);const sx=W*.35+(wx-0)*cam.s*.6, sy=s.y;const r=cl.r*cam.s*.3;if(sx<-r*3||sx>W+r*3)continue;c.beginPath();c.arc(sx,sy,r,0,7);c.arc(sx+r*1.1,sy+r*.2,r*.8,0,7);c.arc(sx-r*1.1,sy+r*.25,r*.7,0,7);c.fill()}
+  cloudLayer(c,.4,9,.7,'rgba(255,255,255,.45)',1);cloudLayer(c,.8,13,1.1,'rgba(255,255,255,.85)',7);
   // ground
   if(gy<H){c.fillStyle='#7cc46a';c.fillRect(0,gy,W,H-gy);c.fillStyle='#5ea84f';c.fillRect(0,gy,W,4);
   // ground ticks
