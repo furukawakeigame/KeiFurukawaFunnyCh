@@ -2,7 +2,7 @@
 // Google アナリティクスから全期間のページビュー数を読み、JSON で返す。
 // 設定手順は CLAUDE.md の「ビュー数の表示」を参照。
 
-const PROPERTY_ID = 'ここにプロパティIDの数字'; // 例: '123456789'（G-で始まるIDではない）
+const PROPERTY_ID = '559038100'; // G-で始まるIDではなく、数字だけのプロパティID
 
 function doGet() {
   const cache = CacheService.getScriptCache();
