@@ -119,17 +119,17 @@ const cv = $('cv'), mainCtx = cv.getContext('2d');
 const SH = { x: 0, y: 2.85 };             // pivot on top of the tower
 const LEN = [0.8, 0.75, 0.7];
 const G = 9.8, DT = 1 / 480;
-// sling (like a real trebuchet): the rock hangs from the tip on a rope; the rope's ring slips off the pin
-// when the rope swings out to line up with the last link (after having been folded back)
-const ROCK_R = 0.09;
-const SLING = 0.4, ARM_ANG = 100 * Math.PI / 180, REL_ANG = 25 * Math.PI / 180;
+// sling: the rock hangs from the tip on a rope and is let go when the player taps
+const ROCK_R = 0.09, SLING = 0.4;
+// states: ready (drag to pose) -> set (posed: drag again, or tap to start) -> swing (tap to let go) -> done
+const posing = () => state === 'ready' || state === 'set';
 let pts, rock, state, grab, camX = 0, camY = 0, best = store.get('best', null), finalDist = 0, wait = 0, swishT = 0
 
 function reset() {
   pts = []; let y = SH.y;
   for (let i = 0; i < 3; i++) { y -= LEN[i]; pts.push({ x: SH.x, y, px: SH.x, py: y }); }
-  rock = { x: 0, y: 0, px: 0, py: 0, armed: false, free: false, vx: 0, vy: 0, land: null, stopped: false, spin: 0 };
-  camX = 0; camY = 0; grab = null; state = 'ready'; finalDist = 0; wait = 0;
+  rock = { x: 0, y: 0, px: 0, py: 0, free: false, vx: 0, vy: 0, land: null, stopped: false, spin: 0 };
+  camX = 0; camY = 0; grab = null; down = null; letGo = false; state = 'ready'; finalDist = 0; wait = 0;
   rec = []; recT = 0; gameId++; shareFile = null; videoJob = null;
 }
 // unit vector along the last link (outward)
@@ -139,7 +139,7 @@ function linkDir() {
 }
 
 function step(dt) {
-  if (state !== 'ready') for (const p of pts) {
+  if (!posing()) for (const p of pts) {
     const vx = (p.x - p.px) * 0.9995, vy = (p.y - p.py) * 0.9995;
     p.px = p.x; p.py = p.y; p.x += vx; p.y += vy - G * dt * dt;
   }
@@ -154,13 +154,13 @@ function step(dt) {
     }
     for (const p of pts) if (p.y < 0.05) { p.y = 0.05; p.px += (p.x - p.px) * 0.3; }
   }
-  if (state === 'ready' || grab) { for (const p of pts) { p.px = p.x; p.py = p.y; } }
+  if (posing()) { for (const p of pts) { p.px = p.x; p.py = p.y; } }
   const tip = pts[2];
   if (!rock.free) {
     const u = linkDir();
-    if (state === 'ready') {
+    if (posing()) {
       // rope folded back along the last link
-      rock.x = tip.x - u.x * SLING; rock.y = Math.max(ROCK_R, tip.y - u.y * SLING); rock.px = rock.x; rock.py = rock.y; rock.armed = false;
+      rock.x = tip.x - u.x * SLING; rock.y = Math.max(ROCK_R, tip.y - u.y * SLING); rock.px = rock.x; rock.py = rock.y;
     } else {
       const vx = rock.x - rock.px, vy = rock.y - rock.py;
       rock.px = rock.x; rock.py = rock.y; rock.x += vx; rock.y += vy - G * dt * dt;
@@ -168,10 +168,8 @@ function step(dt) {
       let ex = rock.x - tip.x, ey = rock.y - tip.y, d = Math.hypot(ex, ey) || 1e-6;
       if (d > SLING) { rock.x = tip.x + ex / d * SLING; rock.y = tip.y + ey / d * SLING; d = SLING; }
       if (rock.y < ROCK_R) { rock.y = ROCK_R; rock.px += (rock.x - rock.px) * 0.3; }
-      const ang = Math.acos(Math.max(-1, Math.min(1, (ex * u.x + ey * u.y) / d)));
-      if (ang > ARM_ANG) rock.armed = true;
-      if (rock.armed && ang < REL_ANG && d > SLING * 0.97) {
-        rock.free = true;
+      if (letGo) {
+        letGo = false; rock.free = true;
         rock.vx = (rock.x - rock.px) / dt; rock.vy = (rock.y - rock.py) / dt;
         beep(400, .25, 'sine', .2, 1100);
       }
@@ -199,15 +197,25 @@ function step(dt) {
 // ---- input ----
 let scale = 100, originX = 0, groundY = 0;
 function toWorld(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left - originX) / scale + camX, y: (groundY - (e.clientY - r.top)) / scale + camY }; }
+let letGo = false, down = null;
 cv.addEventListener('pointerdown', e => {
-  if (state !== 'ready') return;
-  e.preventDefault(); cv.setPointerCapture(e.pointerId); grab = toWorld(e);
   if (ac && ac.state === 'suspended') ac.resume();
+  if (state === 'swing' && !rock.free) { e.preventDefault(); letGo = true; return; }
+  if (!posing()) return;
+  e.preventDefault(); cv.setPointerCapture(e.pointerId);
+  down = { x: e.clientX, y: e.clientY, moved: state === 'ready' };
 });
-cv.addEventListener('pointermove', e => { if (grab) grab = toWorld(e); });
+cv.addEventListener('pointermove', e => {
+  if (!down) return;
+  if (!down.moved && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) down.moved = true;
+  if (down.moved) grab = toWorld(e);
+});
 const up = () => {
-  if (!grab) return; grab = null; state = 'swing';
-  beep(300, .2, 'sine', .15, 700);
+  if (!down) return;
+  const moved = down.moved; down = null;
+  if (moved) { if (grab) { grab = null; state = 'set'; beep(500, .06, 'sine', .1); } return; }
+  // a tap on a posed pendulum starts the swing
+  state = 'swing'; beep(300, .2, 'sine', .15, 700);
 };
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
 $('again').onclick = () => { $('result').hidden = true; reset(); beep(600, .1); };
@@ -336,7 +344,7 @@ function draw(ctx = mainCtx, W = cv.clientWidth, H = cv.clientHeight) {
   // drag line / hint ring
   const h = pts[2];
   if (grab) { ctx.strokeStyle = 'rgba(0,0,0,.3)'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(X(h.x), Y(h.y)); ctx.lineTo(X(grab.x), Y(grab.y)); ctx.stroke(); ctx.setLineDash([]); }
-  else if (state === 'ready') { const k = (performance.now() / 900) % 1; ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(X(h.x), Y(h.y), 15 + k * 30, 0, 7); ctx.stroke(); }
+  else if (posing() || (state === 'swing' && !rock.free)) { const k = (performance.now() / 900) % 1, h = state === 'swing' ? rock : pts[2]; ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(X(h.x), Y(h.y), 15 + k * 30, 0, 7); ctx.stroke(); }
 }
 function readout() {
   if (!rock.free) return null;
