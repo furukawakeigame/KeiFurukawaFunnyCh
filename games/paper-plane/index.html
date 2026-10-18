@@ -92,7 +92,7 @@ addEventListener('resize',()=>{resize();if(p)draw(performance.now()/1000)});
 // ---- physics (meters, seconds, y up) ----
 const VIEW=22,G=9.8,AIR=.255,STALL=.28,CLMAX=2*Math.PI*STALL*.55,MAXPULL=120,LAUNCH_V=22,SLING={x:0,y:1.6};
 let mode='ready',p,trail,pull=null,drag=null,cam={x:0,y:0,s:30},t0=0,flyT=0,passedBest=false,isNew=false;
-function reset(){p={x:SLING.x,y:SLING.y,vx:0,vy:0,th:0,tt:0,stall:0};trail=[];pull=null;drag=null;mode='ready';passedBest=false;flyT=0;$('result').hidden=true}
+function reset(){acc=0;prev=null;p={x:SLING.x,y:SLING.y,vx:0,vy:0,th:0,tt:0,stall:0};trail=[];pull=null;drag=null;mode='ready';passedBest=false;flyT=0;$('result').hidden=true}
 function cl(a){const s=Math.sign(a),x=Math.abs(a);if(x<STALL)return 2*Math.PI*a*.55;return s*Math.max(CLMAX*.25,CLMAX*(1-(x-STALL)*2.5))}
 function step(dt){
   const v=Math.hypot(p.vx,p.vy)||1e-6,gam=Math.atan2(p.vy,p.vx);
@@ -136,13 +136,22 @@ cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
 
 // ---- game loop ----
 let last=0,sdt=1/60;
+// physics runs on a fixed 1/240 s step so the result never depends on frame rate or screen;
+// drawing interpolates between the last two physics states to stay smooth
+const STEP=1/240;let acc=0,prev=null;
 function frame(now){
   const raw=Math.min(.05,(now-(last||now))/1000);last=now;sdt+=(raw-sdt)*.1;const dt=sdt;
-  if(mode==='fly'){flyT+=dt;const n=Math.max(1,Math.ceil(dt*240)),h=dt/n;for(let i=0;i<n;i++){step(h);if(p.y<=0){p.y=0;land();break}}
+  let alpha=1;
+  if(mode==='fly'){flyT+=dt;acc+=dt;while(acc>=STEP){acc-=STEP;prev={x:p.x,y:p.y,th:p.th};step(STEP);if(p.y<=0){p.y=0;land();acc=0;break}}
+    alpha=prev&&mode==='fly'?acc/STEP:1;
     if(trail.length===0||Math.hypot(p.x-trail[trail.length-1].x,p.y-trail[trail.length-1].y)>.6)trail.push({x:p.x,y:p.y});
     windSet(Math.hypot(p.vx,p.vy));
     if(!passedBest&&best>0&&p.x>best){passedBest=true;tone(880,.12,.06);setTimeout(()=>tone(1320,.15,.06),90)}}
-  if($('result').hidden){updateCam(dt);draw(now/1000)}requestAnimationFrame(frame);
+  if($('result').hidden){
+    const real={x:p.x,y:p.y,th:p.th};
+    if(alpha<1){p.x=prev.x+(real.x-prev.x)*alpha;p.y=prev.y+(real.y-prev.y)*alpha;p.th=prev.th+(real.th-prev.th)*alpha}
+    updateCam(dt);draw(now/1000);Object.assign(p,real)}
+  requestAnimationFrame(frame);
 }
 function land(){mode='result';windStop();noise(.18,.3,300);tone(90,.2,.1,'sine',-40);
   const d=Math.max(0,p.x);isNew=d>best;if(isNew){best=d;try{localStorage.setItem('paper-plane-best',best)}catch{}}
