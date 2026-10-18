@@ -97,7 +97,8 @@ function step(dt){
   const v=Math.hypot(p.vx,p.vy)||1e-6,gam=Math.atan2(p.vy,p.vx);
   let a=p.th-gam;a=Math.atan2(Math.sin(a),Math.cos(a));
   const stalled=Math.abs(a)>STALL;p.stall+=((stalled?1:0)-p.stall)*Math.min(1,dt*6);
-  p.tt+=.2*dt; // tail-heavy: nose creeps up unless the player keeps it down
+  if(drag)p.tt+=1.5*dt; // holding: nose up
+  else p.tt+=(gam-p.tt)*3*dt; // released: nose settles along the flight path
   if(stalled)p.tt-=Math.sign(a)*1.2*dt; // nose drops when stalled
   p.tt=Math.max(-1.4,Math.min(1.4,p.tt));
   p.th+=(p.tt-p.th)*Math.min(1,dt*8);
@@ -114,12 +115,11 @@ const toScr=(x,y)=>({x:(x-cam.x)*cam.s+W*.35,y:H-(y-cam.y)*cam.s-H*.12});
 cv.addEventListener('pointerdown',e=>{
   e.preventDefault();cv.setPointerCapture(e.pointerId);const q=pt(e);
   if(mode==='ready'){mode='pull';pull={sx:q.x,sy:q.y,dx:0,dy:0};tone(220,.15,.05,'triangle',120)}
-  else if(mode==='fly'){drag={y:q.y}}
+  else if(mode==='fly'){drag=true}
 });
 cv.addEventListener('pointermove',e=>{
   const q=pt(e);
   if(mode==='pull'&&pull){let dx=q.x-pull.sx,dy=-(q.y-pull.sy);const l=Math.hypot(dx,dy);if(l>MAXPULL){dx*=MAXPULL/l;dy*=MAXPULL/l}pull.dx=dx;pull.dy=dy;if(dx<-6)p.th=Math.atan2(-dy,-dx);else p.th=0}
-  else if(mode==='fly'&&drag){p.tt+=(drag.y-q.y)*.008;drag.y=q.y}
 });
 function up(){
   if(mode==='pull'){const l=Math.hypot(pull.dx,pull.dy);
@@ -211,7 +211,7 @@ function hand(c,x,y,down){c.save();c.translate(x,y);c.fillStyle=down?'rgba(255,2
 function hintPull(c,ps,time){const k=(time%2)/2;let ox=0,oy=0,down=false;if(k>.15&&k<.75){const u=Math.min(1,(k-.15)/.45);ox=-u*55;oy=u*35;down=true}else if(k>=.75){ox=-55;oy=35}
   if(k<.75){c.strokeStyle='rgba(255,255,255,.55)';c.lineWidth=3;c.setLineDash([5,6]);c.beginPath();c.moveTo(ps.x,ps.y);c.lineTo(ps.x-55,ps.y+35);c.stroke();c.setLineDash([])}
   if(k<.85)hand(c,ps.x+ox,ps.y+oy,down)}
-function hintPitch(c,time){const x=W-40,y=H*.45,o=Math.sin(time*5)*22;c.globalAlpha=Math.min(1,(2.5-flyT)*2);c.strokeStyle='rgba(255,255,255,.6)';c.lineWidth=3;c.beginPath();c.moveTo(x,y-34);c.lineTo(x,y+34);c.stroke();c.fillStyle='rgba(255,255,255,.6)';for(const d of[-1,1]){c.beginPath();c.moveTo(x,y+d*44);c.lineTo(x-8,y+d*32);c.lineTo(x+8,y+d*32);c.fill()}hand(c,x,y+o,true);c.globalAlpha=1}
+function hintPitch(c,time){const x=W-48,y=H*.45,k=(time*1.2)%1,down=k<.5;c.globalAlpha=Math.min(1,(2.5-flyT)*2);if(down){c.strokeStyle='rgba(255,255,255,.7)';c.lineWidth=3;c.beginPath();c.arc(x,y,16+k*40,0,7);c.stroke()}hand(c,x,y,down);c.globalAlpha=1}
 
 // ---- result / share ----
 const coarse=()=>matchMedia('(pointer: coarse)').matches;
