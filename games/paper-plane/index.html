@@ -89,7 +89,7 @@ function resize(){const r=$('stage').getBoundingClientRect();DPR=Math.min(3,devi
 addEventListener('resize',()=>{resize();if(p)draw(performance.now()/1000)});
 
 // ---- physics (meters, seconds, y up) ----
-const VIEW=22,G=9.8,AIR=.255,STALL=.28,CLMAX=2*Math.PI*STALL*.55,MAXPULL=120,LAUNCH_V=28,SLING={x:0,y:1.6};
+const VIEW=22,G=9.8,AIR=.255,STALL=.28,CLMAX=2*Math.PI*STALL*.55,MAXPULL=120,LAUNCH_V=22,SLING={x:0,y:1.6};
 let mode='ready',p,trail,pull=null,drag=null,cam={x:0,y:0,s:30},t0=0,flyT=0,passedBest=false,isNew=false;
 function reset(){p={x:SLING.x,y:SLING.y,vx:0,vy:0,th:0,tt:0,stall:0};trail=[];pull=null;drag=null;mode='ready';passedBest=false;flyT=0;$('result').hidden=true}
 function cl(a){const s=Math.sign(a),x=Math.abs(a);if(x<STALL)return 2*Math.PI*a*.55;return s*Math.max(CLMAX*.25,CLMAX*(1-(x-STALL)*2.5))}
@@ -97,7 +97,7 @@ function step(dt){
   const v=Math.hypot(p.vx,p.vy)||1e-6,gam=Math.atan2(p.vy,p.vx);
   let a=p.th-gam;a=Math.atan2(Math.sin(a),Math.cos(a));
   const stalled=Math.abs(a)>STALL;p.stall+=((stalled?1:0)-p.stall)*Math.min(1,dt*6);
-  p.tt+=.3*dt; // tail-heavy: nose creeps up unless the player keeps it down
+  p.tt+=.2*dt; // tail-heavy: nose creeps up unless the player keeps it down
   if(stalled)p.tt-=Math.sign(a)*1.2*dt; // nose drops when stalled
   p.tt=Math.max(-1.4,Math.min(1.4,p.tt));
   p.th+=(p.tt-p.th)*Math.min(1,dt*8);
@@ -223,7 +223,9 @@ function drawSpeaker(){$('sound').innerHTML=`<svg width="20" height="20" viewBox
 $('sound').onclick=()=>{sound=!sound;try{localStorage.setItem('paper-plane-sound',sound?'1':'0')}catch{}if(!sound)windStop();else if(mode==='fly')windStart();drawSpeaker();tone(660,.08,.05)};
 function applyLang(){document.documentElement.lang=lang;document.title=t('title');$('lang').value=lang;$('back').textContent=t('back');$('retry').textContent=t('retry');if(mode==='result')renderResult()}
 $('lang').onchange=()=>{lang=$('lang').value;try{localStorage.setItem('paper-plane-lang',lang)}catch{}applyLang()};
-resize();reset();drawSpeaker();applyLang();requestAnimationFrame(frame);
+// warm up the JIT and canvas paths with a throwaway flight so the first real throw is already smooth
+function warmup(){const sv=W;reset();p.vx=15;p.vy=8;p.th=p.tt=.5;mode='fly';for(let i=0;i<4000&&p.y>0;i++){step(1/240);if(i%8===0)trail.push({x:p.x,y:p.y});if(i%40===0){updateCam(1/60);draw(i/240)}}reset();cam.x=SLING.x-W*.25/cam.s;cam.y=0}
+resize();warmup();drawSpeaker();applyLang();requestAnimationFrame(frame);
 </script>
 </body>
 </html>
