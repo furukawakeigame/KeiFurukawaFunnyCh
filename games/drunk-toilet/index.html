@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>千鳥足トイレ</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="千鳥足トイレ">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/drunk-toilet/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/drunk-toilet/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #2a1a12; color: #fbeedd;
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+      display: flex; flex-direction: column; overflow: hidden;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom));
+      -webkit-user-select: none; user-select: none;
+    }
+    header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+    header a { color: #fbeedd; font-size: 14px; text-decoration: none; margin-right: auto; }
+    header button, header select {
+      background: #3d281c; border: 1px solid #6b4a34; border-radius: 8px;
+      height: 34px; min-width: 40px; padding: 0 10px; font-size: 13px; color: #fbeedd; cursor: pointer;
+    }
+    header svg { width: 18px; height: 18px; display: block; }
+    #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    /* 膀胱ゲージ */
+    #gauge { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: min(60%, 260px); height: 18px;
+      border: 3px solid #fff; border-radius: 12px; background: rgba(0,0,0,.35); overflow: hidden; display: none; }
+    #gauge i { display: block; height: 100%; width: 0; background: #f5d020; transition: background .2s; }
+    #gauge.danger i { background: #ff9a1f; }
+    #pee { position: absolute; inset: 0; background: radial-gradient(circle, rgba(245,208,32,0) 30%, rgba(245,208,32,.85)); opacity: 0; pointer-events: none; transition: opacity 1s; }
+    /* スティック */
+    #stick { position: absolute; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%;
+      border: 3px solid rgba(255,255,255,.5); display: none; pointer-events: none; }
+    #stick i { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(255,255,255,.6); }
+    #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      padding: 20px; text-align: center; }
+    #big { font-size: 56px; font-weight: 900; text-shadow: 0 3px 0 #000; }
+    #big svg { width: 110px; height: 110px; display: block; }
+    #btns { display: flex; gap: 10px; width: min(100%, 360px); }
+    #btns button, #btns a {
+      flex: 1; height: 60px; border: none; border-radius: 14px; font-size: 20px; font-weight: 800; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; text-decoration: none; touch-action: manipulation;
+    }
+    .go { background: #e8a33a; color: #2a1a12; box-shadow: 0 4px 0 #9c6417; }
+    .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 40% !important; font-size: 17px !important; }
+    #btns button:active, #btns a:active { transform: translateY(3px); box-shadow: none; }
+    #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="stage">
+    <div id="gauge"><i></i></div>
+    <div id="pee"></div>
+    <div id="stick"><i></i></div>
+    <div id="overlay"><div id="big"></div><div id="btns"></div></div>
+    <div id="msg"></div>
+  </div>
+
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js" } }</script>
+  <script>
+    // CDN が読めないときの一言
+    setTimeout(() => {
+      if (!window.__ok) {
+        const m = document.getElementById('msg');
+        m.style.display = 'flex';
+        m.textContent = /^ja/.test(navigator.language) ? '読み込めませんでした。通信を確認して再読み込みしてください' : 'Could not load. Please check your connection and reload.';
+      }
+    }, 8000);
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import * as CANNON from 'cannon-es';
+    window.__ok = true;
+
+    // ---------- 言葉 ----------
+    const DICT = {
+      ja: { title: '千鳥足トイレ', back: '← トップへ戻る', start: 'スタート', again: 'もう一回', post: 'Xに投稿',
+            time: s => `${s}秒`, win: s => `${s}秒でトイレに間に合った #千鳥足トイレゲーム`, lose: '間に合わなかった… #千鳥足トイレゲーム' },
+      ko: { title: '비틀비틀 화장실', back: '← 처음으로', start: '시작', again: '한 번 더', post: 'X에 게시',
+            time: s => `${s}초`, win: s => `${s}초 만에 화장실 도착 #千鳥足トイレゲーム`, lose: '늦었다… #千鳥足トイレゲーム' },
+      en: { title: 'Drunk to the Toilet', back: '← Back to top', start: 'START', again: 'AGAIN', post: 'Post',
+            time: s => `${s}s`, win: s => `Made it to the toilet in ${s}s #千鳥足トイレゲーム`, lose: "Didn't make it... #千鳥足トイレゲーム" },
+      th: { title: 'เมาเดินไปห้องน้ำ', back: '← กลับหน้าแรก', start: 'เริ่ม', again: 'อีกครั้ง', post: 'โพสต์ลง X',
+            time: s => `${s} วินาที`, win: s => `ไปถึงห้องน้ำทันใน ${s} วินาที #千鳥足トイレゲーム`, lose: 'ไม่ทัน... #千鳥足トイレゲーム' },
+    };
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/drunk-toilet/';
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('drunk-toilet:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('drunk-toilet:' + k, JSON.stringify(v)); } catch {} },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
+    let lang = store.get('lang', null) || autoLang();
+    let muted = store.get('muted', false);
+    const t = k => DICT[lang][k];
+
+    // ---------- 音 ----------
+    let ac = null;
+    const audio = () => { if (!ac) { try { ac = new AudioContext(); } catch {} } if (ac?.state === 'suspended') ac.resume(); return ac; };
+    function hic() {
+      const a = audio(); if (!a || muted) return;
+      const o = a.createOscillator(), g = a.createGain(), n = a.currentTime;
+      o.type = 'triangle'; o.frequency.setValueAtTime(260, n); o.frequency.exponentialRampToValueAtTime(700, n + .08);
+      g.gain.setValueAtTime(.0001, n); g.gain.exponentialRampToValueAtTime(.3, n + .02); g.gain.exponentialRampToValueAtTime(.0001, n + .14);
+      o.connect(g).connect(a.destination); o.start(n); o.stop(n + .16);
+    }
+    function thud(v = 1) {
+      const a = audio(); if (!a || muted) return;
+      const n = a.currentTime, len = .3, buf = a.createBuffer(1, a.sampleRate * len, a.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3);
+      const s = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+      s.buffer = buf; f.type = 'lowpass'; f.frequency.value = 300; g.gain.value = .9 * v;
+      s.connect(f).connect(g).connect(a.destination); s.start(n);
+    }
+    function clink() {
+      const a = audio(); if (!a || muted) return;
+      const o = a.createOscillator(), g = a.createGain(), n = a.currentTime;
+      o.type = 'sine'; o.frequency.value = 1800 + Math.random() * 600;
+      g.gain.setValueAtTime(.12, n); g.gain.exponentialRampToValueAtTime(.0001, n + .25);
+      o.connect(g).connect(a.destination); o.start(n); o.stop(n + .26);
+    }
+    function flush() {
+      const a = audio(); if (!a || muted) return;
+      const n = a.currentTime, len = 1.4, buf = a.createBuffer(1, a.sampleRate * len, a.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / d.length);
+      const s = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+      s.buffer = buf; f.type = 'bandpass'; f.frequency.setValueAtTime(600, n); f.frequency.linearRampToValueAtTime(250, n + len); g.gain.value = .5;
+      s.connect(f).connect(g).connect(a.destination); s.start(n);
+    }
+
+    // ---------- 3D ----------
+    const stage = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    stage.prepend(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x2a1a12);
+    scene.fog = new THREE.Fog(0x2a1a12, 14, 34);
+    const camera = new THREE.PerspectiveCamera(55, 1, .1, 100);
+    scene.add(new THREE.HemisphereLight(0xffe2b8, 0x3a2414, 1.1));
+    const sun = new THREE.DirectionalLight(0xffd9a0, 1.4);
+    sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
+    Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8, near: 1, far: 30 });
+    scene.add(sun, sun.target);
+
+    const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
+    world.allowSleep = true;
+    const mFloor = new CANNON.Material(), mBody = new CANNON.Material(), mProp = new CANNON.Material();
+    world.addContactMaterial(new CANNON.ContactMaterial(mFloor, mBody, { friction: 0, restitution: 0 }));
+    world.addContactMaterial(new CANNON.ContactMaterial(mFloor, mProp, { friction: .4, restitution: .1 }));
+    world.addContactMaterial(new CANNON.ContactMaterial(mBody, mProp, { friction: .2, restitution: .2 }));
+
+    const W = 5, L = 34, GOAL_Z = -L + 2;
+    const mat = c => new THREE.MeshStandardMaterial({ color: c, roughness: .8 });
+    const box = (w, h, d, c) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(c)); m.castShadow = m.receiveShadow = true; return m; };
+
+    // 床・壁
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, L + 6), mat(0x8a5a36));
+    floor.rotation.x = -Math.PI / 2; floor.position.z = -L / 2 + 2; floor.receiveShadow = true; scene.add(floor);
+    for (let z = 3; z > -L; z -= 2) { const s = box(W, .01, .05, 0x6b4428); s.position.set(0, .005, z); scene.add(s); }
+    const fb = new CANNON.Body({ mass: 0, material: mFloor, shape: new CANNON.Plane() });
+    fb.quaternion.setFromEuler(-Math.PI / 2, 0, 0); world.addBody(fb);
+    function wall(x, z, w, d, h = 3, c = 0xc98f5a, show = true) {
+      if (show) { const m = box(w, h, d, c); m.position.set(x, h / 2, z); scene.add(m); }
+      const b = new CANNON.Body({ mass: 0, material: mProp, shape: new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)) });
+      b.position.set(x, h / 2, z); world.addBody(b);
+    }
+    wall(-W / 2 - .1, -L / 2 + 2, .2, L + 6); wall(W / 2 + .1, -L / 2 + 2, .2, L + 6);
+    wall(0, 4.5, W, .2, 3, 0, false); wall(-1.6, -L, 1.8, .2); wall(1.6, -L, 1.8, .2);
+    // 提灯
+    for (let z = -2; z > -L; z -= 6) for (const x of [-2.2, 2.2]) {
+      const p = new THREE.Mesh(new THREE.SphereGeometry(.25, 16, 12), new THREE.MeshStandardMaterial({ color: 0xff3a1a, emissive: 0xc81e00, emissiveIntensity: 1 }));
+      p.scale.y = 1.3; p.position.set(x, 2.3, z); scene.add(p);
+    }
+    // トイレのドア（青い扉と人のマーク）
+    const door = box(1.4, 2.4, .1, 0x2f6fd6); door.position.set(0, 1.2, -L - .05); scene.add(door);
+    const sign = new THREE.Group();
+    const ms = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const hd = new THREE.Mesh(new THREE.CircleGeometry(.09, 20), ms); hd.position.y = .22;
+    const bd = new THREE.Mesh(new THREE.PlaneGeometry(.18, .3), ms);
+    sign.add(hd, bd); sign.position.set(0, 1.75, -L + .01); scene.add(sign);
+    const lamp = new THREE.PointLight(0x9fd0ff, 4, 6); lamp.position.set(0, 2.2, -L + 1); scene.add(lamp);
+
+    // ---------- 障害物 ----------
+    const props = [];
+    function addProp(mesh, shape, mass, x, y, z, ry = 0, kind = 'thing') {
+      const b = new CANNON.Body({ mass, material: mProp, shape, angularDamping: .2, linearDamping: .1 });
+      b.position.set(x, y, z); b.quaternion.setFromEuler(0, ry, 0);
+      b.sleepSpeedLimit = .2; world.addBody(b); scene.add(mesh);
+      const p = { mesh, body: b, init: [x, y, z, ry], kind }; props.push(p);
+      if (kind === 'bottle') b.addEventListener('collide', e => { if (Math.abs(e.contact.getImpactVelocityAlongNormal()) > 1.5) clink(); });
+      return p;
+    }
+    function table(x, z) {
+      const g = new THREE.Group();
+      const top = box(1.2, .08, .8, 0x5a3820); top.position.y = .36; g.add(top);
+      for (const [a, c] of [[-.5, -.3], [.5, -.3], [-.5, .3], [.5, .3]]) { const l = box(.08, .72, .08, 0x3d2614); l.position.set(a, 0, c); g.add(l); }
+      addProp(g, new CANNON.Box(new CANNON.Vec3(.6, .39, .4)), 12, x, .39, z, 0, 'table');
+      for (let i = 0; i < 2; i++) bottle(x - .3 + i * .5, .8 + .3, z + (i ? .1 : -.1));
+    }
+    function chair(x, z, ry) {
+      const g = new THREE.Group();
+      const s = box(.45, .06, .45, 0x7a4a26); g.add(s);
+      const bk = box(.45, .5, .06, 0x7a4a26); bk.position.set(0, .28, -.2); g.add(bk);
+      for (const [a, c] of [[-.19, -.19], [.19, -.19], [-.19, .19], [.19, .19]]) { const l = box(.05, .45, .05, 0x3d2614); l.position.set(a, -.25, c); g.add(l); }
+      const p = addProp(g, new CANNON.Box(new CANNON.Vec3(.23, .25, .23)), 4, x, .48, z, ry, 'chair');
+      p.body.shapeOffsets[0].set(0, -.23, 0); p.body.updateBoundingRadius();
+    }
+    function bottle(x, y, z) {
+      const g = new THREE.Group();
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(.08, .08, .3, 12), new THREE.MeshStandardMaterial({ color: 0x3b7a2a, roughness: .2, metalness: .1 }));
+      m.castShadow = true; g.add(m);
+      const n = new THREE.Mesh(new THREE.CylinderGeometry(.03, .06, .12, 10), m.material); n.position.y = .21; g.add(n);
+      addProp(g, new CANNON.Cylinder(.08, .08, .3, 10), .5, x, y, z, 0, 'bottle');
+    }
+    function guest(x, z, c) {
+      const g = new THREE.Group();
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(.28, .3, 1.2, 14), mat(c)); b.castShadow = true; g.add(b);
+      const h = new THREE.Mesh(new THREE.SphereGeometry(.22, 16, 12), mat(0xf0c8a0)); h.position.y = .8; h.castShadow = true; g.add(h);
+      const p = addProp(g, new CANNON.Cylinder(.3, .3, 1.2, 12), 40, x, .6, z, 0, 'guest');
+      p.body.addShape(new CANNON.Sphere(.22), new CANNON.Vec3(0, .8, 0));
+      p.body.angularDamping = .6;
+    }
+    // コース（手作り）
+    table(-1.2, -5); chair(-1.2, -4.2, Math.PI); chair(-1.2, -5.8, 0);
+    guest(1.2, -8, 0x3a6ea5);
+    table(1.1, -11); chair(1.1, -10.2, Math.PI); chair(.2, -11, Math.PI / 2);
+    bottle(-.6, .15, -13); bottle(-.3, .15, -13.4); bottle(.1, .15, -13.1);
+    guest(-1, -15.5, 0xa53a5a); guest(1.4, -17, 0x4a8a4a);
+    table(-1.1, -20); chair(0, -20, -Math.PI / 2); chair(-1.1, -19.2, Math.PI);
+    table(1.2, -24); chair(1.2, -23.2, Math.PI); chair(1.2, -24.8, 0);
+    bottle(-.8, .15, -26); bottle(-1.2, .15, -26.3); bottle(.6, .15, -27.4);
+    guest(0, -29, 0x8a6a2a);
+
+    // ---------- 酔っ払い ----------
+    // 体は「下が球・上が箱」の1つの剛体。倒れないように戻す力をかけつつ、勝手にふらつかせる
+    const man = new THREE.Group();
+    const skin = mat(0xf2b48a), shirt = mat(0xffffff), pants = mat(0x2b3550), tie = mat(0xd02a2a);
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(.55, .65, .32), shirt); torso.position.y = .95; torso.castShadow = true;
+    const tieM = new THREE.Mesh(new THREE.BoxGeometry(.08, .4, .02), tie); tieM.position.set(0, .98, .17); tieM.rotation.z = .4;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(.24, 20, 16), skin); head.position.y = 1.5; head.castShadow = true;
+    const cheekL = new THREE.Mesh(new THREE.SphereGeometry(.06, 10, 8), mat(0xff4a4a)); cheekL.position.set(-.13, 1.45, .19);
+    const cheekR = cheekL.clone(); cheekR.position.x = .13;
+    const hband = new THREE.Mesh(new THREE.TorusGeometry(.245, .035, 8, 24), tie); hband.position.y = 1.6; hband.rotation.x = Math.PI / 2 - .3; hband.rotation.z = .2;
+    man.add(torso, tieM, head, cheekL, cheekR, hband);
+    const limb = (w, h, m, x, y) => { const p = new THREE.Group(); p.position.set(x, y, 0); const l = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), m); l.position.y = -h / 2; l.castShadow = true; p.add(l); man.add(p); return p; };
+    const legL = limb(.18, .65, pants, -.13, .65), legR = limb(.18, .65, pants, .13, .65);
+    const armL = limb(.13, .55, shirt, -.36, 1.22), armR = limb(.13, .55, shirt, .36, 1.22);
+    const holdBottle = new THREE.Mesh(new THREE.CylinderGeometry(.06, .06, .25, 10), new THREE.MeshStandardMaterial({ color: 0x3b7a2a, roughness: .2 }));
+    armR.children[0].add(holdBottle); holdBottle.position.set(0, -.3, .05);
+    // 体の中心（重心）を腰のあたりに置く
+    const H = .9, rig = new THREE.Group(); man.position.y = -H; rig.add(man); scene.add(rig);
+
+    const player = new CANNON.Body({ mass: 60, material: mBody, linearDamping: .3, angularDamping: .5, allowSleep: false });
+    player.addShape(new CANNON.Sphere(.25), new CANNON.Vec3(0, .25 - H, 0));
+    player.addShape(new CANNON.Box(new CANNON.Vec3(.28, .45, .16)), new CANNON.Vec3(0, .95 - H, 0));
+    player.addShape(new CANNON.Sphere(.24), new CANNON.Vec3(0, 1.5 - H, 0));
+    world.addBody(player);
+    player.addEventListener('collide', e => {
+      const v = Math.abs(e.contact.getImpactVelocityAlongNormal());
+      if (e.body === fb || v < .6) return;
+      // ぶつかるとよろける
+      const n = player.position.vsub(e.body.position); n.y = 0; n.normalize();
+      player.angularVelocity.x += n.z * 3 * v; player.angularVelocity.z -= n.x * 3 * v;
+      if (v > 1) { thud(Math.min(1, v / 4) * .6); hic(); }
+    });
+
+    // ---------- 入力 ----------
+    const keys = {};
+    addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (e.key.startsWith('Arrow') || e.key === ' ') e.preventDefault(); });
+    addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+    const stick = document.getElementById('stick'), knob = stick.firstElementChild;
+    let touch = null; // {id, x0, y0, dx, dy}
+    stage.addEventListener('pointerdown', e => {
+      if (state !== 'play' || e.target.closest('#btns')) return;
+      const r = stage.getBoundingClientRect();
+      touch = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0 };
+      stick.style.left = (e.clientX - r.left) + 'px'; stick.style.top = (e.clientY - r.top) + 'px'; stick.style.display = 'block';
+      knob.style.transform = '';
+      stage.setPointerCapture?.(e.pointerId);
+    });
+    stage.addEventListener('pointermove', e => {
+      if (!touch || e.pointerId !== touch.id) return;
+      let dx = e.clientX - touch.x0, dy = e.clientY - touch.y0; const d = Math.hypot(dx, dy), m = 50;
+      if (d > m) { dx *= m / d; dy *= m / d; }
+      touch.dx = dx / m; touch.dy = dy / m; knob.style.transform = `translate(${dx}px,${dy}px)`;
+    });
+    const endTouch = e => { if (touch && e.pointerId === touch.id) { touch = null; stick.style.display = 'none'; } };
+    stage.addEventListener('pointerup', endTouch); stage.addEventListener('pointercancel', endTouch);
+    function inputDir() {
+      let x = 0, z = 0;
+      if (keys['arrowleft'] || keys['a']) x -= 1; if (keys['arrowright'] || keys['d']) x += 1;
+      if (keys['arrowup'] || keys['w']) z -= 1; if (keys['arrowdown'] || keys['s']) z += 1;
+      if (touch) { x += touch.dx; z += touch.dy; }
+      const l = Math.hypot(x, z); if (l > 1) { x /= l; z /= l; }
+      return { x, z, l: Math.min(1, l) };
+    }
+
+    // ---------- 状態 ----------
+    let riseT = 0, state = "title", time = 0, bladder = 0, fallenT = 0, walkPhase = 0, yaw = Math.PI, result = null;
+    let seed = Math.random() * 100;
+    const gauge = document.getElementById('gauge'), gfill = gauge.firstElementChild, pee = document.getElementById('pee');
+    const UP = new CANNON.Vec3(0, 1, 0);
+
+    function reset() {
+      player.position.set(0, H + .02, 2.5); player.velocity.setZero(); player.angularVelocity.setZero();
+      player.quaternion.setFromEuler(0, 0, 0); yaw = Math.PI;
+      for (const p of props) { const [x, y, z, ry] = p.init; p.body.position.set(x, y, z); p.body.quaternion.setFromEuler(0, ry, 0); p.body.velocity.setZero(); p.body.angularVelocity.setZero(); p.body.wakeUp(); }
+      time = 0; bladder = .15; fallenT = 0; riseT = 0; seed = Math.random() * 100; result = null;
+      pee.style.opacity = 0;
+    }
+    function start() {
+      audio(); reset(); state = 'play'; hic(); render();
+    }
+    function finish(win) {
+      state = 'result'; result = win ? { win: true, s: time.toFixed(1) } : { win: false };
+      touch = null; stick.style.display = 'none';
+      if (win) flush(); else { pee.style.opacity = 1; thud(); }
+      render();
+    }
+
+    // 1ステップごとの体の制御
+    const tmpV = new CANNON.Vec3();
+    function control(dt) {
+      const up = player.quaternion.vmult(UP);
+      const tilt = up.y;
+      const tt = performance.now() / 1000 + seed;
+      const drunk = state === "play" ? 1 : .4;
+      // 床との摩擦は0にして、ここで横の動きを弱める（cannon の摩擦だと足が床に貼りつくため）
+      const damp = Math.exp(-(fallenT > 0 ? 4 : 3) * dt);
+      player.velocity.x *= damp; player.velocity.z *= damp;
+      if (fallenT > 0) {
+        fallenT -= dt;
+        if (fallenT <= 0) { riseT = .9; hic(); } // 起き上がる
+        return;
+      }
+      if (riseT > 0) {
+        // 起き上がり中は少しずつまっすぐに戻す
+        riseT -= dt;
+        const q = new CANNON.Quaternion(); q.setFromEuler(0, yaw, 0);
+        player.quaternion.slerp(q, Math.min(1, dt * 6), player.quaternion);
+        player.angularVelocity.scale(.5, player.angularVelocity);
+        if (player.position.y < H) player.velocity.y = Math.max(player.velocity.y, (H - player.position.y) * 4);
+        return;
+      }
+      if (tilt < .45) { fallenT = 1.4; thud(); if (state === 'play') bladder += .1; return; }
+      // まっすぐに戻す力（ちょっと弱め）
+      const k = 2600, d = 320;
+      const corr = up.cross(UP);
+      // ふらつき（ゆっくり変わる揺れ）
+      const wx = (Math.sin(tt * 1.3) + Math.sin(tt * 2.9 + 1) * .6) * 450 * drunk;
+      const wz = (Math.sin(tt * 1.7 + 2) + Math.sin(tt * 3.7) * .5) * 450 * drunk;
+      player.torque.x += corr.x * k - player.angularVelocity.x * d + wx;
+      player.torque.z += corr.z * k - player.angularVelocity.z * d + wz;
+      // 向き：進みたい方向へゆっくり回る
+      const inp = state === 'play' ? inputDir() : { x: 0, z: 0, l: 0 };
+      // 千鳥足：進む方向が勝手に左右へぶれる
+      const sway = Math.sin(tt * 2.2) * .7 + Math.sin(tt * 5.1) * .3;
+      let mx = inp.x, mz = inp.z;
+      if (inp.l > .1) {
+        const c = Math.cos(sway * 1.1), s = Math.sin(sway * 1.1);
+        [mx, mz] = [mx * c - mz * s, mx * s + mz * c];
+        yaw = Math.atan2(mx, mz);
+      }
+      // 体の傾きがある方向へ足を取られる
+      const lean = 220;
+      player.force.x += mx * 520 + up.x * lean * 3 + Math.sin(tt * 1.1) * 60;
+      player.force.z += mz * 520 + up.z * lean * 3;
+      // y軸回りの向きをそろえる
+      const e = new CANNON.Vec3(); player.quaternion.toEuler(e, 'YZX');
+      let dy = yaw - e.y; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+      player.torque.y += dy * 300 - player.angularVelocity.y * 60;
+      // 速さの上限
+      const hv = Math.hypot(player.velocity.x, player.velocity.z), max = 2.1;
+      if (hv > max) { player.velocity.x *= max / hv; player.velocity.z *= max / hv; }
+      walkPhase += hv * dt * 5;
+      // ランダムなしゃっくり
+      if (Math.random() < dt * .25) { hic(); player.applyImpulse(new CANNON.Vec3((Math.random() - .5) * 60, 30, (Math.random() - .5) * 40), player.position.vadd(new CANNON.Vec3(0, .5, 0))); }
+    }
+
+    function safety() {
+      const p = player.position, v = player.velocity;
+      if (v.length() > 8) v.scale(8 / v.length(), v);
+      if (player.angularVelocity.length() > 15) player.angularVelocity.scale(15 / player.angularVelocity.length(), player.angularVelocity);
+      if (p.y > 3 || Math.abs(p.x) > W / 2 || p.y < -1) { p.set(0, H + .02, Math.min(2.5, p.z + 1)); v.setZero(); player.angularVelocity.setZero(); player.quaternion.setFromEuler(0, yaw, 0); fallenT = 0; riseT = 0; }
+    }
+    function syncMan() {
+      rig.position.copy(player.position); rig.quaternion.copy(player.quaternion);
+      const s = Math.sin(walkPhase);
+      if (fallenT > 0) { legL.rotation.x = .6; legR.rotation.x = -.3; armL.rotation.z = -1.2; armR.rotation.z = 1.2; }
+      else {
+        legL.rotation.x = s * .6; legR.rotation.x = -s * .6;
+        armL.rotation.x = -s * .5; armR.rotation.x = -.9 + s * .2;
+        armL.rotation.z = -.25 + Math.sin(performance.now() / 300) * .15; armR.rotation.z = .1;
+      }
+      head.rotation.z = Math.sin(performance.now() / 400) * .3;
+    }
+
+    // ---------- 画面 ----------
+    function resize() {
+      const w = stage.clientWidth, h = stage.clientHeight;
+      renderer.setSize(w, h, false); camera.aspect = w / h;
+      camera.fov = w / h < .8 ? 70 : 55; camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(stage); resize();
+
+    const camPos = new THREE.Vector3(0, 4, 8), camLook = new THREE.Vector3();
+    let last = performance.now();
+    function loop(now) {
+      const dt = Math.min(.05, (now - last) / 1000); last = now;
+      if (state === 'play') {
+        time += dt;
+        bladder += dt / 42;
+        if (player.position.z < GOAL_Z && Math.abs(player.position.x) < 1.4) finish(true);
+        else if (bladder >= 1) { bladder = 1; finish(false); }
+      }
+      const steps = 3;
+      for (let i = 0; i < steps; i++) { control(dt / steps); world.step(dt / steps); safety(); }
+      syncMan();
+      for (const p of props) { p.mesh.position.copy(p.body.position); p.mesh.quaternion.copy(p.body.quaternion); }
+      gfill.style.width = (bladder * 100) + '%';
+      gauge.classList.toggle('danger', bladder > .75);
+      gauge.style.display = state === 'title' ? 'none' : 'block';
+      // カメラ：後ろ上から追いかけ、少し揺れる
+      const p = player.position, tt = now / 1000;
+      const target = state === 'title' ? new THREE.Vector3(p.x + Math.sin(tt * .3) * 2, 2.2, p.z - 4) : new THREE.Vector3(p.x * .6, 4.2, p.z + 5.5);
+      camPos.lerp(target, 1 - Math.pow(.02, dt));
+      camLook.lerp(new THREE.Vector3(p.x * .8, state === "title" ? 1.2 : .9, state === "title" ? p.z : p.z - 2.5), 1 - Math.pow(.01, dt));
+      camera.position.copy(camPos);
+      camera.lookAt(camLook);
+      camera.rotation.z += Math.sin(tt * 1.1) * .04;
+      sun.position.set(p.x + 3, 8, p.z + 3); sun.target.position.set(p.x, 0, p.z - 2);
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+
+    const overlay = document.getElementById('overlay'), big = document.getElementById('big'), btns = document.getElementById('btns');
+    const CROSS = '<svg viewBox="0 0 100 100"><path d="M20 20L80 80M80 20L20 80" stroke="#ff5a3a" stroke-width="16" stroke-linecap="round"/></svg>';
+    function render() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      document.getElementById('lang').value = lang;
+      document.getElementById('sound').innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${muted ? '<path d="M17 9l5 6M22 9l-5 6"/>' : '<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>'}</svg>`;
+      overlay.style.display = state === 'play' ? 'none' : 'flex';
+      big.innerHTML = '';
+      btns.innerHTML = '';
+      if (state === 'play') return;
+      if (state === 'result') { if (result.win) big.textContent = t('time')(result.s); else big.innerHTML = CROSS; }
+      const b = document.createElement('button');
+      b.className = 'go'; b.textContent = state === 'result' ? t('again') : t('start');
+      b.addEventListener('click', start);
+      btns.append(b);
+      if (state === 'result') {
+        const text = result.win ? t('win')(result.s) : t('lose');
+        const a = document.createElement('a');
+        a.className = 'post'; a.textContent = t('post');
+        a.href = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SHARE_URL)}`;
+        if (!matchMedia('(pointer: coarse)').matches) { a.target = '_blank'; a.rel = 'noopener'; }
+        btns.append(a);
+      }
+    }
+    document.getElementById('lang').addEventListener('change', e => { lang = e.target.value; store.set('lang', lang); render(); });
+    document.getElementById('sound').addEventListener('click', () => { muted = !muted; store.set('muted', muted); render(); });
+    addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && state !== 'play' && document.activeElement?.tagName !== 'BUTTON' && document.activeElement?.tagName !== 'A') start(); });
+
+    reset(); render(); requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
