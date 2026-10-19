@@ -99,6 +99,7 @@
     </div>
     <div id="barCut" class="bar">
       <button id="photo" class="btn sub ic" aria-label="photo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8" fill="currentColor"/><path d="M4 18l5-5 3 3 3-4 5 6"/></svg></button>
+      <button id="turn" class="btn sub ic" aria-label="turn"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg></button>
       <button id="shake" class="btn sub ic" aria-label="shake"><svg width="26" height="24" viewBox="0 0 26 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="12" r="5.5"/><path d="M5 8c-2 2-2 6 0 8M21 8c2 2 2 6 0 8"/></svg></button>
       <button id="comb" class="btn sub ic" aria-label="comb"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="3" y="5" width="18" height="5" rx="1.5"/><path d="M5.5 10v8M9 10v8M12.5 10v8M16 10v8M19.5 10v8"/></svg></button>
       <button id="undoCut" class="btn sub ic" aria-label="undo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7L4 11l5 4"/><path d="M4 11h10a5 5 0 0 1 0 10h-3"/></svg></button>
@@ -204,10 +205,18 @@
 
   // 頭皮の髪（上と後ろ）
   const capMat = new THREE.MeshLambertMaterial({ color: 0x2a1d17 });
-  const capTop = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24, 0, Math.PI * 2, 0, 0.97), capMat);
-  capTop.scale.copy(RAD).multiplyScalar(1.04); head.add(capTop);
-  const capBack = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32, Math.PI, Math.PI, 0, 2.35), capMat);
-  capBack.scale.copy(RAD).multiplyScalar(1.04); head.add(capBack);
+  // 生え際の高さ（仰角）: 前はおでこの上、横は耳の上、後ろはうなじまで
+  const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const hairline = az => 0.6 - 1.1 * smooth(0.9, 2.7, Math.abs(az));
+  // 頭皮: 球の生え際より下の頂点を頭の中へ沈めて、髪の生えている所だけ見せる
+  const capGeo = new THREE.SphereGeometry(1, 64, 48), cp = capGeo.attributes.position;
+  for (let i = 0; i < cp.count; i++) {
+    const x = cp.getX(i), y = cp.getY(i), z = cp.getZ(i);
+    if (Math.asin(Math.max(-1, Math.min(1, y))) < hairline(Math.atan2(x, z)) - 0.03) cp.setXYZ(i, x * 0.9, y * 0.9, z * 0.9);
+  }
+  capGeo.computeVertexNormals();
+  const cap = new THREE.Mesh(capGeo, capMat);
+  cap.scale.copy(RAD).multiplyScalar(1.02); head.add(cap);
 
   // 顔: 頭の前半分に、切り抜いた画像を正面から投影して貼る
   const faceGeo = new THREE.SphereGeometry(1, 64, 48, 0, Math.PI);
@@ -245,19 +254,22 @@
     return c;
   }
 
-  // ---------- 前髪（ひも状の毛をベルレ積分で動かす） ----------
+  // ---------- 髪（ひも状の毛をベルレ積分で動かす） ----------
   const P = 16;                    // 1本あたりの点の数
   const roots = [];                // { pos, dir, seg, tint }
-  for (const [el, n] of [[0.6, 120], [0.69, 105], [0.78, 90]]) {
-    for (let k = 0; k < n; k++) {
-      const az = -1.25 + 2.5 * (k + Math.random() * 0.6) / n;
-      const d = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
-      const pos = d.clone().multiply(RAD).multiplyScalar(1.03);
-      const nrm = new THREE.Vector3(d.x / RAD.x, d.y / RAD.y, d.z / RAD.z).normalize();
-      const dir = nrm.multiplyScalar(0.6).add(new THREE.Vector3(0, 0.15, 0.3)).normalize();
-      const L = 1.45 + 0.4 * Math.pow(Math.abs(az) / 1.25, 2) + Math.random() * 0.1;
-      roots.push({ pos, dir, seg: L / (P - 1), tint: 0.82 + Math.random() * 0.3 });
-    }
+  // 頭全体に均等に散らした点（フィボナッチ球）のうち、生え際より上のものを根元にする
+  for (let k = 0, M = 1500; k < M; k++) {
+    const yy = 1 - 2 * (k + 0.5) / M, el = Math.asin(yy), az = Math.atan2(Math.sin(k * 2.39996), Math.cos(k * 2.39996));
+    if (el < hairline(az)) continue;
+    const d = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+    const pos = d.clone().multiply(RAD).multiplyScalar(1.03);
+    const nrm = new THREE.Vector3(d.x / RAD.x, d.y / RAD.y, d.z / RAD.z).normalize();
+    const front = Math.max(0, Math.cos(az));
+    // 根元はななめ下へ（頭頂部の毛が逆立たないように）
+    const dir = nrm.multiplyScalar(0.6).add(new THREE.Vector3(0, 0.15 - 0.45 * smooth(0.5, 1.3, el), 0.3 * front)).normalize();
+    // 前髪はあごまで、横と後ろは肩につくくらい
+    const L = 1.45 + 0.75 * smooth(0.7, 2.6, Math.abs(az)) + 0.3 * smooth(0.6, 1.4, el) + Math.random() * 0.1;
+    roots.push({ pos, dir, seg: L / (P - 1), tint: 0.82 + Math.random() * 0.3 });
   }
   const N = roots.length;
   const pos = new Float32Array(N * P * 3), prev = new Float32Array(N * P * 3), lens = new Int16Array(N).fill(P);
@@ -288,6 +300,14 @@
     const k = COL / m; lx *= k * RAD.x; ly *= k * RAD.y; lz *= k * RAD.z;
     a[i] = e[0] * lx + e[3] * ly + e[6] * lz; a[i + 1] = e[1] * lx + e[4] * ly + e[7] * lz; a[i + 2] = e[2] * lx + e[5] * ly + e[8] * lz;
   }
+  // 首（円柱）とケープ（円すい）から外へ押し出す
+  function collideBody(a, i) {
+    const y = a[i + 1];
+    if (y > -0.85) return;
+    const r = Math.hypot(a[i], a[i + 2]) || 1e-6;
+    const need = y > -1.65 ? 0.5 : Math.max(0.5, (-1.65 - y) * 1.22 + 0.08);
+    if (r < need) { a[i] *= need / r; a[i + 2] *= need / r; }
+  }
   function constrain(a, b, i, j, rest, wi, wj, stiff) {
     const dx = a[j] - a[i], dy = a[j + 1] - a[i + 1], dz = a[j + 2] - a[i + 2];
     const d = Math.hypot(dx, dy, dz) || 1e-6, w = wi + wj;
@@ -311,11 +331,11 @@
       const o = s * P * 3, n = lens[s], seg = roots[s].seg;
       verlet(pos, prev, o + 6, o + n * 3, dt);
       for (let k = 0; k < 6; k++) { pos[o + k] = rw[s * 6 + k]; prev[o + k] = rw[s * 6 + k]; }
-      for (let it = 0; it < 4; it++) {
+      for (let it = 0; it < 3; it++) {
         for (let i = 1; i < n - 1; i++) constrain(pos, prev, o + i * 3, o + i * 3 + 3, seg, i < 2 ? 0 : 1, 1, 1);
         // 曲げにくさ（1つとばしの点どうし）
         for (let i = 0; i < n - 2; i++) constrain(pos, prev, o + i * 3, o + i * 3 + 6, seg * 1.94, i < 2 ? 0 : 1, 1, 0.12);
-        for (let i = 2; i < n; i++) collide(pos, o + i * 3);
+        for (let i = 2; i < n; i++) { collide(pos, o + i * 3); collideBody(pos, o + i * 3); }
       }
     }
     for (const pc of pieces) {
@@ -323,7 +343,7 @@
       verlet(pc.pos, pc.prev, 0, pc.n * 3, dt);
       for (let it = 0; it < 2; it++) {
         for (let i = 0; i < pc.n - 1; i++) constrain(pc.pos, pc.prev, i * 3, i * 3 + 3, pc.seg, 1, 1, 1);
-        for (let i = 0; i < pc.n; i++) collide(pc.pos, i * 3);
+        for (let i = 0; i < pc.n; i++) { collide(pc.pos, i * 3); collideBody(pc.pos, i * 3); }
       }
     }
     pieces = pieces.filter(pc => pc.age < 5 && pc.pos[1] > -4);
@@ -333,7 +353,9 @@
     const o = s * P * 3, seg = roots[s].seg;
     for (let i = Math.max(2, from); i < P; i++) {
       const j = o + i * 3, q = j - 3;
-      pos[j] = pos[q] * 1.0; pos[j + 1] = pos[q + 1] - seg; pos[j + 2] = pos[q + 2] + seg * 0.15;
+      // 頭から少し外向きに垂らす
+      const h = Math.hypot(pos[q], pos[q + 2]) || 1;
+      pos[j] = pos[q] + pos[q] / h * seg * 0.3; pos[j + 1] = pos[q + 1] - seg; pos[j + 2] = pos[q + 2] + pos[q + 2] / h * seg * 0.3;
       prev[j] = pos[j]; prev[j + 1] = pos[j + 1]; prev[j + 2] = pos[j + 2];
     }
   }
@@ -344,7 +366,7 @@
       for (let k = 0; k < 6; k++) pos[s * P * 3 + k] = prev[s * P * 3 + k] = rw[s * 6 + k];
       hangStrand(s, 2);
     }
-    for (let i = 0; i < 90; i++) step(1 / 60);
+    for (let i = 0; i < 200; i++) step(1 / 60);
   }
 
   // 毛を、カメラに向いた細い帯として描く
@@ -379,7 +401,7 @@
       const tx = src[b] - src[a], ty = src[b + 1] - src[a + 1], tz = src[b + 2] - src[a + 2];
       const vx = cp.x - src[j], vy = cp.y - src[j + 1], vz = cp.z - src[j + 2];
       let sx = ty * vz - tz * vy, sy = tz * vx - tx * vz, sz = tx * vy - ty * vx;
-      const w = (0.05 - 0.03 * (i0 + ii) / P) / 2 / (Math.hypot(sx, sy, sz) || 1);
+      const w = (0.04 - 0.022 * (i0 + ii) / P) / 2 / (Math.hypot(sx, sy, sz) || 1);
       sx *= w; sy *= w; sz *= w;
       pa[v] = src[j] - sx; pa[v + 1] = src[j + 1] - sy; pa[v + 2] = src[j + 2] - sz;
       pa[v + 3] = src[j] + sx; pa[v + 4] = src[j + 1] + sy; pa[v + 5] = src[j + 2] + sz;
@@ -427,12 +449,15 @@
   function doCuts() {
     if (!cutQueue.length) return;
     project();
+    const cl = camera.position.length(), cdx = camera.position.x / cl, cdy = camera.position.y / cl, cdz = camera.position.z / cl;
     let any = false;
     for (const [ax, ay, bx, by] of cutQueue) {
       for (let s = 0; s < N; s++) {
         const n = lens[s];
         for (let j = 1; j < n - 1; j++) {
-          const k = (s * P + j) * 2;
+          const k = (s * P + j) * 2, q = (s * P + j) * 3;
+          // 頭の向こう側（カメラから見えない）の毛は切らない
+          if (pos[q] * cdx + pos[q + 1] * cdy + pos[q + 2] * cdz < -0.25 && Math.hypot(pos[q], pos[q + 2]) < 1.4 && pos[q + 1] > -1.3) continue;
           if (!hit(ax, ay, bx, by, scr[k], scr[k + 1], scr[k + 2], scr[k + 3])) continue;
           // j より先を切り離して落とす
           const o = s * P * 3, m = n - j;
@@ -457,7 +482,7 @@
   // ---------- 頭の向き ----------
   let yaw = 0, yawV = 0, yawT = 0, pitch = 0, pitchV = 0, pitchT = 0;
   function moveHead(dt) {
-    yawV += (-(yaw - yawT) * 60 - yawV * 5) * dt; yaw += yawV * dt;
+    yawV += (-(yaw - yawT) * 25 - yawV * 7) * dt; yaw += yawV * dt;
     pitchV += (-(pitch - pitchT) * 60 - pitchV * 6) * dt; pitch += pitchV * dt;
     head.rotation.set(pitch, yaw, 0, 'YXZ');
   }
@@ -625,7 +650,7 @@
     if (mode !== 'cut') return;
     if (rot) {
       const vals = [...touches.values()], m = vals.length >= 2 ? midOf(vals[0], vals[1]) : local(e);
-      yawT = Math.max(-1.3, Math.min(1.3, rot.y0 + (m.x - rot.m.x) * 0.01));
+      yawT = rot.y0 + (m.x - rot.m.x) * 0.01;
       pitchT = Math.max(-0.5, Math.min(0.6, rot.p0 + (m.y - rot.m.y) * 0.008));
       return;
     }
@@ -657,7 +682,8 @@
   // ---------- buttons ----------
   $('photo').onclick = () => $('file').click();
   $('file').onchange = e => { loadFile(e.target.files[0]); e.target.value = ''; };
-  $('shake').onclick = () => { yawV += yawV >= 0 ? 9 : -9; };
+  $('turn').onclick = () => { yawT += Math.PI / 2; };
+  $('shake').onclick = () => { yawV += yawV >= 0 ? 7 : -7; };
   $('comb').onclick = () => {
     for (let s = 0; s < N; s++) hangStrand(s, 2);
     for (let i = 0; i < 40; i++) step(1 / 60);
