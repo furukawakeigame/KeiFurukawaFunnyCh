@@ -34,8 +34,10 @@
     #streak { position: fixed; top: 56px; left: 0; right: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; padding: 0 16px; z-index: 4; pointer-events: none; }
     #streak svg { width: 14px; height: 30px; animation: pop .35s ease-out; }
     @keyframes pop { from { transform: scale(0); } 60% { transform: scale(1.4); } to { transform: scale(1); } }
-    #hint { position: fixed; width: 54px; height: 54px; z-index: 3; pointer-events: none; display: none; animation: swipe 1.4s ease-in-out infinite alternate; }
-    @keyframes swipe { from { transform: translateX(-40px); } to { transform: translateX(40px); } }
+    #hint { position: fixed; width: 54px; height: 54px; z-index: 3; pointer-events: none; display: none; animation: swipe 1.2s ease-in-out infinite alternate; }
+    @keyframes swipe { from { transform: translateX(0); } to { transform: translateX(70px); } }
+    #hint.tap { animation: tap .9s ease-in-out infinite alternate; }
+    @keyframes tap { from { transform: scale(.75); opacity: .5; } to { transform: scale(1.1); opacity: 1; } }
     #result { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 6; padding: 16px 16px calc(80px + env(safe-area-inset-bottom)); background: rgba(59,42,26,.25); }
     #result .panel { background: #fffaf2; border-radius: 22px; padding: 22px 22px 18px; width: min(320px, 100%); text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
     #result .big { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 52px; font-weight: 900; line-height: 1; }
@@ -144,11 +146,11 @@
     $('stage').appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#f6ead8');
-    scene.fog = new THREE.Fog('#f6ead8', 4, 9);
+    scene.fog = new THREE.Fog('#f6ead8', 6, 14);
     const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 20);
     scene.add(new THREE.HemisphereLight('#fff8ee', '#b08860', 1.4));
     const sun = new THREE.DirectionalLight('#ffffff', 1.6);
-    sun.position.set(1, 3, 2); sun.castShadow = true;
+    sun.position.set(0.8, 3, 2); sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
     Object.assign(sun.shadow.camera, { left: -1.5, right: 1.5, top: 1.5, bottom: -1.5, near: 0.1, far: 8 });
     scene.add(sun, sun.target);
@@ -188,12 +190,20 @@
     const inner = new THREE.Group(); inner.add(water, label, cap, shell);
     inner.position.y = -HC; bottle.add(inner); scene.add(bottle);
     const rodMat = new THREE.MeshStandardMaterial({ color: '#555b66', metalness: 0.6, roughness: 0.35 });
-    const rods = [0, 1].map(() => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1, 8), rodMat); m.castShadow = true; scene.add(m); return m; });
-    const joints = [0.022, 0.009, 0.009].map(r => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshStandardMaterial({ color: r > 0.01 ? '#e0602a' : '#555b66', roughness: 0.4 })); m.castShadow = true; scene.add(m); return m; });
+    const rods = [0, 1, 2].map(() => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1, 8), rodMat); m.castShadow = true; scene.add(m); return m; });
+    const joints = [0.02, 0.009, 0.009, 0.009].map(r => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshStandardMaterial({ color: r > 0.01 ? '#e0602a' : '#555b66', roughness: 0.4 })); m.castShadow = true; scene.add(m); return m; });
     const UP = new THREE.Vector3(0, 1, 0), tmpV = new THREE.Vector3();
+    // 支点のスタンド：左奥に立てた柱から、上を通る腕で支点まで渡す
+    const stand = (geo, x, y, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, rodMat); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); m.castShadow = true; return m; };
+    const post = stand(new THREE.CylinderGeometry(0.012, 0.016, 1.0, 12), -0.8, 0.5, -0.3);
+    const arm = stand(new THREE.CylinderGeometry(0.01, 0.01, 0.8, 8), -0.4, 1.0, -0.3, 0, Math.PI / 2);
+    const drop = stand(new THREE.CylinderGeometry(0.006, 0.006, 0.2, 8), 0, 0.9, -0.3);
+    const tip = stand(new THREE.CylinderGeometry(0.006, 0.006, 0.3, 8), 0, 0.8, -0.15, Math.PI / 2);
+    const foot = stand(new THREE.CylinderGeometry(0.08, 0.09, 0.015, 24), -0.8, 0.0075, -0.3);
+    scene.add(post, arm, drop, tip, foot);
     function drawChain() {
-      for (let k = 0; k < 3; k++) joints[k].position.set(P[k][0], P[k][1], 0);
-      for (let k = 0; k < 2; k++) {
+      for (let k = 0; k < 4; k++) joints[k].position.set(P[k][0], P[k][1], 0);
+      for (let k = 0; k < 3; k++) {
         const [ax, ay] = P[k], [bx, by] = P[k + 1];
         rods[k].position.set((ax + bx) / 2, (ay + by) / 2, 0);
         rods[k].scale.y = Math.hypot(bx - ax, by - ay);
@@ -201,74 +211,18 @@
       }
     }
 
-    // ---------- 置き場所 ----------
-    const PLAT_STYLES = {
-      mat: { color: '#7fbf6a' }, books: { colors: ['#d9534f', '#f0ad4e', '#5b8bd9', '#6bbf8a'] }, mug: { color: '#f2f2f2' }, coaster: { color: '#9a6a3a' }, block: { color: '#e9c46a' },
-    };
-    let plats = [], platGroup = new THREE.Group(); scene.add(platGroup);
-    function platSpec(i, x) {
-      const r = Math.random;
-      if (i === 0) return { kind: 'mat', x, w: 0.3, h: 0.006 };
-      if (i === 1) return { kind: 'mat', x, w: 0.26, h: 0.006 };
-      if (i === 2) return { kind: 'books', x, w: 0.22, h: 0.12 };
-      if (i === 3) return { kind: 'mug', x, w: 0.1, h: 0.1 };
-      if (i === 4) return { kind: 'coaster', x, w: 0.1, h: 0.008 };
-      const kinds = ['books', 'mug', 'coaster', 'block'];
-      const kind = kinds[Math.floor(r() * kinds.length)];
-      const w = Math.max(0.08, 0.16 - i * 0.005) * (0.8 + r() * 0.3);
-      const h = kind === 'coaster' ? 0.008 : kind === 'mug' ? 0.1 : 0.04 + r() * 0.2;
-      return { kind, x, w: kind === 'mug' ? Math.max(0.085, w) : w, h };
-    }
-    function buildPlat(p) {
-      const g = new THREE.Group(); g.position.x = p.x;
-      const add = (geo, color, y) => { const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.6 })); m.position.y = y; m.castShadow = m.receiveShadow = true; g.add(m); return m; };
-      if (p.kind === 'books') {
-        const n = Math.max(1, Math.round(p.h / 0.035)), bh = p.h / n;
-        for (let k = 0; k < n; k++) { const m = add(new THREE.BoxGeometry(p.w + (k % 2 ? 0.02 : 0), bh * 0.98, 0.2 - (k % 2) * 0.02), PLAT_STYLES.books.colors[(k + Math.floor(p.x * 7)) % 4], bh * (k + 0.5)); m.position.x = (k % 2 ? 0.006 : -0.004); }
-      } else if (p.kind === 'mug') {
-        add(new THREE.CylinderGeometry(p.w / 2, p.w / 2 * 0.95, p.h, 32), PLAT_STYLES.mug.color, p.h / 2);
-        const handle = add(new THREE.TorusGeometry(0.03, 0.008, 8, 16), PLAT_STYLES.mug.color, p.h / 2); handle.position.x = p.w / 2 + 0.012;
-      } else if (p.kind === 'coaster') {
-        add(new THREE.CylinderGeometry(p.w / 2, p.w / 2, p.h, 32), PLAT_STYLES.coaster.color, p.h / 2);
-      } else if (p.kind === 'mat') {
-        add(new THREE.BoxGeometry(p.w, p.h, 0.24), PLAT_STYLES.mat.color, p.h / 2);
-      } else {
-        add(new THREE.BoxGeometry(p.w, p.h, p.w), PLAT_STYLES.block.color, p.h / 2);
-      }
-      platGroup.add(g); p.mesh = g;
-    }
-    function addPlat() {
-      const i = plats.length, prev = plats[i - 1];
-      const x = prev ? prev.x + 0.45 + Math.random() * 0.35 + Math.min(i, 8) * 0.02 : 0;
-      const p = platSpec(i, x); plats.push(p); buildPlat(p);
-    }
-
     // ---------- 物理（縦の平面で回る剛体） ----------
     const G = 9.8, M = 1, I = 0.0045;
     const PTS = [[-R + 0.006, 0], [R - 0.006, 0], [-R, 0.006], [R, 0.006], [-R, 0.15], [R, 0.15], [-0.02, 0.2], [0.02, 0.2], [-0.016, 0.24], [0.016, 0.24]].map(([x, y]) => [x, y - HC]);
     const body = { x: 0, y: HC, a: 0, vx: 0, vy: 0, w: 0 };
-    let gen = 0, phase = 'ready', cur = 0, streak = 0, best = store.get('best', 0), tFly = 0, still = 0, lastTok = 0, resultShown = false;
+    let gen = 0, phase = 'ready', streak = 0, best = store.get('best', 0), tFly = 0, still = 0, lastTok = 0, resultShown = false;
 
-    function boxes() {
-      const out = [];
-      for (const p of plats) out.push({ l: p.x - p.w / 2, r: p.x + p.w / 2, top: p.h });
-      return out;
-    }
     function contacts() {
       const c = Math.cos(body.a), s = Math.sin(body.a), list = [];
-      const bx = boxes();
       for (let pi = 0; pi < PTS.length; pi++) {
         const [lx, ly] = PTS[pi], base = pi < 4;
-        const rx = lx * c - ly * s, ry = lx * s + ly * c, px = body.x + rx, py = body.y + ry;
+        const rx = lx * c - ly * s, ry = lx * s + ly * c, py = body.y + ry;
         if (py < 0) list.push({ rx, ry, nx: 0, ny: 1, d: -py, base });
-        for (const b of bx) {
-          if (px > b.l && px < b.r && py < b.top && py > -0.01) {
-            const dt = b.top - py, dl = px - b.l, dr = b.r - px, m = Math.min(dt, dl, dr);
-            if (m === dt) list.push({ rx, ry, nx: 0, ny: 1, d: dt, base });
-            else if (m === dl) list.push({ rx, ry, nx: -1, ny: 0, d: dl });
-            else list.push({ rx, ry, nx: 1, ny: 0, d: dr });
-          }
-        }
       }
       return list;
     }
@@ -318,87 +272,68 @@
     }
     const upright = () => Math.atan2(Math.sin(body.a), Math.cos(body.a));
 
-    // ---------- 三重振り子（棒・棒・ボトル） ----------
-    const LEN = [0.14, 0.14, H], INV = [0, 3, 1.5, 1]; // 持ち手は動かない点、ボトルの底がいちばん重い
-    const P = [[0, 0], [0, 0], [0, 0], [0, 0]], Q = P.map(v => v.slice());
-    const hand = { x: 0, y: 0, tx: 0, ty: 0 };
-    let holding = false, grab = null, lastSub = 1 / 960;
-    const handRange = () => { const p = plats[cur], q = plats[cur + 1]; return { l: p.x - 0.3, r: q.x + 0.1, b: Math.max(p.h, q.h) + 0.5, t: Math.max(p.h, q.h) + 0.95 }; };
-    function placeOn(i) {
-      const p = plats[i];
-      hand.x = hand.tx = p.x; hand.y = hand.ty = p.h + 0.6;
-      let y = hand.y;
-      for (let k = 0; k < 4; k++) { if (k) y -= LEN[k - 1]; P[k] = [p.x, y]; Q[k] = [p.x, y]; }
+    // ---------- 三重振り子（棒・棒・棒、その先にボトル） ----------
+    const PIV = [0, 0.8], LEN = [0.13, 0.13, 0.13, H], INV = [0, 2, 2, 1.5, 1]; // 支点は動かない。ボトルの底がいちばん重い
+    const P = Array.from({ length: 5 }, () => [0, 0]), Q = P.map(v => v.slice());
+    let holding = false, grab = null, aim = null, lastSub = 1 / 960;
+    const comOf = () => { const t = HC / H; return [P[4][0] + (P[3][0] - P[4][0]) * t, P[4][1] + (P[3][1] - P[4][1]) * t]; };
+    function hang() {
+      let y = PIV[1];
+      for (let k = 0; k < 5; k++) { if (k) y -= LEN[k - 1]; P[k] = [PIV[0], y]; Q[k] = [PIV[0], y]; }
       bodyFromChain();
     }
-    function surfaceY(x, y) {
-      let top = 0;
-      for (const b of boxes()) if (x > b.l && x < b.r && y > b.top - 0.06) top = Math.max(top, b.top);
-      return top;
-    }
     function chainStep(dt) {
-      // 持ち手は指を追いかける（速すぎる動きは丸める）
-      const mx = hand.tx - hand.x, my = hand.ty - hand.y, md = Math.hypot(mx, my), maxd = 7 * dt;
-      const f = md > maxd && md > 0 ? maxd / md : 1;
-      hand.x += mx * f; hand.y += my * f;
-      Q[0] = P[0]; P[0] = [hand.x, hand.y];
-      const n = phase === 'ready' ? 4 : 3; // 投げたあとはボトルを外した二重振り子
+      const n = phase === 'ready' || phase === 'swing' ? 5 : 4; // 落としたあとはボトルを外した振り子
       for (let k = 1; k < n; k++) {
-        const vx = (P[k][0] - Q[k][0]) * 0.9995, vy = (P[k][1] - Q[k][1]) * 0.9995;
+        const vx = (P[k][0] - Q[k][0]) * 0.9997, vy = (P[k][1] - Q[k][1]) * 0.9997;
         Q[k] = P[k]; P[k] = [P[k][0] + vx, P[k][1] + vy - G * dt * dt];
       }
       for (let it = 0; it < 8; it++) {
+        if (holding && aim && n === 5) {
+          // つまんでいる間は、ボトルの重心を指の位置へ引っぱる
+          const c = comOf(), dx = (aim[0] - c[0]) * 0.5, dy = (aim[1] - c[1]) * 0.5;
+          for (const k of [3, 4]) { P[k][0] += dx; P[k][1] += dy; }
+        }
         for (let j = 0; j < n - 1; j++) {
           const a = P[j], b = P[j + 1], dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1e-6;
           const wa = INV[j], wb = INV[j + 1], c = (d - LEN[j]) / d / (wa + wb);
           a[0] += dx * c * wa; a[1] += dy * c * wa; b[0] -= dx * c * wb; b[1] -= dy * c * wb;
         }
-        for (let k = 1; k < n; k++) { const sy = surfaceY(P[k][0], P[k][1]); if (P[k][1] < sy) { P[k][1] = sy; Q[k][0] = P[k][0] * 0.5 + Q[k][0] * 0.5; } }
+        for (let k = 1; k < n; k++) if (P[k][1] < 0) { P[k][1] = 0; Q[k][0] = P[k][0] * 0.5 + Q[k][0] * 0.5; }
       }
       if (dt > 0) lastSub = dt;
     }
     function bodyFromChain() {
-      const [cx, cy] = P[2], [bx, by] = P[3], ux = (cx - bx) / H, uy = (cy - by) / H;
-      const v2x = (P[2][0] - Q[2][0]) / lastSub, v2y = (P[2][1] - Q[2][1]) / lastSub;
-      const v3x = (P[3][0] - Q[3][0]) / lastSub, v3y = (P[3][1] - Q[3][1]) / lastSub;
+      const [cx, cy] = P[3], [bx, by] = P[4], ux = (cx - bx) / H, uy = (cy - by) / H;
+      const v2x = (P[3][0] - Q[3][0]) / lastSub, v2y = (P[3][1] - Q[3][1]) / lastSub;
+      const v3x = (P[4][0] - Q[4][0]) / lastSub, v3y = (P[4][1] - Q[4][1]) / lastSub;
       const t = HC / H;
       body.x = bx + (cx - bx) * t; body.y = by + (cy - by) * t; body.a = Math.atan2(-ux, uy);
       body.vx = v3x + (v2x - v3x) * t; body.vy = v3y + (v2y - v3y) * t;
       body.w = ((cx - bx) * (v2y - v3y) - (cy - by) * (v2x - v3x)) / (H * H);
     }
     function reset() {
-      gen++;
-      for (const p of plats) platGroup.remove(p.mesh);
-      plats = []; addPlat(); addPlat();
-      cur = 0; streak = 0; phase = 'ready'; placeOn(0);
+      gen++; streak = 0; phase = 'ready'; holding = false; hang();
       $('streak').innerHTML = ''; resultShown = false; $('result').style.display = 'none';
-      camX = camTarget(); showHint();
+      showHint('drag');
     }
     function release() {
       bodyFromChain();
-      phase = 'fly'; tFly = 0; still = 0; sfx.whoosh();
-    }
-
-    function onTarget() {
-      const p = plats[cur + 1];
-      return Math.abs(body.x - p.x) < p.w / 2 && Math.abs(body.y - HC - p.h) < 0.01;
+      phase = 'fly'; tFly = 0; still = 0; sfx.whoosh(); hideHint();
     }
     function judge(dt) {
       tFly += dt;
       const slow = Math.abs(body.vx) + Math.abs(body.vy) < 0.04 && Math.abs(body.w) < 0.3;
       still = slow ? still + dt : 0;
-      if (tFly > 0.25 && still > 0.35) {
-        if (Math.abs(upright()) < 0.1 && onTarget()) return succeed();
-        return fail();
-      }
-      if (body.y < -0.5 || tFly > 6) return fail();
+      if (tFly > 0.25 && still > 0.35) return Math.abs(upright()) < 0.1 ? succeed() : fail();
+      if (body.y < -0.5 || tFly > 8) return fail();
     }
     const BOTTLE_SVG = '<path d="M5 1h4v3l1 3h1.5q1.5 0 1.5 2v19q0 1-1 1H2q-1 0-1-1V9q0-2 1.5-2H4l1-3z" fill="#dff4ff" stroke="#2a9be0" stroke-width="1.2"/><rect x="1.6" y="18" width="10.8" height="10.4" fill="#58b8f0"/><rect x="5" y="0.5" width="4" height="3" fill="#2a9be0"/>';
     function succeed() {
       phase = 'won'; streak++; sfx.win();
       const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 14 30'); s.innerHTML = BOTTLE_SVG; $('streak').appendChild(s);
       body.vy = 0.8; // 小さく跳ねて喜ぶ
-      const g = gen; setTimeout(() => { if (g !== gen) return; cur++; addPlat(); placeOn(cur); phase = 'ready'; }, 650);
+      const g = gen; setTimeout(() => { if (g !== gen) return; phase = 'ready'; hang(); }, 650);
     }
     function fail() {
       phase = 'lost'; sfx.lose();
@@ -420,40 +355,37 @@
     }
     $('retry').addEventListener('click', reset);
 
-    // ---------- 操作：押さえている間は指が持ち手、離すと投げる ----------
+    // ---------- 操作：ボトルをつまんで振り、もう一度タップで落とす ----------
     const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), hit3 = new THREE.Vector3();
     function toWorld(e) {
       ray.setFromCamera(new THREE.Vector2(e.clientX / innerWidth * 2 - 1, -e.clientY / innerHeight * 2 + 1), camera);
       return ray.ray.intersectPlane(plane, hit3) ? [hit3.x, hit3.y] : null;
     }
-    function moveHand(e) {
-      const w = toWorld(e); if (!w) return;
-      const r = handRange();
-      hand.tx = Math.max(r.l, Math.min(r.r, w[0] + grab[0])); hand.ty = Math.max(r.b, Math.min(r.t, w[1] + grab[1]));
-    }
     addEventListener('pointerdown', e => {
-      if (e.target.closest('header, #result') || phase !== 'ready') return;
+      if (e.target.closest('header, #result')) return;
       const w = toWorld(e); if (!w) return;
-      holding = true; grab = [hand.x - w[0], hand.y - w[1]]; hideHint();
+      const c = comOf(), near = Math.hypot(w[0] - c[0], w[1] - c[1]) < 0.16;
+      if (phase === 'ready' || (phase === 'swing' && near)) {
+        holding = true; grab = [c[0] - w[0], c[1] - w[1]]; aim = c; hideHint();
+      } else if (phase === 'swing') release();
     });
-    addEventListener('pointermove', e => { if (holding) moveHand(e); });
-    addEventListener('pointerup', () => { if (holding && phase === 'ready') { holding = false; release(); } holding = false; });
-    addEventListener('pointercancel', () => holding = false);
+    addEventListener('pointermove', e => { if (!holding) return; const w = toWorld(e); if (w) aim = [w[0] + grab[0], Math.max(0.1, w[1] + grab[1])]; });
+    addEventListener('pointerup', () => { if (holding) { holding = false; phase = 'swing'; showHint('tap'); } });
+    addEventListener('pointercancel', () => { if (holding) { holding = false; phase = 'swing'; } });
 
     // ---------- ヒント ----------
-    let hinted = store.get('hinted', false);
-    function showHint() { if (!hinted) $('hint').style.display = 'block'; }
-    function hideHint() { if (!hinted) { hinted = true; store.set('hinted', true); } $('hint').style.display = 'none'; }
+    const hintDone = store.get('hint', {});
+    let hintKind = null;
+    function showHint(kind) { if (hintDone[kind]) return; hintKind = kind; $('hint').setAttribute('class', kind); $('hint').style.display = 'block'; }
+    function hideHint() { if (hintKind) { hintDone[hintKind] = true; store.set('hint', hintDone); } hintKind = null; $('hint').style.display = 'none'; }
     function placeHint() {
-      if ($('hint').style.display !== 'block') return;
-      const v = new THREE.Vector3(hand.x, hand.y, 0).project(camera);
+      if (!hintKind) return;
+      const v = new THREE.Vector3(...(hintKind === 'drag' ? comOf() : [PIV[0] + 0.35, PIV[1] - 0.2]), 0).project(camera);
       $('hint').style.left = ((v.x + 1) / 2 * innerWidth - 27) + 'px';
       $('hint').style.top = ((1 - v.y) / 2 * innerHeight - 27) + 'px';
     }
 
     // ---------- カメラと描画 ----------
-    let camX = 0;
-    const camTarget = () => { const a = plats[cur], b = plats[cur + 1]; return b ? (a.x + b.x) / 2 : a.x; };
     function resize() {
       const w = innerWidth, h = innerHeight;
       renderer.setSize(w, h, false); camera.aspect = w / h;
@@ -465,21 +397,17 @@
     function frame(now) {
       const dt = Math.max(0, Math.min(0.05, (now - prev) / 1000)); prev = now;
       { const n = 16, h = dt / n; for (let i = 0; i < n; i++) chainStep(h); }
-      if (phase === 'ready') bodyFromChain();
+      if (phase === 'ready' || phase === 'swing') bodyFromChain();
       if (phase === 'fly' || phase === 'lost' || phase === 'won') {
         const n = 16, h = dt / n;
         for (let i = 0; i < n; i++) { const hit = step(h); if (hit > 0.3 && now - lastTok > 70) { sfx.tok(hit); lastTok = now; } }
         if (phase === 'fly') judge(dt);
       }
-      camX += (camTarget() - camX) * Math.min(1, dt * 4);
-      // 縦長の画面では引いて、左右の台が両方見えるようにする
-      const span = (plats[cur + 1] ? plats[cur + 1].x - plats[cur].x : 0.6) + 0.3;
+      // 振り子が届く範囲（左右 ±0.7、高さ 0〜1.5）がいつも入るように引く
       const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-      const dist = Math.max(span / 2 / tv / camera.aspect, 1.05 / 2 / tv);
-      const lookY = 0.34 + Math.max(plats[cur].h, plats[cur + 1]?.h || 0) * 0.6;
-      camera.position.set(camX, lookY + dist * 0.15, dist);
-      camera.lookAt(camX, lookY, 0);
-      sun.position.set(camX + 1, 3, 2); sun.target.position.set(camX, 0, 0);
+      const dist = Math.max(1.5 / 2 / tv / camera.aspect, 1.55 / 2 / tv);
+      camera.position.set(0, 0.85, dist);
+      camera.lookAt(0, 0.68, 0);
       bottle.position.set(body.x, body.y, 0); bottle.rotation.z = body.a;
       // 水面のゆれ（見た目だけ）
       water.rotation.z = Math.sin(now / 90) * Math.min(0.15, Math.abs(body.w) * 0.01);
