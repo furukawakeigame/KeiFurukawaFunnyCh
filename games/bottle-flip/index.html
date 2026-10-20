@@ -195,10 +195,10 @@
     const UP = new THREE.Vector3(0, 1, 0), tmpV = new THREE.Vector3();
     // 支点のスタンド：左奥に立てた柱から、上を通る腕で支点まで渡す
     const stand = (geo, x, y, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, rodMat); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); m.castShadow = true; return m; };
-    const post = stand(new THREE.CylinderGeometry(0.012, 0.016, 1.0, 12), -0.8, 0.5, -0.3);
-    const arm = stand(new THREE.CylinderGeometry(0.01, 0.01, 0.8, 8), -0.4, 1.0, -0.3, 0, Math.PI / 2);
-    const drop = stand(new THREE.CylinderGeometry(0.006, 0.006, 0.2, 8), 0, 0.9, -0.3);
-    const tip = stand(new THREE.CylinderGeometry(0.006, 0.006, 0.3, 8), 0, 0.8, -0.15, Math.PI / 2);
+    const post = stand(new THREE.CylinderGeometry(0.012, 0.018, 1.6, 12), -0.8, 0.8, -0.3);
+    const arm = stand(new THREE.CylinderGeometry(0.01, 0.01, 0.8, 8), -0.4, 1.6, -0.3, 0, Math.PI / 2);
+    const drop = stand(new THREE.CylinderGeometry(0.006, 0.006, 0.2, 8), 0, 1.5, -0.3);
+    const tip = stand(new THREE.CylinderGeometry(0.006, 0.006, 0.3, 8), 0, 1.4, -0.15, Math.PI / 2);
     const foot = stand(new THREE.CylinderGeometry(0.08, 0.09, 0.015, 24), -0.8, 0.0075, -0.3);
     scene.add(post, arm, drop, tip, foot);
     function drawChain() {
@@ -215,7 +215,7 @@
     const G = 9.8, M = 1, I = 0.0045;
     const PTS = [[-R + 0.006, 0], [R - 0.006, 0], [-R, 0.006], [R, 0.006], [-R, 0.15], [R, 0.15], [-0.02, 0.2], [0.02, 0.2], [-0.016, 0.24], [0.016, 0.24]].map(([x, y]) => [x, y - HC]);
     const body = { x: 0, y: HC, a: 0, vx: 0, vy: 0, w: 0 };
-    let gen = 0, phase = 'ready', streak = 0, best = store.get('best', 0), tFly = 0, still = 0, lastTok = 0, resultShown = false;
+    let gen = 0, a0 = 0, phase = 'ready', streak = 0, best = store.get('best', 0), tFly = 0, still = 0, lastTok = 0, resultShown = false;
 
     function contacts() {
       const c = Math.cos(body.a), s = Math.sin(body.a), list = [];
@@ -228,7 +228,7 @@
     }
     function step(dt) {
       body.vy -= G * dt;
-      body.w *= Math.exp(-1.2 * dt); // 中の水が揺れて回転がゆるむ
+      body.w *= Math.exp(-0.3 * dt); // 中の水が揺れて回転がゆるむ
       body.x += body.vx * dt; body.y += body.vy * dt; body.a += body.w * dt;
       const cs = contacts();
       if (!cs.length) return 0;
@@ -273,7 +273,7 @@
     const upright = () => Math.atan2(Math.sin(body.a), Math.cos(body.a));
 
     // ---------- 三重振り子（棒・棒・棒、その先にボトル） ----------
-    const PIV = [0, 0.8], LEN = [0.13, 0.13, 0.13, H], INV = [0, 2, 2, 1.5, 1]; // 支点は動かない。ボトルの底がいちばん重い
+    const PIV = [0, 1.4], LEN = [0.13, 0.13, 0.13, H], INV = [0, 2, 2, 1.5, 1]; // 支点は動かない。ボトルの底がいちばん重い
     const P = Array.from({ length: 5 }, () => [0, 0]), Q = P.map(v => v.slice());
     let holding = false, pick = 0, grab = null, aim = null, lastSub = 1 / 960;
     const comOf = () => { const t = HC / H; return [P[4][0] + (P[3][0] - P[4][0]) * t, P[4][1] + (P[3][1] - P[4][1]) * t]; };
@@ -334,13 +334,14 @@
     }
     function release() {
       bodyFromChain();
-      phase = 'fly'; tFly = 0; still = 0; sfx.whoosh(); hideHint();
+      phase = 'fly'; tFly = 0; still = 0; a0 = body.a; sfx.whoosh(); hideHint();
     }
     function judge(dt) {
       tFly += dt;
       const slow = Math.abs(body.vx) + Math.abs(body.vy) < 0.04 && Math.abs(body.w) < 0.3;
       still = slow ? still + dt : 0;
-      if (tFly > 0.25 && still > 0.35) return Math.abs(upright()) < 0.1 ? succeed() : fail();
+      // 1回転以上してから立たないと成功にしない
+      if (tFly > 0.25 && still > 0.35) return Math.abs(upright()) < 0.1 && Math.abs(body.a - a0) > Math.PI * 1.8 ? succeed() : fail();
       if (body.y < -0.5 || tFly > 8) return fail();
     }
     const BOTTLE_SVG = '<path d="M5 1h4v3l1 3h1.5q1.5 0 1.5 2v19q0 1-1 1H2q-1 0-1-1V9q0-2 1.5-2H4l1-3z" fill="#dff4ff" stroke="#2a9be0" stroke-width="1.2"/><rect x="1.6" y="18" width="10.8" height="10.4" fill="#58b8f0"/><rect x="5" y="0.5" width="4" height="3" fill="#2a9be0"/>';
@@ -414,6 +415,7 @@
     }
     addEventListener('resize', resize); resize();
 
+    const cam = { x: 0, y: 0.8 };
     let prev = performance.now();
     function frame(now) {
       const dt = Math.max(0, Math.min(0.05, (now - prev) / 1000)); prev = now;
@@ -424,11 +426,13 @@
         for (let i = 0; i < n; i++) { const hit = step(h); if (hit > 0.3 && now - lastTok > 70) { sfx.tok(hit); lastTok = now; } }
         if (phase === 'fly') judge(dt);
       }
-      // 振り子が届く範囲（左右 ±0.7、高さ 0〜1.5）がいつも入るように引く
+      // カメラはボトルについていく（机が見えるよう、低くなりすぎない）
       const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-      const dist = Math.max(1.5 / 2 / tv / camera.aspect, 1.55 / 2 / tv);
-      camera.position.set(0, 0.85, dist);
-      camera.lookAt(0, 0.68, 0);
+      const dist = Math.max(1.1 / 2 / tv / camera.aspect, 1.5 / 2 / tv);
+      const k = Math.min(1, dt * 5);
+      cam.x += (body.x - cam.x) * k; cam.y += (Math.max(0.42, body.y) - cam.y) * k;
+      camera.position.set(cam.x, cam.y + 0.15, dist);
+      camera.lookAt(cam.x, cam.y, 0);
       bottle.position.set(body.x, body.y, 0); bottle.rotation.z = body.a;
       // 水面のゆれ（見た目だけ）
       water.rotation.z = Math.sin(now / 90) * Math.min(0.15, Math.abs(body.w) * 0.01);
