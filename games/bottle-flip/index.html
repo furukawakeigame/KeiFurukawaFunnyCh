@@ -32,8 +32,7 @@
     #sound svg { width: 20px; height: 20px; }
     #lang { height: 36px; border: 0; border-radius: 999px; background: rgba(255,255,255,.75); padding: 0 8px; font-size: 14px; color: #3b2a1a; }
     /* 残り時間のバー（数字は出さない） */
-    #timer { position: fixed; top: 62px; left: 50%; width: min(260px, 60vw); height: 8px; transform: translateX(-50%); border-radius: 99px; background: rgba(255,255,255,.15); overflow: hidden; z-index: 4; pointer-events: none; }
-    #timer i { display: block; height: 100%; width: 100%; background: #e0602a; border-radius: 99px; transform-origin: left; }
+    #timer { position: fixed; top: 58px; left: 0; right: 0; text-align: center; font-size: 44px; font-weight: 900; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.35); z-index: 4; pointer-events: none; font-variant-numeric: tabular-nums; }
     #hint { position: fixed; width: 54px; height: 54px; z-index: 3; pointer-events: none; display: none; animation: swipe 1.2s ease-in-out infinite alternate; }
     @keyframes swipe { from { transform: translateX(0); } to { transform: translateX(70px); } }
     #result { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 6; padding: 16px 16px calc(80px + env(safe-area-inset-bottom)); background: rgba(59,42,26,.25); }
@@ -57,7 +56,7 @@
     <button id="sound" aria-label="sound"></button>
     <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
   </header>
-  <div id="timer"><i></i></div>
+  <div id="timer"></div>
   <svg id="hint" viewBox="0 0 54 54"><circle cx="27" cy="27" r="16" fill="#fff" fill-opacity=".85" stroke="#3b2a1a" stroke-width="3"/><circle cx="27" cy="27" r="6" fill="#3b2a1a"/></svg>
   <div id="result"><div class="panel">
     <div class="big"><svg viewBox="0 0 14 30"></svg><span id="rCount"></span></div>
@@ -149,14 +148,14 @@
     };
 
     // ---------- 3D ----------
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true }); // 近くのボトルと遠くの地平線を両方きれいに描く
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     $('stage').appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#8fd3ff');
-    const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 200);
+    const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 400000);
     scene.add(new THREE.HemisphereLight('#e6f4ff', '#5a7a3a', 1.2));
     const sun = new THREE.DirectionalLight('#ffffff', 1.6);
     sun.position.set(0.8, 3, 2); sun.castShadow = true;
@@ -164,20 +163,16 @@
     Object.assign(sun.shadow.camera, { left: -1.5, right: 1.5, top: 1.5, bottom: -1.5, near: 0.1, far: 8 });
     scene.add(sun, sun.target);
 
-    // 外：草の地面と遠くの丘
+    // 外：どこまでも続く草の地面
     const grassTex = (() => {
       const c = document.createElement('canvas'); c.width = c.height = 256;
       const g = c.getContext('2d'); g.fillStyle = '#6dbb4f'; g.fillRect(0, 0, 256, 256);
       for (let i = 0; i < 1800; i++) { g.fillStyle = `rgba(${40 + Math.random() * 60},${120 + Math.random() * 70},${30 + Math.random() * 30},.5)`; g.fillRect(Math.random() * 256, Math.random() * 256, 2, 4); }
-      const tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(60, 60); tx.colorSpace = THREE.SRGBColorSpace;
+      const tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(30000, 30000); tx.colorSpace = THREE.SRGBColorSpace;
       return tx;
     })();
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.95 }));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200000, 200000), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.95 }));
     ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
-    for (const [x, z, r] of [[-40, -140, 30], [20, -170, 45], [80, -150, 28], [-100, -180, 50]]) {
-      const hill = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 12), new THREE.MeshStandardMaterial({ color: '#4e9a45', roughness: 1 }));
-      hill.position.set(x, -r * 0.75, z); scene.add(hill);
-    }
     // 空の色：上に行くほど濃い青から宇宙の黒へ
     const SKY = [[0, '#8fd3ff'], [2000, '#5fb0f0'], [10000, '#2c6cc4'], [30000, '#122a66'], [60000, '#050816'], [100000, '#000000']].map(([h, c]) => [h, new THREE.Color(c)]);
     function skyAt(alt) {
@@ -190,10 +185,36 @@
       for (let i = 0; i < 7; i++) { const x = 30 + Math.random() * 68, y = 50 + Math.random() * 28, r = 18 + Math.random() * 22, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(255,255,255,.95)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }
       return new THREE.CanvasTexture(c);
     })();
-    for (let i = 0; i < 450; i++) {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, depthWrite: false, opacity: 0.9 }));
-      const y = 30 * Math.pow(10000 / 30, Math.random()), sc = 0.8 + Math.random() * 2 + y * 0.0004;
-      sp.position.set((Math.random() - 0.5) * 12, y, -1 - Math.random() * 6); sp.scale.set(sc * 2, sc, 1); scene.add(sp);
+    // 遠くの空に浮かぶ大きな雲（地上から見える景色）
+    for (let i = 0; i < 14; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, depthWrite: false }));
+      const sc = 25 + Math.random() * 30; sp.position.set((Math.random() - 0.5) * 500, 40 + Math.random() * 70, -200 - Math.random() * 150); sp.scale.set(sc * 2, sc, 1); scene.add(sp);
+    }
+    // 飛んでいる間に横を通りすぎる雲：カメラのまわりの箱にくり返し並べ、どの高さでも同じくらいの数が見える
+    const CLOUD_N = 36, CLOUD_BOX = [9, 26], cloudSeed = Array.from({ length: CLOUD_N }, () => [Math.random(), Math.random(), Math.random(), 0.8 + Math.random() * 1.6]);
+    const clouds = cloudSeed.map(() => { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, depthWrite: false })); scene.add(sp); return sp; });
+    const wrapAt = (s, c, size) => c - size / 2 + ((s * size - c) % size + size) % size; // 世界に固定した並びを、カメラのまわりでくり返す
+    function drawClouds(cx, cy, show) {
+      // 雲があるのは高さ 40m〜1万2000m のあいだ
+      const k = show ? THREE.MathUtils.smoothstep(cy, 20, 60) * (1 - THREE.MathUtils.smoothstep(cy, 9000, 14000)) : 0;
+      clouds.forEach((sp, i) => {
+        const [sx, sy, sz, sc] = cloudSeed[i];
+        sp.position.set(wrapAt(sx, cx, CLOUD_BOX[0]), wrapAt(sy, cy, CLOUD_BOX[1]), -0.5 - sz * 5);
+        sp.scale.set(sc * 2, sc, 1); sp.material.opacity = 0.9 * k; sp.visible = k > 0;
+      });
+    }
+    // 流れる粒：どの高さでも、まわりの小さな粒が後ろへ流れて、動いているのが分かる
+    const DUST_N = 160, DUST_BOX = [6, 10, 4], dustSeed = new Float32Array(DUST_N * 3).map(() => Math.random());
+    const dustGeo = new THREE.BufferGeometry(); dustGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(DUST_N * 3), 3));
+    const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 0.035, transparent: true, opacity: 0.7, depthWrite: false }));
+    dust.frustumCulled = false; scene.add(dust);
+    function drawDust(cx, cy) {
+      // 世界に固定した粒を、カメラのまわりの箱でくり返し並べる
+      const a = dustGeo.attributes.position.array;
+      for (let i = 0; i < DUST_N; i++) {
+        a[i * 3] = wrapAt(dustSeed[i * 3], cx, DUST_BOX[0]); a[i * 3 + 1] = wrapAt(dustSeed[i * 3 + 1], cy, DUST_BOX[1]); a[i * 3 + 2] = -0.5 - dustSeed[i * 3 + 2] * DUST_BOX[2];
+      }
+      dustGeo.attributes.position.needsUpdate = true;
     }
     // 星：宇宙に近づくと見えてくる（カメラについてくる）
     const starGeo = new THREE.BufferGeometry(), starPos = new Float32Array(900 * 3);
@@ -233,45 +254,8 @@
     }
     const rodMat = new THREE.MeshStandardMaterial({ color: '#b8bcc8', metalness: 0.6, roughness: 0.35 });
     const rods = [0, 1, 2].map(() => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1, 8), rodMat); m.castShadow = true; scene.add(m); return m; });
-    const joints = [['#d8dbe4', 0.018], ['#e0602a', 0.016], ['#e9b13b', 0.016], ['#5bbf6a', 0.016]].map(([c, r]) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshStandardMaterial({ color: c, roughness: 0.4 })); m.castShadow = true; scene.add(m); return m; }); // 関節は軌跡と同じ色
+    const joints = [['#d8dbe4', 0.018], ['#e0602a', 0.016], ['#e9b13b', 0.016], ['#5bbf6a', 0.016]].map(([c, r]) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshStandardMaterial({ color: c, roughness: 0.4 })); m.castShadow = true; scene.add(m); return m; });
     const UP = new THREE.Vector3(0, 1, 0), tmpV = new THREE.Vector3();
-    // 軌跡：関節とボトルの通った道を、色ちがいの線で残す（三重振り子のカオスが見える）
-    const TRAIL_N = 60 * 120, TRAIL_W = 0.005, TRAIL_COLORS = ['#e0602a', '#e9b13b', '#5bbf6a', '#2a9be0'];
-    // 線は WebGL では太くできないので、細い帯（2点ずつの三角形）で描く
-    const trailIndex = (() => { const a = new Uint32Array((TRAIL_N - 1) * 6); for (let i = 0; i < TRAIL_N - 1; i++) { const v = i * 2; a.set([v, v + 1, v + 2, v + 1, v + 3, v + 2], i * 6); } return new THREE.BufferAttribute(a, 1); })();
-    const trails = TRAIL_COLORS.map(c => {
-      const geo = new THREE.BufferGeometry(), pos = new THREE.BufferAttribute(new Float32Array(TRAIL_N * 2 * 3), 3);
-      pos.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('position', pos); geo.setIndex(trailIndex); geo.setDrawRange(0, 0);
-      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false }));
-      mesh.frustumCulled = false; scene.add(mesh);
-      return { mesh, pos, pts: [] };
-    });
-    let recording = false; // 指を離して動き始めたときから記録する
-    function clearTrails() { for (const t of trails) { t.pts.length = 0; t.mesh.geometry.setDrawRange(0, 0); t.mesh.material.opacity = 0.2; } }
-    function writeVert(t, k) {
-      const p = t.pts, a = p[Math.max(0, k - 1)], b = p[Math.min(p.length - 1, k + 1)];
-      let dx = b[0] - a[0], dy = b[1] - a[1]; const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
-      const nx = -dy * TRAIL_W / 2, ny = dx * TRAIL_W / 2, arr = t.pos.array, o = k * 6;
-      arr[o] = p[k][0] + nx; arr[o + 1] = p[k][1] + ny; arr[o + 2] = 0.002;
-      arr[o + 3] = p[k][0] - nx; arr[o + 4] = p[k][1] - ny; arr[o + 5] = 0.002;
-    }
-    function updateTrails() {
-      const src = [P[1], P[2], P[3], comOf()];
-      trails.forEach((t, i) => {
-        if (phase === 'shake' && recording) {
-          t.pts.push([src[i][0], src[i][1]]);
-          let from = t.pts.length - 2;
-          if (t.pts.length > TRAIL_N) { t.pts.shift(); from = 0; } // 2分を超えたら古い所から消す（そのときだけ全部書き直す）
-          for (let k = Math.max(0, from); k < t.pts.length; k++) writeVert(t, k);
-          t.pos.addUpdateRange(Math.max(0, from) * 6, (t.pts.length - Math.max(0, from)) * 6); t.pos.needsUpdate = true;
-          t.mesh.geometry.setDrawRange(0, Math.max(0, t.pts.length - 1) * 6);
-        } else if (phase === 'done' && t.pts.length) {
-          // 結果が出たら少しずつ消える
-          t.mesh.material.opacity = Math.max(0, t.mesh.material.opacity - 0.004);
-          if (!t.mesh.material.opacity) clearTrails();
-        }
-      });
-    }
     function drawChain() {
       for (let k = 0; k < 4; k++) joints[k].position.set(P[k][0], P[k][1], 0);
       for (let k = 0; k < 3; k++) {
@@ -310,7 +294,7 @@
     function hang() {
       let y = PIV[1];
       for (let k = 0; k < 5; k++) { if (k) y -= LEN[k - 1]; P[k] = [PIV[0], y]; Q[k] = [PIV[0], y]; }
-      bodyFromChain(); clearTrails(); recording = false; energy0 = null;
+      bodyFromChain(); energy0 = null;
     }
     function chainStep(dt) {
       const n = phase === 'ready' || phase === 'shake' ? 5 : 4; // 飛び立ったあとはボトルを外した振り子
@@ -360,7 +344,7 @@
       phase = 'shake'; tShake = 0; fizz = 0; prevV = null;
       // ほんの少しだけゆらしておく（真上で釣り合ったまま止まらないように）
       for (let k = 1; k < 5; k++) P[k][0] += (Math.random() - 0.5) * 1e-4;
-      energy0 = chainEnergy(STEP); clearTrails(); recording = true; sfx.whoosh();
+      energy0 = chainEnergy(STEP); sfx.whoosh();
     }
     // 振られ具合：ボトルの速さの変わり方（ゆさぶられた量）を足していく
     const FIZZ_FULL = 200; // これだけ振れば炭酸は最大
@@ -375,7 +359,7 @@
     // ---------- 発射：栓が飛び、吹き出す炭酸の勢いで空へ ----------
     let burn = 0, thrust = 0, startY = 0, apex = 0;
     function launch() {
-      phase = 'fly'; recording = false;
+      phase = 'fly';
       const frac = Math.min(1, fizz / FIZZ_FULL);
       bodyFromChain();
       const ux = -Math.sin(body.a), uy = Math.cos(body.a), top = [body.x + ux * (H - HC), body.y + uy * (H - HC)];
@@ -392,7 +376,7 @@
         // 炭酸は口（栓の側）から出るので、ボトルは底の方向へ押される
         body.vx -= ux * thrust * h; body.vy -= uy * thrust * h;
         // 羽根があるように、底が上を向くように少しずつ向きがそろう
-        body.w += (-Math.sin(body.a - Math.PI) * 30 - body.w * 4) * h;
+        body.w += (-Math.sin(body.a - Math.PI) * 600 - body.w * 45) * h; // 離れたらすぐに上を向く
         emitFoam(h, [body.x + ux * (H - HC), body.y + uy * (H - HC)], [ux, uy]);
         water.scale.y = Math.max(0.05, water.scale.y - h / Math.max(0.5, burn + h) * water.scale.y * 0.9); water.position.y = 0.004 + 0.0475 * water.scale.y;
       }
@@ -413,9 +397,9 @@
       const g = gen; setTimeout(() => { if (g !== gen) return; phase = 'done'; resultShown = true; fillResult(); $('result').style.display = 'flex'; }, 1000);
     }
     function drawTimer() {
-      const left = phase === 'ready' ? 1 : phase === 'shake' ? 1 - tShake / SHAKE_TIME : 0;
+      const left = phase === 'ready' ? SHAKE_TIME : phase === 'shake' ? Math.ceil(SHAKE_TIME - tShake) : 0;
       $('timer').style.opacity = phase === 'ready' || phase === 'shake' ? 1 : 0;
-      $('timer').firstChild.style.transform = `scaleX(${Math.max(0, left)})`;
+      $('timer').textContent = `${Math.max(0, left)}s`;
     }
 
     // ---------- 吹き出す泡 ----------
@@ -498,7 +482,7 @@
     const cam = { x: 0, y: 1.15 };
     const capMesh = cap.clone(); capMesh.position.set(0, 0, 0); scene.add(capMesh);
     const STEP = 1 / 960;
-    let prev = performance.now(), simAcc = 0, trailAcc = 0;
+    let prev = performance.now(), simAcc = 0;
     function frame(now) {
       const dt = Math.max(0, Math.min(0.05, (now - prev) / 1000)); prev = now;
       // 物理は決まった刻み（1/960秒）で進める。画面の大きさやフレームレートで動きが変わらない
@@ -513,7 +497,6 @@
           for (let i = 0; i < warp && (phase === 'fly' || phase === 'fall'); i++) flyStep(STEP);
           stepFoam(STEP);
         }
-        if ((trailAcc += STEP) >= 1 / 60) { trailAcc -= 1 / 60; updateTrails(); }
       }
       if (phase === 'ready' || phase === 'shake') bodyFromChain();
       drawTimer();
@@ -529,6 +512,8 @@
       // 高さで空の色と星の見え方を変える
       scene.background.copy(skyAt(cam.y)); document.body.style.background = '#' + scene.background.getHexString();
       stars.material.opacity = THREE.MathUtils.smoothstep(cam.y, 15000, 60000);
+      const flying = phase !== 'ready' && phase !== 'shake';
+      dust.visible = flying; drawDust(cam.x, cam.y); drawClouds(cam.x, cam.y, flying);
       camera.position.set(cam.x, cam.y + 0.15, dist);
       camera.lookAt(cam.x, cam.y, 0);
       bottle.position.set(body.x, body.y, 0); bottle.rotation.z = body.a;
