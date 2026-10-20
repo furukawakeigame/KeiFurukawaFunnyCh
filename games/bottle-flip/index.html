@@ -22,7 +22,7 @@
   <meta name="twitter:card" content="summary">
   <style>
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #17161d; font-family: system-ui, sans-serif; color: #3b2a1a; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #8fd3ff; font-family: system-ui, sans-serif; color: #3b2a1a; }
     body { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
     #stage { position: fixed; inset: 0; }
     #stage canvas { display: block; width: 100%; height: 100%; }
@@ -89,14 +89,14 @@
 
     // ---------- 言語 ----------
     const DICT = {
-      ja: { title: 'コーラ振り子', back: '← トップへ戻る', unit: n => `${n}mL`, best: n => `ベスト ${n}mL`, newBest: '自己ベスト更新', retry: 'もう一度', post: 'Xに投稿',
-            share: n => `コーラ振り子で炭酸が${n}mL吹き出した！ #コーラ振り子ゲーム` },
-      ko: { title: '콜라 진자', back: '← 처음으로', unit: n => `${n}mL`, best: n => `최고 ${n}mL`, newBest: '최고 기록 갱신', retry: '다시 하기', post: 'X에 게시',
-            share: n => `콜라 진자로 탄산이 ${n}mL 뿜어져 나왔다! #コーラ振り子ゲーム` },
-      en: { title: 'Cola Pendulum', back: '← Back to top', unit: n => `${n}mL`, best: n => `Best ${n}mL`, newBest: 'New best', retry: 'Try again', post: 'Post on X',
-            share: n => `My cola pendulum sprayed ${n}mL of fizz! #コーラ振り子ゲーム` },
-      th: { title: 'ลูกตุ้มโคล่า', back: '← กลับหน้าแรก', unit: n => `${n}mL`, best: n => `ดีที่สุด ${n}mL`, newBest: 'สถิติใหม่', retry: 'เล่นอีกครั้ง', post: 'โพสต์ลง X',
-            share: n => `ลูกตุ้มโคล่าพ่นฟองออกมา ${n}mL! #コーラ振り子ゲーム` },
+      ja: { title: 'コーラ振り子', back: '← トップへ戻る', unit: n => `${n.toLocaleString()}m`, best: n => `ベスト ${n.toLocaleString()}m`, newBest: '自己ベスト更新', retry: 'もう一度', post: 'Xに投稿',
+            share: n => `コーラ振り子でコーラが${n.toLocaleString()}m飛んだ！ #コーラ振り子ゲーム` },
+      ko: { title: '콜라 진자', back: '← 처음으로', unit: n => `${n.toLocaleString()}m`, best: n => `최고 ${n.toLocaleString()}m`, newBest: '최고 기록 갱신', retry: '다시 하기', post: 'X에 게시',
+            share: n => `콜라 진자로 콜라가 ${n.toLocaleString()}m 날아갔다! #コーラ振り子ゲーム` },
+      en: { title: 'Cola Pendulum', back: '← Back to top', unit: n => `${n.toLocaleString()}m`, best: n => `Best ${n.toLocaleString()}m`, newBest: 'New best', retry: 'Try again', post: 'Post on X',
+            share: n => `My cola pendulum launched the cola ${n.toLocaleString()}m high! #コーラ振り子ゲーム` },
+      th: { title: 'ลูกตุ้มโคล่า', back: '← กลับหน้าแรก', unit: n => `${n.toLocaleString()}m`, best: n => `ดีที่สุด ${n.toLocaleString()}m`, newBest: 'สถิติใหม่', retry: 'เล่นอีกครั้ง', post: 'โพสต์ลง X',
+            share: n => `ลูกตุ้มโคล่าส่งโคล่าพุ่งขึ้นไป ${n.toLocaleString()}m! #コーラ振り子ゲーム` },
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (DICT[c]) return c; } return 'en'; };
     let lang = store.get('lang', null) || autoLang();
@@ -155,35 +155,52 @@
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     $('stage').appendChild(renderer.domElement);
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#17161d');
-    scene.fog = new THREE.Fog('#17161d', 10, 22);
-    const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 20);
-    scene.add(new THREE.HemisphereLight('#c9c4e0', '#3a2a20', 0.9));
+    scene.background = new THREE.Color('#8fd3ff');
+    const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 200);
+    scene.add(new THREE.HemisphereLight('#e6f4ff', '#5a7a3a', 1.2));
     const sun = new THREE.DirectionalLight('#ffffff', 1.6);
     sun.position.set(0.8, 3, 2); sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
     Object.assign(sun.shadow.camera, { left: -1.5, right: 1.5, top: 1.5, bottom: -1.5, near: 0.1, far: 8 });
     scene.add(sun, sun.target);
 
-    // 机（木目は Canvas で描く）
-    const woodTex = (() => {
-      const c = document.createElement('canvas'); c.width = 512; c.height = 128;
-      const g = c.getContext('2d');
-      g.fillStyle = '#c8935a'; g.fillRect(0, 0, 512, 128);
-      for (let i = 0; i < 40; i++) {
-        g.strokeStyle = `rgba(${120 + Math.random() * 40},${70 + Math.random() * 20},30,${0.15 + Math.random() * 0.2})`;
-        g.lineWidth = 1 + Math.random() * 3; g.beginPath();
-        const y = Math.random() * 128; g.moveTo(0, y);
-        for (let x = 0; x <= 512; x += 32) g.lineTo(x, y + Math.sin(x / 60 + i) * 4);
-        g.stroke();
-      }
-      const tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(6, 3); tx.colorSpace = THREE.SRGBColorSpace;
+    // 外：草の地面と遠くの丘
+    const grassTex = (() => {
+      const c = document.createElement('canvas'); c.width = c.height = 256;
+      const g = c.getContext('2d'); g.fillStyle = '#6dbb4f'; g.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 1800; i++) { g.fillStyle = `rgba(${40 + Math.random() * 60},${120 + Math.random() * 70},${30 + Math.random() * 30},.5)`; g.fillRect(Math.random() * 256, Math.random() * 256, 2, 4); }
+      const tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(60, 60); tx.colorSpace = THREE.SRGBColorSpace;
       return tx;
     })();
-    const table = new THREE.Mesh(new THREE.BoxGeometry(40, 0.1, 8), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.7 }));
-    table.position.set(10, -0.05, 2.5); table.receiveShadow = true; scene.add(table);
-    const wall = new THREE.Mesh(new THREE.PlaneGeometry(60, 10), new THREE.MeshStandardMaterial({ color: '#2a2833' }));
-    wall.position.set(10, 2, -1.5); scene.add(wall);
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.95 }));
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+    for (const [x, z, r] of [[-40, -140, 30], [20, -170, 45], [80, -150, 28], [-100, -180, 50]]) {
+      const hill = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 12), new THREE.MeshStandardMaterial({ color: '#4e9a45', roughness: 1 }));
+      hill.position.set(x, -r * 0.75, z); scene.add(hill);
+    }
+    // 空の色：上に行くほど濃い青から宇宙の黒へ
+    const SKY = [[0, '#8fd3ff'], [2000, '#5fb0f0'], [10000, '#2c6cc4'], [30000, '#122a66'], [60000, '#050816'], [100000, '#000000']].map(([h, c]) => [h, new THREE.Color(c)]);
+    function skyAt(alt) {
+      for (let i = 1; i < SKY.length; i++) if (alt < SKY[i][0]) return SKY[i - 1][1].clone().lerp(SKY[i][1], (alt - SKY[i - 1][0]) / (SKY[i][0] - SKY[i - 1][0]));
+      return SKY[SKY.length - 1][1].clone();
+    }
+    // 雲：高さ 30m〜1万m にちらばる
+    const cloudTex = (() => {
+      const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+      for (let i = 0; i < 7; i++) { const x = 30 + Math.random() * 68, y = 50 + Math.random() * 28, r = 18 + Math.random() * 22, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(255,255,255,.95)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }
+      return new THREE.CanvasTexture(c);
+    })();
+    for (let i = 0; i < 450; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, depthWrite: false, opacity: 0.9 }));
+      const y = 30 * Math.pow(10000 / 30, Math.random()), sc = 0.8 + Math.random() * 2 + y * 0.0004;
+      sp.position.set((Math.random() - 0.5) * 12, y, -1 - Math.random() * 6); sp.scale.set(sc * 2, sc, 1); scene.add(sp);
+    }
+    // 星：宇宙に近づくと見えてくる（カメラについてくる）
+    const starGeo = new THREE.BufferGeometry(), starPos = new Float32Array(900 * 3);
+    for (let i = 0; i < 900; i++) { const a = Math.random() * 6.28, b = Math.acos(Math.random() * 2 - 1); starPos.set([Math.sin(b) * Math.cos(a) * 15, Math.sin(b) * Math.sin(a) * 15, -Math.abs(Math.cos(b)) * 15], i * 3); }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 0.06, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+    stars.frustumCulled = false; camera.add(stars); scene.add(camera);
 
     // ボトル
     const H = 0.24, R = 0.035, HC = 0.08; // 高さ・半径・重心の高さ（真ん中より下）
@@ -267,7 +284,7 @@
 
     const G = 9.8, body = { x: 0, y: 0, a: 0, vx: 0, vy: 0, w: 0 };
     const SHAKE_TIME = 5; // 振り回す時間（秒）
-    let gen = 0, phase = 'ready', best = store.get('bestML', 0), tShake = 0, fizz = 0, score = 0, lastNew = false, resultShown = false, prevV = null;
+    let gen = 0, phase = 'ready', best = store.get('bestM', 0), tShake = 0, fizz = 0, score = 0, lastNew = false, resultShown = false, prevV = null;
 
     // ---------- 三重振り子（棒・棒・棒、その先にボトル） ----------
     const PIV = [0, 1.4], LEN = [0.2, 0.2, 0.2, H], INV = [0, 1, 1, 1, 1]; // 支点は動かない。重さはどの点も同じ
@@ -296,7 +313,7 @@
       bodyFromChain(); clearTrails(); recording = false; energy0 = null;
     }
     function chainStep(dt) {
-      const n = 5;
+      const n = phase === 'ready' || phase === 'shake' ? 5 : 4; // 飛び立ったあとはボトルを外した振り子
       const posing = holding && aim && n === 5; // つまんで形を決めている間は物理を止める（重力も勢いもなし）
       if (!posing) for (let k = 1; k < n; k++) {
         const vx = P[k][0] - Q[k][0], vy = P[k][1] - Q[k][1]; // 減衰なし
@@ -335,7 +352,7 @@
     // ---------- 流れ：形を決める → 5秒振り回す → 栓が飛んで炭酸が吹き出す → 結果 ----------
     function reset() {
       gen++; phase = 'ready'; holding = false; tShake = 0; fizz = 0; score = 0; prevV = null; hang();
-      cap.visible = true; capFly = null; water.scale.y = 1; water.position.y = 0.051; clearFoam();
+      cap.visible = true; capFly = null; water.scale.y = 1; water.position.y = 0.051; clearFoam(); burn = 0;
       resultShown = false; $('result').style.display = 'none'; drawTimer();
       showHint('drag');
     }
@@ -346,31 +363,58 @@
       energy0 = chainEnergy(STEP); clearTrails(); recording = true; sfx.whoosh();
     }
     // 振られ具合：ボトルの速さの変わり方（ゆさぶられた量）を足していく
-    const FIZZ_PER_ML = 0.4, MAX_ML = 500; // 500mL のボトル。全部出たら満点
+    const FIZZ_FULL = 200; // これだけ振れば炭酸は最大
     function measure(h) {
       bodyFromChain();
       const v = [body.vx, body.vy, body.w];
       if (prevV) fizz += Math.hypot(v[0] - prevV[0], v[1] - prevV[1]) + Math.abs(v[2] - prevV[2]) * 0.02;
       prevV = v;
       tShake += h;
-      if (tShake >= SHAKE_TIME) spray();
+      if (tShake >= SHAKE_TIME) launch();
     }
-    const mlOf = f => Math.min(MAX_ML, Math.round(f / FIZZ_PER_ML));
-    function spray() {
-      phase = 'spray'; recording = false; score = mlOf(fizz);
-      const frac = score / MAX_ML;
-      // 栓が飛ぶ
+    // ---------- 発射：栓が飛び、吹き出す炭酸の勢いで空へ ----------
+    let burn = 0, thrust = 0, startY = 0, apex = 0;
+    function launch() {
+      phase = 'fly'; recording = false;
+      const frac = Math.min(1, fizz / FIZZ_FULL);
       bodyFromChain();
       const ux = -Math.sin(body.a), uy = Math.cos(body.a), top = [body.x + ux * (H - HC), body.y + uy * (H - HC)];
-      cap.visible = false; capFly = { p: top.slice(), v: [ux * (1 + 3 * frac), uy * (1 + 3 * frac)], r: 0 };
-      sfx.pop(); sfx.fizz(0.6 + 2.2 * frac, 0.05 + 0.25 * frac);
-      foamLeft = 0.4 + 2.4 * frac; foamRate = 80 + 900 * frac; foamSpeed = 0.6 + 2.6 * frac; foamFrom = top; foamDir = [ux, uy];
-      const isNew = score > best; if (isNew) { best = score; store.set('bestML', best); }
+      cap.visible = false; capFly = { p: top.slice(), v: [body.vx + ux * 3, body.vy + uy * 3], r: 0 };
+      // 振るほど強く・長く噴き出す
+      thrust = 25 + 600 * frac * frac; burn = 0.8 + 3.2 * frac; startY = body.y; apex = body.y;
+      foamRate = 300 + 700 * frac; foamSpeed = 2 + 6 * frac;
+      sfx.pop(); sfx.fizz(burn, 0.08 + 0.22 * frac);
+    }
+    function flyStep(h) {
+      const ux = -Math.sin(body.a), uy = Math.cos(body.a);
+      if (burn > 0) {
+        burn -= h;
+        // 炭酸は口（栓の側）から出るので、ボトルは底の方向へ押される
+        body.vx -= ux * thrust * h; body.vy -= uy * thrust * h;
+        // 羽根があるように、底が上を向くように少しずつ向きがそろう
+        body.w += (-Math.sin(body.a - Math.PI) * 30 - body.w * 4) * h;
+        emitFoam(h, [body.x + ux * (H - HC), body.y + uy * (H - HC)], [ux, uy]);
+        water.scale.y = Math.max(0.05, water.scale.y - h / Math.max(0.5, burn + h) * water.scale.y * 0.9); water.position.y = 0.004 + 0.0475 * water.scale.y;
+      }
+      // 空気の抵抗（上に行くほど空気がうすい）
+      const sp = Math.hypot(body.vx, body.vy), rho = Math.exp(-body.y / 8000), drag = 0.00005 * rho * sp;
+      body.vx -= body.vx * drag * h; body.vy -= body.vy * drag * h;
+      body.vy -= G * h;
+      body.x += body.vx * h; body.y += body.vy * h; body.a += body.w * h;
+      apex = Math.max(apex, body.y);
+      if (body.y < 0) { body.y = 0; body.vy = 0; body.vx *= 0.5; }
+      // いちばん高い所まで行ったら記録
+      if (burn <= 0 && body.vy < 0) finish();
+    }
+    function finish() {
+      phase = 'fall'; score = Math.max(0, Math.round(apex - startY));
+      const isNew = score > best; if (isNew) { best = score; store.set('bestM', best); }
       lastNew = isNew;
-      const g = gen; setTimeout(() => { if (g !== gen) return; phase = 'done'; resultShown = true; fillResult(); $('result').style.display = 'flex'; }, (foamLeft + 1.2) * 1000);
+      const g = gen; setTimeout(() => { if (g !== gen) return; phase = 'done'; resultShown = true; fillResult(); $('result').style.display = 'flex'; }, 1000);
     }
     function drawTimer() {
       const left = phase === 'ready' ? 1 : phase === 'shake' ? 1 - tShake / SHAKE_TIME : 0;
+      $('timer').style.opacity = phase === 'ready' || phase === 'shake' ? 1 : 0;
       $('timer').firstChild.style.transform = `scaleX(${Math.max(0, left)})`;
     }
 
@@ -379,29 +423,28 @@
     const foamGeo = new THREE.BufferGeometry(); foamGeo.setAttribute('position', new THREE.BufferAttribute(foamPos, 3).setUsage(THREE.DynamicDrawUsage));
     const foam = new THREE.Points(foamGeo, new THREE.PointsMaterial({ color: '#d9b48a', size: 0.03, transparent: true, opacity: 0.9, depthWrite: false }));
     foam.frustumCulled = false; scene.add(foam);
-    let foamCount = 0, foamLeft = 0, foamRate = 0, foamSpeed = 0, foamFrom = [0, 0], foamDir = [0, 1], foamAcc = 0, capFly = null;
-    function clearFoam() { foamCount = 0; foamLeft = 0; foamGeo.setDrawRange(0, 0); }
-    function stepFoam(h) {
-      if (foamLeft > 0) {
-        foamLeft -= h; foamAcc += foamRate * h;
-        while (foamAcc >= 1 && foamCount < FOAM_N) {
-          foamAcc -= 1;
-          const k = foamCount++, sp = foamSpeed * (0.7 + Math.random() * 0.5), a = (Math.random() - 0.5) * 0.5;
-          const dx = foamDir[0] * Math.cos(a) - foamDir[1] * Math.sin(a), dy = foamDir[0] * Math.sin(a) + foamDir[1] * Math.cos(a);
-          foamPos.set([foamFrom[0], foamFrom[1], (Math.random() - 0.5) * 0.03], k * 3); foamVel.set([dx * sp, dy * sp], k * 2);
-        }
-        // 出た分だけ中身が減る
-        const left = 1 - foamCount / FOAM_N * 0.9; water.scale.y = Math.max(0.1, left); water.position.y = 0.004 + 0.0475 * water.scale.y;
+    let foamCount = 0, foamHead = 0, foamRate = 0, foamSpeed = 0, foamAcc = 0, capFly = null;
+    function clearFoam() { foamCount = 0; foamHead = 0; foamGeo.setDrawRange(0, 0); }
+    function emitFoam(h, from, dir) {
+      foamAcc += foamRate * h;
+      while (foamAcc >= 1) {
+        foamAcc -= 1;
+        const k = foamHead; foamHead = (foamHead + 1) % FOAM_N; foamCount = Math.min(FOAM_N, foamCount + 1); // 古い泡から使い回す
+        const sp = foamSpeed * (0.7 + Math.random() * 0.5), a = (Math.random() - 0.5) * 0.5;
+        const dx = dir[0] * Math.cos(a) - dir[1] * Math.sin(a), dy = dir[0] * Math.sin(a) + dir[1] * Math.cos(a);
+        foamPos.set([from[0], from[1], (Math.random() - 0.5) * 0.03], k * 3); foamVel.set([body.vx + dx * sp, body.vy + dy * sp], k * 2);
       }
+    }
+    function stepFoam(h) {
       for (let k = 0; k < foamCount; k++) {
-        if (foamPos[k * 3 + 1] <= 0.003) continue; // 机に落ちたら止まる
-        foamVel[k * 2 + 1] -= G * h;
+        if (foamPos[k * 3 + 1] <= 0.003) continue; // 地面に落ちたら止まる
+        foamVel[k * 2] *= 1 - 2 * h; foamVel[k * 2 + 1] = foamVel[k * 2 + 1] * (1 - 2 * h) - G * h; // 泡は空気ですぐ遅くなる
         foamPos[k * 3] += foamVel[k * 2] * h; foamPos[k * 3 + 1] = Math.max(0.003, foamPos[k * 3 + 1] + foamVel[k * 2 + 1] * h);
       }
       if (capFly) { capFly.v[1] -= G * h; capFly.p[0] += capFly.v[0] * h; capFly.p[1] = Math.max(0.011, capFly.p[1] + capFly.v[1] * h); capFly.r += 12 * h; }
     }
 
-    const COLA_SVG = '<path d="M5 1h4v3l1 3h1.5q1.5 0 1.5 2v19q0 1-1 1H2q-1 0-1-1V9q0-2 1.5-2H4l1-3z" fill="#2a1206" stroke="#d9b48a" stroke-width="1.2"/><rect x="1.6" y="13" width="10.8" height="6" fill="#d9261c"/><circle cx="4" cy="2" r="1.6" fill="#d9b48a"/><circle cx="8.5" cy="1.2" r="1.3" fill="#d9b48a"/><circle cx="11" cy="3" r="1" fill="#d9b48a"/>';
+    const COLA_SVG = '<path d="M5 1h4v3l1 3h1.5q1.5 0 1.5 2v19q0 1-1 1H2q-1 0-1-1V9q0-2 1.5-2H4l1-3z" fill="#2a1206" stroke="#d9b48a" stroke-width="1.2"/><rect x="1.6" y="13" width="10.8" height="6" fill="#d9261c"/>';
     function fillResult() {
       $('result').querySelector('.big svg').innerHTML = COLA_SVG;
       $('rCount').textContent = t('unit')(score);
@@ -462,21 +505,34 @@
       simAcc += dt;
       while (simAcc >= STEP) {
         simAcc -= STEP;
-        if (phase === 'ready' || phase === 'shake') { chainStep(STEP); keepEnergy(STEP); } // 吹き出したら振り子は止める
+        chainStep(STEP); keepEnergy(STEP);
         if (phase === 'shake') measure(STEP);
-        if (phase === 'spray' || phase === 'done') stepFoam(STEP);
+        if (phase === 'fly' || phase === 'fall' || phase === 'done') {
+          // 噴き終わって上っている間は早送り（速いほど速く）。高く上がっても待ちすぎない
+          const warp = phase === 'fly' && burn <= 0 ? Math.min(40, Math.max(1, Math.ceil(Math.abs(body.vy) / 40))) : 1;
+          for (let i = 0; i < warp && (phase === 'fly' || phase === 'fall'); i++) flyStep(STEP);
+          stepFoam(STEP);
+        }
         if ((trailAcc += STEP) >= 1 / 60) { trailAcc -= 1 / 60; updateTrails(); }
       }
-      bodyFromChain();
+      if (phase === 'ready' || phase === 'shake') bodyFromChain();
       drawTimer();
-      // カメラは固定。振り子が届く範囲と机がいつも入るように引く
+      // 振っている間はカメラ固定。飛び立ったらボトルを追う（画面からは出さない）
       const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
       const dist = Math.max(1.85 / 2 / tv / camera.aspect, 2.5 / 2 / tv);
-      cam.x = 0; cam.y = 1.15;
+      if (phase === 'ready' || phase === 'shake') { cam.x = 0; cam.y = 1.15; }
+      else {
+        const k = 1 - Math.exp(-8 * dt), hh = dist * tv * 0.35, hw = dist * tv * camera.aspect * 0.35;
+        cam.x += (body.x - cam.x) * k; cam.y += (Math.max(1.15, body.y) - cam.y) * k;
+        cam.x = Math.min(body.x + hw, Math.max(body.x - hw, cam.x)); cam.y = Math.min(body.y + hh, Math.max(body.y - hh, cam.y));
+      }
+      // 高さで空の色と星の見え方を変える
+      scene.background.copy(skyAt(cam.y)); document.body.style.background = '#' + scene.background.getHexString();
+      stars.material.opacity = THREE.MathUtils.smoothstep(cam.y, 15000, 60000);
       camera.position.set(cam.x, cam.y + 0.15, dist);
       camera.lookAt(cam.x, cam.y, 0);
       bottle.position.set(body.x, body.y, 0); bottle.rotation.z = body.a;
-      drawBubbles(phase === 'shake' || phase === 'ready' ? fizz / FIZZ_PER_ML / MAX_ML * 1.6 : Math.max(0, 1 - foamCount / FOAM_N * 2), now);
+      drawBubbles(phase === 'shake' || phase === 'ready' ? fizz / FIZZ_FULL * 1.6 : water.scale.y, now);
       foamGeo.attributes.position.needsUpdate = true; foamGeo.setDrawRange(0, foamCount);
       if (capFly) { capMesh.visible = true; capMesh.position.set(capFly.p[0], capFly.p[1], 0); capMesh.rotation.z = capFly.r; } else capMesh.visible = false;
       drawChain();
