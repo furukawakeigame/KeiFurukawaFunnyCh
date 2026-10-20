@@ -192,29 +192,40 @@
     const joints = [['#d8dbe4', 0.018], ['#e0602a', 0.016], ['#e9b13b', 0.016], ['#5bbf6a', 0.016]].map(([c, r]) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshStandardMaterial({ color: c, roughness: 0.4 })); m.castShadow = true; scene.add(m); return m; }); // 関節は軌跡と同じ色
     const UP = new THREE.Vector3(0, 1, 0), tmpV = new THREE.Vector3();
     // 軌跡：関節とボトルの通った道を、色ちがいの線で残す（三重振り子のカオスが見える）
-    const TRAIL_N = 60 * 120, TRAIL_COLORS = ['#e0602a', '#e9b13b', '#5bbf6a', '#2a9be0'];
+    const TRAIL_N = 60 * 120, TRAIL_W = 0.005, TRAIL_COLORS = ['#e0602a', '#e9b13b', '#5bbf6a', '#2a9be0'];
+    // 線は WebGL では太くできないので、細い帯（2点ずつの三角形）で描く
+    const trailIndex = (() => { const a = new Uint32Array((TRAIL_N - 1) * 6); for (let i = 0; i < TRAIL_N - 1; i++) { const v = i * 2; a.set([v, v + 1, v + 2, v + 1, v + 3, v + 2], i * 6); } return new THREE.BufferAttribute(a, 1); })();
     const trails = TRAIL_COLORS.map(c => {
-      const geo = new THREE.BufferGeometry(), pos = new Float32Array(TRAIL_N * 3), col = new Float32Array(TRAIL_N * 4);
-      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 4));
-      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false }));
-      line.frustumCulled = false; scene.add(line);
-      return { line, pts: [], rgb: new THREE.Color(c) };
+      const geo = new THREE.BufferGeometry(), pos = new THREE.BufferAttribute(new Float32Array(TRAIL_N * 2 * 3), 3);
+      pos.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('position', pos); geo.setIndex(trailIndex); geo.setDrawRange(0, 0);
+      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
+      mesh.frustumCulled = false; scene.add(mesh);
+      return { mesh, pos, pts: [] };
     });
     let recording = false; // 指を離して動き始めたときから記録する
-    function clearTrails() { for (const t of trails) t.pts.length = 0; }
+    function clearTrails() { for (const t of trails) { t.pts.length = 0; t.mesh.geometry.setDrawRange(0, 0); t.mesh.material.opacity = 0.8; } }
+    function writeVert(t, k) {
+      const p = t.pts, a = p[Math.max(0, k - 1)], b = p[Math.min(p.length - 1, k + 1)];
+      let dx = b[0] - a[0], dy = b[1] - a[1]; const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+      const nx = -dy * TRAIL_W / 2, ny = dx * TRAIL_W / 2, arr = t.pos.array, o = k * 6;
+      arr[o] = p[k][0] + nx; arr[o + 1] = p[k][1] + ny; arr[o + 2] = 0.002;
+      arr[o + 3] = p[k][0] - nx; arr[o + 4] = p[k][1] - ny; arr[o + 5] = 0.002;
+    }
     function updateTrails() {
       const src = [P[1], P[2], P[3], comOf()];
       trails.forEach((t, i) => {
-        if (phase === 'swing' && recording) { t.pts.push([src[i][0], src[i][1]]); if (t.pts.length > TRAIL_N) t.pts.shift(); }
-        else if (phase !== 'swing' && t.pts.length) t.pts.splice(0, 30); // 落としたあとは少しずつ消える
-        const pos = t.line.geometry.attributes.position.array, col = t.line.geometry.attributes.color.array, n = t.pts.length;
-        for (let k = 0; k < n; k++) {
-          const p = t.pts[k];
-          pos[k * 3] = p[0]; pos[k * 3 + 1] = p[1]; pos[k * 3 + 2] = 0.002;
-          col[k * 4] = t.rgb.r; col[k * 4 + 1] = t.rgb.g; col[k * 4 + 2] = t.rgb.b; col[k * 4 + 3] = 0.25 + (k / n) * 0.65; // 古い所も消さずに薄く残す
+        if (phase === 'swing' && recording) {
+          t.pts.push([src[i][0], src[i][1]]);
+          let from = t.pts.length - 2;
+          if (t.pts.length > TRAIL_N) { t.pts.shift(); from = 0; } // 2分を超えたら古い所から消す（そのときだけ全部書き直す）
+          for (let k = Math.max(0, from); k < t.pts.length; k++) writeVert(t, k);
+          t.pos.addUpdateRange(Math.max(0, from) * 6, (t.pts.length - Math.max(0, from)) * 6); t.pos.needsUpdate = true;
+          t.mesh.geometry.setDrawRange(0, Math.max(0, t.pts.length - 1) * 6);
+        } else if (phase !== 'swing' && t.pts.length) {
+          // 落としたあとは少しずつ消える
+          t.mesh.material.opacity = Math.max(0, t.mesh.material.opacity - 0.015);
+          if (!t.mesh.material.opacity) clearTrails();
         }
-        t.line.geometry.attributes.position.needsUpdate = t.line.geometry.attributes.color.needsUpdate = true;
-        t.line.geometry.setDrawRange(0, Math.max(0, n));
       });
     }
     function drawChain() {
@@ -315,14 +326,15 @@
     }
     function chainStep(dt) {
       const n = phase === 'swing' ? 5 : 4; // 落としたあとはボトルを外した振り子
-      for (let k = 1; k < n; k++) {
+      const posing = holding && aim && n === 5; // つまんで形を決めている間は物理を止める（重力も勢いもなし）
+      if (!posing) for (let k = 1; k < n; k++) {
         const vx = P[k][0] - Q[k][0], vy = P[k][1] - Q[k][1]; // 減衰なし
         Q[k] = P[k]; P[k] = [P[k][0] + vx, P[k][1] + vy - G * dt * dt];
       }
       for (let it = 0; it < 8; it++) {
-        if (holding && aim && n === 5) {
-          // つまんでいる間は、ボトルの重心を指の位置へ引っぱる
-          const c = comOf(), dx = (aim[0] - c[0]) * 0.5, dy = (aim[1] - c[1]) * 0.5;
+        if (posing) {
+          // ボトルの重心を指の位置へ持っていく
+          const c = comOf(), dx = aim[0] - c[0], dy = aim[1] - c[1];
           for (const k of [3, 4]) { P[k][0] += dx; P[k][1] += dy; }
         }
         for (let j = 0; j < n - 1; j++) {
@@ -337,6 +349,7 @@
         const a = P[j], b = P[j + 1], dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1e-6;
         b[0] = a[0] + dx / d * LEN[j]; b[1] = a[1] + dy / d * LEN[j];
       }
+      if (posing) for (let k = 1; k < n; k++) Q[k] = P[k].slice(); // 離した瞬間は止まった状態から動き出す
       if (dt > 0) lastSub = dt;
     }
     function bodyFromChain() {
