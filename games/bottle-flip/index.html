@@ -299,7 +299,7 @@
     function chainStep(dt) {
       const n = phase === 'swing' ? 5 : 4; // 落としたあとはボトルを外した振り子
       for (let k = 1; k < n; k++) {
-        const f = Math.exp(-0.05 * dt), vx = (P[k][0] - Q[k][0]) * f, vy = (P[k][1] - Q[k][1]) * f; // ほとんど減衰させず、長く振れ続ける
+        const vx = P[k][0] - Q[k][0], vy = P[k][1] - Q[k][1]; // 減衰なし
         Q[k] = P[k]; P[k] = [P[k][0] + vx, P[k][1] + vy - G * dt * dt];
       }
       for (let it = 0; it < 8; it++) {
@@ -416,16 +416,22 @@
     addEventListener('resize', resize); resize();
 
     const cam = { x: 0, y: 1.25 };
-    let prev = performance.now();
+    const STEP = 1 / 960;
+    let prev = performance.now(), simAcc = 0, trailAcc = 0;
     function frame(now) {
       const dt = Math.max(0, Math.min(0.05, (now - prev) / 1000)); prev = now;
-      { const n = 16, h = dt / n; for (let i = 0; i < n; i++) chainStep(h); }
-      if (phase === 'swing') bodyFromChain();
-      if (phase === 'fly' || phase === 'lost' || phase === 'won') {
-        const n = 16, h = dt / n;
-        for (let i = 0; i < n; i++) { const hit = step(h); if (hit > 0.3 && now - lastTok > 70) { sfx.tok(hit); lastTok = now; } }
-        if (phase === 'fly') judge(dt);
+      // 物理は決まった刻み（1/960秒）で進める。画面の大きさやフレームレートで動きが変わらない
+      simAcc += dt;
+      while (simAcc >= STEP) {
+        simAcc -= STEP;
+        chainStep(STEP);
+        if (phase === 'fly' || phase === 'lost' || phase === 'won') {
+          const hit = step(STEP); if (hit > 0.3 && now - lastTok > 70) { sfx.tok(hit); lastTok = now; }
+          if (phase === 'fly') judge(STEP);
+        }
+        if ((trailAcc += STEP) >= 1 / 60) { trailAcc -= 1 / 60; updateTrails(); }
       }
+      if (phase === 'swing') bodyFromChain();
       // カメラはボトルについていく（机が見えるよう、低くなりすぎない）
       const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
       const dist = Math.max(1.5 / 2 / tv / camera.aspect, 1.9 / 2 / tv);
@@ -447,12 +453,14 @@
       // 水面のゆれ（見た目だけ）
       water.rotation.z = Math.sin(now / 90) * Math.min(0.15, Math.abs(body.w) * 0.01);
       drawChain();
-      updateTrails();
       placeHint();
       renderer.render(scene, camera);
       requestAnimationFrame(frame);
     }
     applyLang(); reset();
+    // 最初の1回だけ重くならないよう、使う質感を先に準備し、音は最初に触れたときに用意しておく
+    renderer.compile(scene, camera);
+    addEventListener('pointerdown', () => { if (soundOn && !ac) try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {} }, { once: true, capture: true });
     requestAnimationFrame(frame);
   </script>
 </body>
