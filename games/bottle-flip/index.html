@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ボトルフリップ</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="ボトルフリップ">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/bottle-flip/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/bottle-flip/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #f6ead8; font-family: system-ui, sans-serif; color: #3b2a1a; }
+    body { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+    #stage { position: fixed; inset: 0; }
+    #stage canvas { display: block; width: 100%; height: 100%; }
+    header { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px; padding: 10px 12px; z-index: 5; }
+    #back { color: #3b2a1a; text-decoration: none; font-weight: 700; font-size: 14px; background: rgba(255,255,255,.75); padding: 6px 10px; border-radius: 999px; margin-right: auto; }
+    #sound { width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(255,255,255,.75); display: grid; place-items: center; cursor: pointer; padding: 0; }
+    #sound svg { width: 20px; height: 20px; }
+    #lang { height: 36px; border: 0; border-radius: 999px; background: rgba(255,255,255,.75); padding: 0 8px; font-size: 14px; color: #3b2a1a; }
+    #streak { position: fixed; top: 56px; left: 0; right: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; padding: 0 16px; z-index: 4; pointer-events: none; }
+    #streak svg { width: 14px; height: 30px; animation: pop .35s ease-out; }
+    @keyframes pop { from { transform: scale(0); } 60% { transform: scale(1.4); } to { transform: scale(1); } }
+    #hint { position: fixed; width: 54px; height: 54px; z-index: 3; pointer-events: none; display: none; animation: swipe 1.6s ease-in-out infinite; }
+    @keyframes swipe { 0% { transform: translate(0, 40px); opacity: 0; } 20% { opacity: 1; } 70% { transform: translate(30px, -70px); opacity: 1; } 100% { transform: translate(34px, -80px); opacity: 0; } }
+    #result { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 6; padding: 16px 16px calc(80px + env(safe-area-inset-bottom)); background: rgba(59,42,26,.25); }
+    #result .panel { background: #fffaf2; border-radius: 22px; padding: 22px 22px 18px; width: min(320px, 100%); text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
+    #result .big { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 52px; font-weight: 900; line-height: 1; }
+    #result .big svg { width: 26px; height: 56px; }
+    #result .best { margin: 10px 0 16px; font-size: 16px; font-weight: 700; opacity: .7; }
+    #result .best.new { color: #e0602a; opacity: 1; }
+    #result .btns { display: flex; flex-direction: column; gap: 10px; }
+    #result button, #result a { display: block; border: 0; border-radius: 999px; padding: 13px; font-size: 17px; font-weight: 800; cursor: pointer; text-decoration: none; }
+    #retry { background: #2a9be0; color: #fff; box-shadow: 0 4px 0 #1b6fa3; }
+    #post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; }
+    #result button:active, #result a:active { transform: translateY(3px); box-shadow: none; }
+    #msg { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 24px; font-weight: 700; z-index: 9; }
+  </style>
+</head>
+<body>
+  <div id="stage"></div>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="streak"></div>
+  <svg id="hint" viewBox="0 0 54 54"><circle cx="27" cy="27" r="16" fill="#fff" fill-opacity=".85" stroke="#3b2a1a" stroke-width="3"/><circle cx="27" cy="27" r="6" fill="#3b2a1a"/></svg>
+  <div id="result"><div class="panel">
+    <div class="big"><svg viewBox="0 0 14 30"></svg><span id="rCount"></span></div>
+    <div class="best" id="rBest"></div>
+    <div class="btns"><button id="retry"></button><a id="post"></a></div>
+  </div></div>
+  <div id="msg"></div>
+
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+  <script>
+    // CDN が読めないときの一言
+    setTimeout(() => {
+      if (!window.__ok) {
+        const m = document.getElementById('msg');
+        m.style.display = 'flex';
+        m.textContent = /^ja/.test(navigator.language) ? '読み込めませんでした。通信を確認して再読み込みしてください' : 'Could not load. Please check your connection and reload.';
+      }
+    }, 8000);
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    window.__ok = true;
+
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/bottle-flip/';
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('bottle-flip:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('bottle-flip:' + k, JSON.stringify(v)); } catch {} },
+    };
+
+    // ---------- 言語 ----------
+    const DICT = {
+      ja: { title: 'ボトルフリップ', back: '← トップへ戻る', unit: n => `${n}本`, best: n => `ベスト ${n}本`, newBest: '自己ベスト更新', retry: 'もう一度', post: 'Xに投稿',
+            share: n => `ボトルフリップで${n}本連続成功！ #ボトルフリップゲーム` },
+      ko: { title: '보틀 플립', back: '← 처음으로', unit: n => `${n}병`, best: n => `최고 ${n}병`, newBest: '최고 기록 갱신', retry: '다시 하기', post: 'X에 게시',
+            share: n => `보틀 플립 ${n}번 연속 성공! #ボトルフリップゲーム` },
+      en: { title: 'Bottle Flip', back: '← Back to top', unit: n => `${n}`, best: n => `Best ${n}`, newBest: 'New best', retry: 'Try again', post: 'Post on X',
+            share: n => `I landed ${n} bottle flips in a row! #ボトルフリップゲーム` },
+      th: { title: 'พลิกขวด', back: '← กลับหน้าแรก', unit: n => `${n} ขวด`, best: n => `ดีที่สุด ${n} ขวด`, newBest: 'สถิติใหม่', retry: 'เล่นอีกครั้ง', post: 'โพสต์ลง X',
+            share: n => `พลิกขวดตั้งได้ติดกัน ${n} ครั้ง! #ボトルフリップゲーム` },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (DICT[c]) return c; } return 'en'; };
+    let lang = store.get('lang', null) || autoLang();
+    const t = k => DICT[lang][k];
+    const $ = id => document.getElementById(id);
+    $('lang').value = lang;
+    $('lang').addEventListener('change', e => { lang = e.target.value; store.set('lang', lang); applyLang(); });
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      $('back').textContent = t('back');
+      $('retry').textContent = t('retry');
+      if (resultShown) fillResult();
+    }
+
+    // ---------- 音 ----------
+    let soundOn = store.get('sound', true), ac = null;
+    const SPK = on => `<svg viewBox="0 0 24 24" fill="none" stroke="#3b2a1a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#3b2a1a"/>${on ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>'}</svg>`;
+    const drawSound = () => $('sound').innerHTML = SPK(soundOn);
+    drawSound();
+    $('sound').addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSound(); });
+    function tone(freq, dur, type = 'sine', vol = 0.25, slide = 0) {
+      if (!soundOn) return;
+      try {
+        ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+        const o = ac.createOscillator(), g = ac.createGain(), n = ac.currentTime;
+        o.type = type; o.frequency.setValueAtTime(freq, n);
+        if (slide) o.frequency.exponentialRampToValueAtTime(freq * slide, n + dur);
+        g.gain.setValueAtTime(vol, n); g.gain.exponentialRampToValueAtTime(0.001, n + dur);
+        o.connect(g).connect(ac.destination); o.start(n); o.stop(n + dur);
+      } catch {}
+    }
+    const sfx = {
+      whoosh: () => tone(300, 0.18, 'triangle', 0.08, 2.5),
+      tok: v => tone(180 + Math.random() * 40, 0.08, 'square', Math.min(0.18, 0.04 + v * 0.06), 0.5),
+      win: () => { tone(660, 0.12, 'triangle', 0.2); setTimeout(() => tone(990, 0.2, 'triangle', 0.2), 90); },
+      lose: () => tone(300, 0.4, 'sawtooth', 0.08, 0.4),
+    };
+
+    // ---------- 3D ----------
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    $('stage').appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#f6ead8');
+    scene.fog = new THREE.Fog('#f6ead8', 4, 9);
+    const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 20);
+    scene.add(new THREE.HemisphereLight('#fff8ee', '#b08860', 1.4));
+    const sun = new THREE.DirectionalLight('#ffffff', 1.6);
+    sun.position.set(1, 3, 2); sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    Object.assign(sun.shadow.camera, { left: -1.5, right: 1.5, top: 1.5, bottom: -1.5, near: 0.1, far: 8 });
+    scene.add(sun, sun.target);
+
+    // 机（木目は Canvas で描く）
+    const woodTex = (() => {
+      const c = document.createElement('canvas'); c.width = 512; c.height = 128;
+      const g = c.getContext('2d');
+      g.fillStyle = '#c8935a'; g.fillRect(0, 0, 512, 128);
+      for (let i = 0; i < 40; i++) {
+        g.strokeStyle = `rgba(${120 + Math.random() * 40},${70 + Math.random() * 20},30,${0.15 + Math.random() * 0.2})`;
+        g.lineWidth = 1 + Math.random() * 3; g.beginPath();
+        const y = Math.random() * 128; g.moveTo(0, y);
+        for (let x = 0; x <= 512; x += 32) g.lineTo(x, y + Math.sin(x / 60 + i) * 4);
+        g.stroke();
+      }
+      const tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(6, 3); tx.colorSpace = THREE.SRGBColorSpace;
+      return tx;
+    })();
+    const table = new THREE.Mesh(new THREE.BoxGeometry(40, 0.1, 8), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.7 }));
+    table.position.set(10, -0.05, 2.5); table.receiveShadow = true; scene.add(table);
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(60, 10), new THREE.MeshStandardMaterial({ color: '#efe0c8' }));
+    wall.position.set(10, 2, -1.5); scene.add(wall);
+
+    // ボトル
+    const H = 0.24, R = 0.035, HC = 0.065; // 高さ・半径・重心の高さ（水が下にあるので低い）
+    const bottle = new THREE.Group();
+    const profile = [[0, 0], [R - 0.006, 0], [R, 0.006], [R, 0.15], [R * 0.95, 0.165], [0.02, 0.2], [0.014, 0.212], [0.014, 0.218]].map(([x, y]) => new THREE.Vector2(x, y));
+    const shell = new THREE.Mesh(new THREE.LatheGeometry(profile, 32), new THREE.MeshPhysicalMaterial({ color: '#dff4ff', transparent: true, opacity: 0.35, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false }));
+    shell.castShadow = true;
+    const water = new THREE.Mesh(new THREE.CylinderGeometry(R - 0.003, R - 0.004, 0.075, 32), new THREE.MeshStandardMaterial({ color: '#58b8f0', transparent: true, opacity: 0.75, roughness: 0.2 }));
+    water.position.y = 0.04;
+    const label = new THREE.Mesh(new THREE.CylinderGeometry(R + 0.001, R + 0.001, 0.05, 32, 1, true), new THREE.MeshStandardMaterial({ color: '#2a9be0', side: THREE.DoubleSide }));
+    label.position.y = 0.105;
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.022, 24), new THREE.MeshStandardMaterial({ color: '#2a9be0', roughness: 0.4 }));
+    cap.position.y = 0.229; cap.castShadow = true;
+    const inner = new THREE.Group(); inner.add(water, label, cap, shell);
+    inner.position.y = -HC; bottle.add(inner); scene.add(bottle);
+
+    // ---------- 置き場所 ----------
+    const PLAT_STYLES = {
+      mat: { color: '#7fbf6a' }, books: { colors: ['#d9534f', '#f0ad4e', '#5b8bd9', '#6bbf8a'] }, mug: { color: '#f2f2f2' }, coaster: { color: '#9a6a3a' }, block: { color: '#e9c46a' },
+    };
+    let plats = [], platGroup = new THREE.Group(); scene.add(platGroup);
+    function platSpec(i, x) {
+      const r = Math.random;
+      if (i === 0) return { kind: 'mat', x, w: 0.3, h: 0.006 };
+      if (i === 1) return { kind: 'mat', x, w: 0.26, h: 0.006 };
+      if (i === 2) return { kind: 'books', x, w: 0.22, h: 0.12 };
+      if (i === 3) return { kind: 'mug', x, w: 0.1, h: 0.1 };
+      if (i === 4) return { kind: 'coaster', x, w: 0.1, h: 0.008 };
+      const kinds = ['books', 'mug', 'coaster', 'block'];
+      const kind = kinds[Math.floor(r() * kinds.length)];
+      const w = Math.max(0.08, 0.16 - i * 0.005) * (0.8 + r() * 0.3);
+      const h = kind === 'coaster' ? 0.008 : kind === 'mug' ? 0.1 : 0.04 + r() * 0.2;
+      return { kind, x, w: kind === 'mug' ? Math.max(0.085, w) : w, h };
+    }
+    function buildPlat(p) {
+      const g = new THREE.Group(); g.position.x = p.x;
+      const add = (geo, color, y) => { const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.6 })); m.position.y = y; m.castShadow = m.receiveShadow = true; g.add(m); return m; };
+      if (p.kind === 'books') {
+        const n = Math.max(1, Math.round(p.h / 0.035)), bh = p.h / n;
+        for (let k = 0; k < n; k++) { const m = add(new THREE.BoxGeometry(p.w + (k % 2 ? 0.02 : 0), bh * 0.98, 0.2 - (k % 2) * 0.02), PLAT_STYLES.books.colors[(k + Math.floor(p.x * 7)) % 4], bh * (k + 0.5)); m.position.x = (k % 2 ? 0.006 : -0.004); }
+      } else if (p.kind === 'mug') {
+        add(new THREE.CylinderGeometry(p.w / 2, p.w / 2 * 0.95, p.h, 32), PLAT_STYLES.mug.color, p.h / 2);
+        const handle = add(new THREE.TorusGeometry(0.03, 0.008, 8, 16), PLAT_STYLES.mug.color, p.h / 2); handle.position.x = p.w / 2 + 0.012;
+      } else if (p.kind === 'coaster') {
+        add(new THREE.CylinderGeometry(p.w / 2, p.w / 2, p.h, 32), PLAT_STYLES.coaster.color, p.h / 2);
+      } else if (p.kind === 'mat') {
+        add(new THREE.BoxGeometry(p.w, p.h, 0.24), PLAT_STYLES.mat.color, p.h / 2);
+      } else {
+        add(new THREE.BoxGeometry(p.w, p.h, p.w), PLAT_STYLES.block.color, p.h / 2);
+      }
+      platGroup.add(g); p.mesh = g;
+    }
+    function addPlat() {
+      const i = plats.length, prev = plats[i - 1];
+      const x = prev ? prev.x + 0.45 + Math.random() * 0.35 + Math.min(i, 8) * 0.02 : 0;
+      const p = platSpec(i, x); plats.push(p); buildPlat(p);
+    }
+
+    // ---------- 物理（縦の平面で回る剛体） ----------
+    const G = 9.8, M = 1, I = 0.0045;
+    const PTS = [[-R + 0.006, 0], [R - 0.006, 0], [-R, 0.006], [R, 0.006], [-R, 0.15], [R, 0.15], [-0.02, 0.2], [0.02, 0.2], [-0.016, 0.24], [0.016, 0.24]].map(([x, y]) => [x, y - HC]);
+    const body = { x: 0, y: HC, a: 0, vx: 0, vy: 0, w: 0 };
+    let gen = 0, phase = 'ready', cur = 0, streak = 0, best = store.get('best', 0), tFly = 0, still = 0, lastTok = 0, resultShown = false;
+
+    function boxes() {
+      const out = [];
+      for (const p of plats) out.push({ l: p.x - p.w / 2, r: p.x + p.w / 2, top: p.h });
+      return out;
+    }
+    function contacts() {
+      const c = Math.cos(body.a), s = Math.sin(body.a), list = [];
+      const bx = boxes();
+      for (let pi = 0; pi < PTS.length; pi++) {
+        const [lx, ly] = PTS[pi], base = pi < 4;
+        const rx = lx * c - ly * s, ry = lx * s + ly * c, px = body.x + rx, py = body.y + ry;
+        if (py < 0) list.push({ rx, ry, nx: 0, ny: 1, d: -py, base });
+        for (const b of bx) {
+          if (px > b.l && px < b.r && py < b.top && py > -0.01) {
+            const dt = b.top - py, dl = px - b.l, dr = b.r - px, m = Math.min(dt, dl, dr);
+            if (m === dt) list.push({ rx, ry, nx: 0, ny: 1, d: dt, base });
+            else if (m === dl) list.push({ rx, ry, nx: -1, ny: 0, d: dl });
+            else list.push({ rx, ry, nx: 1, ny: 0, d: dr });
+          }
+        }
+      }
+      return list;
+    }
+    function step(dt) {
+      body.vy -= G * dt;
+      body.w *= Math.exp(-3 * dt); // 中の水が揺れて回転がゆるむ
+      body.x += body.vx * dt; body.y += body.vy * dt; body.a += body.w * dt;
+      const cs = contacts();
+      if (!cs.length) return 0;
+      let hit = 0;
+      for (let it = 0; it < 6; it++) {
+        for (const k of cs) {
+          const vx = body.vx - body.w * k.ry, vy = body.vy + body.w * k.rx;
+          const vn = vx * k.nx + vy * k.ny;
+          if (it === 0) hit = Math.max(hit, -vn);
+          const rn = k.rx * k.ny - k.ry * k.nx;
+          let jn = 0;
+          const soft = k.base ? 0.25 : 1;
+          if (vn < 0) {
+            // 底から着いたときは水がクッションになり、跳ねずに回転もあまり生まない
+            const e = k.base ? 0 : vn < -0.8 ? 0.15 : 0;
+            jn = -(1 + e) * vn / (1 / M + soft * rn * rn / I);
+            body.vx += jn * k.nx / M; body.vy += jn * k.ny / M; body.w += soft * rn * jn / I;
+          }
+          const tx = -k.ny, ty = k.nx;
+          const vx2 = body.vx - body.w * k.ry, vy2 = body.vy + body.w * k.rx;
+          const vt = vx2 * tx + vy2 * ty, rt = k.rx * ty - k.ry * tx;
+          let jt = -vt / (1 / M + soft * rt * rt / I);
+          const lim = 0.6 * Math.max(jn, G * M * dt / cs.length);
+          jt = Math.max(-lim, Math.min(lim, jt));
+          body.vx += jt * tx / M; body.vy += jt * ty / M; body.w += soft * rt * jt / I;
+        }
+      }
+      let dx = 0, dy = 0, dmax = 0;
+      for (const k of cs) if (k.d > dmax) { dmax = k.d; dx = k.nx; dy = k.ny; }
+      body.x += dx * dmax * 0.6; body.y += dy * dmax * 0.6;
+      // 着地で中の水が暴れて勢いが吸われる。底から着くと特によく止まる
+      const base = cs.some(c => c.base), u = upright();
+      if (base && Math.abs(u) < 0.5) {
+        // 底からほぼまっすぐ着いたら、水の重みでぐっと踏ん張る
+        body.w = body.w * Math.exp(-40 * dt) - u * 40 * dt; body.vx *= Math.exp(-25 * dt);
+      } else {
+        const k = base ? 12 : 4;
+        body.w *= Math.exp(-k * dt); body.vx *= Math.exp(-k * 0.4 * dt);
+      }
+      return hit;
+    }
+    const upright = () => Math.atan2(Math.sin(body.a), Math.cos(body.a));
+
+    function placeOn(i) {
+      const p = plats[i];
+      Object.assign(body, { x: p.x, y: p.h + HC, a: 0, vx: 0, vy: 0, w: 0 });
+    }
+    function reset() {
+      gen++;
+      for (const p of plats) platGroup.remove(p.mesh);
+      plats = []; addPlat(); addPlat();
+      cur = 0; streak = 0; phase = 'ready'; placeOn(0);
+      $('streak').innerHTML = ''; resultShown = false; $('result').style.display = 'none';
+      camX = camTarget(); showHint();
+    }
+    function launch(vx, vy) {
+      if (phase !== 'ready') return;
+      vy = Math.max(1.2, Math.min(4.6, vy)); vx = Math.max(-0.6, Math.min(2.2, vx));
+      body.vx = vx; body.vy = vy; body.y += 0.01;
+      body.w = -(18 + vy * 1.4); // 下から振り上げると前に回る
+      phase = 'fly'; tFly = 0; still = 0; hideHint(); sfx.whoosh();
+    }
+
+    function onTarget() {
+      const p = plats[cur + 1];
+      return Math.abs(body.x - p.x) < p.w / 2 && Math.abs(body.y - HC - p.h) < 0.01;
+    }
+    function judge(dt) {
+      tFly += dt;
+      const slow = Math.abs(body.vx) + Math.abs(body.vy) < 0.04 && Math.abs(body.w) < 0.3;
+      still = slow ? still + dt : 0;
+      if (tFly > 0.25 && still > 0.35) {
+        if (Math.abs(upright()) < 0.1 && onTarget()) return succeed();
+        return fail();
+      }
+      if (body.y < -0.5 || tFly > 6) return fail();
+    }
+    const BOTTLE_SVG = '<path d="M5 1h4v3l1 3h1.5q1.5 0 1.5 2v19q0 1-1 1H2q-1 0-1-1V9q0-2 1.5-2H4l1-3z" fill="#dff4ff" stroke="#2a9be0" stroke-width="1.2"/><rect x="1.6" y="18" width="10.8" height="10.4" fill="#58b8f0"/><rect x="5" y="0.5" width="4" height="3" fill="#2a9be0"/>';
+    function succeed() {
+      phase = 'won'; streak++; sfx.win();
+      const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 14 30'); s.innerHTML = BOTTLE_SVG; $('streak').appendChild(s);
+      body.vy = 0.8; // 小さく跳ねて喜ぶ
+      const g = gen; setTimeout(() => { if (g !== gen) return; cur++; addPlat(); placeOn(cur); phase = 'ready'; }, 650);
+    }
+    function fail() {
+      phase = 'lost'; sfx.lose();
+      const isNew = streak > best; if (isNew) { best = streak; store.set('best', best); }
+      lastNew = isNew;
+      const g = gen; setTimeout(() => { if (g !== gen) return; resultShown = true; fillResult(); $('result').style.display = 'flex'; }, 800);
+    }
+    let lastNew = false;
+    function fillResult() {
+      $('result').querySelector('.big svg').innerHTML = BOTTLE_SVG;
+      $('rCount').textContent = t('unit')(streak);
+      $('rBest').textContent = lastNew && streak > 0 ? t('newBest') : t('best')(best);
+      $('rBest').classList.toggle('new', lastNew && streak > 0);
+      const a = $('post');
+      a.textContent = t('post');
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(streak))}&url=${encodeURIComponent(SHARE_URL)}`;
+      if (matchMedia('(pointer: coarse)').matches) { a.removeAttribute('target'); a.removeAttribute('rel'); }
+      else { a.target = '_blank'; a.rel = 'noopener'; }
+    }
+    $('retry').addEventListener('click', reset);
+
+    // ---------- スワイプ ----------
+    let samples = null;
+    addEventListener('pointerdown', e => {
+      if (e.target.closest('header, #result') || phase !== 'ready') return;
+      samples = [{ x: e.clientX, y: e.clientY, t: performance.now() }];
+    });
+    addEventListener('pointermove', e => { if (samples) { samples.push({ x: e.clientX, y: e.clientY, t: performance.now() }); if (samples.length > 30) samples.shift(); } });
+    addEventListener('pointerup', e => {
+      if (!samples) return;
+      const now = performance.now(), last = { x: e.clientX, y: e.clientY, t: now };
+      // 離す直前 120ms の動きで速さを測る（最低でも1つ前の点から）
+      let i = Math.max(0, samples.length - 2);
+      while (i > 0 && now - samples[i - 1].t < 120) i--;
+      const first = samples[i];
+      samples = null;
+      const dtS = Math.max(0.016, (now - first.t) / 1000), sh = innerHeight;
+      const sx = (last.x - first.x) / sh / dtS, sy = -(last.y - first.y) / sh / dtS; // 画面の高さ/秒
+      if (sy < 0.4) return;
+      launch(sx * 0.7, sy * 1.25);
+    });
+    addEventListener('pointercancel', () => samples = null);
+
+    // ---------- ヒント ----------
+    let hinted = store.get('hinted', false);
+    function showHint() { if (!hinted) $('hint').style.display = 'block'; }
+    function hideHint() { if (!hinted) { hinted = true; store.set('hinted', true); } $('hint').style.display = 'none'; }
+    function placeHint() {
+      if ($('hint').style.display !== 'block') return;
+      const v = new THREE.Vector3(body.x, body.y, 0).project(camera);
+      $('hint').style.left = ((v.x + 1) / 2 * innerWidth - 27) + 'px';
+      $('hint').style.top = ((1 - v.y) / 2 * innerHeight - 27) + 'px';
+    }
+
+    // ---------- カメラと描画 ----------
+    let camX = 0;
+    const camTarget = () => { const a = plats[cur], b = plats[cur + 1]; return b ? (a.x + b.x) / 2 : a.x; };
+    function resize() {
+      const w = innerWidth, h = innerHeight;
+      renderer.setSize(w, h, false); camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    addEventListener('resize', resize); resize();
+
+    let prev = performance.now();
+    function frame(now) {
+      const dt = Math.min(0.05, (now - prev) / 1000); prev = now;
+      if (phase === 'fly' || phase === 'lost' || phase === 'won') {
+        const n = 16, h = dt / n;
+        for (let i = 0; i < n; i++) { const hit = step(h); if (hit > 0.3 && now - lastTok > 70) { sfx.tok(hit); lastTok = now; } }
+        if (phase === 'fly') judge(dt);
+      }
+      camX += (camTarget() - camX) * Math.min(1, dt * 4);
+      // 縦長の画面では引いて、左右の台が両方見えるようにする
+      const span = (plats[cur + 1] ? plats[cur + 1].x - plats[cur].x : 0.6) + 0.3;
+      const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      const dist = Math.max(span / 2 / tv / camera.aspect, 0.7 / 2 / tv);
+      const lookY = 0.16 + (plats[cur + 1]?.h || 0) * 0.4;
+      camera.position.set(camX, lookY + dist * 0.35, dist);
+      camera.lookAt(camX, lookY, 0);
+      sun.position.set(camX + 1, 3, 2); sun.target.position.set(camX, 0, 0);
+      bottle.position.set(body.x, body.y, 0); bottle.rotation.z = body.a;
+      // 水面のゆれ（見た目だけ）
+      water.rotation.z = Math.sin(now / 90) * Math.min(0.15, Math.abs(body.w) * 0.01);
+      placeHint();
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+    applyLang(); reset();
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
