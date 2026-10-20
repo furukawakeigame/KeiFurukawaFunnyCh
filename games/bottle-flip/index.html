@@ -210,9 +210,9 @@
     function contacts() {
       const c = Math.cos(body.a), s = Math.sin(body.a), list = [];
       for (let pi = 0; pi < PTS.length; pi++) {
-        const [lx, ly] = PTS[pi];
+        const [lx, ly] = PTS[pi], base = pi < 4;
         const rx = lx * c - ly * s, ry = lx * s + ly * c, py = body.y + ry;
-        if (py < 0) list.push({ rx, ry, nx: 0, ny: 1, d: -py });
+        if (py < 0) list.push({ rx, ry, nx: 0, ny: 1, d: -py, base });
       }
       return list;
     }
@@ -230,25 +230,28 @@
           if (it === 0) hit = Math.max(hit, -vn);
           const rn = k.rx * k.ny - k.ry * k.nx;
           let jn = 0;
+          // 底から着いたときは水がクッションになり、あまり跳ねず回転も生みにくい
+          const soft = k.base ? 0.25 : 1;
           if (vn < 0) {
-            const e = vn > -0.3 ? 0 : 0.25; // 反発係数（ゆっくり触れたときは跳ねない）
-            jn = -(1 + e) * vn / (1 / M + rn * rn / I);
-            body.vx += jn * k.nx / M; body.vy += jn * k.ny / M; body.w += rn * jn / I;
+            const e = vn > -0.3 ? 0 : k.base ? 0.1 : 0.25; // 反発係数（ゆっくり触れたときは跳ねない）
+            jn = -(1 + e) * vn / (1 / M + soft * rn * rn / I);
+            body.vx += jn * k.nx / M; body.vy += jn * k.ny / M; body.w += soft * rn * jn / I;
           }
           const tx = -k.ny, ty = k.nx;
           const vx2 = body.vx - body.w * k.ry, vy2 = body.vy + body.w * k.rx;
           const vt = vx2 * tx + vy2 * ty, rt = k.rx * ty - k.ry * tx;
-          let jt = -vt / (1 / M + rt * rt / I);
+          let jt = -vt / (1 / M + soft * rt * rt / I);
           const lim = 0.6 * Math.max(jn, G * M * dt / cs.length);
           jt = Math.max(-lim, Math.min(lim, jt));
-          body.vx += jt * tx / M; body.vy += jt * ty / M; body.w += rt * jt / I;
+          body.vx += jt * tx / M; body.vy += jt * ty / M; body.w += soft * rt * jt / I;
         }
       }
       let dx = 0, dy = 0, dmax = 0;
       for (const k of cs) if (k.d > dmax) { dmax = k.d; dx = k.nx; dy = k.ny; }
       body.x += dx * dmax * 0.6; body.y += dy * dmax * 0.6;
-      // 触れている間は、摩擦で少しずつ勢いが落ちる
-      body.w *= Math.exp(-4 * dt); body.vx *= Math.exp(-1.6 * dt);
+      // 触れている間は勢いが落ちる。底から着くと水が暴れて特によく止まる
+      const k = cs.some(c => c.base) ? 12 : 4;
+      body.w *= Math.exp(-k * dt); body.vx *= Math.exp(-k * 0.4 * dt);
       return hit;
     }
     const upright = () => Math.atan2(Math.sin(body.a), Math.cos(body.a));
