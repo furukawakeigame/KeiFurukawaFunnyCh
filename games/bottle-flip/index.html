@@ -161,7 +161,7 @@
     $('stage').appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#8fd3ff');
-    const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 400000);
+    const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 1e10);
     scene.add(new THREE.HemisphereLight('#e6f4ff', '#5a7a3a', 1.2));
     const sun = new THREE.DirectionalLight('#ffffff', 1.6);
     sun.position.set(0.8, 3, 2); sun.castShadow = true;
@@ -182,7 +182,9 @@
     // 地面：近くは草の円盤、その外は丸い地球（高く上がると地平線が丸く見える）
     const EARTH_R = 6371000;
     const earth = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 160, 320, 0, Math.PI * 2, 0, Math.PI / 8), mat('#4f9a46', { roughness: 1 }));
-    earth.position.y = -EARTH_R - 8; // 草の円盤と重ならないよう少し下げる（重なると遠くでチラつく） scene.add(earth);
+    earth.position.y = -EARTH_R - 8; scene.add(earth); // 草の円盤と重ならないよう少し下げる（重なると遠くでチラつく）
+    // とても高く上がったときに見える、地球ぜんたい（近くは上のくわしい方が見える）
+    const globe = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R - 3000, 96, 64), mat('#3f7fc0', { roughness: 1 })); globe.position.y = -EARTH_R - 8; scene.add(globe);
     const ground = new THREE.Mesh(new THREE.CircleGeometry(15000, 96), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.95 }));
     ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
     // 空の色：上に行くほど濃い青から宇宙の黒へ
@@ -398,16 +400,16 @@
       if (tShake >= SHAKE_TIME) launch();
     }
     // ---------- 発射：栓が飛び、吹き出す炭酸の勢いで空へ ----------
-    // 振り具合で届く高さが決まる（20m〜200km）。上がり方は高さの桁が一定のペースで増えるようにして、
+    // 振り具合で届く高さが決まる（20m〜、上限なし。目安は 200km）。上がり方は高さの桁が一定のペースで増えるようにして、
     // どの高さまで行く場合も、家→鳥→雲→飛行機→気球→宇宙の順に景色が流れて見えるようにする
     let flyT = 0, flyDur = 0, apexAlt = 0, startY = 0, startX = 0, launchT = 0, speed = 0;
     function launch() {
       phase = 'fly';
-      const frac = Math.min(1, fizz / FIZZ_FULL);
+      const frac = fizz / FIZZ_FULL; // 上限なし：振れば振るほど、どこまでも高く
       bodyFromChain();
       const ux = -Math.sin(body.a), uy = Math.cos(body.a), top = [body.x + ux * (H - HC), body.y + uy * (H - HC)];
       cap.visible = false; capFly = { p: top.slice(), v: [body.vx + ux * 3, body.vy + uy * 3], r: 0 };
-      apexAlt = 20 * Math.pow(10000, frac); flyDur = 3.5 + 4.5 * frac; flyT = 0; startY = body.y; startX = body.x; launchT = 0;
+      apexAlt = 20 * Math.pow(10000, frac); flyDur = 3.5 + 4.5 * Math.min(1, frac) + Math.log10(Math.max(1, frac)) * 3; flyT = 0; startY = body.y; startX = body.x; launchT = 0;
       foamRate = 300 + 700 * frac; foamSpeed = 3;
       sfx.pop(); sfx.fizz(flyDur * 0.6, 0.08 + 0.22 * frac);
     }
