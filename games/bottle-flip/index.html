@@ -189,8 +189,33 @@
     inner.position.y = -HC; bottle.add(inner); scene.add(bottle);
     const rodMat = new THREE.MeshStandardMaterial({ color: '#555b66', metalness: 0.6, roughness: 0.35 });
     const rods = [0, 1, 2].map(() => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1, 8), rodMat); m.castShadow = true; scene.add(m); return m; });
-    const joints = [0.02, 0.014, 0.014, 0.014].map(r => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshStandardMaterial({ color: r > 0.016 ? '#e0602a' : '#555b66', roughness: 0.4 })); m.castShadow = true; scene.add(m); return m; });
+    const joints = [['#555b66', 0.018], ['#e0602a', 0.016], ['#e9b13b', 0.016], ['#5bbf6a', 0.016]].map(([c, r]) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshStandardMaterial({ color: c, roughness: 0.4 })); m.castShadow = true; scene.add(m); return m; }); // 関節は軌跡と同じ色
     const UP = new THREE.Vector3(0, 1, 0), tmpV = new THREE.Vector3();
+    // 軌跡：関節とボトルの通った道を、色ちがいの線で残す（三重振り子のカオスが見える）
+    const TRAIL_N = 240, TRAIL_COLORS = ['#e0602a', '#e9b13b', '#5bbf6a', '#2a9be0'];
+    const trails = TRAIL_COLORS.map(c => {
+      const geo = new THREE.BufferGeometry(), pos = new Float32Array(TRAIL_N * 3), col = new Float32Array(TRAIL_N * 4);
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 4));
+      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false }));
+      line.frustumCulled = false; scene.add(line);
+      return { line, pts: [], rgb: new THREE.Color(c) };
+    });
+    function clearTrails() { for (const t of trails) t.pts.length = 0; }
+    function updateTrails() {
+      const src = [P[1], P[2], P[3], comOf()];
+      trails.forEach((t, i) => {
+        if (phase === 'swing') { t.pts.push([src[i][0], src[i][1]]); if (t.pts.length > TRAIL_N) t.pts.shift(); }
+        else if (t.pts.length) t.pts.shift(); // 落としたあとは少しずつ消える
+        const pos = t.line.geometry.attributes.position.array, col = t.line.geometry.attributes.color.array, n = t.pts.length;
+        for (let k = 0; k < TRAIL_N; k++) {
+          const p = t.pts[Math.min(k, n - 1)] || [0, -9];
+          pos[k * 3] = p[0]; pos[k * 3 + 1] = p[1]; pos[k * 3 + 2] = 0.002;
+          col[k * 4] = t.rgb.r; col[k * 4 + 1] = t.rgb.g; col[k * 4 + 2] = t.rgb.b; col[k * 4 + 3] = k < n ? (k / n) * 0.8 : 0;
+        }
+        t.line.geometry.attributes.position.needsUpdate = t.line.geometry.attributes.color.needsUpdate = true;
+        t.line.geometry.setDrawRange(0, Math.max(0, n));
+      });
+    }
     function drawChain() {
       for (let k = 0; k < 4; k++) joints[k].position.set(P[k][0], P[k][1], 0);
       for (let k = 0; k < 3; k++) {
@@ -256,14 +281,14 @@
     const upright = () => Math.atan2(Math.sin(body.a), Math.cos(body.a));
 
     // ---------- 三重振り子（棒・棒・棒、その先にボトル） ----------
-    const PIV = [0, 1.4], LEN = [0.2, 0.2, 0.2, H], INV = [0, 2, 2, 1.5, 1]; // 支点は動かない。ボトルの底がいちばん重い
+    const PIV = [0, 1.4], LEN = [0.2, 0.2, 0.2, H], INV = [0, 1, 1, 1, 1]; // 支点は動かない。ボトルの底がいちばん重い
     const P = Array.from({ length: 5 }, () => [0, 0]), Q = P.map(v => v.slice());
     let holding = false, grab = null, aim = null, lastSub = 1 / 960;
     const comOf = () => { const t = HC / H; return [P[4][0] + (P[3][0] - P[4][0]) * t, P[4][1] + (P[3][1] - P[4][1]) * t]; };
     function hang() {
       let y = PIV[1];
       for (let k = 0; k < 5; k++) { if (k) y -= LEN[k - 1]; P[k] = [PIV[0], y]; Q[k] = [PIV[0], y]; }
-      bodyFromChain(); dressBottle();
+      bodyFromChain(); dressBottle(); clearTrails();
     }
     // 10回に1回はコーラになる
     const LOOKS = { water: { liquid: '#58b8f0', label: '#2a9be0', opacity: 0.75 }, cola: { liquid: '#2a1206', label: '#d9261c', opacity: 0.95 } };
@@ -274,7 +299,7 @@
     function chainStep(dt) {
       const n = phase === 'swing' ? 5 : 4; // 落としたあとはボトルを外した振り子
       for (let k = 1; k < n; k++) {
-        const vx = (P[k][0] - Q[k][0]) * 0.9997, vy = (P[k][1] - Q[k][1]) * 0.9997;
+        const f = Math.exp(-0.05 * dt), vx = (P[k][0] - Q[k][0]) * f, vy = (P[k][1] - Q[k][1]) * f; // ほとんど減衰させず、長く振れ続ける
         Q[k] = P[k]; P[k] = [P[k][0] + vx, P[k][1] + vy - G * dt * dt];
       }
       for (let it = 0; it < 8; it++) {
@@ -422,6 +447,7 @@
       // 水面のゆれ（見た目だけ）
       water.rotation.z = Math.sin(now / 90) * Math.min(0.15, Math.abs(body.w) * 0.01);
       drawChain();
+      updateTrails();
       placeHint();
       renderer.render(scene, camera);
       requestAnimationFrame(frame);
