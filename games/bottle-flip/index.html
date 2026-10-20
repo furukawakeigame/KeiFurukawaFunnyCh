@@ -154,6 +154,7 @@
 
     // ---------- 3D ----------
     const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true }); // 近くのボトルと遠くの地平線を両方きれいに描く
+    renderer.localClippingEnabled = true; // コーラの液面を切り口で作る
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -246,8 +247,11 @@
     const profile = [[0, 0], [R - 0.006, 0], [R, 0.006], [R, 0.15], [R * 0.95, 0.165], [0.02, 0.2], [0.014, 0.212], [0.014, 0.218]].map(([x, y]) => new THREE.Vector2(x, y));
     const shell = new THREE.Mesh(new THREE.LatheGeometry(profile, 32), new THREE.MeshPhysicalMaterial({ color: '#dff4ff', transparent: true, opacity: 0.35, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false }));
     shell.castShadow = true;
-    const water = new THREE.Mesh(new THREE.CylinderGeometry(R - 0.003, R - 0.004, 0.095, 32), new THREE.MeshStandardMaterial({ color: '#2a1206', transparent: true, opacity: 0.95, roughness: 0.2 }));
-    water.position.y = 0.051;
+    // コーラ：胴の中いっぱいの円柱を、「感じている重力」の向きに垂直な面で切って液面にする
+    const LIQ_Y0 = 0.004, LIQ_Y1 = 0.17, liquidPlane = new THREE.Plane();
+    const water = new THREE.Mesh(new THREE.CylinderGeometry(R - 0.003, R - 0.004, LIQ_Y1 - LIQ_Y0, 32), new THREE.MeshStandardMaterial({ color: '#2a1206', transparent: true, opacity: 0.95, roughness: 0.2, side: THREE.DoubleSide, clippingPlanes: [liquidPlane] }));
+    water.position.y = (LIQ_Y0 + LIQ_Y1) / 2;
+    let liquidFrac = 0.55; // 胴に対して入っている量
     const label = new THREE.Mesh(new THREE.CylinderGeometry(R + 0.001, R + 0.001, 0.05, 32, 1, true), new THREE.MeshStandardMaterial({ color: '#d9261c', side: THREE.DoubleSide }));
     label.position.y = 0.105;
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.022, 24), new THREE.MeshStandardMaterial({ color: '#d9261c', roughness: 0.4 }));
@@ -259,6 +263,26 @@
     const bubbleSeed = Array.from({ length: BUBBLES }, () => [Math.random() * 6.28, Math.random() * (R - 0.01), Math.random() * 0.09 + 0.005, 0.5 + Math.random()]);
     inner.add(bubbleMesh);
     const tmpM = new THREE.Matrix4();
+    // 感じている重力 = 重力 − ボトルの加速度。急に止まった・振られた・噴射で押された向きに液体が寄る
+    const feel = new THREE.Vector2(0, -1); let prevBV = null;
+    const tmpP = new THREE.Vector3(), tmpN = new THREE.Vector3();
+    function updateLiquid(dt) {
+      if (dt > 0) {
+        const v = [body.vx, body.vy];
+        if (prevBV) {
+          const gx = -(v[0] - prevBV[0]) / dt, gy = -G - (v[1] - prevBV[1]) / dt, m = Math.hypot(gx, gy);
+          if (m > 1) feel.lerp(new THREE.Vector2(gx / m, gy / m), 1 - Math.exp(-12 * dt)).normalize(); // ほぼ無重力のときは前の向きのまま
+        }
+        prevBV = v;
+      }
+      // 液面の高さ：重力が底の方なら底から、口の方なら口側から満たす
+      inner.updateWorldMatrix(true, false);
+      const ax = -Math.sin(body.a), ay = Math.cos(body.a), toBottom = -(feel.x * ax + feel.y * ay) >= 0;
+      const len = LIQ_Y1 - LIQ_Y0, yLocal = toBottom ? LIQ_Y0 + len * liquidFrac : LIQ_Y1 - len * liquidFrac;
+      tmpP.set(0, yLocal, 0).applyMatrix4(inner.matrixWorld);
+      tmpN.set(feel.x, feel.y, 0);
+      liquidPlane.setFromNormalAndCoplanarPoint(tmpN, tmpP);
+    }
     function drawBubbles(frac, now) {
       const n = Math.round(BUBBLES * Math.min(1, frac));
       bubbleMesh.count = n;
@@ -353,7 +377,7 @@
     // ---------- 流れ：形を決める → 5秒振り回す → 栓が飛んで炭酸が吹き出す → 結果 ----------
     function reset() {
       gen++; phase = 'ready'; holding = false; tShake = 0; fizz = 0; score = 0; prevV = null; hang();
-      cap.visible = true; capFly = null; water.scale.y = 1; water.position.y = 0.051; clearFoam(); speed = 0; jetAge.fill(9); jetCol.fill(0); jetGeo.attributes.color.needsUpdate = true;
+      cap.visible = true; capFly = null; liquidFrac = 0.55; feel.set(0, -1); prevBV = null; clearFoam(); speed = 0; jetAge.fill(9); jetCol.fill(0); jetGeo.attributes.color.needsUpdate = true;
       resultShown = false; $('result').style.display = 'none'; drawTimer();
       showHint('drag');
     }
@@ -395,15 +419,14 @@
       speed = (body.y - prevY) / h; body.vx = 0; body.vy = speed;
       // 離れたらすぐ底を上に向ける（口から炭酸が噴き出す）
       body.a += (Math.PI - body.a) * (1 - Math.exp(-14 * h)); body.w = 0;
-      if (u < 0.6) {
-        const ux = -Math.sin(body.a), uy = Math.cos(body.a);
-        emitFoam(h, [body.x + ux * (H - HC), body.y + uy * (H - HC)], [ux, uy]);
-        water.scale.y = Math.max(0.05, 1 - u / 0.6 * 0.95); water.position.y = 0.004 + 0.0475 * water.scale.y;
-      }
+      // 噴射はてっぺんに着くまで続き（だんだん弱まる）、そのぶん中身が減っていく
+      const ux = -Math.sin(body.a), uy = Math.cos(body.a);
+      emitFoam(h * (1 - 0.8 * u), [body.x + ux * (H - HC), body.y + uy * (H - HC)], [ux, uy]);
+      liquidFrac = 0.55 * (1 - 0.9 * u);
       if (u >= 1) finish();
     }
     function finish() {
-      phase = 'fall'; speed = 0; score = Math.max(0, Math.round(apexAlt));
+      phase = 'fall'; speed = 0; body.vy = 0; score = Math.max(0, Math.round(apexAlt));
       const isNew = score > best; if (isNew) { best = score; store.set('bestM', best); }
       lastNew = isNew;
       const g = gen; setTimeout(() => { if (g !== gen) return; phase = 'done'; resultShown = true; fillResult(); $('result').style.display = 'flex'; }, 1300);
@@ -543,10 +566,11 @@
         chainStep(STEP); keepEnergy(STEP);
         if (phase === 'shake') measure(STEP);
         if (phase === 'fly') flyStep(STEP);
+        else if (phase === 'fall' || phase === 'done') { body.vy -= G * STEP; body.y = Math.max(0, body.y + body.vy * STEP); body.a += 0.8 * STEP; } // 噴射が止まったら落ちる
         if ((jetTick += STEP) >= 1 / 120) { // 噴射は 1/120 秒ごとに進める（フレームレートに関係なく同じ見た目）
           jetTick -= 1 / 120;
           const u = phase === 'fly' ? flyT / flyDur : 1;
-          stepJet(1 / 120, u < 0.6 ? Math.min(1, 0.4 + 0.6 * Math.min(1, fizz / FIZZ_FULL)) * (1 - u / 0.6 * 0.5) : 0);
+          stepJet(1 / 120, phase === 'fly' ? Math.min(1, 0.4 + 0.6 * Math.min(1, fizz / FIZZ_FULL)) * (1 - 0.8 * u) : 0);
         }
         if (phase === 'fly' || phase === 'fall' || phase === 'done') stepFoam(STEP);
       }
@@ -570,7 +594,8 @@
       stars.material.opacity = THREE.MathUtils.smoothstep(alt, 15000, 60000); stars.position.copy(camera.position);
       drawSpeedLines(body.x, body.y, phase === 'fly' ? speed : 0, dt);
       bottle.position.set(body.x, body.y, 0); bottle.rotation.z = body.a;
-      drawBubbles(phase === 'shake' || phase === 'ready' ? fizz / FIZZ_FULL * 1.6 : water.scale.y, now);
+      drawBubbles(phase === 'shake' || phase === 'ready' ? fizz / FIZZ_FULL * 1.6 : liquidFrac / 0.55, now);
+      updateLiquid(dt);
       foamGeo.attributes.position.needsUpdate = true; foamGeo.setDrawRange(0, foamCount);
       jetGeo.attributes.position.needsUpdate = jetGeo.attributes.color.needsUpdate = true;
       if (capFly) { capMesh.visible = true; capMesh.position.set(capFly.p[0], capFly.p[1], 0); capMesh.rotation.z = capFly.r; } else capMesh.visible = false;
