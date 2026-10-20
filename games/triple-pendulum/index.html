@@ -196,8 +196,9 @@
 
     // ---- 三重振り子の物理（減衰なし・エネルギー補正つき） ----
     const N = 3, G = 9.81, LEN = 1, SIM_SPEED = 1.7, DRAW_TIME = 7;
-    const ART = 1000, PIX = 150; // キャンバス内部サイズと、振り子1本の長さ(px)
-    const PIVOT = { x: ART / 2, y: ART / 2 };
+    // キャンバスは画面の縦横比に合わせる（長い辺を 1000px）。振り子は短い辺に収まる長さ
+    let AW = 1000, AH = 1000, PIX = 150;
+    const PIVOT = { x: 500, y: 500 };
     const START_POSE = [2.1, 2.9, -2.2];
     let lastPose = store.get('pose', START_POSE); // 前回「描く」を押したときの玉の配置
     let th = [...lastPose], om = [0, 0, 0], E0 = 0;
@@ -247,17 +248,24 @@
 
     // ---- 描画 ----
     const view = document.getElementById('view'), vctx = view.getContext('2d');
-    const art = document.createElement('canvas'); art.width = art.height = ART;
+    const art = document.createElement('canvas'); art.width = AW; art.height = AH;
     const actx = art.getContext('2d');
     const BG = '#0b0b10';
-    const clearArt = () => { actx.fillStyle = BG; actx.fillRect(0, 0, ART, ART); };
+    const clearArt = () => { actx.fillStyle = BG; actx.fillRect(0, 0, AW, AH); };
     clearArt();
     const fit = () => {
       const st = document.getElementById('stage').getBoundingClientRect();
-      const s = Math.floor(Math.max(120, Math.min(st.width - 24, st.height)));
+      const w = Math.floor(Math.max(120, st.width - 24)), h = Math.floor(Math.max(120, st.height));
       const dpr = Math.min(2, devicePixelRatio || 1);
-      view.style.width = view.style.height = s + 'px';
-      view.width = view.height = Math.round(s * dpr);
+      view.style.width = w + 'px'; view.style.height = h + 'px';
+      view.width = Math.round(w * dpr); view.height = Math.round(h * dpr);
+      if (state === 'ready') {
+        // 描き始める前だけ、キャンバスの形を画面に合わせ直す
+        const k = 1000 / Math.max(w, h);
+        AW = art.width = Math.round(w * k); AH = art.height = Math.round(h * k);
+        PIVOT.x = AW / 2; PIVOT.y = AH / 2; PIX = Math.min(AW, AH) * 0.15;
+        clearArt();
+      }
     };
 
     let state = 'ready', grab = -1, runT = 0, hue = 0, done = 0;
@@ -274,7 +282,7 @@
     };
 
     const render = (now) => {
-      const sc = view.width / ART;
+      const sc = view.width / AW;
       vctx.setTransform(1, 0, 0, 1, 0, 0);
       vctx.drawImage(art, 0, 0, view.width, view.height);
       if (state === 'gallery' || state === 'done') return;
@@ -316,7 +324,7 @@
     requestAnimationFrame(loop);
 
     // ---- つかんで離す ----
-    const toArt = (e) => { const r = view.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * ART, y: (e.clientY - r.top) / r.height * ART }; };
+    const toArt = (e) => { const r = view.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * AW, y: (e.clientY - r.top) / r.height * AH }; };
     view.addEventListener('pointerdown', (e) => {
       if (state !== 'ready') return;
       e.preventDefault(); ensureAudio();
@@ -441,38 +449,48 @@
       add(new THREE.PlaneGeometry(40, 14), std({ color: 0x2a2724, roughness: 1 }), -8, 4.4, 7, { rx: Math.PI / 2, cast: false });
       add(new THREE.BoxGeometry(40, 0.14, 0.03), std({ color: 0xf2eee6, roughness: 0.6 }), -8, 0.07, 0.015);
 
-      // 額縁（作品ごとに1つ。左へ行くほど古い作品）
-      const A = 0.9, MAT = 0.13, F = 0.085, D = 0.07, CY = 1.6, SP = 2.4;
+      // 額縁（作品ごとに1つ。左へ行くほど古い作品。作品の縦横比に合わせて作る）
+      const MAT = 0.13, F = 0.085, D = 0.07, CY = 1.6, SP = 2.8, L = 0.018;
       const gold = phys({ color: 0xe0b45a, metalness: 1, roughness: 0.22, clearcoat: 0.3, envMapIntensity: 1.1 });
       const goldDark = phys({ color: 0xa87d36, metalness: 1, roughness: 0.3, envMapIntensity: 1 });
       const matMat = std({ color: 0xf3efe6, roughness: 0.92 });
       const white = std({ color: 0xfbfaf6, roughness: 0.7 });
-      const O = A / 2 + MAT, L = 0.018;
-      const GH = new THREE.BoxGeometry(2 * O + 2 * F, F, D), GV = new THREE.BoxGeometry(F, 2 * O, D);
-      const LH = new THREE.BoxGeometry(2 * O, L, D * 0.8), LV = new THREE.BoxGeometry(L, 2 * O, D * 0.8);
-      const GM = new THREE.PlaneGeometry(2 * O, 2 * O), GA = new THREE.PlaneGeometry(A, A), GP = new THREE.BoxGeometry(0.42, 0.235, 0.008);
+      const GP = new THREE.BoxGeometry(0.42, 0.235, 0.008);
       const blank = mk(4, (g, n) => { g.fillStyle = '#0b0b10'; g.fillRect(0, 0, n, n); });
       const liveTex = canvasTex(art);
+      const artSize = (asp) => { const h = Math.min(1.0, 1.2 / asp); return [h * asp, h]; };
       const slots = [];
       for (let i = 0; i < MAX_WORKS; i++) {
-        const x = -i * SP, grp = new THREE.Group(); scene.add(grp);
-        const put = (geo, mat, px, py, pz, cast = true) => { const m = new THREE.Mesh(geo, mat); m.position.set(px, py, pz); m.castShadow = cast; m.receiveShadow = true; grp.add(m); return m; };
-        put(GH, gold, x, CY + O + F / 2, D / 2); put(GH, gold, x, CY - O - F / 2, D / 2);
-        put(GV, gold, x - O - F / 2, CY, D / 2); put(GV, gold, x + O + F / 2, CY, D / 2);
-        put(LH, goldDark, x, CY + O - L / 2, D * 0.4); put(LH, goldDark, x, CY - O + L / 2, D * 0.4);
-        put(LV, goldDark, x - O + L / 2, CY, D * 0.4); put(LV, goldDark, x + O - L / 2, CY, D * 0.4);
-        put(GM, matMat, x, CY, 0.02, false);
+        const x = -i * SP, grp = new THREE.Group(), frame = new THREE.Group(); scene.add(grp); grp.add(frame);
         const artMat = std({ map: canvasTex(blank), roughness: 0.55 });
-        put(GA, artMat, x, CY, 0.024, false);
         const pc = document.createElement('canvas'); pc.width = 1024; pc.height = 572;
         const plTex = canvasTex(pc);
-        put(GP, [white, white, white, white, std({ map: plTex, roughness: 0.7 }), white], x + O + F + 0.32, 1.32, 0.004);
-        slots.push({ x, grp, artMat, pc, plTex, img: null });
+        const pl = new THREE.Mesh(GP, [white, white, white, white, std({ map: plTex, roughness: 0.7 }), white]);
+        pl.castShadow = pl.receiveShadow = true; grp.add(pl);
+        slots.push({ x, grp, frame, artMat, pc, plTex, pl, img: null, asp: 0 });
       }
+      const buildFrame = (sl, asp) => {
+        if (sl.asp === asp) return; sl.asp = asp;
+        for (const m of [...sl.frame.children]) { m.geometry.dispose(); sl.frame.remove(m); }
+        const [aw, ah] = artSize(asp), ow = aw / 2 + MAT, oh = ah / 2 + MAT, x = sl.x;
+        const put = (geo, mat, px, py, pz, cast = true) => { const m = new THREE.Mesh(geo, mat); m.position.set(px, py, pz); m.castShadow = cast; m.receiveShadow = true; sl.frame.add(m); };
+        put(new THREE.BoxGeometry(2 * ow + 2 * F, F, D), gold, x, CY + oh + F / 2, D / 2);
+        put(new THREE.BoxGeometry(2 * ow + 2 * F, F, D), gold, x, CY - oh - F / 2, D / 2);
+        put(new THREE.BoxGeometry(F, 2 * oh, D), gold, x - ow - F / 2, CY, D / 2);
+        put(new THREE.BoxGeometry(F, 2 * oh, D), gold, x + ow + F / 2, CY, D / 2);
+        put(new THREE.BoxGeometry(2 * ow, L, D * 0.8), goldDark, x, CY + oh - L / 2, D * 0.4);
+        put(new THREE.BoxGeometry(2 * ow, L, D * 0.8), goldDark, x, CY - oh + L / 2, D * 0.4);
+        put(new THREE.BoxGeometry(L, 2 * oh, D * 0.8), goldDark, x - ow + L / 2, CY, D * 0.4);
+        put(new THREE.BoxGeometry(L, 2 * oh, D * 0.8), goldDark, x + ow - L / 2, CY, D * 0.4);
+        put(new THREE.PlaneGeometry(2 * ow, 2 * oh), matMat, x, CY, 0.02, false);
+        put(new THREE.PlaneGeometry(aw, ah), sl.artMat, x, CY, 0.024, false);
+        sl.pl.position.set(x + ow + F + 0.3, 1.32, 0.004);
+      };
       const setSlot = (i, w) => {
         const sl = slots[i];
         sl.grp.visible = !!w; if (!w) return;
-        if (i === 0) { sl.artMat.map = liveTex; liveTex.needsUpdate = true; }
+        buildFrame(sl, w.asp || 1);
+        if (i === 0) { liveTex.dispose(); sl.artMat.map = liveTex; liveTex.needsUpdate = true; } // キャンバスの大きさが変わることがあるので作り直す
         else if (sl.img !== w.img) {
           sl.img = w.img;
           const im = new Image(), tx = new THREE.Texture(im);
@@ -482,6 +500,8 @@
         }
         drawPlacard(sl.pc, w); sl.plTex.needsUpdate = true;
       };
+      // 最初の表示で固まらないよう、質感を先に用意しておく
+      setSlot(0, { asp: 1, a: 0, n: 0, no: 1, y: 2026 });
 
       // 柵（真ちゅうのポールと赤いロープ）
       const brass = phys({ color: 0xd2ab55, metalness: 1, roughness: 0.18, clearcoat: 0.4, envMapIntensity: 1 });
@@ -570,9 +590,10 @@
 
     const finish = () => {
       state = 'done'; done = performance.now(); hum(0, 0);
-      const small = document.createElement('canvas'); small.width = small.height = 512;
-      small.getContext('2d').drawImage(art, 0, 0, 512, 512);
-      works.unshift({ img: small.toDataURL('image/jpeg', 0.85), a: Math.floor(Math.random() * 10), n: Math.floor(Math.random() * 10), no: (works[0]?.no || 0) + 1, y: new Date().getFullYear() });
+      const small = document.createElement('canvas'), k = 640 / Math.max(AW, AH);
+      small.width = Math.round(AW * k); small.height = Math.round(AH * k);
+      small.getContext('2d').drawImage(art, 0, 0, small.width, small.height);
+      works.unshift({ img: small.toDataURL('image/jpeg', 0.85), asp: AW / AH, a: Math.floor(Math.random() * 10), n: Math.floor(Math.random() * 10), no: (works[0]?.no || 0) + 1, y: new Date().getFullYear() });
       works = works.slice(0, MAX_WORKS); saveWorks();
     };
     const errEl = document.getElementById('err');
@@ -615,6 +636,7 @@
       errEl.style.display = 'none';
       clearArt(); th = [...lastPose]; om = [0, 0, 0]; hue = 0;
       timerBar.style.transform = 'scaleX(1)';
+      fit();
       goBtn.classList.remove('hide');
       state = 'ready';
     });
