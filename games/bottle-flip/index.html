@@ -543,7 +543,7 @@
 
     const capMesh = cap.clone(); capMesh.position.set(0, 0, 0); capMesh.scale.setScalar(BS); scene.add(capMesh);
     const STEP = 1 / 960;
-    let prev = performance.now(), simAcc = 0, jetTick = 0;
+    let prev = performance.now(), simAcc = 0, jetTick = 0, shakeDist = 5;
     function frame(now) {
       const dt = Math.max(0, Math.min(0.05, (now - prev) / 1000)); prev = now;
       // 物理は決まった刻み（1/960秒）で進める。画面の大きさやフレームレートで動きが変わらない
@@ -565,16 +565,22 @@
       drawTimer(); drawPressure();
       // 振っている間はカメラ固定。飛び立ったら、ボトルの斜め上から見下ろして追う（地面や景色が下へ遠ざかって見える）
       const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-      const dist = Math.max(2.5 / 2 / tv / camera.aspect, 3.0 / 2 / tv); // 振り子を大きく見せる（いちばん伸びたときは少し画面からはみ出す）
-      const fixedPos = new THREE.Vector3(0, 1.55, dist), fixedLook = new THREE.Vector3(0, 1.4, 0);
+      // 振り子はなるべく大きく見せつつ、どの画面サイズでもはみ出さないよう、伸びたときだけ引く
+      const CY = 1.4, topUI = 110 / innerHeight * 2; // 画面上の時間バーなどの分は使わない
+      let ex = 0, eUp = 0, eDown = 0;
+      for (const [x, y] of P) { ex = Math.max(ex, Math.abs(x) + 0.2); eUp = Math.max(eUp, y - CY + 0.2); eDown = Math.max(eDown, CY - y + 0.2); }
+      const need = Math.max(1.25 / tv / camera.aspect, 1.5 / tv, ex / tv / camera.aspect, eDown / tv, eUp / tv / (1 - topUI));
+      shakeDist += (need - shakeDist) * (need > shakeDist ? 1 - Math.exp(-12 * dt) : 1 - Math.exp(-1.5 * dt)); // 引くのは速く、寄るのはゆっくり
+      const dist = shakeDist;
+      const fixedPos = new THREE.Vector3(0, CY + 0.15, dist), fixedLook = new THREE.Vector3(0, CY, 0);
       if (phase === 'ready' || phase === 'shake') { camera.position.copy(fixedPos); camera.lookAt(fixedLook); }
       else {
         const k = THREE.MathUtils.smoothstep(launchT, 0, 0.9); // 発射からなめらかに切り替える
         // 低い所では見下ろして地面が遠ざかるのを見せ、高くなるほど水平に向けて地平線と宇宙を見せる
         const tilt = 1 - THREE.MathUtils.smoothstep(body.y, 3000, 40000);
         const chasePos = new THREE.Vector3(body.x + 0.6, body.y + 0.2 + 0.7 * tilt, 2.4), chaseLook = new THREE.Vector3(body.x, body.y - 0.5 * tilt + 0.3 * (1 - tilt), 0);
-        camera.position.lerpVectors(fixedPos.setY(Math.max(1.55, body.y + 0.15)), chasePos, k);
-        camera.lookAt(fixedLook.setY(Math.max(1.4, body.y)).lerp(chaseLook, k));
+        camera.position.lerpVectors(fixedPos.setY(Math.max(CY + 0.15, body.y + 0.15)), chasePos, k);
+        camera.lookAt(fixedLook.setY(Math.max(CY, body.y)).lerp(chaseLook, k));
       }
       const alt = camera.position.y;
       scene.background.copy(skyAt(alt)); document.body.style.background = '#' + scene.background.getHexString();
