@@ -36,10 +36,6 @@
     #timer { position: fixed; top: 62px; left: 50%; width: min(260px, 60vw); height: 8px; transform: translateX(-50%); border-radius: 99px; background: rgba(255,255,255,.35); overflow: hidden; z-index: 4; pointer-events: none; }
     #timer i { display: block; height: 100%; width: 100%; background: #e0602a; border-radius: 99px; transform-origin: left; }
     /* 飛んでいる間の高度計 */
-    /* 圧力メーター：振った量を針で見せる（文字なし） */
-    #gauge { position: fixed; top: 80px; left: 50%; width: 132px; height: 76px; transform: translateX(-50%); z-index: 4; pointer-events: none; transition: opacity .3s; }
-    #gauge.max #needle { animation: shake .08s linear infinite alternate; }
-    @keyframes shake { from { transform: rotate(var(--a)) translateX(-1.5px); } to { transform: rotate(var(--a)) translateX(1.5px); } }
     #alt { position: fixed; top: 58px; left: 0; right: 0; text-align: center; font-size: 40px; font-weight: 900; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.35); z-index: 4; pointer-events: none; font-variant-numeric: tabular-nums; }
     #hint { position: fixed; width: 54px; height: 54px; z-index: 3; pointer-events: none; display: none; animation: swipe 1.2s ease-in-out infinite alternate; }
     @keyframes swipe { from { transform: translateX(0); } to { transform: translateX(70px); } }
@@ -66,13 +62,6 @@
   </header>
   <div id="timer"><i></i></div>
   <div id="alt"></div>
-  <svg id="gauge" viewBox="0 0 132 76">
-    <defs><linearGradient id="gg" x1="0" x2="1"><stop offset="0" stop-color="#5bbf6a"/><stop offset=".5" stop-color="#e9b13b"/><stop offset="1" stop-color="#e0402a"/></linearGradient></defs>
-    <path d="M14 66a52 52 0 0 1 104 0" fill="none" stroke="rgba(0,0,0,.25)" stroke-width="16" stroke-linecap="round"/>
-    <path d="M14 66a52 52 0 0 1 104 0" fill="none" stroke="url(#gg)" stroke-width="10" stroke-linecap="round"/>
-    <g id="needle" style="transform-origin: 66px 66px"><path d="M66 66L66 20" stroke="#fff" stroke-width="5" stroke-linecap="round"/><path d="M66 66L66 20" stroke="#3b2a1a" stroke-width="2.4" stroke-linecap="round"/></g>
-    <circle cx="66" cy="66" r="7" fill="#3b2a1a" stroke="#fff" stroke-width="2.5"/>
-  </svg>
   <svg id="hint" viewBox="0 0 54 54"><circle cx="27" cy="27" r="16" fill="#fff" fill-opacity=".85" stroke="#3b2a1a" stroke-width="3"/><circle cx="27" cy="27" r="6" fill="#3b2a1a"/></svg>
   <div id="result"><div class="panel">
     <div class="big"><svg viewBox="0 0 14 30"></svg><span id="rCount"></span></div>
@@ -389,7 +378,7 @@
     }
     // ---------- 流れ：形を決める → 5秒振り回す → 栓が飛んで炭酸が吹き出す → 結果 ----------
     function reset() {
-      gen++; phase = 'ready'; holding = false; tShake = 0; fizz = 0; gaugeShown = 0; score = 0; prevV = null; hang();
+      gen++; phase = 'ready'; holding = false; tShake = 0; fizz = 0; score = 0; prevV = null; hang();
       cap.visible = true; capFly = null; liquidFrac = 0.55; feel.set(0, -1); prevBV = null; clearFoam(); speed = 0; jetAge.fill(9); jetCol.fill(0); jetGeo.attributes.color.needsUpdate = true;
       resultShown = false; $('result').style.display = 'none'; drawTimer();
       showHint('drag');
@@ -444,16 +433,9 @@
       lastNew = isNew;
       const g = gen; setTimeout(() => { if (g !== gen) return; phase = 'done'; resultShown = true; fillResult(); $('result').style.display = 'flex'; }, 1300);
     }
-    // 振った量（0〜1、1 で元の最高クラス。それ以上は針が振り切れて震える）
-    let gaugeShown = 0;
-    function drawGauge(now) {
-      const shaking = phase === 'ready' || phase === 'shake', level = fizz / FIZZ_FULL;
-      gaugeShown += (Math.min(1.05, level) - gaugeShown) * 0.15; // 針はなめらかに追いかける
-      const a = -90 + 180 * Math.min(1, gaugeShown);
-      $('needle').style.setProperty('--a', a + 'deg'); $('needle').style.transform = `rotate(${a}deg)`;
-      $('gauge').classList.toggle('max', level >= 1 && phase === 'shake');
-      $('gauge').style.opacity = shaking ? 1 : 0;
-      // ボトルも圧力でふくらみ、キャップが震える
+    // 振った量が見て分かるように、圧力でボトルがふくらみ、キャップが震える
+    function drawPressure() {
+      const level = fizz / FIZZ_FULL;
       const p = Math.min(1.3, level);
       inner.scale.set(1 + 0.1 * p, 1 + 0.03 * p, 1 + 0.1 * p);
       if (cap.visible) { const j = phase === 'shake' ? 0.0025 * p : 0; cap.position.set((Math.random() - 0.5) * j, 0.229 + (Math.random() - 0.5) * j, (Math.random() - 0.5) * j); cap.rotation.y = phase === 'shake' ? (Math.random() - 0.5) * 0.4 * p : 0; }
@@ -602,7 +584,7 @@
         if (phase === 'fly' || phase === 'fall' || phase === 'done') stepFoam(STEP);
       }
       if (phase === 'ready' || phase === 'shake') bodyFromChain();
-      drawTimer(); drawGauge(now);
+      drawTimer(); drawPressure();
       // 振っている間はカメラ固定。飛び立ったら、ボトルの斜め上から見下ろして追う（地面や景色が下へ遠ざかって見える）
       const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
       const dist = Math.max(1.85 / 2 / tv / camera.aspect, 2.5 / 2 / tv);
