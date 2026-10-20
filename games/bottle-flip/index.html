@@ -279,7 +279,6 @@
       if (!holding || !aim) return;
       for (let it = 0; it < 20; it++) {
         if (pick === 0) { const dx = aim[0] - P[0][0], dy = aim[1] - P[0][1]; for (const q of P) { q[0] += dx; q[1] += dy; } }
-        else if (pick === 4) { const c = comOf(), dx = aim[0] - c[0], dy = aim[1] - c[1]; for (const k of [3, 4]) { P[k][0] += dx; P[k][1] += dy; } }
         else P[pick] = aim.slice();
         for (let j = 0; j < 4; j++) {
           const a = P[j], b = P[j + 1], dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1e-6;
@@ -297,7 +296,14 @@
     function chainStep(dt) {
       if (phase === 'ready') return pose();
       const n = phase === 'swing' ? 5 : 4; // 落としたあとはボトルを外した振り子
-      if (holding && pick === 0 && aim) P[0] = aim.slice(); // 支点は指の位置へ
+      if (holding && pick === 0 && aim) {
+        // 支点は指をなめらかに追う。速さに上限をつけて、振り子が暴れすぎないようにする
+        const k = 1 - Math.exp(-6 * dt);
+        let dx = (aim[0] - P[0][0]) * k, dy = (aim[1] - P[0][1]) * k;
+        const d = Math.hypot(dx, dy), max = 1.5 * dt;
+        if (d > max) { dx *= max / d; dy *= max / d; }
+        P[0] = [P[0][0] + dx, P[0][1] + dy];
+      }
       for (let k = 1; k < n; k++) {
         const vx = (P[k][0] - Q[k][0]) * 0.9997, vy = (P[k][1] - Q[k][1]) * 0.9997;
         Q[k] = P[k]; P[k] = [P[k][0] + vx, P[k][1] + vy - G * dt * dt];
@@ -380,10 +386,10 @@
         return release();
       }
       if (phase !== 'ready') return;
-      // いちばん近い関節かボトルをつまむ
-      const cands = [[0, P[0]], [1, P[1]], [2, P[2]], [3, P[3]], [4, comOf()]];
+      // いちばん近い関節か支点をつまむ
+      const cands = [[0, P[0]], [1, P[1]], [2, P[2]], [3, P[3]]]; // ボトル本体はさわれない
       let best = null, bd = 0.2;
-      for (const [k, q] of cands) { const d = Math.hypot(w[0] - q[0], w[1] - q[1]) * (k === 4 ? 0.7 : 1); if (d < bd) { bd = d; best = [k, q]; } }
+      for (const [k, q] of cands) { const d = Math.hypot(w[0] - q[0], w[1] - q[1]); if (d < bd) { bd = d; best = [k, q]; } }
       if (!best) { holding = false; for (let k = 0; k < 5; k++) Q[k] = P[k].slice(); phase = 'swing'; hideHint(); return; } // ボトル以外をタップしたら動き出す
       pick = best[0]; holding = true; grab = [best[1][0] - w[0], best[1][1] - w[1]]; aim = best[1].slice(); hideHint();
     });
@@ -400,7 +406,7 @@
     function hideHint() { if (hintKind) { hintDone[hintKind] = true; store.set('hint', hintDone); } hintKind = null; $('hint').style.display = 'none'; }
     function placeHint() {
       if (!hintKind) return;
-      const v = new THREE.Vector3(...(hintKind === 'drag' ? comOf() : [PIV[0] + 0.35, PIV[1] - 0.2]), 0).project(camera);
+      const v = new THREE.Vector3(...(hintKind === 'drag' ? P[2] : [PIV[0] + 0.35, PIV[1] - 0.2]), 0).project(camera);
       $('hint').style.left = ((v.x + 1) / 2 * innerWidth - 27) + 'px';
       $('hint').style.top = ((1 - v.y) / 2 * innerHeight - 27) + 'px';
     }
