@@ -173,24 +173,53 @@
     const wall = new THREE.Mesh(new THREE.PlaneGeometry(60, 10), new THREE.MeshStandardMaterial({ color: '#efe0c8' }));
     wall.position.set(10, 2, -1.5); scene.add(wall);
 
-    // ボトル
-    const H = 0.24, R = 0.035, HC = 0.08; // 高さ・半径・重心の高さ（真ん中より下）
-    const bottle = new THREE.Group();
-    const profile = [[0, 0], [R - 0.006, 0], [R, 0.006], [R, 0.15], [R * 0.95, 0.165], [0.02, 0.2], [0.014, 0.212], [0.014, 0.218]].map(([x, y]) => new THREE.Vector2(x, y));
-    const shell = new THREE.Mesh(new THREE.LatheGeometry(profile, 32), new THREE.MeshPhysicalMaterial({ color: '#dff4ff', transparent: true, opacity: 0.35, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false }));
-    shell.castShadow = true;
-    const water = new THREE.Mesh(new THREE.CylinderGeometry(R - 0.003, R - 0.004, 0.095, 32), new THREE.MeshStandardMaterial({ color: '#58b8f0', transparent: true, opacity: 0.75, roughness: 0.2 }));
-    water.position.y = 0.051;
-    const label = new THREE.Mesh(new THREE.CylinderGeometry(R + 0.001, R + 0.001, 0.05, 32, 1, true), new THREE.MeshStandardMaterial({ color: '#2a9be0', side: THREE.DoubleSide }));
-    label.position.y = 0.105;
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.022, 24), new THREE.MeshStandardMaterial({ color: '#2a9be0', roughness: 0.4 }));
-    cap.position.y = 0.229; cap.castShadow = true;
-    const inner = new THREE.Group(); inner.add(water, label, cap, shell);
-    inner.position.y = -HC; bottle.add(inner); scene.add(bottle);
+    // 人形（棒の先を両手でつかんでぶら下がる）
+    const H = 0.24, HC = 0.08; // 足の裏から手の先までの高さ・重心の高さ（足の裏から）
+    // 関節の位置（足の裏の真ん中が原点、y が上）。L/R は奥行きで少しずらして描く
+    const JOINTS = {
+      head: [0, 0.2], neck: [0, 0.175], pelvis: [0, 0.11],
+      kneeL: [-0.012, 0.055], footL: [-0.012, 0.004], kneeR: [0.012, 0.055], footR: [0.012, 0.004],
+      elbowL: [-0.024, 0.205], handL: [-0.008, 0.238], elbowR: [0.024, 0.205], handR: [0.008, 0.238],
+    };
+    const JN = Object.keys(JOINTS);
+    const BONES = [ // [から, まで, 太さ, 部位]
+      ['neck', 'pelvis', 0.017, 'shirt'], ['pelvis', 'kneeL', 0.009, 'pants'], ['kneeL', 'footL', 0.008, 'pants'], ['pelvis', 'kneeR', 0.009, 'pants'], ['kneeR', 'footR', 0.008, 'pants'],
+      ['neck', 'elbowL', 0.006, 'shirt'], ['elbowL', 'handL', 0.005, 'skin'], ['neck', 'elbowR', 0.006, 'shirt'], ['elbowR', 'handR', 0.005, 'skin'],
+    ];
+    const SIDE = n => n.endsWith('L') ? 0.018 : n.endsWith('R') ? -0.018 : 0;
+    const MATS = { skin: new THREE.MeshStandardMaterial({ color: '#f1c7a0', roughness: 0.6 }), shirt: new THREE.MeshStandardMaterial({ color: '#2a9be0', roughness: 0.7 }), pants: new THREE.MeshStandardMaterial({ color: '#3b3f58', roughness: 0.8 }), hair: new THREE.MeshStandardMaterial({ color: '#2b1d14', roughness: 0.8 }) };
+    const capsule = new THREE.CapsuleGeometry(1, 1, 4, 10); // 太さと長さはスケールで変える
+    const boneMeshes = BONES.map(([, , r, m]) => { const o = new THREE.Mesh(capsule, MATS[m]); o.castShadow = true; scene.add(o); o.userData.r = r; return o; });
+    const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.022, 20, 14), MATS.skin); headMesh.castShadow = true;
+    const hairMesh = new THREE.Mesh(new THREE.SphereGeometry(0.0235, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), MATS.hair); headMesh.add(hairMesh); hairMesh.rotation.x = -0.25;
+    scene.add(headMesh);
+    const shoes = ['footL', 'footR'].map(() => { const o = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.01, 0.016), MATS.pants); o.castShadow = true; scene.add(o); return o; });
+    const jointPos = {}; // いま描く関節の位置（世界座標、平面上）
+    const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
+    function drawPerson() {
+      BONES.forEach(([a, b], i) => {
+        const o = boneMeshes[i], r = o.userData.r, za = SIDE(a) || SIDE(b), zb = SIDE(b) || SIDE(a);
+        tmpA.set(jointPos[a][0], jointPos[a][1], za); tmpB.set(jointPos[b][0], jointPos[b][1], zb);
+        const len = tmpA.distanceTo(tmpB);
+        o.position.copy(tmpA).add(tmpB).multiplyScalar(0.5);
+        o.scale.set(r, Math.max(0.0001, len / 2), r);
+        o.quaternion.setFromUnitVectors(UP, tmpB.sub(tmpA).normalize());
+      });
+      const [hx, hy] = jointPos.head, [nx, ny] = jointPos.neck;
+      headMesh.position.set(hx, hy, 0); headMesh.rotation.z = Math.atan2(-(hx - nx), hy - ny);
+      ['footL', 'footR'].forEach((n, i) => { const [kx, ky] = jointPos[n === 'footL' ? 'kneeL' : 'kneeR'], [fx, fy] = jointPos[n]; shoes[i].position.set(fx + 0.006 * Math.cos(body.a), fy, SIDE(n)); shoes[i].rotation.z = Math.atan2(-(fx - kx), fy - ky); });
+    }
+    // かたい人形のときの関節位置
+    function rigidJoints() {
+      const c = Math.cos(body.a), s = Math.sin(body.a);
+      for (const n of JN) { const [x, y0] = JOINTS[n], y = y0 - HC; jointPos[n] = [body.x + x * c - y * s, body.y + x * s + y * c]; }
+    }
+
+    const UP = new THREE.Vector3(0, 1, 0);
     const rodMat = new THREE.MeshStandardMaterial({ color: '#555b66', metalness: 0.6, roughness: 0.35 });
     const rods = [0, 1, 2].map(() => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1, 8), rodMat); m.castShadow = true; scene.add(m); return m; });
     const joints = [0.02, 0.014, 0.014, 0.014].map(r => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshStandardMaterial({ color: r > 0.016 ? '#e0602a' : '#555b66', roughness: 0.4 })); m.castShadow = true; scene.add(m); return m; });
-    const UP = new THREE.Vector3(0, 1, 0), tmpV = new THREE.Vector3();
+    const tmpV = new THREE.Vector3();
     function drawChain() {
       for (let k = 0; k < 4; k++) joints[k].position.set(P[k][0], P[k][1], 0);
       for (let k = 0; k < 3; k++) {
@@ -203,9 +232,9 @@
 
     // ---------- 物理（縦の平面で回る剛体） ----------
     const G = 9.8, M = 1, I = 0.0045;
-    const PTS = [[-R + 0.006, 0], [R - 0.006, 0], [-R, 0.006], [R, 0.006], [-R, 0.15], [R, 0.15], [-0.02, 0.2], [0.02, 0.2], [-0.016, 0.24], [0.016, 0.24]].map(([x, y]) => [x, y - HC]);
+    const PTS = [[-0.024, 0], [0.024, 0], [-0.024, 0.006], [0.024, 0.006], [-0.018, 0.055], [0.018, 0.055], [-0.022, 0.11], [0.022, 0.11], [-0.026, 0.17], [0.026, 0.17], [-0.022, 0.2], [0.022, 0.2], [0, 0.222], [-0.012, 0.24], [0.012, 0.24]].map(([x, y]) => [x, y - HC]);
     const body = { x: 0, y: HC, a: 0, vx: 0, vy: 0, w: 0 };
-    let gen = 0, a0 = 0, phase = 'swing', streak = 0, best = store.get('best', 0), tFly = 0, still = 0, lastTok = 0, resultShown = false;
+    let gen = 0, a0 = 0, touching = false, phase = 'swing', streak = 0, best = store.get('best', 0), tFly = 0, still = 0, lastTok = 0, resultShown = false;
 
     function contacts() {
       const c = Math.cos(body.a), s = Math.sin(body.a), list = [];
@@ -221,6 +250,7 @@
       body.w *= Math.exp(-0.3 * dt); // 中の水が揺れて回転がゆるむ
       body.x += body.vx * dt; body.y += body.vy * dt; body.a += body.w * dt;
       const cs = contacts();
+      touching = cs.length > 0;
       if (!cs.length) return 0;
       let hit = 0;
       for (let it = 0; it < 6; it++) {
@@ -265,12 +295,8 @@
       for (let k = 0; k < 5; k++) { if (k) y -= LEN[k - 1]; P[k] = [PIV[0], y]; Q[k] = [PIV[0], y]; }
       bodyFromChain(); dressBottle();
     }
-    // 10回に1回はコーラになる
-    const LOOKS = { water: { liquid: '#58b8f0', label: '#2a9be0', opacity: 0.75 }, cola: { liquid: '#2a1206', label: '#d9261c', opacity: 0.95 } };
-    function dressBottle() {
-      const l = LOOKS[Math.random() < 0.1 ? 'cola' : 'water'];
-      water.material.color.set(l.liquid); water.material.opacity = l.opacity; label.material.color.set(l.label); cap.material.color.set(l.label);
-    }
+    // 10回に1回は赤い服になる
+    function dressBottle() { MATS.shirt.color.set(Math.random() < 0.1 ? '#d9261c' : '#2a9be0'); }
     function chainStep(dt) {
       const n = phase === 'swing' ? 5 : 4; // 落としたあとはボトルを外した振り子
       if (holding && aim) {
@@ -305,35 +331,70 @@
       body.w = ((cx - bx) * (v2y - v3y) - (cy - by) * (v2x - v3x)) / (H * H);
     }
     function reset() {
-      gen++; streak = 0; phase = 'swing'; holding = false; hang();
+      gen++; streak = 0; phase = 'swing'; holding = false; rag = null; hang();
       $('streak').innerHTML = ''; resultShown = false; $('result').style.display = 'none';
       showHint('drag');
     }
     function release() {
       bodyFromChain();
-      phase = 'fly'; tFly = 0; still = 0; a0 = body.a; sfx.whoosh(); hideHint();
+      phase = 'fly'; tFly = 0; still = 0; touching = false; a0 = body.a; sfx.whoosh(); hideHint();
+    }
+    // ---------- ラグドール：倒れたら関節ごとにぐにゃっとなる ----------
+    let rag = null;
+    const RAG_STICKS = [['head', 'neck'], ['neck', 'pelvis'], ['head', 'pelvis'], ['pelvis', 'kneeL'], ['kneeL', 'footL'], ['pelvis', 'kneeR'], ['kneeR', 'footR'], ['neck', 'elbowL'], ['elbowL', 'handL'], ['neck', 'elbowR'], ['elbowR', 'handR']];
+    const RAG_R = { head: 0.022 };
+    function startRagdoll() {
+      rigidJoints();
+      const p = {}, q = {}, h = 1 / 960;
+      for (const n of JN) {
+        const [x, y] = jointPos[n], rx = x - body.x, ry = y - body.y;
+        p[n] = [x, y]; q[n] = [x - (body.vx - body.w * ry) * h, y - (body.vy + body.w * rx) * h]; // いまの動きをそのまま引き継ぐ
+      }
+      const len = RAG_STICKS.map(([a, b]) => Math.hypot(p[a][0] - p[b][0], p[a][1] - p[b][1]));
+      rag = { p, q, len };
+    }
+    function ragStep(dt) {
+      const { p, q, len } = rag;
+      for (const n of JN) {
+        const vx = (p[n][0] - q[n][0]) * 0.999, vy = (p[n][1] - q[n][1]) * 0.999;
+        q[n] = p[n]; p[n] = [p[n][0] + vx, p[n][1] + vy - G * dt * dt];
+      }
+      for (let it = 0; it < 6; it++) {
+        RAG_STICKS.forEach(([a, b], i) => {
+          const A = p[a], B = p[b], dx = B[0] - A[0], dy = B[1] - A[1], d = Math.hypot(dx, dy) || 1e-6, c = (d - len[i]) / d / 2;
+          A[0] += dx * c; A[1] += dy * c; B[0] -= dx * c; B[1] -= dy * c;
+        });
+        for (const n of JN) {
+          const r = RAG_R[n] || 0.006;
+          if (p[n][1] < r) { p[n][1] = r; q[n][0] = p[n][0] * 0.3 + q[n][0] * 0.7; } // 床では摩擦で止まる
+        }
+      }
+      for (const n of JN) jointPos[n] = p[n].slice();
+      body.x = p.pelvis[0]; body.y = p.pelvis[1];
     }
     function judge(dt) {
       tFly += dt;
       const slow = Math.abs(body.vx) + Math.abs(body.vy) < 0.02 && Math.abs(body.w) < 0.1;
       still = slow ? still + dt : 0;
       if (body.y < -0.5) return fail();
+      // 机に触れたまま大きく傾いたら、倒れたとみなしてラグドールにする
+      if (touching && Math.abs(upright()) > 0.9) { startRagdoll(); return fail(); }
       // 止まってから判定する（止まりきらなくても6秒で判定）
       // だいたい1回転（250度くらい）以上してから立たないと成功にしない
       if ((tFly > 0.5 && still > 0.5) || tFly > 6) return Math.abs(upright()) < 0.1 && Math.abs(body.a - a0) > Math.PI * 1.4 ? succeed() : fail();
     }
-    const BOTTLE_SVG = '<path d="M5 1h4v3l1 3h1.5q1.5 0 1.5 2v19q0 1-1 1H2q-1 0-1-1V9q0-2 1.5-2H4l1-3z" fill="#dff4ff" stroke="#2a9be0" stroke-width="1.2"/><rect x="1.6" y="18" width="10.8" height="10.4" fill="#58b8f0"/><rect x="5" y="0.5" width="4" height="3" fill="#2a9be0"/>';
+    const BOTTLE_SVG = '<circle cx="7" cy="5" r="3.6" fill="#f1c7a0"/><path d="M3.4 4.2a3.6 3.6 0 0 1 7.2 0z" fill="#2b1d14"/><rect x="4" y="9" width="6" height="9" rx="2" fill="#2a9be0"/><path d="M4.6 10L1.6 3M9.4 10l3-7" stroke="#2a9be0" stroke-width="1.8" stroke-linecap="round"/><path d="M5.5 17.5v11M8.5 17.5v11" stroke="#3b3f58" stroke-width="2.2" stroke-linecap="round"/>';
     function succeed() {
       phase = 'won'; streak++; sfx.win();
       const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 14 30'); s.innerHTML = BOTTLE_SVG; $('streak').appendChild(s);
       body.vy = 0.8; // 小さく跳ねて喜ぶ
-      const g = gen; setTimeout(() => { if (g !== gen) return; phase = 'swing'; hang(); }, 650);
+      const g = gen; setTimeout(() => { if (g !== gen) return; phase = 'swing'; rag = null; hang(); }, 650);
     }
     function fail() {
       phase = 'lost'; sfx.lose();
       const isNew = streak > best; if (isNew) { best = streak; store.set('best', best); }
       lastNew = isNew;
-      const g = gen; setTimeout(() => { if (g !== gen) return; resultShown = true; fillResult(); $('result').style.display = 'flex'; }, 800);
+      const g = gen; setTimeout(() => { if (g !== gen) return; resultShown = true; fillResult(); $('result').style.display = 'flex'; }, 1500);
     }
     let lastNew = false;
     function fillResult() {
@@ -394,19 +455,22 @@
       if (phase === 'swing') bodyFromChain();
       if (phase === 'fly' || phase === 'lost' || phase === 'won') {
         const n = 16, h = dt / n;
-        for (let i = 0; i < n; i++) { const hit = step(h); if (hit > 0.3 && now - lastTok > 70) { sfx.tok(hit); lastTok = now; } }
+        for (let i = 0; i < n; i++) {
+          if (rag) { ragStep(h); continue; }
+          const hit = step(h); if (hit > 0.3 && now - lastTok > 70) { sfx.tok(hit); lastTok = now; }
+        }
         if (phase === 'fly') judge(dt);
       }
-      // カメラはボトルについていく（机が見えるよう、低くなりすぎない）
+      // カメラは人形についていく（机が見えるよう、低くなりすぎない）
       const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
       const dist = Math.max(1.1 / 2 / tv / camera.aspect, 1.5 / 2 / tv);
       // 落としたら、指数補間でなめらかに遅れてついていく
-      // 落とすまでは支点のあたりに戻ってとどまり、ボトルは追わない
+      // 落とすまでは支点のあたりに戻ってとどまり、人形は追わない
       {
         const fixed = phase === 'swing', k = 1 - Math.exp(-3 * dt), tx = fixed ? PIV[0] : body.x, ty = fixed ? 1.25 : body.y;
         cam.x += (tx - cam.x) * k; cam.y += (Math.max(0.42, ty) - cam.y) * k;
         if (!fixed) {
-          // ボトルが画面の外に出ないよう、端に近づいたらカメラを押し出す
+          // 人形が画面の外に出ないよう、端に近づいたらカメラを押し出す
           const hh = dist * tv - 0.18, hw = dist * tv * camera.aspect - 0.15;
           cam.x = Math.min(body.x + hw, Math.max(body.x - hw, cam.x));
           cam.y = Math.min(body.y + hh, Math.max(body.y - hh, cam.y));
@@ -414,9 +478,8 @@
       }
       camera.position.set(cam.x, cam.y + 0.15, dist);
       camera.lookAt(cam.x, cam.y, 0);
-      bottle.position.set(body.x, body.y, 0); bottle.rotation.z = body.a;
-      // 水面のゆれ（見た目だけ）
-      water.rotation.z = Math.sin(now / 90) * Math.min(0.15, Math.abs(body.w) * 0.01);
+      if (!rag) rigidJoints();
+      drawPerson();
       drawChain();
       placeHint();
       renderer.render(scene, camera);
