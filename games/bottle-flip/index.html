@@ -380,7 +380,7 @@
     // ---------- 流れ：形を決める → 5秒振り回す → 栓が飛んで炭酸が吹き出す → 結果 ----------
     function reset() {
       gen++; phase = 'ready'; holding = false; tShake = 0; fizz = 0; score = 0; prevV = null; hang();
-      cap.visible = true; capFly = null; liquidFrac = 0.55; feel.set(0, -1); prevBV = null; clearFoam(); speed = 0; jetAge.fill(9); jetCol.fill(0); jetGeo.attributes.color.needsUpdate = true;
+      cap.visible = true; capFly = null; liquidFrac = 0.55; feel.set(0, -1); prevBV = null; speed = 0; jetAge.fill(9); jetCol.fill(0); jetGeo.attributes.color.needsUpdate = true;
       resultShown = false; $('result').style.display = 'none'; drawTimer();
       showHint('drag');
     }
@@ -411,7 +411,6 @@
       const ux = -Math.sin(body.a), uy = Math.cos(body.a), top = [body.x + ux * (H - HC), body.y + uy * (H - HC)];
       cap.visible = false; capFly = { p: top.slice(), v: [body.vx + ux * 3, body.vy + uy * 3], r: 0 };
       apexAlt = 20 * Math.pow(10000, frac); flyDur = 3.5 + 4.5 * Math.min(1, frac) + Math.log10(Math.max(1, frac)) * 3; flyT = 0; startY = body.y; startX = body.x; launchT = 0;
-      foamRate = 300 + 700 * frac; foamSpeed = 3;
       sfx.pop(); sfx.fizz(flyDur * 0.6, 0.08 + 0.22 * frac);
     }
     const altAt = u => (Math.pow(apexAlt + 1, 1 - Math.pow(1 - Math.min(1, u), 2.2)) - 1); // 0→apexAlt。最初は速く、てっぺんでゆっくり止まる
@@ -423,8 +422,6 @@
       // 離れたらすぐ底を上に向ける（口から炭酸が噴き出す）
       body.a += (Math.PI - body.a) * (1 - Math.exp(-14 * h)); body.w = 0;
       // 噴射はてっぺんに着くまで続き（だんだん弱まる）、そのぶん中身が減っていく
-      const ux = -Math.sin(body.a), uy = Math.cos(body.a);
-      emitFoam(h * (1 - 0.8 * u), [body.x + ux * (H - HC), body.y + uy * (H - HC)], [ux, uy]);
       liquidFrac = 0.55 * (1 - 0.9 * u);
       if (u >= 1) finish();
     }
@@ -451,28 +448,13 @@
     }
 
     // ---------- 吹き出す泡 ----------
-    const FOAM_N = 3000, foamPos = new Float32Array(FOAM_N * 3), foamVel = new Float32Array(FOAM_N * 2);
-    const foamGeo = new THREE.BufferGeometry(); foamGeo.setAttribute('position', new THREE.BufferAttribute(foamPos, 3).setUsage(THREE.DynamicDrawUsage));
-    // ふわっとした丸い粒の絵（噴射と泡の両方で使う）
+    // ふわっとした丸い粒の絵（噴射で使う）
     const puffTex = (() => {
       const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
       gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.5, 'rgba(255,255,255,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
       return new THREE.CanvasTexture(c);
     })();
-    const foam = new THREE.Points(foamGeo, new THREE.PointsMaterial({ color: '#e6c9a4', size: 0.07, map: puffTex, transparent: true, opacity: 0.8, depthWrite: false }));
-    foam.frustumCulled = false; scene.add(foam);
-    let foamCount = 0, foamHead = 0, foamRate = 0, foamSpeed = 0, foamAcc = 0, capFly = null;
-    function clearFoam() { foamCount = 0; foamHead = 0; foamGeo.setDrawRange(0, 0); }
-    function emitFoam(h, from, dir) {
-      foamAcc += foamRate * h;
-      while (foamAcc >= 1) {
-        foamAcc -= 1;
-        const k = foamHead; foamHead = (foamHead + 1) % FOAM_N; foamCount = Math.min(FOAM_N, foamCount + 1); // 古い泡から使い回す
-        const sp = foamSpeed * (0.7 + Math.random() * 0.5), a = (Math.random() - 0.5) * 0.5;
-        const dx = dir[0] * Math.cos(a) - dir[1] * Math.sin(a), dy = dir[0] * Math.sin(a) + dir[1] * Math.cos(a);
-        foamPos.set([from[0], from[1], (Math.random() - 0.5) * 0.03], k * 3); foamVel.set([body.vx + dx * sp, body.vy + dy * sp], k * 2);
-      }
-    }
+    let capFly = null;
     // ---------- ガスの噴射：ボトルの口から勢いよく吹き出す炎のような泡の柱（ボトルについてくる） ----------
     const JET_N = 700, jetPos = new Float32Array(JET_N * 3), jetCol = new Float32Array(JET_N * 4), jetVel = new Float32Array(JET_N * 3), jetAge = new Float32Array(JET_N).fill(9), jetLife = new Float32Array(JET_N).fill(1);
     const jetGeo = new THREE.BufferGeometry();
@@ -504,12 +486,7 @@
         jetCol.set([c.r, c.g, c.b, Math.min(1, (1 - t) * 1.6)], k * 4);
       }
     }
-    function stepFoam(h) {
-      for (let k = 0; k < foamCount; k++) {
-        if (foamPos[k * 3 + 1] <= 0.003) continue; // 地面に落ちたら止まる
-        foamVel[k * 2] *= 1 - 2 * h; foamVel[k * 2 + 1] = foamVel[k * 2 + 1] * (1 - 2 * h) - G * h; // 泡は空気ですぐ遅くなる
-        foamPos[k * 3] += foamVel[k * 2] * h; foamPos[k * 3 + 1] = Math.max(0.003, foamPos[k * 3 + 1] + foamVel[k * 2 + 1] * h);
-      }
+    function stepCap(h) {
       if (capFly) { capFly.v[1] -= G * h; capFly.p[0] += capFly.v[0] * h; capFly.p[1] = Math.max(0.011, capFly.p[1] + capFly.v[1] * h); capFly.r += 12 * h; }
     }
 
@@ -582,7 +559,7 @@
           const u = phase === 'fly' ? flyT / flyDur : 1;
           stepJet(1 / 120, phase === 'fly' ? Math.min(1, 0.4 + 0.6 * Math.min(1, fizz / FIZZ_FULL)) * (1 - 0.8 * u) : 0);
         }
-        if (phase === 'fly' || phase === 'fall' || phase === 'done') stepFoam(STEP);
+        if (phase === 'fly' || phase === 'fall' || phase === 'done') stepCap(STEP);
       }
       if (phase === 'ready' || phase === 'shake') bodyFromChain();
       drawTimer(); drawPressure();
@@ -606,7 +583,6 @@
       bottle.position.set(body.x, body.y, 0); bottle.rotation.z = body.a;
       drawBubbles(phase === 'shake' || phase === 'ready' ? fizz / FIZZ_FULL * 1.6 : liquidFrac / 0.55, now);
       updateLiquid(dt);
-      foamGeo.attributes.position.needsUpdate = true; foamGeo.setDrawRange(0, foamCount);
       jetGeo.attributes.position.needsUpdate = jetGeo.attributes.color.needsUpdate = true;
       if (capFly) { capMesh.visible = true; capMesh.position.set(capFly.p[0], capFly.p[1], 0); capMesh.rotation.z = capFly.r; } else capMesh.visible = false;
       drawChain();
