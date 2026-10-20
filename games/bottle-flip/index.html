@@ -353,7 +353,7 @@
     // ---------- 流れ：形を決める → 5秒振り回す → 栓が飛んで炭酸が吹き出す → 結果 ----------
     function reset() {
       gen++; phase = 'ready'; holding = false; tShake = 0; fizz = 0; score = 0; prevV = null; hang();
-      cap.visible = true; capFly = null; water.scale.y = 1; water.position.y = 0.051; clearFoam(); speed = 0;
+      cap.visible = true; capFly = null; water.scale.y = 1; water.position.y = 0.051; clearFoam(); speed = 0; jetAge.fill(9); jetCol.fill(0); jetGeo.attributes.color.needsUpdate = true;
       resultShown = false; $('result').style.display = 'none'; drawTimer();
       showHint('drag');
     }
@@ -420,7 +420,13 @@
     // ---------- 吹き出す泡 ----------
     const FOAM_N = 3000, foamPos = new Float32Array(FOAM_N * 3), foamVel = new Float32Array(FOAM_N * 2);
     const foamGeo = new THREE.BufferGeometry(); foamGeo.setAttribute('position', new THREE.BufferAttribute(foamPos, 3).setUsage(THREE.DynamicDrawUsage));
-    const foam = new THREE.Points(foamGeo, new THREE.PointsMaterial({ color: '#d9b48a', size: 0.03, transparent: true, opacity: 0.9, depthWrite: false }));
+    // ふわっとした丸い粒の絵（噴射と泡の両方で使う）
+    const puffTex = (() => {
+      const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.5, 'rgba(255,255,255,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+      return new THREE.CanvasTexture(c);
+    })();
+    const foam = new THREE.Points(foamGeo, new THREE.PointsMaterial({ color: '#e6c9a4', size: 0.07, map: puffTex, transparent: true, opacity: 0.8, depthWrite: false }));
     foam.frustumCulled = false; scene.add(foam);
     let foamCount = 0, foamHead = 0, foamRate = 0, foamSpeed = 0, foamAcc = 0, capFly = null;
     function clearFoam() { foamCount = 0; foamHead = 0; foamGeo.setDrawRange(0, 0); }
@@ -432,6 +438,37 @@
         const sp = foamSpeed * (0.7 + Math.random() * 0.5), a = (Math.random() - 0.5) * 0.5;
         const dx = dir[0] * Math.cos(a) - dir[1] * Math.sin(a), dy = dir[0] * Math.sin(a) + dir[1] * Math.cos(a);
         foamPos.set([from[0], from[1], (Math.random() - 0.5) * 0.03], k * 3); foamVel.set([body.vx + dx * sp, body.vy + dy * sp], k * 2);
+      }
+    }
+    // ---------- ガスの噴射：ボトルの口から勢いよく吹き出す炎のような泡の柱（ボトルについてくる） ----------
+    const JET_N = 700, jetPos = new Float32Array(JET_N * 3), jetCol = new Float32Array(JET_N * 4), jetVel = new Float32Array(JET_N * 3), jetAge = new Float32Array(JET_N).fill(9), jetLife = new Float32Array(JET_N).fill(1);
+    const jetGeo = new THREE.BufferGeometry();
+    jetGeo.setAttribute('position', new THREE.BufferAttribute(jetPos, 3).setUsage(THREE.DynamicDrawUsage));
+    jetGeo.setAttribute('color', new THREE.BufferAttribute(jetCol, 4).setUsage(THREE.DynamicDrawUsage));
+    const jet = new THREE.Points(jetGeo, new THREE.PointsMaterial({ size: 0.12, map: puffTex, vertexColors: true, transparent: true, depthWrite: false }));
+    jet.frustumCulled = false; jet.position.y = H - HC; bottle.add(jet); // 口の位置が原点。+y が口から外へ向かう向き
+    let jetHead = 0, jetAcc = 0;
+    const JET_HOT = new THREE.Color('#ffffff'), JET_COOL = new THREE.Color('#b07848');
+    function stepJet(h, power) {
+      // power 0〜1：噴き出す強さ。強いほど多く、速く、長く伸びる
+      jetAcc += power * 2400 * h;
+      while (jetAcc >= 1) {
+        jetAcc -= 1;
+        const k = jetHead; jetHead = (jetHead + 1) % JET_N;
+        const a = Math.random() * 6.28, sp = 0.35 * Math.random();
+        jetPos.set([Math.cos(a) * 0.008, 0, Math.sin(a) * 0.008], k * 3);
+        jetVel.set([Math.cos(a) * sp, 1.6 + 2.4 * power + Math.random() * 0.8, Math.sin(a) * sp], k * 3);
+        jetAge[k] = 0; jetLife[k] = 0.12 + 0.16 * power + Math.random() * 0.06;
+      }
+      for (let k = 0; k < JET_N; k++) {
+        jetAge[k] += h;
+        const t = jetAge[k] / jetLife[k];
+        if (t >= 1) { jetCol[k * 4 + 3] = 0; continue; }
+        // 口から出るとすぐ広がり、遅くなりながら消える
+        jetVel[k * 3] *= 1 + 2.5 * h; jetVel[k * 3 + 2] *= 1 + 2.5 * h; jetVel[k * 3 + 1] *= 1 - 2 * h;
+        jetPos[k * 3] += jetVel[k * 3] * h; jetPos[k * 3 + 1] += jetVel[k * 3 + 1] * h; jetPos[k * 3 + 2] += jetVel[k * 3 + 2] * h;
+        const c = JET_HOT.clone().lerp(JET_COOL, Math.min(1, t * 1.5));
+        jetCol.set([c.r, c.g, c.b, Math.min(1, (1 - t) * 1.6)], k * 4);
       }
     }
     function stepFoam(h) {
@@ -496,7 +533,7 @@
 
     const capMesh = cap.clone(); capMesh.position.set(0, 0, 0); scene.add(capMesh);
     const STEP = 1 / 960;
-    let prev = performance.now(), simAcc = 0;
+    let prev = performance.now(), simAcc = 0, jetTick = 0;
     function frame(now) {
       const dt = Math.max(0, Math.min(0.05, (now - prev) / 1000)); prev = now;
       // 物理は決まった刻み（1/960秒）で進める。画面の大きさやフレームレートで動きが変わらない
@@ -506,6 +543,11 @@
         chainStep(STEP); keepEnergy(STEP);
         if (phase === 'shake') measure(STEP);
         if (phase === 'fly') flyStep(STEP);
+        if ((jetTick += STEP) >= 1 / 120) { // 噴射は 1/120 秒ごとに進める（フレームレートに関係なく同じ見た目）
+          jetTick -= 1 / 120;
+          const u = phase === 'fly' ? flyT / flyDur : 1;
+          stepJet(1 / 120, u < 0.6 ? Math.min(1, 0.4 + 0.6 * Math.min(1, fizz / FIZZ_FULL)) * (1 - u / 0.6 * 0.5) : 0);
+        }
         if (phase === 'fly' || phase === 'fall' || phase === 'done') stepFoam(STEP);
       }
       if (phase === 'ready' || phase === 'shake') bodyFromChain();
@@ -530,6 +572,7 @@
       bottle.position.set(body.x, body.y, 0); bottle.rotation.z = body.a;
       drawBubbles(phase === 'shake' || phase === 'ready' ? fizz / FIZZ_FULL * 1.6 : water.scale.y, now);
       foamGeo.attributes.position.needsUpdate = true; foamGeo.setDrawRange(0, foamCount);
+      jetGeo.attributes.position.needsUpdate = jetGeo.attributes.color.needsUpdate = true;
       if (capFly) { capMesh.visible = true; capMesh.position.set(capFly.p[0], capFly.p[1], 0); capMesh.rotation.z = capFly.r; } else capMesh.visible = false;
       drawChain();
       placeHint();
