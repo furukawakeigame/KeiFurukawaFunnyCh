@@ -185,12 +185,24 @@
       for (let i = 1; i < SKY.length; i++) if (alt < SKY[i][0]) return SKY[i - 1][1].clone().lerp(SKY[i][1], (alt - SKY[i - 1][0]) / (SKY[i][0] - SKY[i - 1][0]));
       return SKY[SKY.length - 1][1].clone();
     }
-    const cloudTex = (() => {
-      const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
-      for (let i = 0; i < 7; i++) { const x = 30 + Math.random() * 68, y = 50 + Math.random() * 28, r = 18 + Math.random() * 22, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(255,255,255,.95)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }
-      return new THREE.CanvasTexture(c);
-    })();
-    const cloud = (x, y, z, w, h = w / 2, op = 0.95) => { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, depthWrite: false, opacity: op })); sp.position.set(x, y, z); sp.scale.set(w, h, 1); scene.add(sp); return sp; };
+    // 雲：白い球をいくつか重ねた、もくもくした立体の雲（あとでまとめて1つの描画にする）
+    const puffs = [], thinPuffs = [];
+    function cloud(x, y, z, w, flat = false) {
+      const n = flat ? 4 : 5 + Math.floor(Math.random() * 4), list = flat ? thinPuffs : puffs;
+      for (let i = 0; i < n; i++) {
+        const t = n > 1 ? i / (n - 1) - 0.5 : 0, r = w * (flat ? rnd(0.18, 0.28) : rnd(0.16, 0.3)) * (1 - Math.abs(t) * 0.8);
+        list.push([x + t * w * 0.9 + rnd(-0.05, 0.05) * w, y + (flat ? 0 : Math.max(0, r * 0.4 - Math.abs(t) * w * 0.1)) + rnd(0, 0.06) * w, z + rnd(-0.15, 0.15) * w, r, flat ? 0.12 : rnd(0.55, 0.75)]);
+      }
+    }
+    function buildClouds() {
+      const make = (list, m) => {
+        const im = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 14, 10), m, list.length), mx = new THREE.Matrix4();
+        list.forEach(([x, y, z, r, fy], i) => im.setMatrixAt(i, mx.compose(new THREE.Vector3(x, y, z), new THREE.Quaternion(), new THREE.Vector3(r, r * fy, r))));
+        im.frustumCulled = false; scene.add(im);
+      };
+      make(puffs, new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, emissive: '#c8d8ea', emissiveIntensity: 0.35 }));
+      make(thinPuffs, new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, emissive: '#dde8f5', emissiveIntensity: 0.5, transparent: true, opacity: 0.55, depthWrite: false }));
+    }
     // 0〜50m：家・木・電柱
     for (let i = 0; i < 26; i++) {
       let x = rnd(-60, 60), z = rnd(-110, -12); if (Math.abs(x) < 18 && z > -60) x += x < 0 ? -18 : 18; // 振り子の後ろはあけておく
@@ -227,10 +239,11 @@
       const snow = new THREE.Mesh(new THREE.ConeGeometry(hh * 0.45, hh * 0.28, 7), mat('#ffffff', { flatShading: true })); snow.position.set(m.position.x, hh - 50 - hh * 0.14 + 1, m.position.z); scene.add(snow);
     }
     // 地上から見える遠くの雲
-    for (let i = 0; i < 14; i++) { const w = rnd(50, 110); cloud(rnd(-250, 250), rnd(40, 110), rnd(-350, -200), w); }
+    for (let i = 0; i < 14; i++) { const w = rnd(40, 80); cloud(rnd(-400, 400), rnd(90, 160), rnd(-700, -400), w); }
     // 1000m〜10km：雲の層と飛行機
-    for (let i = 0; i < 180; i++) { const y = rnd(1200, 3000), w = rnd(30, 160), near = i < 70; cloud(near ? rnd(-40, 40) : rnd(-600, 600), y, near ? rnd(-30, -2) : rnd(-800, -40), w); }
-    for (let i = 0; i < 70; i++) { const w = rnd(400, 1600); cloud(rnd(-3000, 3000), rnd(8000, 11000), rnd(-4000, -150), w, w * 0.18, 0.7); }
+    for (let i = 0; i < 180; i++) { const y = rnd(1200, 3000), w = rnd(30, 160), near = i < 70; cloud(near ? rnd(-40, 40) : rnd(-600, 600), y, near ? rnd(-30, -6) : rnd(-800, -40), w); }
+    for (let i = 0; i < 70; i++) { const w = rnd(400, 1600); cloud(rnd(-3000, 3000), rnd(8000, 11000), rnd(-4000, -150), w, true); }
+    buildClouds();
     const airplane = new THREE.Group();
     {
       const fus = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 38, 12), mat('#f4f6fa', { roughness: 0.4 })); fus.rotation.z = Math.PI / 2;
