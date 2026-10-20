@@ -54,6 +54,7 @@
     .nav svg { width: 26px; height: 26px; }
     .nav.off { opacity: 0; pointer-events: none; }
     #prev { left: 12px; } #next { right: 12px; }
+    .btn.wait { opacity: .45; }
     .btn.x { background: #000; color: #fff; box-shadow: 0 0 0 1px #444; }
     #err { position: fixed; z-index: 6; left: 0; right: 0; top: 60px; text-align: center; color: #f88; display: none; }
   </style>
@@ -82,6 +83,7 @@
     </div>
   </div>
   <div id="err"></div>
+  <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.min.js"></script>
   <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
   <script>
     const store = {
@@ -287,6 +289,15 @@
       vctx.drawImage(art, 0, 0, view.width, view.height);
       if (state === 'gallery' || state === 'done') return;
       vctx.setTransform(sx, 0, 0, sy, 0, 0);
+      drawPendulum(vctx);
+      if (state === 'ready' && !moved) {
+        // 玉が「つかんで動かせる」と誘うように脈打つ
+        const p = joints(), k = (now / 1000) % 1.2 / 1.2;
+        vctx.strokeStyle = `rgba(255,255,255,${0.7 * (1 - k)})`; vctx.lineWidth = 3;
+        for (let i = 1; i <= N; i++) { vctx.beginPath(); vctx.arc(p[i].x, p[i].y, 16 + 30 * k, 0, 7); vctx.stroke(); }
+      }
+    };
+    const drawPendulum = (vctx) => {
       const p = joints();
       vctx.strokeStyle = 'rgba(255,255,255,.55)'; vctx.lineWidth = 4; vctx.lineCap = 'round';
       vctx.beginPath(); vctx.moveTo(p[0].x, p[0].y); for (let i = 1; i <= N; i++) vctx.lineTo(p[i].x, p[i].y); vctx.stroke();
@@ -294,12 +305,6 @@
       for (let i = 1; i <= N; i++) {
         vctx.fillStyle = i === N ? strokeStyle() : '#fff';
         vctx.beginPath(); vctx.arc(p[i].x, p[i].y, i === N ? 16 : 13, 0, 7); vctx.fill();
-      }
-      if (state === 'ready' && !moved) {
-        // 玉が「つかんで動かせる」と誘うように脈打つ
-        const k = (now / 1000) % 1.2 / 1.2;
-        vctx.strokeStyle = `rgba(255,255,255,${0.7 * (1 - k)})`; vctx.lineWidth = 3;
-        for (let i = 1; i <= N; i++) { vctx.beginPath(); vctx.arc(p[i].x, p[i].y, 16 + 30 * k, 0, 7); vctx.stroke(); }
       }
     };
 
@@ -319,9 +324,70 @@
       }
       if (state === 'done' && now - done > 900) showGallery();
       render(now);
+      if ((state === 'run' || state === 'done') && video) videoFrame((s) => {
+        // 描いている所：絵と振り子をそのまま写す
+        const g = video.ctx, W = video.w, H = video.h;
+        g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(art, 0, 0, W, H);
+        if (state === 'run') { g.setTransform(W / AW, 0, 0, H / AH, 0, 0); drawPendulum(g); }
+      });
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
+
+    // ---- 投稿用の動画（描く7秒＋美術館に飾られる所）。WebCodecs(H.264)＋mp4-muxer で MP4 にする ----
+    const VFPS = 30, MUSEUM_SEC = 3.5;
+    let video = null, shareFile = null, videoKey = 0;
+    const startVideo = async () => {
+      video = null; shareFile = null; markPost();
+      const key = ++videoKey;
+      if (!('VideoEncoder' in window) || !window.Mp4Muxer) return;
+      // 画面と同じ縦横比で、長い辺 1280px（偶数にそろえる）
+      const k = 1280 / Math.max(AW, AH), w = Math.round(AW * k / 2) * 2, h = Math.round(AH * k / 2) * 2;
+      let cfg = null;
+      for (const codec of ['avc1.640028', 'avc1.4d0028', 'avc1.42001f']) {
+        const c = { codec, width: w, height: h, bitrate: 6e6, framerate: VFPS };
+        try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; break; } } catch {}
+      }
+      if (!cfg || key !== videoKey) return;
+      const out = document.createElement('canvas'); out.width = w; out.height = h;
+      const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: w, height: h, frameRate: VFPS }, fastStart: 'in-memory' });
+      const job = { key, w, h, out, ctx: out.getContext('2d'), muxer, i: 0, t0: performance.now(), museumAt: 0, failed: false };
+      job.enc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: () => { job.failed = true; } });
+      job.enc.configure(cfg);
+      video = job;
+    };
+    // 表示の合間に呼ぶ。実際の時間に合わせて 30fps でコマを足す
+    const videoFrame = (draw) => {
+      const job = video;
+      if (!job || job.key !== videoKey || job.failed) return;
+      const t = (performance.now() - job.t0) / 1000;
+      if (t < job.i / VFPS) return;
+      draw();
+      const frame = new VideoFrame(job.out, { timestamp: Math.round(job.i * 1e6 / VFPS), duration: Math.round(1e6 / VFPS) });
+      job.enc.encode(frame, { keyFrame: job.i % 60 === 0 }); frame.close();
+      job.i++;
+      if (job.museumAt && t - job.museumAt >= MUSEUM_SEC) endVideo(job);
+    };
+    const endVideo = (job) => {
+      video = null;
+      (async () => {
+        await job.enc.flush(); job.enc.close(); job.muxer.finalize();
+        if (job.key !== videoKey || job.failed) return;
+        shareFile = new File([job.muxer.target.buffer], 'triple-pendulum.mp4', { type: 'video/mp4' });
+        markPost();
+      })().catch(() => {});
+    };
+    // 美術館の画面を、動画の大きさに合わせて切り抜いて写す
+    const museumFrame = (src) => {
+      const job = video;
+      if (!job) return;
+      if (!job.museumAt) job.museumAt = (performance.now() - job.t0) / 1000;
+      videoFrame(() => {
+        const g = job.ctx, sw = src.width, sh = src.height, s = Math.max(job.w / sw, job.h / sh);
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.drawImage(src, (job.w - sw * s) / 2, (job.h - sh * s) / 2, sw * s, sh * s);
+      });
+    };
 
     // ---- つかんで離す ----
     const toArt = (e) => { const r = view.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * AW, y: (e.clientY - r.top) / r.height * AH }; };
@@ -351,6 +417,7 @@
       lastPose = [...th]; store.set('pose', lastPose);
       om = [0, 0, 0]; E0 = potential(th);
       state = 'run'; runT = 0; goBtn.classList.add('hide');
+      startVideo();
     });
 
     // ---- 美術館（3D） ----
@@ -368,9 +435,9 @@
     const SERIF = '"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP","Noto Serif CJK JP","Noto Serif",serif';
 
     const wrapText = (ctx, text, maxW) => {
-      // 単語の区切りがない言語もあるので1文字ずつ詰める
+      // 英語・韓国語は単語ごと、区切りのない日本語・タイ語は1文字ずつ詰める
       const lines = []; let cur = '';
-      for (const ch of [...text]) { if (ctx.measureText(cur + ch).width > maxW && cur) { lines.push(cur); cur = ch.trim() ? ch : ''; } else cur += ch; }
+      for (const ch of (lang === 'en' || lang === 'ko') ? text.split(/(?<= )/) : [...text]) { if (ctx.measureText(cur + ch).width > maxW && cur) { lines.push(cur); cur = ch.trim() ? ch : ''; } else cur += ch; }
       if (cur) lines.push(cur); return lines;
     };
     // 作品の横に貼るキャプションプレート
@@ -578,7 +645,7 @@
           slots.forEach((sl, i) => setSlot(i, list[i]));
           yaw = yawT = 0.22; pitch = pitchT = 0.05; intro = 0; t0 = performance.now();
           resize();
-          renderer.setAnimationLoop((now) => { intro = (now - t0) / 2600; yawT *= drag ? 1 : 0.995; place(now); renderer.render(scene, camera); });
+          renderer.setAnimationLoop((now) => { intro = (now - t0) / 2600; yawT *= drag ? 1 : 0.995; place(now); renderer.render(scene, camera); museumFrame(gcv); });
         },
         refresh(list) { slots.forEach((sl, i) => list[i] && (drawPlacard(sl.pc, list[i]), sl.plTex.needsUpdate = true)); },
         go(dir) { cur = Math.max(0, Math.min(count - 1, cur + dir)); yawT = 0; return cur; },
@@ -618,6 +685,26 @@
     const SHARE_URL = 'https://keifurukawafunnych.com/games/triple-pendulum/';
     const postA = document.getElementById('post');
     if (matchMedia('(pointer: coarse)').matches) { postA.removeAttribute('target'); postA.removeAttribute('rel'); }
+    const coarse = matchMedia('(pointer: coarse)').matches;
+    // 動画ができるまでは薄く表示する
+    const markPost = () => postA.classList.toggle('wait', !shareFile && 'VideoEncoder' in window && !!window.Mp4Muxer);
+    postA.addEventListener('click', (e) => {
+      // スマホは必ず共有メニューを開く（動画ができていれば動画つき、まだなら文とURLだけ）
+      if (coarse && navigator.share) {
+        e.preventDefault();
+        const text = `${t('share')(workTitle())}\n${SHARE_URL}`;
+        const data = shareFile && navigator.canShare?.({ files: [shareFile] }) ? { files: [shareFile], text } : { text };
+        navigator.share(data).catch(() => {});
+        return;
+      }
+      // PCは動画を保存してから投稿画面を開く
+      if (!coarse && shareFile) {
+        const d = document.createElement('a');
+        d.href = URL.createObjectURL(shareFile); d.download = shareFile.name;
+        document.body.appendChild(d); d.click(); d.remove();
+        setTimeout(() => URL.revokeObjectURL(d.href), 10000);
+      }
+    });
     const updatePost = () => {
       postA.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(workTitle()))}&url=${encodeURIComponent(SHARE_URL)}`;
     };
@@ -634,6 +721,7 @@
       gallery.classList.remove('vis');
       setTimeout(() => { gallery.classList.remove('show'); museumP.then((m) => m.hide()); }, 400);
       errEl.style.display = 'none';
+      videoKey++; video = null; shareFile = null;
       clearArt(); th = [...lastPose]; om = [0, 0, 0]; hue = 0;
       timerBar.style.transform = 'scaleX(1)';
       goBtn.classList.remove('hide');
