@@ -163,15 +163,21 @@
     Object.assign(sun.shadow.camera, { left: -1.5, right: 1.5, top: 1.5, bottom: -1.5, near: 0.1, far: 8 });
     scene.add(sun, sun.target);
 
-    // 外：どこまでも続く草の地面
+    // ---------- 景色：高さごとに見えるものを変えて、空の層を突き抜けていく感じを出す ----------
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const mat = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, ...o });
     const grassTex = (() => {
       const c = document.createElement('canvas'); c.width = c.height = 256;
       const g = c.getContext('2d'); g.fillStyle = '#6dbb4f'; g.fillRect(0, 0, 256, 256);
       for (let i = 0; i < 1800; i++) { g.fillStyle = `rgba(${40 + Math.random() * 60},${120 + Math.random() * 70},${30 + Math.random() * 30},.5)`; g.fillRect(Math.random() * 256, Math.random() * 256, 2, 4); }
-      const tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(30000, 30000); tx.colorSpace = THREE.SRGBColorSpace;
+      const tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(3000, 3000); tx.colorSpace = THREE.SRGBColorSpace;
       return tx;
     })();
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200000, 200000), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.95 }));
+    // 地面：近くは草の円盤、その外は丸い地球（高く上がると地平線が丸く見える）
+    const EARTH_R = 6371000;
+    const earth = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 160, 320, 0, Math.PI * 2, 0, Math.PI / 8), mat('#4f9a46', { roughness: 1 }));
+    earth.position.y = -EARTH_R - 0.05; scene.add(earth);
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(15000, 96), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.95 }));
     ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
     // 空の色：上に行くほど濃い青から宇宙の黒へ
     const SKY = [[0, '#8fd3ff'], [2000, '#5fb0f0'], [10000, '#2c6cc4'], [30000, '#122a66'], [60000, '#050816'], [100000, '#000000']].map(([h, c]) => [h, new THREE.Color(c)]);
@@ -179,49 +185,89 @@
       for (let i = 1; i < SKY.length; i++) if (alt < SKY[i][0]) return SKY[i - 1][1].clone().lerp(SKY[i][1], (alt - SKY[i - 1][0]) / (SKY[i][0] - SKY[i - 1][0]));
       return SKY[SKY.length - 1][1].clone();
     }
-    // 雲：高さ 30m〜1万m にちらばる
     const cloudTex = (() => {
       const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
       for (let i = 0; i < 7; i++) { const x = 30 + Math.random() * 68, y = 50 + Math.random() * 28, r = 18 + Math.random() * 22, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(255,255,255,.95)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }
       return new THREE.CanvasTexture(c);
     })();
-    // 遠くの空に浮かぶ大きな雲（地上から見える景色）
+    const cloud = (x, y, z, w, h = w / 2, op = 0.95) => { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, depthWrite: false, opacity: op })); sp.position.set(x, y, z); sp.scale.set(w, h, 1); scene.add(sp); return sp; };
+    // 0〜50m：家・木・電柱
+    for (let i = 0; i < 26; i++) {
+      let x = rnd(-60, 60), z = rnd(-110, -12); if (Math.abs(x) < 18 && z > -60) x += x < 0 ? -18 : 18; // 振り子の後ろはあけておく
+      const w = rnd(5, 8), d = rnd(5, 8), hh = rnd(3, 6), g = new THREE.Group();
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d), mat(['#f4e3c8', '#e8d0b0', '#ffffff', '#f2c9b0'][i % 4])); wall.position.y = hh / 2;
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.75, 2.5, 4), mat(['#c0503a', '#4a5f8a', '#6b4a3a'][i % 3])); roof.position.y = hh + 1.25; roof.rotation.y = Math.PI / 4;
+      g.add(wall, roof); g.position.set(x, 0, z); g.rotation.y = rnd(-0.3, 0.3); scene.add(g);
+    }
+    for (let i = 0; i < 60; i++) {
+      const x = rnd(-50, 50), z = rnd(-70, -3); if (Math.abs(x) < 6 && z > -20) continue;
+      const g = new THREE.Group(), hh = rnd(3, 7);
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, hh * 0.4, 6), mat('#6b4a2a')); trunk.position.y = hh * 0.2;
+      const leaves = new THREE.Mesh(new THREE.ConeGeometry(hh * 0.3, hh * 0.75, 8), mat('#2f7d3a')); leaves.position.y = hh * 0.6;
+      g.add(trunk, leaves); g.position.set(x, 0, z); scene.add(g);
+    }
+    for (let i = 0; i < 8; i++) {
+      const x = (i < 4 ? -48 : 12) + (i % 4) * 11, pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 9, 6), mat('#8a8278')); pole.position.set(x, 4.5, -9); scene.add(pole);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.12, 0.12), mat('#8a8278')); bar.position.set(x, 8.4, -9); scene.add(bar);
+    }
+    // 50〜1000m：鳥・ビル・山
+    const birds = [];
+    for (let i = 0; i < 40; i++) {
+      const g = new THREE.Group(), wm = mat('#2b2b33');
+      const l = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.03, 0.12), wm), r = l.clone(); l.position.x = -0.17; r.position.x = 0.17; g.add(l, r);
+      const y = 15 * Math.pow(600 / 15, Math.random()); g.position.set(rnd(-4, 4), y, rnd(-6, -1)); g.scale.setScalar(1 + y / 200); scene.add(g); birds.push({ g, l, r, ph: rnd(0, 6) });
+    }
+    for (let i = 0; i < 50; i++) {
+      const a = rnd(-1.2, 1.2), dist = rnd(700, 1800), hh = rnd(40, 220), w = rnd(18, 40);
+      const b = new THREE.Mesh(new THREE.BoxGeometry(w, hh, w), mat(['#9aa6b8', '#7c8aa0', '#b8c2cf', '#5e6b80'][i % 4], { roughness: 0.6 })); b.position.set(Math.sin(a) * dist, hh / 2, -Math.cos(a) * dist); scene.add(b);
+    }
     for (let i = 0; i < 14; i++) {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, depthWrite: false }));
-      const sc = 25 + Math.random() * 30; sp.position.set((Math.random() - 0.5) * 500, 40 + Math.random() * 70, -200 - Math.random() * 150); sp.scale.set(sc * 2, sc, 1); scene.add(sp);
+      const a = rnd(-1.4, 1.4), dist = rnd(9000, 16000), hh = rnd(500, 1400);
+      const m = new THREE.Mesh(new THREE.ConeGeometry(hh * 1.6, hh, 7), mat(i % 2 ? '#5d7f5a' : '#6f8a68', { flatShading: true })); m.position.set(Math.sin(a) * dist, hh / 2 - 50, -Math.cos(a) * dist); scene.add(m);
+      const snow = new THREE.Mesh(new THREE.ConeGeometry(hh * 0.45, hh * 0.28, 7), mat('#ffffff', { flatShading: true })); snow.position.set(m.position.x, hh - 50 - hh * 0.14 + 1, m.position.z); scene.add(snow);
     }
-    // 飛んでいる間に横を通りすぎる雲：カメラのまわりの箱にくり返し並べ、どの高さでも同じくらいの数が見える
-    const CLOUD_N = 36, CLOUD_BOX = [9, 26], cloudSeed = Array.from({ length: CLOUD_N }, () => [Math.random(), Math.random(), Math.random(), 0.8 + Math.random() * 1.6]);
-    const clouds = cloudSeed.map(() => { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, depthWrite: false })); scene.add(sp); return sp; });
-    const wrapAt = (s, c, size) => c - size / 2 + ((s * size - c) % size + size) % size; // 世界に固定した並びを、カメラのまわりでくり返す
-    function drawClouds(cx, cy, show) {
-      // 雲があるのは高さ 40m〜1万2000m のあいだ
-      const k = show ? THREE.MathUtils.smoothstep(cy, 20, 60) * (1 - THREE.MathUtils.smoothstep(cy, 9000, 14000)) : 0;
-      clouds.forEach((sp, i) => {
-        const [sx, sy, sz, sc] = cloudSeed[i];
-        sp.position.set(wrapAt(sx, cx, CLOUD_BOX[0]), wrapAt(sy, cy, CLOUD_BOX[1]), -0.5 - sz * 5);
-        sp.scale.set(sc * 2, sc, 1); sp.material.opacity = 0.9 * k; sp.visible = k > 0;
-      });
+    // 地上から見える遠くの雲
+    for (let i = 0; i < 14; i++) { const w = rnd(50, 110); cloud(rnd(-250, 250), rnd(40, 110), rnd(-350, -200), w); }
+    // 1000m〜10km：雲の層と飛行機
+    for (let i = 0; i < 180; i++) { const y = rnd(1200, 3000), w = rnd(30, 160), near = i < 70; cloud(near ? rnd(-40, 40) : rnd(-600, 600), y, near ? rnd(-30, -2) : rnd(-800, -40), w); }
+    for (let i = 0; i < 70; i++) { const w = rnd(400, 1600); cloud(rnd(-3000, 3000), rnd(8000, 11000), rnd(-4000, -150), w, w * 0.18, 0.7); }
+    const airplane = new THREE.Group();
+    {
+      const fus = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 38, 12), mat('#f4f6fa', { roughness: 0.4 })); fus.rotation.z = Math.PI / 2;
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(8, 0.5, 36), mat('#dfe5ee')); const tail = new THREE.Mesh(new THREE.BoxGeometry(5, 7, 0.5), mat('#d9261c')); tail.position.set(-17, 4, 0);
+      const stab = new THREE.Mesh(new THREE.BoxGeometry(4, 0.4, 12), mat('#dfe5ee')); stab.position.set(-17, 0.5, 0);
+      airplane.add(fus, wing, tail, stab); airplane.position.set(-200, 9800, -120); scene.add(airplane);
     }
-    // 流れる粒：どの高さでも、まわりの小さな粒が後ろへ流れて、動いているのが分かる
-    const DUST_N = 160, DUST_BOX = [6, 10, 4], dustSeed = new Float32Array(DUST_N * 3).map(() => Math.random());
-    const dustGeo = new THREE.BufferGeometry(); dustGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(DUST_N * 3), 3));
-    const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 0.035, transparent: true, opacity: 0.7, depthWrite: false }));
-    dust.frustumCulled = false; scene.add(dust);
-    function drawDust(cx, cy) {
-      // 世界に固定した粒を、カメラのまわりの箱でくり返し並べる
-      const a = dustGeo.attributes.position.array;
-      for (let i = 0; i < DUST_N; i++) {
-        a[i * 3] = wrapAt(dustSeed[i * 3], cx, DUST_BOX[0]); a[i * 3 + 1] = wrapAt(dustSeed[i * 3 + 1], cy, DUST_BOX[1]); a[i * 3 + 2] = -0.5 - dustSeed[i * 3 + 2] * DUST_BOX[2];
-      }
-      dustGeo.attributes.position.needsUpdate = true;
-    }
+    // 10km〜：気球・人工衛星
+    const balloon = new THREE.Group();
+    { const s = new THREE.Mesh(new THREE.SphereGeometry(12, 20, 14), mat('#ffffff', { roughness: 0.5 })); s.scale.y = 1.2; const box = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), mat('#e9b13b')); box.position.y = -22; const line = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 8), mat('#cccccc')); line.position.y = -17; balloon.add(s, box, line); }
+    balloon.position.set(30, 32000, -60); scene.add(balloon);
+    const sats = [110000, 165000].map((y, i) => {
+      const g = new THREE.Group(), core = new THREE.Mesh(new THREE.BoxGeometry(2, 3, 2), mat('#d4a84a', { metalness: 0.6, roughness: 0.3 }));
+      for (const sx of [-1, 1]) { const p = new THREE.Mesh(new THREE.BoxGeometry(6, 2.4, 0.1), mat('#2a4a9a', { metalness: 0.4, roughness: 0.3 })); p.position.x = sx * 4.2; g.add(p); }
+      g.add(core); g.position.set(i ? -9 : 10, y, -18); scene.add(g); return g;
+    });
     // 星：宇宙に近づくと見えてくる（カメラについてくる）
     const starGeo = new THREE.BufferGeometry(), starPos = new Float32Array(900 * 3);
-    for (let i = 0; i < 900; i++) { const a = Math.random() * 6.28, b = Math.acos(Math.random() * 2 - 1); starPos.set([Math.sin(b) * Math.cos(a) * 15, Math.sin(b) * Math.sin(a) * 15, -Math.abs(Math.cos(b)) * 15], i * 3); }
+    for (let i = 0; i < 900; i++) { const a = Math.random() * 6.28, b = Math.acos(Math.random() * 2 - 1); starPos.set([Math.sin(b) * Math.cos(a) * 15, Math.cos(b) * 15, Math.sin(b) * Math.sin(a) * 15], i * 3); }
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-    const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 0.06, transparent: true, opacity: 0, depthWrite: false, fog: false }));
-    stars.frustumCulled = false; camera.add(stars); scene.add(camera);
+    const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 0.06, transparent: true, opacity: 0, depthWrite: false }));
+    stars.frustumCulled = false; scene.add(stars);
+    // スピード線：速さに合わせて、ボトルのまわりを風の線が後ろへ流れる
+    const LINE_N = 70, LINE_BOX = [5, 9, 3], lineSeed = Array.from({ length: LINE_N }, () => [Math.random(), Math.random(), Math.random()]);
+    const lineGeo = new THREE.BufferGeometry(); lineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(LINE_N * 6), 3));
+    const speedLines = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.55, depthWrite: false }));
+    speedLines.frustumCulled = false; scene.add(speedLines);
+    const wrapAt = (s, c, size) => c - size / 2 + ((s * size - c) % size + size) % size; // 世界に固定した並びを、まわりでくり返す
+    function drawSpeedLines(cx, cy, speed) {
+      const a = lineGeo.attributes.position.array, len = Math.min(3, speed * 0.004);
+      speedLines.visible = len > 0.05;
+      lineSeed.forEach(([sx, sy, sz], i) => {
+        const x = wrapAt(sx, cx, LINE_BOX[0]), y = wrapAt(sy, cy, LINE_BOX[1]), z = (sz - 0.5) * LINE_BOX[2];
+        a.set([x, y, z, x, y + len, z], i * 6);
+      });
+      lineGeo.attributes.position.needsUpdate = true;
+    }
 
     // ボトル
     const H = 0.24, R = 0.035, HC = 0.08; // 高さ・半径・重心の高さ（真ん中より下）
@@ -336,7 +382,7 @@
     // ---------- 流れ：形を決める → 5秒振り回す → 栓が飛んで炭酸が吹き出す → 結果 ----------
     function reset() {
       gen++; phase = 'ready'; holding = false; tShake = 0; fizz = 0; score = 0; prevV = null; hang();
-      cap.visible = true; capFly = null; water.scale.y = 1; water.position.y = 0.051; clearFoam(); burn = 0;
+      cap.visible = true; capFly = null; water.scale.y = 1; water.position.y = 0.051; clearFoam(); speed = 0;
       resultShown = false; $('result').style.display = 'none'; drawTimer();
       showHint('drag');
     }
@@ -357,49 +403,45 @@
       if (tShake >= SHAKE_TIME) launch();
     }
     // ---------- 発射：栓が飛び、吹き出す炭酸の勢いで空へ ----------
-    let burn = 0, thrust = 0, startY = 0, apex = 0;
+    // 振り具合で届く高さが決まる（20m〜200km）。上がり方は高さの桁が一定のペースで増えるようにして、
+    // どの高さまで行く場合も、家→鳥→雲→飛行機→気球→宇宙の順に景色が流れて見えるようにする
+    let flyT = 0, flyDur = 0, apexAlt = 0, startY = 0, startX = 0, launchT = 0, speed = 0;
     function launch() {
       phase = 'fly';
       const frac = Math.min(1, fizz / FIZZ_FULL);
       bodyFromChain();
       const ux = -Math.sin(body.a), uy = Math.cos(body.a), top = [body.x + ux * (H - HC), body.y + uy * (H - HC)];
       cap.visible = false; capFly = { p: top.slice(), v: [body.vx + ux * 3, body.vy + uy * 3], r: 0 };
-      // 振るほど強く・長く噴き出す
-      thrust = 25 + 600 * frac * frac; burn = 0.8 + 3.2 * frac; startY = body.y; apex = body.y;
-      foamRate = 300 + 700 * frac; foamSpeed = 2 + 6 * frac;
-      sfx.pop(); sfx.fizz(burn, 0.08 + 0.22 * frac);
+      apexAlt = 20 * Math.pow(10000, frac); flyDur = 3.5 + 4.5 * frac; flyT = 0; startY = body.y; startX = body.x; launchT = 0;
+      foamRate = 300 + 700 * frac; foamSpeed = 3;
+      sfx.pop(); sfx.fizz(flyDur * 0.6, 0.08 + 0.22 * frac);
     }
+    const altAt = u => (Math.pow(apexAlt + 1, 1 - Math.pow(1 - Math.min(1, u), 2.2)) - 1); // 0→apexAlt。最初は速く、てっぺんでゆっくり止まる
     function flyStep(h) {
-      const ux = -Math.sin(body.a), uy = Math.cos(body.a);
-      if (burn > 0) {
-        burn -= h;
-        // 炭酸は口（栓の側）から出るので、ボトルは底の方向へ押される
-        body.vx -= ux * thrust * h; body.vy -= uy * thrust * h;
-        // 羽根があるように、底が上を向くように少しずつ向きがそろう
-        body.w += (-Math.sin(body.a - Math.PI) * 600 - body.w * 45) * h; // 離れたらすぐに上を向く
+      flyT += h; launchT += h;
+      const u = flyT / flyDur, prevY = body.y;
+      body.y = startY + altAt(u); body.x = startX + Math.sin(flyT * 1.3) * 0.15; // 少しだけゆらゆら
+      speed = (body.y - prevY) / h; body.vx = 0; body.vy = speed;
+      // 離れたらすぐ底を上に向ける（口から炭酸が噴き出す）
+      body.a += (Math.PI - body.a) * (1 - Math.exp(-14 * h)); body.w = 0;
+      if (u < 0.6) {
+        const ux = -Math.sin(body.a), uy = Math.cos(body.a);
         emitFoam(h, [body.x + ux * (H - HC), body.y + uy * (H - HC)], [ux, uy]);
-        water.scale.y = Math.max(0.05, water.scale.y - h / Math.max(0.5, burn + h) * water.scale.y * 0.9); water.position.y = 0.004 + 0.0475 * water.scale.y;
+        water.scale.y = Math.max(0.05, 1 - u / 0.6 * 0.95); water.position.y = 0.004 + 0.0475 * water.scale.y;
       }
-      // 空気の抵抗（上に行くほど空気がうすい）
-      const sp = Math.hypot(body.vx, body.vy), rho = Math.exp(-body.y / 8000), drag = 0.00005 * rho * sp;
-      body.vx -= body.vx * drag * h; body.vy -= body.vy * drag * h;
-      body.vy -= G * h;
-      body.x += body.vx * h; body.y += body.vy * h; body.a += body.w * h;
-      apex = Math.max(apex, body.y);
-      if (body.y < 0) { body.y = 0; body.vy = 0; body.vx *= 0.5; }
-      // いちばん高い所まで行ったら記録
-      if (burn <= 0 && body.vy < 0) finish();
+      if (u >= 1) finish();
     }
     function finish() {
-      phase = 'fall'; score = Math.max(0, Math.round(apex - startY));
+      phase = 'fall'; speed = 0; score = Math.max(0, Math.round(apexAlt));
       const isNew = score > best; if (isNew) { best = score; store.set('bestM', best); }
       lastNew = isNew;
-      const g = gen; setTimeout(() => { if (g !== gen) return; phase = 'done'; resultShown = true; fillResult(); $('result').style.display = 'flex'; }, 1000);
+      const g = gen; setTimeout(() => { if (g !== gen) return; phase = 'done'; resultShown = true; fillResult(); $('result').style.display = 'flex'; }, 1300);
     }
     function drawTimer() {
-      const left = phase === 'ready' ? SHAKE_TIME : phase === 'shake' ? Math.ceil(SHAKE_TIME - tShake) : 0;
-      $('timer').style.opacity = phase === 'ready' || phase === 'shake' ? 1 : 0;
-      $('timer').textContent = `${Math.max(0, left)}s`;
+      // 振っている間は残り時間、飛んでいる間は高度計
+      if (phase === 'ready' || phase === 'shake') $('timer').textContent = `${Math.max(0, phase === 'ready' ? SHAKE_TIME : Math.ceil(SHAKE_TIME - tShake))}s`;
+      else $('timer').textContent = `${Math.max(0, Math.round(phase === 'fly' ? body.y - startY : apexAlt)).toLocaleString()}m`;
+      $('timer').style.opacity = phase === 'done' ? 0 : 1;
     }
 
     // ---------- 吹き出す泡 ----------
@@ -479,7 +521,6 @@
     }
     addEventListener('resize', resize); resize();
 
-    const cam = { x: 0, y: 1.15 };
     const capMesh = cap.clone(); capMesh.position.set(0, 0, 0); scene.add(capMesh);
     const STEP = 1 / 960;
     let prev = performance.now(), simAcc = 0;
@@ -491,31 +532,30 @@
         simAcc -= STEP;
         chainStep(STEP); keepEnergy(STEP);
         if (phase === 'shake') measure(STEP);
-        if (phase === 'fly' || phase === 'fall' || phase === 'done') {
-          // 噴き終わって上っている間は早送り（速いほど速く）。高く上がっても待ちすぎない
-          const warp = phase === 'fly' && burn <= 0 ? Math.min(40, Math.max(1, Math.ceil(Math.abs(body.vy) / 40))) : 1;
-          for (let i = 0; i < warp && (phase === 'fly' || phase === 'fall'); i++) flyStep(STEP);
-          stepFoam(STEP);
-        }
+        if (phase === 'fly') flyStep(STEP);
+        if (phase === 'fly' || phase === 'fall' || phase === 'done') stepFoam(STEP);
       }
       if (phase === 'ready' || phase === 'shake') bodyFromChain();
       drawTimer();
-      // 振っている間はカメラ固定。飛び立ったらボトルを追う（画面からは出さない）
+      // 振っている間はカメラ固定。飛び立ったら、ボトルの斜め上から見下ろして追う（地面や景色が下へ遠ざかって見える）
       const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
       const dist = Math.max(1.85 / 2 / tv / camera.aspect, 2.5 / 2 / tv);
-      if (phase === 'ready' || phase === 'shake') { cam.x = 0; cam.y = 1.15; }
+      const fixedPos = new THREE.Vector3(0, 1.3, dist), fixedLook = new THREE.Vector3(0, 1.15, 0);
+      if (phase === 'ready' || phase === 'shake') { camera.position.copy(fixedPos); camera.lookAt(fixedLook); }
       else {
-        const k = 1 - Math.exp(-8 * dt), hh = dist * tv * 0.35, hw = dist * tv * camera.aspect * 0.35;
-        cam.x += (body.x - cam.x) * k; cam.y += (Math.max(1.15, body.y) - cam.y) * k;
-        cam.x = Math.min(body.x + hw, Math.max(body.x - hw, cam.x)); cam.y = Math.min(body.y + hh, Math.max(body.y - hh, cam.y));
+        const k = THREE.MathUtils.smoothstep(launchT, 0, 0.9); // 発射からなめらかに切り替える
+        // 低い所では見下ろして地面が遠ざかるのを見せ、高くなるほど水平に向けて地平線と宇宙を見せる
+        const tilt = 1 - THREE.MathUtils.smoothstep(body.y, 3000, 40000);
+        const chasePos = new THREE.Vector3(body.x + 0.6, body.y + 0.2 + 0.7 * tilt, 2.4), chaseLook = new THREE.Vector3(body.x, body.y - 0.5 * tilt + 0.3 * (1 - tilt), 0);
+        camera.position.lerpVectors(fixedPos.setY(Math.max(1.3, body.y + 0.15)), chasePos, k);
+        camera.lookAt(fixedLook.setY(Math.max(1.15, body.y)).lerp(chaseLook, k));
       }
-      // 高さで空の色と星の見え方を変える
-      scene.background.copy(skyAt(cam.y)); document.body.style.background = '#' + scene.background.getHexString();
-      stars.material.opacity = THREE.MathUtils.smoothstep(cam.y, 15000, 60000);
-      const flying = phase !== 'ready' && phase !== 'shake';
-      dust.visible = flying; drawDust(cam.x, cam.y); drawClouds(cam.x, cam.y, flying);
-      camera.position.set(cam.x, cam.y + 0.15, dist);
-      camera.lookAt(cam.x, cam.y, 0);
+      const alt = camera.position.y;
+      scene.background.copy(skyAt(alt)); document.body.style.background = '#' + scene.background.getHexString();
+      stars.material.opacity = THREE.MathUtils.smoothstep(alt, 15000, 60000); stars.position.copy(camera.position);
+      drawSpeedLines(body.x, body.y, phase === 'fly' ? speed : 0);
+      for (const b of birds) { const f = Math.sin(now * 0.012 + b.ph) * 0.5; b.l.rotation.z = f; b.r.rotation.z = -f; }
+      airplane.position.x = -200 + ((now * 0.04) % 400); for (const g of sats) g.rotation.y += dt * 0.3;
       bottle.position.set(body.x, body.y, 0); bottle.rotation.z = body.a;
       drawBubbles(phase === 'shake' || phase === 'ready' ? fizz / FIZZ_FULL * 1.6 : water.scale.y, now);
       foamGeo.attributes.position.needsUpdate = true; foamGeo.setDrawRange(0, foamCount);
