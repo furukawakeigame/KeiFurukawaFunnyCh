@@ -174,14 +174,14 @@
     const grassTex = (() => {
       const c = document.createElement('canvas'); c.width = c.height = 256;
       const g = c.getContext('2d'); g.fillStyle = '#6dbb4f'; g.fillRect(0, 0, 256, 256);
-      for (let i = 0; i < 1800; i++) { g.fillStyle = `rgba(${40 + Math.random() * 60},${120 + Math.random() * 70},${30 + Math.random() * 30},.5)`; g.fillRect(Math.random() * 256, Math.random() * 256, 2, 4); }
-      const tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(3000, 3000); tx.colorSpace = THREE.SRGBColorSpace;
+      for (let i = 0; i < 1800; i++) { g.fillStyle = `rgba(${70 + Math.random() * 40},${150 + Math.random() * 40},${50 + Math.random() * 20},.35)`; g.fillRect(Math.random() * 256, Math.random() * 256, 2, 4); }
+      const tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(3000, 3000); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = renderer.capabilities.getMaxAnisotropy(); // 斜めから見ても模様がちらつかない
       return tx;
     })();
     // 地面：近くは草の円盤、その外は丸い地球（高く上がると地平線が丸く見える）
     const EARTH_R = 6371000;
     const earth = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 160, 320, 0, Math.PI * 2, 0, Math.PI / 8), mat('#4f9a46', { roughness: 1 }));
-    earth.position.y = -EARTH_R - 0.05; scene.add(earth);
+    earth.position.y = -EARTH_R - 8; // 草の円盤と重ならないよう少し下げる（重なると遠くでチラつく） scene.add(earth);
     const ground = new THREE.Mesh(new THREE.CircleGeometry(15000, 96), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.95 }));
     ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
     // 空の色：上に行くほど濃い青から宇宙の黒へ
@@ -211,7 +211,8 @@
     // 地上から見える遠くの雲
     for (let i = 0; i < 14; i++) { const w = rnd(40, 80); cloud(rnd(-400, 400), rnd(90, 160), rnd(-700, -400), w); }
     // 1000m〜10km：雲の層
-    for (let i = 0; i < 180; i++) { const y = rnd(1200, 3000), w = rnd(30, 160), near = i < 70; cloud(near ? rnd(-40, 40) : rnd(-600, 600), y, near ? rnd(-30, -6) : rnd(-800, -40), w); }
+    // 近くを通る雲は小さめにして、カメラが中に入らない距離に置く（入ると画面が一瞬まっ白になってチカチカする）
+    for (let i = 0; i < 180; i++) { const near = i < 70, y = rnd(1200, 3000), w = near ? rnd(15, 40) : rnd(30, 160); cloud(near ? rnd(-40, 40) : rnd(-600, 600), y, near ? rnd(-45, -18) : rnd(-800, -60), w); }
     for (let i = 0; i < 70; i++) { const w = rnd(400, 1600); cloud(rnd(-3000, 3000), rnd(8000, 11000), rnd(-4000, -150), w, true); }
     buildClouds();
     // 星：宇宙に近づくと見えてくる（カメラについてくる）
@@ -226,11 +227,14 @@
     const speedLines = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.55, depthWrite: false }));
     speedLines.frustumCulled = false; scene.add(speedLines);
     const wrapAt = (s, c, size) => c - size / 2 + ((s * size - c) % size + size) % size; // 世界に固定した並びを、まわりでくり返す
-    function drawSpeedLines(cx, cy, speed) {
+    let lineScroll = 0;
+    function drawSpeedLines(cx, cy, speed, dt) {
+      // 線の流れる速さには上限をつける（速すぎると1コマごとに飛び飛びになってチカチカする）
+      lineScroll += Math.min(speed, 60) * dt;
       const a = lineGeo.attributes.position.array, len = Math.min(3, speed * 0.004);
       speedLines.visible = len > 0.05;
       lineSeed.forEach(([sx, sy, sz], i) => {
-        const x = wrapAt(sx, cx, LINE_BOX[0]), y = wrapAt(sy, cy, LINE_BOX[1]), z = (sz - 0.5) * LINE_BOX[2];
+        const x = wrapAt(sx, cx, LINE_BOX[0]), y = cy - wrapAt(sy, lineScroll, LINE_BOX[1]) + lineScroll, z = (sz - 0.5) * LINE_BOX[2];
         a.set([x, y, z, x, y + len, z], i * 6);
       });
       lineGeo.attributes.position.needsUpdate = true;
@@ -522,7 +526,7 @@
       const alt = camera.position.y;
       scene.background.copy(skyAt(alt)); document.body.style.background = '#' + scene.background.getHexString();
       stars.material.opacity = THREE.MathUtils.smoothstep(alt, 15000, 60000); stars.position.copy(camera.position);
-      drawSpeedLines(body.x, body.y, phase === 'fly' ? speed : 0);
+      drawSpeedLines(body.x, body.y, phase === 'fly' ? speed : 0, dt);
       bottle.position.set(body.x, body.y, 0); bottle.rotation.z = body.a;
       drawBubbles(phase === 'shake' || phase === 'ready' ? fizz / FIZZ_FULL * 1.6 : water.scale.y, now);
       foamGeo.attributes.position.needsUpdate = true; foamGeo.setDrawRange(0, foamCount);
