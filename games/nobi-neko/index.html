@@ -73,7 +73,7 @@
   <div id="stage">
     <div id="gauge">
       <div class="track"><div class="fill"></div></div>
-      <svg class="dot" viewBox="0 0 24 24"><path d="M4 7 L6 1 L10 5 L14 5 L18 1 L20 7 A9 9 0 1 1 4 7 Z" fill="#e8862e" stroke="#3a2a1a" stroke-width="1.5"/><circle cx="9" cy="12" r="1.5" fill="#3a2a1a"/><circle cx="15" cy="12" r="1.5" fill="#3a2a1a"/></svg>
+      <svg class="dot" viewBox="0 0 24 24"><path d="M4 7 L6 1 L10 5 L14 5 L18 1 L20 7 A9 9 0 1 1 4 7 Z" fill="#efe4d2" stroke="#4a3426" stroke-width="1.5"/><ellipse cx="12" cy="13" rx="6" ry="5" fill="#6b4c37"/><circle cx="9.5" cy="12" r="1.4" fill="#3f8ae0"/><circle cx="14.5" cy="12" r="1.4" fill="#3f8ae0"/></svg>
       <svg class="flag" viewBox="0 0 22 28"><path d="M3 2 V27" stroke="#3a2a1a" stroke-width="2.5" stroke-linecap="round"/><path d="M4 3 L20 8 L4 13 Z" fill="#d9472b"/></svg>
     </div>
     <div id="panel"><div class="time"></div><div class="best"></div></div>
@@ -132,6 +132,7 @@
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     stage.prepend(renderer.domElement);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xcfe6f2);
@@ -181,46 +182,141 @@
     line.rotation.x = -Math.PI / 2; line.position.set(GOAL, 0.005, 0);
     scene.add(pole, flag, line);
 
-    // 猫
-    const fur = mat(0xf0a050), dark = mat(0x2a1c12), pink = mat(0xf2a0a0), white = mat(0xfff4e6);
+    const v = (x, y, z = 0) => new THREE.Vector3(x, y, z);
+    // 猫（ラグドール: クリーム色の長毛、顔・耳・しっぽが濃い茶色、青い目、白い足先）
+    // 毛はシェル法: 同じ形を少しずつ膨らませた層を重ね、穴の空いた模様で毛先を表す
+    function canvasTex(w, h, paint) {
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      paint(cv.getContext('2d'), w, h);
+      const tx = new THREE.CanvasTexture(cv);
+      tx.colorSpace = THREE.SRGBColorSpace; tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+      return tx;
+    }
+    const noiseBase = (() => {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+      const g = cv.getContext('2d'), d = g.createImageData(128, 128);
+      for (let i = 0; i < d.data.length; i += 4) { const n = Math.random() ** 1.6 * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = n; d.data[i + 3] = 255; }
+      g.putImageData(d, 0, 0);
+      return cv;
+    })();
+    function noiseTex(ru, rv) {
+      const tx = new THREE.CanvasTexture(noiseBase);
+      tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(ru, rv);
+      return tx;
+    }
+    // 毛の流れ（細い筋）を足した色の模様
+    function streaks(g, w, h, n = 500) {
+      for (let i = 0; i < n; i++) {
+        g.strokeStyle = Math.random() < 0.5 ? 'rgba(255,255,255,.18)' : 'rgba(90,60,40,.10)';
+        g.lineWidth = 1; g.beginPath();
+        const x = Math.random() * w, y = Math.random() * h;
+        g.moveTo(x, y); g.lineTo(x + (Math.random() - 0.5) * 3, y + 6 + Math.random() * 8); g.stroke();
+      }
+    }
+    const SHELLS = 10;
+    function addFur(mesh, len, noise) {
+      mesh.userData.shells = [];
+      for (let k = 1; k <= SHELLS; k++) {
+        const f = k / SHELLS;
+        const m = new THREE.MeshStandardMaterial({ map: mesh.material.map, color: mesh.material.color.clone().multiplyScalar(0.8 + 0.2 * f), roughness: 1, alphaMap: noise, alphaTest: 0.08 + f * 0.85 });
+        const off = { value: len * f };
+        m.onBeforeCompile = sh => {
+          sh.uniforms.uOff = off;
+          sh.vertexShader = 'uniform float uOff;\n' + sh.vertexShader.replace('#include <begin_vertex>', 'vec3 transformed = position + normal * uOff; transformed.y -= uOff * uOff * 2.0;');
+        };
+        m.customProgramCacheKey = () => 'fur';
+        const s = new THREE.Mesh(mesh.geometry, m);
+        mesh.add(s); mesh.userData.shells.push(s);
+      }
+      mesh.castShadow = true;
+      mesh.material.color.multiplyScalar(0.75);
+      return mesh;
+    }
+    function setGeo(mesh, geo) {
+      mesh.geometry.dispose();
+      mesh.geometry = geo;
+      for (const s of mesh.userData.shells) s.geometry = geo;
+    }
+    const furMat = (tex, c = 0xffffff) => new THREE.MeshStandardMaterial({ map: tex, color: c, roughness: 1 });
+    const bodyTex = canvasTex(256, 128, (g, w, h) => {
+      const gr = g.createLinearGradient(0, 0, w, 0);
+      gr.addColorStop(0, '#d9c3a3'); gr.addColorStop(0.5, '#ece0cc'); gr.addColorStop(1, '#f7f0e4');
+      g.fillStyle = gr; g.fillRect(0, 0, w, h); streaks(g, w, h, 900);
+    });
+    const tailTex = canvasTex(128, 64, (g, w, h) => {
+      const gr = g.createLinearGradient(0, 0, w, 0);
+      gr.addColorStop(0, '#9a7a5c'); gr.addColorStop(0.35, '#5e4331'); gr.addColorStop(1, '#3f2b1f');
+      g.fillStyle = gr; g.fillRect(0, 0, w, h); streaks(g, w, h, 300);
+    });
+    // 顔: 球の u=0.5 が正面（+x）。目と鼻のまわりが濃い「マスク」
+    const headTex = canvasTex(256, 128, (g, w, h) => {
+      g.fillStyle = '#f2e8d8'; g.fillRect(0, 0, w, h);
+      const m = g.createRadialGradient(w * 0.5, h * 0.52, 2, w * 0.5, h * 0.52, w * 0.17);
+      m.addColorStop(0, '#4a3324'); m.addColorStop(0.55, '#6b4c37'); m.addColorStop(1, 'rgba(160,125,95,0)');
+      g.fillStyle = m; g.fillRect(0, 0, w, h);
+      // 額の白い V（ラグドールのミテッド柄）
+      g.fillStyle = 'rgba(245,238,226,.9)';
+      g.beginPath(); g.moveTo(w * 0.5, h * 0.52); g.lineTo(w * 0.46, h * 0.82); g.lineTo(w * 0.54, h * 0.82); g.fill();
+      streaks(g, w, h, 400);
+    });
+    const seal = 0x4a3426;
+    const solid = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 });
     const catG = new THREE.Group();
     scene.add(catG);
-    const bodyMesh = new THREE.Mesh(new THREE.BufferGeometry(), fur);
-    const tailMesh = new THREE.Mesh(new THREE.BufferGeometry(), fur);
-    bodyMesh.castShadow = tailMesh.castShadow = true;
-    const capB = new THREE.Mesh(new THREE.SphereGeometry(R, 16, 12), fur);
-    const capF = new THREE.Mesh(new THREE.SphereGeometry(R, 16, 12), fur);
-    capB.castShadow = capF.castShadow = true;
-    catG.add(bodyMesh, tailMesh, capB, capF);
+    const bodyMesh = addFur(new THREE.Mesh(new THREE.BufferGeometry(), furMat(bodyTex)), 0.07, noiseTex(10, 4));
+    const tailMesh = addFur(new THREE.Mesh(new THREE.BufferGeometry(), furMat(tailTex)), 0.11, noiseTex(8, 2));
+    const capB = addFur(new THREE.Mesh(new THREE.SphereGeometry(R, 20, 14), furMat(bodyTex, 0xe2d0b4)), 0.07, noiseTex(6, 3));
+    const capF = addFur(new THREE.Mesh(new THREE.SphereGeometry(R, 20, 14), furMat(bodyTex, 0xfaf4ea)), 0.07, noiseTex(6, 3));
+    const tailTip = addFur(new THREE.Mesh(new THREE.SphereGeometry(0.085, 14, 10), furMat(tailTex, 0x6a5040)), 0.11, noiseTex(4, 2));
+    catG.add(bodyMesh, tailMesh, capB, capF, tailTip);
     const head = new THREE.Group();
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.26, 20, 16), fur);
-    skull.castShadow = true;
-    head.add(skull);
-    for (const z of [-0.13, 0.13]) {
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.18, 4), fur);
-      ear.position.set(-0.02, 0.24, z); ear.rotation.x = z * 1.4;
+    const skull = addFur(new THREE.Mesh(new THREE.SphereGeometry(0.24, 28, 20), furMat(headTex)), 0.05, noiseTex(8, 4));
+    skull.scale.set(1, 0.92, 1.05);
+    // 胸のふさふさした白い毛
+    const ruff = addFur(new THREE.Mesh(new THREE.SphereGeometry(0.2, 20, 14), furMat(bodyTex, 0xffffff)), 0.1, noiseTex(5, 3));
+    ruff.position.set(-0.05, -0.2, 0);
+    head.add(skull, ruff);
+    const earGeo = new THREE.ConeGeometry(0.1, 0.19, 16);
+    earGeo.scale(1, 1, 0.45);
+    const innerGeo = new THREE.ConeGeometry(0.055, 0.12, 12);
+    innerGeo.scale(1, 1, 0.3);
+    for (const z of [-0.12, 0.12]) {
+      const ear = new THREE.Mesh(earGeo, solid(seal));
+      ear.position.set(-0.01, 0.24, z * 1.1); ear.rotation.set(z * 2.2, 0, -0.15);
+      const inner = new THREE.Mesh(innerGeo, solid(0xd9a090));
+      inner.position.set(0.02, -0.015, 0);
+      ear.add(inner);
       head.add(ear);
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 8), dark);
-      eye.position.set(0.22, 0.06, z * 0.75);
+      // 青い目と黒い瞳
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.042, 16, 12), new THREE.MeshStandardMaterial({ color: 0x3f8ae0, roughness: 0.15, emissive: 0x0a2a55 }));
+      eye.position.copy(v(0.86, 0.2, z * 3.4).normalize().multiplyScalar(0.252));
+      eye.scale.set(0.8, 0.85, 1);
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.02, 10, 8), solid(0x050505));
+      pupil.position.set(0.03, 0, 0); pupil.scale.set(0.6, 1.2, 0.7);
+      eye.add(pupil);
       head.add(eye);
     }
-    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 10), white);
-    muzzle.position.set(0.2, -0.07, 0); muzzle.scale.set(0.8, 0.7, 1.2);
-    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), pink);
-    nose.position.set(0.28, -0.03, 0);
-    head.add(muzzle, nose);
+    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 10), solid(0xd8c8b4));
+    muzzle.position.set(0.26, -0.075, 0); muzzle.scale.set(0.6, 0.6, 1.2);
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.025, 10, 8), solid(0x8a5a55));
+    nose.position.set(0.305, -0.035, 0); nose.scale.set(0.7, 0.7, 1.2);
+    const wPts = [];
+    for (const s of [-1, 1]) for (let i = 0; i < 3; i++) wPts.push(0.28, -0.08, s * 0.05, 0.31, -0.06 + i * 0.03 - 0.02, s * (0.3 + i * 0.02));
+    const wGeo = new THREE.BufferGeometry();
+    wGeo.setAttribute('position', new THREE.Float32BufferAttribute(wPts, 3));
+    const whiskers = new THREE.LineSegments(wGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 }));
+    head.add(muzzle, nose, whiskers);
     catG.add(head);
-    const legGeo = new THREE.CylinderGeometry(0.06, 0.055, 1, 8);
+    const legGeo = new THREE.CylinderGeometry(0.075, 0.06, 1, 12);
     legGeo.translate(0, -0.5, 0);
     const legs = [];
     for (let i = 0; i < 4; i++) {
-      const l = new THREE.Mesh(legGeo, fur); l.castShadow = true;
-      const paw = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), white);
+      const l = new THREE.Mesh(legGeo, furMat(bodyTex, i < 2 ? 0xe8dccb : 0xcdb69a)); l.castShadow = true;
+      const paw = addFur(new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 10), solid(0xfffaf2)), 0.03, noiseTex(4, 2));
+      paw.scale.set(1.3, 0.8, 1);
       catG.add(l, paw);
       legs.push({ l, paw, front: i < 2, z: i % 2 ? 0.12 : -0.12 });
     }
-
-    const v = (x, y, z = 0) => new THREE.Vector3(x, y, z);
     function archOf(L) { return Math.sqrt(Math.max(0, (SPINE / 2) ** 2 - (L / 2) ** 2)); }
     // 背骨の曲線（腰→肩）
     function spineCurve() {
@@ -230,18 +326,17 @@
     let time = 0;
     function updateCatMesh() {
       const c = spineCurve();
-      bodyMesh.geometry.dispose();
-      bodyMesh.geometry = new THREE.TubeGeometry(c, 24, R, 12, false);
+      setGeo(bodyMesh, new THREE.TubeGeometry(c, 32, R, 16, false));
       capB.position.copy(c.getPoint(0));
       capF.position.copy(c.getPoint(1));
       const hip = c.getPoint(0), sh = c.getPoint(1);
       const tng = c.getTangent(1);
-      head.position.set(sh.x + 0.18 + tng.x * 0.05, sh.y + 0.26, 0);
+      head.position.set(sh.x + 0.2 + tng.x * 0.05, sh.y + 0.24, 0);
       head.rotation.z = -0.15 + cat.b * 0.3;
       const w = Math.sin(time * 3) * 0.15;
-      const tail = new THREE.CatmullRomCurve3([v(hip.x - 0.1, hip.y + 0.05), v(hip.x - 0.4, hip.y + 0.25, w * 0.5), v(hip.x - 0.55, hip.y + 0.6, w), v(hip.x - 0.45, hip.y + 0.85, w * 1.5)]);
-      tailMesh.geometry.dispose();
-      tailMesh.geometry = new THREE.TubeGeometry(tail, 16, 0.055, 8, false);
+      const tail = new THREE.CatmullRomCurve3([v(hip.x - 0.05, hip.y + 0.05), v(hip.x - 0.4, hip.y + 0.12, w * 0.4), v(hip.x - 0.75, hip.y + 0.3, w), v(hip.x - 0.95, hip.y + 0.55, w * 1.5)]);
+      tailTip.position.copy(tail.getPoint(1));
+      setGeo(tailMesh, new THREE.TubeGeometry(tail, 20, 0.085, 10, false));
       for (const g of legs) {
         const top = g.front ? sh : hip;
         const fx = g.front ? cat.fx : cat.bx;
