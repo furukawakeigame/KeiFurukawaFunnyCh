@@ -93,13 +93,13 @@
 
     // ---------- 言語 ----------
     const DICT = {
-      ja: { title: 'コーラ振り子', back: '← トップへ戻る', unit: n => `${n.toLocaleString()}m`, best: n => `ベスト ${n.toLocaleString()}m`, newBest: '自己ベスト更新', retry: 'もう一度', post: 'Xに投稿',
+      ja: { title: 'コーラ振り子', back: '← トップへ戻る', unit: n => `${n.toLocaleString()}m`, best: n => `ベスト ${n.toLocaleString()}m`, newBest: '自己ベスト更新', retry: 'もう一度', post: 'Xに投稿', saved: '画像を保存しました',
             share: n => `コーラ振り子でコーラが${n.toLocaleString()}m飛んだ！ #コーラ振り子ゲーム` },
-      ko: { title: '콜라 진자', back: '← 처음으로', unit: n => `${n.toLocaleString()}m`, best: n => `최고 ${n.toLocaleString()}m`, newBest: '최고 기록 갱신', retry: '다시 하기', post: 'X에 게시',
+      ko: { title: '콜라 진자', back: '← 처음으로', unit: n => `${n.toLocaleString()}m`, best: n => `최고 ${n.toLocaleString()}m`, newBest: '최고 기록 갱신', retry: '다시 하기', post: 'X에 게시', saved: '이미지를 저장했습니다',
             share: n => `콜라 진자로 콜라가 ${n.toLocaleString()}m 날아갔다! #コーラ振り子ゲーム` },
-      en: { title: 'Cola Pendulum', back: '← Back to top', unit: n => `${n.toLocaleString()}m`, best: n => `Best ${n.toLocaleString()}m`, newBest: 'New best', retry: 'Try again', post: 'Post on X',
+      en: { title: 'Cola Pendulum', back: '← Back to top', unit: n => `${n.toLocaleString()}m`, best: n => `Best ${n.toLocaleString()}m`, newBest: 'New best', retry: 'Try again', post: 'Post on X', saved: 'Image saved',
             share: n => `My cola pendulum launched the cola ${n.toLocaleString()}m high! #コーラ振り子ゲーム` },
-      th: { title: 'ลูกตุ้มโคล่า', back: '← กลับหน้าแรก', unit: n => `${n.toLocaleString()}m`, best: n => `ดีที่สุด ${n.toLocaleString()}m`, newBest: 'สถิติใหม่', retry: 'เล่นอีกครั้ง', post: 'โพสต์ลง X',
+      th: { title: 'ลูกตุ้มโคล่า', back: '← กลับหน้าแรก', unit: n => `${n.toLocaleString()}m`, best: n => `ดีที่สุด ${n.toLocaleString()}m`, newBest: 'สถิติใหม่', retry: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', saved: 'บันทึกรูปแล้ว',
             share: n => `ลูกตุ้มโคล่าส่งโคล่าพุ่งขึ้นไป ${n.toLocaleString()}m! #コーラ振り子ゲーム` },
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (DICT[c]) return c; } return 'en'; };
@@ -426,7 +426,7 @@
       if (u >= 1) finish();
     }
     function finish() {
-      phase = 'fall'; speed = 0; body.vy = 0; score = Math.max(0, Math.round(apexAlt));
+      phase = 'fall'; speed = 0; body.vy = 0; score = Math.max(0, Math.round(apexAlt)); wantSnap = true; snap = null; shareKey = '';
       const isNew = score > best; if (isNew) { best = score; store.set('bestM', best); }
       lastNew = isNew;
       const g = gen; setTimeout(() => { if (g !== gen) return; phase = 'done'; resultShown = true; fillResult(); $('result').style.display = 'flex'; }, 1300);
@@ -498,11 +498,47 @@
       $('rBest').classList.toggle('new', lastNew && score > 0);
       const a = $('post');
       a.textContent = t('post');
-      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(score))}&url=${encodeURIComponent(SHARE_URL)}`;
+      a.href = shareIntent(); prepareShare();
       if (matchMedia('(pointer: coarse)').matches) { a.removeAttribute('target'); a.removeAttribute('rel'); }
       else { a.target = '_blank'; a.rel = 'noopener'; }
     }
     $('retry').addEventListener('click', reset);
+
+    // ---------- 投稿用の結果画像：てっぺんの景色に高さを大きく重ねる ----------
+    let snap = null, wantSnap = false, shareFile = null, shareKey = '';
+    const SHARE_NAME = 'cola-pendulum.png';
+    function resultImage() {
+      const S = 1080, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d');
+      g.fillStyle = '#' + skyAt(Math.max(0, apexAlt)).getHexString(); g.fillRect(0, 0, S, S);
+      if (snap) { const k = Math.max(S / snap.width, S / snap.height); g.drawImage(snap, (S - snap.width * k) / 2, (S - snap.height * k) / 2, snap.width * k, snap.height * k); }
+      const gr = g.createLinearGradient(0, S * 0.45, 0, S); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.6)'); g.fillStyle = gr; g.fillRect(0, 0, S, S);
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 18;
+      const txt = t('unit')(score); let fs = 170; g.font = `900 ${fs}px system-ui, sans-serif`;
+      while (g.measureText(txt).width > S * 0.9 && fs > 60) { fs -= 6; g.font = `900 ${fs}px system-ui, sans-serif`; }
+      g.fillText(txt, S / 2, S * 0.84);
+      g.font = '800 54px system-ui, sans-serif'; g.fillText(t('title'), S / 2, S * 0.93);
+      g.font = '600 30px system-ui, sans-serif'; g.globalAlpha = 0.85; g.fillText('keifurukawafunnych.com', S / 2, S * 0.975);
+      return c;
+    }
+    function prepareShare() {
+      const key = lang + ':' + score; if (key === shareKey || !snap) return;
+      shareKey = key; shareFile = null;
+      resultImage().toBlob(b => { if (b && shareKey === key) shareFile = new File([b], SHARE_NAME, { type: 'image/png' }); }, 'image/png');
+    }
+    const shareIntent = () => `https://x.com/intent/post?text=${encodeURIComponent(t('share')(score))}&url=${encodeURIComponent(SHARE_URL)}`;
+    // スマホは共有シートで画像ごと渡す。PCは画像を保存してから投稿画面を開く（Webの投稿画面には画像を添付できないため）
+    $('post').addEventListener('click', e => {
+      const coarse = matchMedia('(pointer: coarse)').matches;
+      if (coarse && typeof navigator.share === 'function') {
+        e.preventDefault();
+        const data = shareFile && navigator.canShare?.({ files: [shareFile] }) ? { files: [shareFile], text: `${t('share')(score)}\n${SHARE_URL}` } : { text: t('share')(score), url: SHARE_URL };
+        navigator.share(data).catch(() => {});
+        return;
+      }
+      if (coarse) return;
+      const a = document.createElement('a'); a.href = resultImage().toDataURL('image/png'); a.download = SHARE_NAME; a.click();
+      $('rBest').textContent = t('saved'); $('rBest').classList.remove('new');
+    });
 
     // ---------- 操作：ボトルをつまんで持ち上げ、離すとスタート ----------
     const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), hit3 = new THREE.Vector3();
@@ -594,6 +630,10 @@
       drawChain();
       placeHint();
       renderer.render(scene, camera);
+      if (wantSnap) { // てっぺんに着いた瞬間の画面を、投稿画像用に写しておく
+        wantSnap = false; snap = document.createElement('canvas'); snap.width = renderer.domElement.width; snap.height = renderer.domElement.height;
+        snap.getContext('2d').drawImage(renderer.domElement, 0, 0);
+      }
       requestAnimationFrame(frame);
     }
     applyLang(); reset();
