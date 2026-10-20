@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>三重振り子アート</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="三重振り子アート">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/triple-pendulum/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/triple-pendulum/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #121218; font-family: system-ui, sans-serif; color: #eee; }
+    body { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; display: flex; flex-direction: column; padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+    header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; z-index: 10; position: relative; }
+    #back { color: #eee; text-decoration: none; font-weight: 700; font-size: 14px; background: rgba(255,255,255,.12); padding: 6px 10px; border-radius: 999px; margin-right: auto; }
+    #sound { width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(255,255,255,.12); display: grid; place-items: center; cursor: pointer; padding: 0; color: #eee; }
+    #sound svg { width: 20px; height: 20px; }
+    #lang { height: 36px; border: 0; border-radius: 999px; background: rgba(255,255,255,.12); padding: 0 8px; font-size: 14px; color: #eee; }
+    #lang option { color: #000; }
+    #timer { height: 6px; margin: 0 auto 6px; width: min(260px, 60vw); border-radius: 99px; background: rgba(255,255,255,.12); overflow: hidden; }
+    #timer i { display: block; height: 100%; width: 100%; background: #fff; border-radius: 99px; transform-origin: left; }
+    #stage { flex: 1; min-height: 0; display: grid; place-items: center; padding: 0 12px; }
+    #view { display: block; border-radius: 6px; background: #0b0b10; box-shadow: 0 0 0 1px rgba(255,255,255,.08); cursor: grab; }
+    #tools { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 12px 0; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+    .sw { width: 32px; height: 32px; border-radius: 50%; border: 0; padding: 0; cursor: pointer; box-shadow: 0 0 0 2px rgba(255,255,255,.1); }
+    .sw.on, .wd.on { box-shadow: 0 0 0 3px #121218, 0 0 0 5px #fff; }
+    .wd { width: 40px; height: 32px; border-radius: 10px; border: 0; background: rgba(255,255,255,.08); display: grid; place-items: center; cursor: pointer; padding: 0; }
+    .wd i { display: block; border-radius: 50%; background: #fff; }
+    #gallery { position: fixed; inset: 0; z-index: 5; background: #1b1916; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 56px 12px calc(80px + env(safe-area-inset-bottom)); opacity: 0; transition: opacity .8s; }
+    #gallery.show { display: flex; }
+    #gallery.vis { opacity: 1; }
+    #gcv { display: block; border-radius: 6px; max-width: 100%; }
+    .btns { display: flex; gap: 10px; }
+    .btn { height: 48px; min-width: 56px; padding: 0 18px; border: 0; border-radius: 999px; background: #fff; color: #111; font-weight: 800; font-size: 15px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; text-decoration: none; }
+    .btn svg { width: 22px; height: 22px; }
+    .btn.x { background: #000; color: #fff; box-shadow: 0 0 0 1px #444; }
+    #err { position: fixed; left: 0; right: 0; top: 60px; text-align: center; color: #f88; display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="timer"><i></i></div>
+  <div id="stage"><canvas id="view"></canvas></div>
+  <div id="tools">
+    <div class="row" id="colors"></div>
+    <div class="row" id="widths"></div>
+  </div>
+  <div id="gallery">
+    <canvas id="gcv"></canvas>
+    <div class="btns">
+      <button class="btn" id="retry" aria-label="retry"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg></button>
+      <button class="btn" id="save" aria-label="save"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg></button>
+      <a class="btn x" id="post" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.8 3h3.1l-6.8 7.7L22 21h-6.2l-4.9-6.4L5.3 21H2.2l7.2-8.3L1.8 3h6.4l4.4 5.8L17.8 3zm-1.1 16.2h1.7L7.4 4.7H5.6l11.1 14.5z"/></svg><span id="postLabel"></span></a>
+    </div>
+  </div>
+  <script>
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('triple-pendulum:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('triple-pendulum:' + k, JSON.stringify(v)); } catch {} },
+    };
+
+    // ---- 4言語の辞書 ----
+    const DICT = {
+      ja: {
+        doc: '三重振り子アート', back: '← トップへ戻る', post: 'ポスト',
+        adj: ['眠れる', '踊る', '震える', '燃える', '静かな', '迷える', '孤独な', '果てしない', '目覚める', '沈黙の'],
+        noun: ['宇宙', '迷宮', '記憶', '嵐', '夜明け', '渦', '螺旋', '心臓', '銀河', '夢'],
+        title: (a, n) => a + n,
+        medium: '三重振り子、キャンバス', artist: 'あなた',
+        share: (t) => `三重振り子で『${t}』を描きました #三重振り子アートゲーム`,
+      },
+      ko: {
+        doc: '삼중 진자 아트', back: '← 처음으로', post: '포스트',
+        adj: ['잠든', '춤추는', '떨리는', '불타는', '고요한', '길 잃은', '고독한', '끝없는', '깨어나는', '침묵의'],
+        noun: ['우주', '미궁', '기억', '폭풍', '새벽', '소용돌이', '나선', '심장', '은하', '꿈'],
+        title: (a, n) => a + ' ' + n,
+        medium: '삼중 진자, 캔버스', artist: '당신',
+        share: (t) => `삼중 진자로 『${t}』을(를) 그렸어요 #三重振り子アートゲーム`,
+      },
+      en: {
+        doc: 'Triple Pendulum Art', back: '← Back to top', post: 'Post',
+        adj: ['Sleeping', 'Dancing', 'Trembling', 'Burning', 'Quiet', 'Wandering', 'Lonely', 'Endless', 'Awakening', 'Silent'],
+        noun: ['Universe', 'Labyrinth', 'Memory', 'Storm', 'Dawn', 'Vortex', 'Spiral', 'Heart', 'Galaxy', 'Dream'],
+        title: (a, n) => `The ${a} ${n}`,
+        medium: 'Triple pendulum on canvas', artist: 'You',
+        share: (t) => `I painted "${t}" with a triple pendulum #三重振り子アートゲーム`,
+      },
+      th: {
+        doc: 'ศิลปะลูกตุ้มสามชั้น', back: '← กลับหน้าแรก', post: 'โพสต์',
+        adj: ['ที่หลับใหล', 'ที่ร่ายรำ', 'ที่สั่นไหว', 'ที่ลุกไหม้', 'ที่เงียบสงบ', 'ที่หลงทาง', 'ที่โดดเดี่ยว', 'ที่ไม่สิ้นสุด', 'ที่ตื่นขึ้น', 'แห่งความเงียบ'],
+        noun: ['จักรวาล', 'เขาวงกต', 'ความทรงจำ', 'พายุ', 'รุ่งอรุณ', 'วังวน', 'เกลียว', 'หัวใจ', 'ดาราจักร', 'ความฝัน'],
+        title: (a, n) => n + a, // タイ語は修飾語が後ろ
+        medium: 'ลูกตุ้มสามชั้นบนผืนผ้าใบ', artist: 'คุณ',
+        share: (t) => `วาดภาพ "${t}" ด้วยลูกตุ้มสามชั้น #三重振り子アートゲーム`,
+      },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (DICT[c]) return c; } return 'en'; };
+    let lang = store.get('lang', null) || autoLang();
+    const t = (k) => DICT[lang][k];
+    const langSel = document.getElementById('lang');
+    langSel.value = lang;
+    langSel.addEventListener('change', () => { lang = langSel.value; store.set('lang', lang); applyLang(); });
+
+    // ---- 音 ----
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const drawSoundBtn = () => {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${soundOn ? '<path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a7.5 7.5 0 0 1 0 11"/>' : '<path d="M16 9l5 6M21 9l-5 6"/>'}</svg>`;
+    };
+    drawSoundBtn();
+    soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); if (!soundOn) hum(0, 0); });
+    let ac = null, osc = null, gain = null;
+    const ensureAudio = () => {
+      if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        osc = ac.createOscillator(); gain = ac.createGain();
+        osc.type = 'sine'; gain.gain.value = 0;
+        osc.connect(gain).connect(ac.destination); osc.start();
+      } catch { ac = null; }
+    };
+    const hum = (freq, vol) => {
+      if (!ac) return;
+      const now = ac.currentTime;
+      if (freq) osc.frequency.setTargetAtTime(freq, now, 0.05);
+      gain.gain.setTargetAtTime(soundOn ? vol : 0, now, 0.05);
+    };
+    const chime = () => {
+      if (!ac || !soundOn) return;
+      [523, 659, 784, 1047].forEach((f, i) => {
+        const o = ac.createOscillator(), g = ac.createGain(), s = ac.currentTime + i * 0.12;
+        o.type = 'triangle'; o.frequency.value = f;
+        g.gain.setValueAtTime(0, s); g.gain.linearRampToValueAtTime(0.15, s + 0.02); g.gain.exponentialRampToValueAtTime(0.001, s + 1.2);
+        o.connect(g).connect(ac.destination); o.start(s); o.stop(s + 1.3);
+      });
+    };
+
+    // ---- 色と太さ ----
+    const COLORS = ['#ffffff', '#ff4d6d', '#ffa62b', '#ffe14d', '#4dff9a', '#4dd8ff', '#6a7bff', '#ff6ad5', 'rainbow'];
+    const WIDTHS = [3, 8, 16, 30];
+    let color = 'rainbow', width = 8;
+    const colorsEl = document.getElementById('colors'), widthsEl = document.getElementById('widths');
+    COLORS.forEach((c) => {
+      const b = document.createElement('button');
+      b.className = 'sw'; b.setAttribute('aria-label', c);
+      b.style.background = c === 'rainbow' ? 'conic-gradient(#ff4d6d,#ffe14d,#4dff9a,#4dd8ff,#6a7bff,#ff6ad5,#ff4d6d)' : c;
+      b.addEventListener('pointerdown', (e) => { e.preventDefault(); color = c; markTools(); });
+      b.dataset.v = c; colorsEl.appendChild(b);
+    });
+    WIDTHS.forEach((w) => {
+      const b = document.createElement('button');
+      b.className = 'wd'; b.setAttribute('aria-label', w);
+      const s = Math.max(4, Math.min(24, w * 0.8));
+      b.innerHTML = `<i style="width:${s}px;height:${s}px"></i>`;
+      b.addEventListener('pointerdown', (e) => { e.preventDefault(); width = w; markTools(); });
+      b.dataset.v = w; widthsEl.appendChild(b);
+    });
+    const markTools = () => {
+      for (const b of colorsEl.children) b.classList.toggle('on', b.dataset.v === color);
+      for (const b of widthsEl.children) {
+        b.classList.toggle('on', +b.dataset.v === width);
+        b.firstChild.style.background = color === 'rainbow' ? 'conic-gradient(#ff4d6d,#ffe14d,#4dff9a,#4dd8ff,#6a7bff,#ff6ad5,#ff4d6d)' : color;
+      }
+    };
+    markTools();
+
+    // ---- 三重振り子の物理（減衰なし・エネルギー補正つき） ----
+    const N = 3, G = 9.81, LEN = 1, SIM_SPEED = 1.7, DRAW_TIME = 7;
+    const ART = 1000, PIX = 150; // キャンバス内部サイズと、振り子1本の長さ(px)
+    const PIVOT = { x: ART / 2, y: ART / 2 };
+    let th = [0, 0, 0], om = [0, 0, 0], E0 = 0;
+
+    const accel = (q, w) => {
+      // Σ_j μij cos(qi-qj) aj = -Σ_j μij sin(qi-qj) wj² - μii g sin(qi) / L  （質量1・長さ同じ）
+      const M = [], b = [];
+      for (let i = 0; i < N; i++) {
+        M.push([]); let s = 0;
+        for (let j = 0; j < N; j++) {
+          const mu = N - Math.max(i, j);
+          M[i].push(mu * Math.cos(q[i] - q[j]));
+          s -= mu * Math.sin(q[i] - q[j]) * w[j] * w[j];
+        }
+        b.push(s - (N - i) * G / LEN * Math.sin(q[i]));
+      }
+      for (let c = 0; c < N; c++) {
+        let p = c; for (let r = c + 1; r < N; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+        [M[c], M[p]] = [M[p], M[c]]; [b[c], b[p]] = [b[p], b[c]];
+        for (let r = c + 1; r < N; r++) { const f = M[r][c] / M[c][c]; for (let k = c; k < N; k++) M[r][k] -= f * M[c][k]; b[r] -= f * b[c]; }
+      }
+      const a = [0, 0, 0];
+      for (let r = N - 1; r >= 0; r--) { let s = b[r]; for (let k = r + 1; k < N; k++) s -= M[r][k] * a[k]; a[r] = s / M[r][r]; }
+      return a;
+    };
+    const rk4 = (dt) => {
+      const add = (x, d, h) => x.map((v, i) => v + d[i] * h);
+      const k1q = om, k1w = accel(th, om);
+      const q2 = add(th, k1q, dt / 2), w2 = add(om, k1w, dt / 2), k2w = accel(q2, w2);
+      const q3 = add(th, w2, dt / 2), w3 = add(om, k2w, dt / 2), k3w = accel(q3, w3);
+      const q4 = add(th, w3, dt), w4 = add(om, k3w, dt), k4w = accel(q4, w4);
+      th = th.map((v, i) => v + dt / 6 * (k1q[i] + 2 * w2[i] + 2 * w3[i] + w4[i]));
+      om = om.map((v, i) => v + dt / 6 * (k1w[i] + 2 * k2w[i] + 2 * k3w[i] + k4w[i]));
+    };
+    const potential = (q) => { let y = 0, V = 0; for (let i = 0; i < N; i++) { y += LEN * Math.cos(q[i]); V -= G * y; } return V; };
+    const kinetic = (q, w) => { let vx = 0, vy = 0, T = 0; for (let i = 0; i < N; i++) { vx += LEN * Math.cos(q[i]) * w[i]; vy -= LEN * Math.sin(q[i]) * w[i]; T += (vx * vx + vy * vy) / 2; } return T; };
+    const fixEnergy = () => {
+      // 数値誤差でエネルギーがずれないよう、速さを少しだけ補正する
+      const T = kinetic(th, om), want = E0 - potential(th);
+      if (T > 1e-9 && want > 0) { const s = Math.sqrt(want / T); om = om.map((v) => v * s); }
+    };
+    const joints = () => {
+      const p = [{ ...PIVOT }]; let x = PIVOT.x, y = PIVOT.y;
+      for (let i = 0; i < N; i++) { x += PIX * Math.sin(th[i]); y += PIX * Math.cos(th[i]); p.push({ x, y }); }
+      return p;
+    };
+
+    // ---- 描画 ----
+    const view = document.getElementById('view'), vctx = view.getContext('2d');
+    const art = document.createElement('canvas'); art.width = art.height = ART;
+    const actx = art.getContext('2d');
+    const BG = '#0b0b10';
+    const clearArt = () => { actx.fillStyle = BG; actx.fillRect(0, 0, ART, ART); };
+    clearArt();
+    const fit = () => {
+      const st = document.getElementById('stage').getBoundingClientRect();
+      const s = Math.floor(Math.max(120, Math.min(st.width - 24, st.height)));
+      const dpr = Math.min(2, devicePixelRatio || 1);
+      view.style.width = view.style.height = s + 'px';
+      view.width = view.height = Math.round(s * dpr);
+      if (state === 'gallery') renderGallery();
+    };
+
+    let state = 'ready', grab = -1, runT = 0, hue = 0, done = 0;
+    const timerBar = document.querySelector('#timer i');
+
+    const strokeStyle = () => color === 'rainbow' ? `hsl(${hue % 360},100%,62%)` : color;
+    const drawSegment = (pts) => {
+      if (pts.length < 2) return;
+      actx.lineCap = actx.lineJoin = 'round';
+      actx.strokeStyle = strokeStyle(); actx.lineWidth = width;
+      actx.beginPath(); actx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) actx.lineTo(pts[i].x, pts[i].y);
+      actx.stroke();
+    };
+
+    const render = (now) => {
+      const sc = view.width / ART;
+      vctx.setTransform(1, 0, 0, 1, 0, 0);
+      vctx.drawImage(art, 0, 0, view.width, view.height);
+      if (state === 'gallery' || state === 'done') return;
+      vctx.setTransform(sc, 0, 0, sc, 0, 0);
+      const p = joints();
+      vctx.strokeStyle = 'rgba(255,255,255,.55)'; vctx.lineWidth = 4; vctx.lineCap = 'round';
+      vctx.beginPath(); vctx.moveTo(p[0].x, p[0].y); for (let i = 1; i <= N; i++) vctx.lineTo(p[i].x, p[i].y); vctx.stroke();
+      vctx.fillStyle = '#888'; vctx.beginPath(); vctx.arc(p[0].x, p[0].y, 8, 0, 7); vctx.fill();
+      for (let i = 1; i <= N; i++) {
+        vctx.fillStyle = i === N ? strokeStyle() : '#fff';
+        vctx.beginPath(); vctx.arc(p[i].x, p[i].y, i === N ? 16 : 13, 0, 7); vctx.fill();
+      }
+      if (state === 'ready') {
+        // 先端の玉が「つかんで」と誘うように脈打つ
+        const k = (now / 1000) % 1.2 / 1.2;
+        vctx.strokeStyle = `rgba(255,255,255,${0.8 * (1 - k)})`; vctx.lineWidth = 4;
+        vctx.beginPath(); vctx.arc(p[N].x, p[N].y, 18 + 40 * k, 0, 7); vctx.stroke();
+      }
+    };
+
+    let last = performance.now();
+    const loop = (now) => {
+      const dtReal = Math.min(0.05, (now - last) / 1000); last = now;
+      if (state === 'run') {
+        runT += dtReal; hue += dtReal * 90;
+        const steps = 24, dt = dtReal * SIM_SPEED / steps, pts = [joints()[N]];
+        for (let s = 0; s < steps; s++) { rk4(dt); pts.push(joints()[N]); }
+        fixEnergy();
+        drawSegment(pts);
+        const v = Math.hypot(pts[steps].x - pts[0].x, pts[steps].y - pts[0].y) / Math.max(dtReal, 1e-3);
+        hum(160 + Math.min(900, v * 0.25), Math.min(0.08, 0.01 + v * 0.00003));
+        timerBar.style.transform = `scaleX(${Math.max(0, 1 - runT / DRAW_TIME)})`;
+        if (runT >= DRAW_TIME) finish();
+      }
+      if (state === 'done' && now - done > 900) showGallery();
+      render(now);
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+
+    // ---- つかんで離す ----
+    const toArt = (e) => { const r = view.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * ART, y: (e.clientY - r.top) / r.height * ART }; };
+    view.addEventListener('pointerdown', (e) => {
+      if (state !== 'ready') return;
+      e.preventDefault(); ensureAudio();
+      const m = toArt(e), p = joints();
+      let best = 1, bd = 1e9;
+      for (let i = 1; i <= N; i++) { const d = Math.hypot(p[i].x - m.x, p[i].y - m.y); if (d < bd) { bd = d; best = i; } }
+      grab = best; view.setPointerCapture(e.pointerId); view.style.cursor = 'grabbing';
+      moveGrab(m);
+    });
+    const moveGrab = (m) => {
+      const p = joints(), a = p[grab - 1];
+      th[grab - 1] = Math.atan2(m.x - a.x, m.y - a.y);
+    };
+    view.addEventListener('pointermove', (e) => { if (grab > 0) moveGrab(toArt(e)); });
+    const release = () => {
+      if (grab < 0) return;
+      grab = -1; view.style.cursor = 'grab';
+      om = [0, 0, 0]; E0 = potential(th);
+      state = 'run'; runT = 0;
+    };
+    view.addEventListener('pointerup', release);
+    view.addEventListener('pointercancel', release);
+
+    // ---- 美術館 ----
+    const gallery = document.getElementById('gallery'), gcv = document.getElementById('gcv'), gctx = gcv.getContext('2d');
+    const GW = 1080, GH = 1350;
+    gcv.width = GW; gcv.height = GH;
+    let pick = { a: 0, n: 0, no: 1 };
+    const workTitle = () => t('title')(t('adj')[pick.a], t('noun')[pick.n]);
+
+    const finish = () => {
+      state = 'done'; done = performance.now(); hum(0, 0);
+      pick = { a: Math.floor(Math.random() * 10), n: Math.floor(Math.random() * 10), no: 1 + Math.floor(Math.random() * 99) };
+    };
+    const showGallery = () => {
+      state = 'gallery';
+      renderGallery(); updatePost();
+      gallery.classList.add('show');
+      requestAnimationFrame(() => requestAnimationFrame(() => gallery.classList.add('vis')));
+      chime();
+    };
+    const wrapText = (ctx, text, maxW) => {
+      // 単語の区切りがない言語もあるので1文字ずつ詰める
+      const lines = []; let cur = '';
+      for (const ch of [...text]) { if (ctx.measureText(cur + ch).width > maxW && cur) { lines.push(cur); cur = ch.trim() ? ch : ''; } else cur += ch; }
+      if (cur) lines.push(cur); return lines;
+    };
+    const renderGallery = () => {
+      const g = gctx;
+      // 壁
+      const wall = g.createLinearGradient(0, 0, 0, 1080);
+      wall.addColorStop(0, '#d9d2c5'); wall.addColorStop(1, '#ece6da');
+      g.fillStyle = wall; g.fillRect(0, 0, GW, 1080);
+      // 床
+      const floor = g.createLinearGradient(0, 1080, 0, GH);
+      floor.addColorStop(0, '#7a5a3c'); floor.addColorStop(1, '#4e3826');
+      g.fillStyle = floor; g.fillRect(0, 1080, GW, GH - 1080);
+      g.fillStyle = '#f4efe6'; g.fillRect(0, 1068, GW, 14);
+      for (let x = -200; x < GW + 200; x += 120) { g.strokeStyle = 'rgba(0,0,0,.15)'; g.lineWidth = 2; g.beginPath(); g.moveTo(x, 1082); g.lineTo(x + (x - GW / 2) * 0.5, GH); g.stroke(); }
+      // スポットライト
+      const spot = g.createRadialGradient(GW / 2, 470, 60, GW / 2, 470, 640);
+      spot.addColorStop(0, 'rgba(255,248,225,.75)'); spot.addColorStop(1, 'rgba(255,248,225,0)');
+      g.fillStyle = spot; g.fillRect(0, 0, GW, 1080);
+      g.fillStyle = '#2a2a2a'; g.fillRect(GW / 2 - 50, 0, 100, 18);
+      g.beginPath(); g.moveTo(GW / 2 - 24, 18); g.lineTo(GW / 2 + 24, 18); g.lineTo(GW / 2 + 36, 62); g.lineTo(GW / 2 - 36, 62); g.closePath(); g.fill();
+      // 額縁
+      const AS = 600, ax = (GW - AS) / 2, ay = 170, MAT = 42, FR = 38;
+      g.save(); g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 40; g.shadowOffsetY = 22;
+      g.fillStyle = '#9a7432'; g.fillRect(ax - MAT - FR, ay - MAT - FR, AS + 2 * (MAT + FR), AS + 2 * (MAT + FR)); g.restore();
+      const gold = g.createLinearGradient(ax - MAT - FR, ay - MAT - FR, ax + AS + MAT + FR, ay + AS + MAT + FR);
+      gold.addColorStop(0, '#f3d68a'); gold.addColorStop(0.35, '#b8862f'); gold.addColorStop(0.6, '#f0cd73'); gold.addColorStop(1, '#8a6224');
+      g.fillStyle = gold; g.fillRect(ax - MAT - FR, ay - MAT - FR, AS + 2 * (MAT + FR), AS + 2 * (MAT + FR));
+      g.strokeStyle = 'rgba(90,60,20,.6)'; g.lineWidth = 3;
+      g.strokeRect(ax - MAT - FR + 10, ay - MAT - FR + 10, AS + 2 * (MAT + FR) - 20, AS + 2 * (MAT + FR) - 20);
+      g.fillStyle = '#f7f4ee'; g.fillRect(ax - MAT, ay - MAT, AS + 2 * MAT, AS + 2 * MAT);
+      g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(ax - 4, ay - 4, AS + 8, AS + 8);
+      g.drawImage(art, ax, ay, AS, AS);
+      // キャプションプレート
+      const title = workTitle();
+      const PW = 460, px = (GW - PW) / 2, py = 925;
+      g.font = `700 34px "Hiragino Mincho ProN","Yu Mincho","Noto Serif JP","Noto Serif",serif`;
+      const lines = wrapText(g, title, PW - 60);
+      const PH = 70 + lines.length * 44 + 40;
+      g.save(); g.shadowColor = 'rgba(0,0,0,.25)'; g.shadowBlur = 14; g.shadowOffsetY = 6;
+      g.fillStyle = '#fbfaf6'; g.fillRect(px, py, PW, PH); g.restore();
+      g.fillStyle = '#222'; g.textAlign = 'left'; g.textBaseline = 'top';
+      g.font = `500 22px system-ui,sans-serif`; g.fillStyle = '#777';
+      g.fillText(`No.${pick.no}`, px + 30, py + 24);
+      g.font = `700 34px "Hiragino Mincho ProN","Yu Mincho","Noto Serif JP","Noto Serif",serif`; g.fillStyle = '#1a1a1a';
+      lines.forEach((l, i) => g.fillText(l, px + 30, py + 58 + i * 44));
+      g.font = `500 20px system-ui,sans-serif`; g.fillStyle = '#555';
+      g.fillText(`${t('artist')}, ${new Date().getFullYear()}  /  ${t('medium')}`, px + 30, py + 66 + lines.length * 44);
+      // 柵（ロープ）
+      const post = (x) => { g.fillStyle = '#c9a548'; g.fillRect(x - 7, 1150, 14, 160); g.beginPath(); g.arc(x, 1148, 14, 0, 7); g.fill(); g.fillRect(x - 30, 1300, 60, 14); };
+      g.strokeStyle = '#8e1b26'; g.lineWidth = 12; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(130, 1165); g.quadraticCurveTo(GW / 2, 1260, GW - 130, 1165); g.stroke();
+      post(130); post(GW - 130);
+      // 画面に収まるよう縮める
+      const maxW = Math.min(window.innerWidth - 24, 640), maxH = window.innerHeight - 56 - 80 - 80;
+      const s = Math.min(maxW / GW, maxH / GH);
+      gcv.style.width = GW * s + 'px'; gcv.style.height = GH * s + 'px';
+    };
+
+    // ---- 共有 ----
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/triple-pendulum/';
+    const postA = document.getElementById('post');
+    if (matchMedia('(pointer: coarse)').matches) { postA.removeAttribute('target'); postA.removeAttribute('rel'); }
+    const updatePost = () => {
+      postA.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(workTitle()))}&url=${encodeURIComponent(SHARE_URL)}`;
+    };
+    document.getElementById('save').addEventListener('click', () => {
+      gcv.toBlob((b) => {
+        if (!b) return;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(b); a.download = 'triple-pendulum.png';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      }, 'image/png');
+    });
+    document.getElementById('retry').addEventListener('click', () => {
+      gallery.classList.remove('vis');
+      setTimeout(() => gallery.classList.remove('show'), 300);
+      clearArt(); th = [0, 0, 0]; om = [0, 0, 0]; hue = 0;
+      timerBar.style.transform = 'scaleX(1)';
+      state = 'ready';
+    });
+
+    const applyLang = () => {
+      document.documentElement.lang = lang;
+      document.title = t('doc');
+      document.getElementById('back').textContent = t('back');
+      document.getElementById('postLabel').textContent = t('post');
+      if (state === 'gallery') { renderGallery(); updatePost(); }
+    };
+    applyLang();
+    addEventListener('resize', fit);
+    fit();
+  </script>
+</body>
+</html>
