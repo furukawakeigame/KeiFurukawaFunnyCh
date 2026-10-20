@@ -179,12 +179,12 @@
     const JOINTS = {
       head: [0, 0.158], neck: [0, 0.122], pelvis: [0, 0.07],
       kneeL: [-0.013, 0.036], footL: [-0.013, 0.006], kneeR: [0.013, 0.036], footR: [0.013, 0.006],
-      elbowL: [-0.036, 0.19], handL: [-0.012, 0.234], elbowR: [0.036, 0.19], handR: [0.012, 0.234],
+      shoulderL: [-0.022, 0.113], elbowL: [-0.046, 0.168], handL: [-0.013, 0.233], shoulderR: [0.022, 0.113], elbowR: [0.046, 0.168], handR: [0.013, 0.233],
     };
     const JN = Object.keys(JOINTS);
     const BONES = [ // [から, まで, 太さ, 部位]
       ['neck', 'pelvis', 0.026, 'shirt'], ['pelvis', 'kneeL', 0.011, 'pants'], ['kneeL', 'footL', 0.01, 'pants'], ['pelvis', 'kneeR', 0.011, 'pants'], ['kneeR', 'footR', 0.01, 'pants'],
-      ['neck', 'elbowL', 0.007, 'skin'], ['elbowL', 'handL', 0.007, 'skin'], ['neck', 'elbowR', 0.007, 'skin'], ['elbowR', 'handR', 0.007, 'skin'],
+      ['shoulderL', 'elbowL', 0.0075, 'skin'], ['elbowL', 'handL', 0.0068, 'skin'], ['shoulderR', 'elbowR', 0.0075, 'skin'], ['elbowR', 'handR', 0.0068, 'skin'],
     ];
     const SIDE = n => n.endsWith('L') ? 0.014 : n.endsWith('R') ? -0.014 : 0;
     const MATS = {
@@ -205,6 +205,9 @@
       const cheek = new THREE.Mesh(new THREE.SphereGeometry(0.0065, 12, 8), MATS.cheek); cheek.position.set(sx * 0.021, -0.012, HEAD_R * 0.84); cheek.scale.set(1.2, 0.7, 0.4); headMesh.add(cheek);
     }
     scene.add(headMesh);
+    // 肩は袖の丸み、手は小さなこぶし。ひじは腕と同じ太さの丸でつなぐ
+    const ROUND = [['shoulderL', 0.0115, 'shirt'], ['shoulderR', 0.0115, 'shirt'], ['elbowL', 0.0075, 'skin'], ['elbowR', 0.0075, 'skin'], ['handL', 0.0095, 'skin'], ['handR', 0.0095, 'skin']]
+      .map(([n, r, m]) => { const o = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), MATS[m]); o.castShadow = true; scene.add(o); return [n, o]; });
     const shoes = ['footL', 'footR'].map(() => { const o = new THREE.Mesh(new THREE.SphereGeometry(0.012, 14, 10), MATS.shoe); o.scale.set(1.3, 0.75, 1); o.castShadow = true; scene.add(o); return o; });
     const jointPos = {}; // いま描く関節の位置（世界座標、平面上）
     const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
@@ -217,6 +220,7 @@
         o.scale.set(r, Math.max(0.0001, len / 2), r);
         o.quaternion.setFromUnitVectors(UP, tmpB.sub(tmpA).normalize());
       });
+      for (const [n, o] of ROUND) o.position.set(jointPos[n][0], jointPos[n][1], SIDE(n));
       const [hx, hy] = jointPos.head, [nx, ny] = jointPos.neck;
       headMesh.position.set(hx, hy, 0); headMesh.rotation.z = Math.atan2(-(hx - nx), hy - ny);
       ['footL', 'footR'].forEach((n, i) => { const [kx, ky] = jointPos[n === 'footL' ? 'kneeL' : 'kneeR'], [fx, fy] = jointPos[n]; shoes[i].position.set(fx + 0.006 * Math.cos(body.a), fy, SIDE(n)); shoes[i].rotation.z = Math.atan2(-(fx - kx), fy - ky); });
@@ -353,7 +357,7 @@
     }
     // ---------- ラグドール：倒れたら関節ごとにぐにゃっとなる ----------
     let rag = null;
-    const RAG_STICKS = [['head', 'neck'], ['neck', 'pelvis'], ['head', 'pelvis'], ['pelvis', 'kneeL'], ['kneeL', 'footL'], ['pelvis', 'kneeR'], ['kneeR', 'footR'], ['neck', 'elbowL'], ['elbowL', 'handL'], ['neck', 'elbowR'], ['elbowR', 'handR']];
+    const RAG_STICKS = [['head', 'neck'], ['neck', 'pelvis'], ['head', 'pelvis'], ['pelvis', 'kneeL'], ['kneeL', 'footL'], ['pelvis', 'kneeR'], ['kneeR', 'footR'], ['neck', 'shoulderL'], ['neck', 'shoulderR'], ['shoulderL', 'shoulderR'], ['shoulderL', 'pelvis'], ['shoulderR', 'pelvis'], ['shoulderL', 'elbowL'], ['elbowL', 'handL'], ['shoulderR', 'elbowR'], ['elbowR', 'handR']];
     const RAG_R = { head: HEAD_R };
     function startRagdoll() {
       rigidJoints();
