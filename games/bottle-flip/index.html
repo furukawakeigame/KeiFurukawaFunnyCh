@@ -250,14 +250,8 @@
       for (const k of cs) if (k.d > dmax) { dmax = k.d; dx = k.nx; dy = k.ny; }
       body.x += dx * dmax * 0.6; body.y += dy * dmax * 0.6;
       // 着地で中の水が暴れて勢いが吸われる。底から着くと特によく止まる
-      const base = cs.some(c => c.base), u = upright();
-      if (base && Math.abs(u) < 0.5) {
-        // 底からほぼまっすぐ着いたら、水の重みでぐっと踏ん張る
-        body.w = body.w * Math.exp(-40 * dt) - u * 40 * dt; body.vx *= Math.exp(-25 * dt);
-      } else {
-        const k = base ? 12 : 4;
-        body.w *= Math.exp(-k * dt); body.vx *= Math.exp(-k * 0.4 * dt);
-      }
+      const k = cs.some(c => c.base) ? 12 : 4;
+      body.w *= Math.exp(-k * dt); body.vx *= Math.exp(-k * 0.4 * dt);
       return hit;
     }
     const upright = () => Math.atan2(Math.sin(body.a), Math.cos(body.a));
@@ -316,11 +310,12 @@
     }
     function judge(dt) {
       tFly += dt;
-      const slow = Math.abs(body.vx) + Math.abs(body.vy) < 0.04 && Math.abs(body.w) < 0.3;
+      const slow = Math.abs(body.vx) + Math.abs(body.vy) < 0.02 && Math.abs(body.w) < 0.1;
       still = slow ? still + dt : 0;
+      if (body.y < -0.5) return fail();
+      // しっかり止まってから判定する（止まりきらなくても10秒で判定）
       // だいたい1回転（250度くらい）以上してから立たないと成功にしない
-      if (tFly > 0.25 && still > 0.35) return Math.abs(upright()) < 0.1 && Math.abs(body.a - a0) > Math.PI * 1.4 ? succeed() : fail();
-      if (body.y < -0.5 || tFly > 8) return fail();
+      if ((tFly > 0.5 && still > 1.2) || tFly > 10) return Math.abs(upright()) < 0.1 && Math.abs(body.a - a0) > Math.PI * 1.4 ? succeed() : fail();
     }
     const BOTTLE_SVG = '<path d="M5 1h4v3l1 3h1.5q1.5 0 1.5 2v19q0 1-1 1H2q-1 0-1-1V9q0-2 1.5-2H4l1-3z" fill="#dff4ff" stroke="#2a9be0" stroke-width="1.2"/><rect x="1.6" y="18" width="10.8" height="10.4" fill="#58b8f0"/><rect x="5" y="0.5" width="4" height="3" fill="#2a9be0"/>';
     function succeed() {
