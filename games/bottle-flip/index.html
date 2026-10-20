@@ -191,15 +191,6 @@
     const rods = [0, 1, 2].map(() => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1, 8), rodMat); m.castShadow = true; scene.add(m); return m; });
     const joints = [0.02, 0.014, 0.014, 0.014].map(r => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshStandardMaterial({ color: r > 0.016 ? '#e0602a' : '#555b66', roughness: 0.4 })); m.castShadow = true; scene.add(m); return m; });
     const UP = new THREE.Vector3(0, 1, 0), tmpV = new THREE.Vector3();
-    // 支点のスタンド：左奥に立てた柱から、上を通る腕で支点まで渡す
-    const stand = (geo, x, y, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, rodMat); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); m.castShadow = true; return m; };
-    scene.add(
-      stand(new THREE.CylinderGeometry(0.012, 0.018, 1.6, 12), -0.8, 0.8, -0.3),
-      stand(new THREE.CylinderGeometry(0.01, 0.01, 0.8, 8), -0.4, 1.6, -0.3, 0, Math.PI / 2),
-      stand(new THREE.CylinderGeometry(0.006, 0.006, 0.2, 8), 0, 1.5, -0.3),
-      stand(new THREE.CylinderGeometry(0.006, 0.006, 0.3, 8), 0, 1.4, -0.15, Math.PI / 2),
-      stand(new THREE.CylinderGeometry(0.08, 0.09, 0.015, 24), -0.8, 0.0075, -0.3),
-    );
     function drawChain() {
       for (let k = 0; k < 4; k++) joints[k].position.set(P[k][0], P[k][1], 0);
       for (let k = 0; k < 3; k++) {
@@ -265,7 +256,7 @@
     const upright = () => Math.atan2(Math.sin(body.a), Math.cos(body.a));
 
     // ---------- 三重振り子（棒・棒・棒、その先にボトル） ----------
-    const PIV = [0, 1.4], LEN = [0.13, 0.13, 0.13, H], INV = [0, 2, 2, 1.5, 1]; // 支点は動かない。ボトルの底がいちばん重い
+    const PIV = [0, 1.4], LEN = [0.2, 0.2, 0.2, H], INV = [0, 2, 2, 1.5, 1]; // 支点は動かない。ボトルの底がいちばん重い
     const P = Array.from({ length: 5 }, () => [0, 0]), Q = P.map(v => v.slice());
     let holding = false, grab = null, aim = null, lastSub = 1 / 960;
     const comOf = () => { const t = HC / H; return [P[4][0] + (P[3][0] - P[4][0]) * t, P[4][1] + (P[3][1] - P[4][1]) * t]; };
@@ -298,6 +289,11 @@
           a[0] += dx * c * wa; a[1] += dy * c * wa; b[0] -= dx * c * wb; b[1] -= dy * c * wb;
         }
         for (let k = 1; k < n; k++) if (P[k][1] < 0) { P[k][1] = 0; Q[k][0] = P[k][0] * 0.5 + Q[k][0] * 0.5; }
+      }
+      // 節が伸び縮みしないよう、支点から順に長さをきっちり合わせ直す
+      for (let j = 0; j < n - 1; j++) {
+        const a = P[j], b = P[j + 1], dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1e-6;
+        b[0] = a[0] + dx / d * LEN[j]; b[1] = a[1] + dy / d * LEN[j];
       }
       if (dt > 0) lastSub = dt;
     }
@@ -407,7 +403,7 @@
       }
       // カメラはボトルについていく（机が見えるよう、低くなりすぎない）
       const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-      const dist = Math.max(1.1 / 2 / tv / camera.aspect, 1.5 / 2 / tv);
+      const dist = Math.max(1.5 / 2 / tv / camera.aspect, 1.9 / 2 / tv);
       // 落としたら、指数補間でなめらかに遅れてついていく
       // 落とすまでは支点のあたりに戻ってとどまり、ボトルは追わない
       {
