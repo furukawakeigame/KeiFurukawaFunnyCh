@@ -192,7 +192,7 @@
     const joints = [['#d8dbe4', 0.018], ['#e0602a', 0.016], ['#e9b13b', 0.016], ['#5bbf6a', 0.016]].map(([c, r]) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshStandardMaterial({ color: c, roughness: 0.4 })); m.castShadow = true; scene.add(m); return m; }); // 関節は軌跡と同じ色
     const UP = new THREE.Vector3(0, 1, 0), tmpV = new THREE.Vector3();
     // 軌跡：関節とボトルの通った道を、色ちがいの線で残す（三重振り子のカオスが見える）
-    const TRAIL_N = 240, TRAIL_COLORS = ['#e0602a', '#e9b13b', '#5bbf6a', '#2a9be0'];
+    const TRAIL_N = 60 * 120, TRAIL_COLORS = ['#e0602a', '#e9b13b', '#5bbf6a', '#2a9be0'];
     const trails = TRAIL_COLORS.map(c => {
       const geo = new THREE.BufferGeometry(), pos = new Float32Array(TRAIL_N * 3), col = new Float32Array(TRAIL_N * 4);
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 4));
@@ -200,17 +200,18 @@
       line.frustumCulled = false; scene.add(line);
       return { line, pts: [], rgb: new THREE.Color(c) };
     });
+    let recording = false; // 指を離して動き始めたときから記録する
     function clearTrails() { for (const t of trails) t.pts.length = 0; }
     function updateTrails() {
       const src = [P[1], P[2], P[3], comOf()];
       trails.forEach((t, i) => {
-        if (phase === 'swing') { t.pts.push([src[i][0], src[i][1]]); if (t.pts.length > TRAIL_N) t.pts.shift(); }
-        else if (t.pts.length) t.pts.shift(); // 落としたあとは少しずつ消える
+        if (phase === 'swing' && recording) { t.pts.push([src[i][0], src[i][1]]); if (t.pts.length > TRAIL_N) t.pts.shift(); }
+        else if (phase !== 'swing' && t.pts.length) t.pts.splice(0, 30); // 落としたあとは少しずつ消える
         const pos = t.line.geometry.attributes.position.array, col = t.line.geometry.attributes.color.array, n = t.pts.length;
-        for (let k = 0; k < TRAIL_N; k++) {
-          const p = t.pts[Math.min(k, n - 1)] || [0, -9];
+        for (let k = 0; k < n; k++) {
+          const p = t.pts[k];
           pos[k * 3] = p[0]; pos[k * 3 + 1] = p[1]; pos[k * 3 + 2] = 0.002;
-          col[k * 4] = t.rgb.r; col[k * 4 + 1] = t.rgb.g; col[k * 4 + 2] = t.rgb.b; col[k * 4 + 3] = k < n ? (k / n) * 0.8 : 0;
+          col[k * 4] = t.rgb.r; col[k * 4 + 1] = t.rgb.g; col[k * 4 + 2] = t.rgb.b; col[k * 4 + 3] = 0.25 + (k / n) * 0.65; // 古い所も消さずに薄く残す
         }
         t.line.geometry.attributes.position.needsUpdate = t.line.geometry.attributes.color.needsUpdate = true;
         t.line.geometry.setDrawRange(0, Math.max(0, n));
@@ -304,7 +305,7 @@
     function hang() {
       let y = PIV[1];
       for (let k = 0; k < 5; k++) { if (k) y -= LEN[k - 1]; P[k] = [PIV[0], y]; Q[k] = [PIV[0], y]; }
-      bodyFromChain(); dressBottle(); clearTrails(); energy0 = null;
+      bodyFromChain(); dressBottle(); clearTrails(); recording = false; energy0 = null;
     }
     // 10回に1回はコーラになる
     const LOOKS = { water: { liquid: '#58b8f0', label: '#2a9be0', opacity: 0.75 }, cola: { liquid: '#2a1206', label: '#d9261c', opacity: 0.95 } };
@@ -407,7 +408,7 @@
       else release();
     });
     addEventListener('pointermove', e => { if (!holding) return; const w = toWorld(e); if (w) aim = [w[0] + grab[0], Math.max(0.1, w[1] + grab[1])]; });
-    const letGo = () => { if (!holding) return; holding = false; energy0 = chainEnergy(STEP); };
+    const letGo = () => { if (!holding) return; holding = false; energy0 = chainEnergy(STEP); clearTrails(); recording = true; };
     addEventListener('pointerup', letGo);
     addEventListener('pointercancel', letGo);
 
