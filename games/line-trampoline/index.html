@@ -206,7 +206,7 @@ const endDrag = e => {
   line = { body, a, b, len, used: false, t: 0, bend: 0 };
   Composite.add(engine.world, body);
   beep(500, 0.06, 'sine', 0.1);
-  if (state === 'ready') { state = 'play'; Body.setStatic(ball, false); }
+  if (state === 'ready') { state = 'play'; Body.setStatic(ball, false); prevPos = { x: ball.position.x, y: ball.position.y }; acc = 0; }
 };
 cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', e => { if (drag && drag.id === e.pointerId) drag = null; });
 document.addEventListener('touchmove', e => { if (e.target === cv) e.preventDefault(); }, { passive: false });
@@ -237,21 +237,32 @@ function sky(h) {
 }
 const stars = Array.from({ length: 70 }, () => ({ x: Math.random() * VW, y: Math.random(), r: Math.random() * 1.5 + .4 }));
 
-let lastBg = '', acc = 0, last = performance.now(), tAnim = 0;
+// physics runs at a fixed 60 steps/s whatever the display rate (30/60/120/144Hz);
+// drawing interpolates the ball between the last two steps so high-Hz screens stay smooth
+const STEP = 1000 / 60;
+let lastBg = '', acc = 0, last = performance.now(), tAnim = 0, simT = 0, prevPos = { x: 0, y: 0 }, drawPos = { x: 0, y: 0 };
+function step() {
+  prevPos = { x: ball.position.x, y: ball.position.y };
+  simT += STEP;
+  for (const w of walls) Body.setPosition(w, { x: w.position.x, y: camY + H / 2 });
+  engine.gravity.y = 1 + Math.min(maxH / 500, 0.7);
+  for (const r of rocks) if (r.drift) { const d = r.drift; Body.setPosition(r, { x: Math.max(30, Math.min(VW - 30, d.x0 + Math.sin(simT / 1000 * d.sp + d.ph) * d.amp)), y: r.position.y }); }
+  Engine.update(engine, STEP);
+  if (line && line.used) { line.t += STEP; if (line.t > 350) { Composite.remove(engine.world, line.body); line = null; } }
+  maxH = Math.max(maxH, (startY - ball.position.y) / PX_PER_M);
+  trail.push({ x: ball.position.x, y: ball.position.y }); if (trail.length > 14) trail.shift();
+}
 function frame(now) {
   const dt = Math.min(50, now - last); last = now; tAnim += dt;
   if (state === 'play') {
     acc += dt;
-    for (const w of walls) Body.setPosition(w, { x: w.position.x, y: camY + H / 2 });
-    while (acc >= 1000 / 60) { Engine.update(engine, 1000 / 60); acc -= 1000 / 60; }
-    if (line && line.used) { line.t += dt; if (line.t > 350) { Composite.remove(engine.world, line.body); line = null; } }
-    camY = Math.min(camY, ball.position.y - H * 0.45);
-    engine.gravity.y = 1 + Math.min(maxH / 500, 0.7);
-    for (const r of rocks) if (r.drift) { const d = r.drift; Body.setPosition(r, { x: Math.max(30, Math.min(VW - 30, d.x0 + Math.sin(tAnim / 1000 * d.sp + d.ph) * d.amp)), y: r.position.y }); }
-    maxH = Math.max(maxH, (startY - ball.position.y) / PX_PER_M);
+    while (acc >= STEP && state === 'play') { step(); acc -= STEP; }
+    const k = acc / STEP;
+    drawPos = { x: prevPos.x + (ball.position.x - prevPos.x) * k, y: prevPos.y + (ball.position.y - prevPos.y) * k };
+    camY = Math.min(camY, drawPos.y - H * 0.45);
     if (ball.position.y > camY + H + BALL_R * 2) gameOver();
-    trail.push({ x: ball.position.x, y: ball.position.y }); if (trail.length > 14) trail.shift();
-  }
+  } else drawPos = { x: ball.position.x, y: ball.position.y };
+  for (let i = pops.length - 1; i >= 0; i--) { pops[i].t += dt; if (pops[i].t > 300) pops.splice(i, 1); }
   genRocks(); draw(); requestAnimationFrame(frame);
 }
 
@@ -276,10 +287,10 @@ function draw() {
   if (line) drawTramp(line.a, line.b, line.used ? Math.sin(line.t / 25) * 12 * (1 - line.t / 350) : 0, line.used ? 1 - line.t / 350 : 1, line.len);
   if (drag) { ctx.setLineDash([8, 8]); drawTramp(drag.a, drag.b, 0, 0.6, Math.hypot(drag.b.x - drag.a.x, drag.b.y - drag.a.y)); ctx.setLineDash([]); }
   // pops
-  for (let i = pops.length - 1; i >= 0; i--) { const p = pops[i]; p.t += 16; if (p.t > 300) { pops.splice(i, 1); continue; } ctx.strokeStyle = `rgba(255,255,255,${1 - p.t / 300})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(p.x, p.y, BALL_R + p.t / 8, 0, 7); ctx.stroke(); }
+  for (let i = pops.length - 1; i >= 0; i--) { const p = pops[i]; ctx.strokeStyle = `rgba(255,255,255,${1 - p.t / 300})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(p.x, p.y, BALL_R + p.t / 8, 0, 7); ctx.stroke(); }
   // trail & ball
   trail.forEach((t, i) => { ctx.fillStyle = `rgba(255,120,60,${i / trail.length * 0.3})`; ctx.beginPath(); ctx.arc(t.x, t.y, BALL_R * i / trail.length, 0, 7); ctx.fill(); });
-  const bp = ball.position;
+  const bp = drawPos;
   ctx.save(); ctx.translate(bp.x, bp.y); ctx.rotate(ball.angle);
   ctx.fillStyle = '#ff7a3c'; ctx.beginPath(); ctx.arc(0, 0, BALL_R, 0, 7); ctx.fill();
   ctx.strokeStyle = '#c94d1c'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(-BALL_R, 0); ctx.lineTo(BALL_R, 0); ctx.moveTo(0, -BALL_R); ctx.lineTo(0, BALL_R); ctx.stroke();
