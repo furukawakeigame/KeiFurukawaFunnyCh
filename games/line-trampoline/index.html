@@ -102,6 +102,14 @@ let soundOn = store.get('sound', true), ac = null;
 function updSnd() { $('wave').style.display = soundOn ? '' : 'none'; $('mute').style.display = soundOn ? 'none' : ''; }
 $('snd').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updSnd(); };
 updSnd();
+function unlockAudio() {
+  if (ac) return;
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0; // silent warm-up
+    o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.05);
+  } catch {}
+}
 function beep(freq, dur = 0.18, type = 'sine', vol = 0.25) {
   if (!soundOn) return;
   try {
@@ -178,7 +186,7 @@ function onHit(e) {
 }
 
 function toWorld(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / S, y: (e.clientY - r.top) / S + camY }; }
-cv.addEventListener('pointerdown', e => { if (state === 'over') return; e.preventDefault(); cv.setPointerCapture(e.pointerId); const p = toWorld(e); drag = { a: p, b: p, id: e.pointerId }; });
+cv.addEventListener('pointerdown', e => { unlockAudio(); if (state === 'over') return; e.preventDefault(); cv.setPointerCapture(e.pointerId); const p = toWorld(e); drag = { a: p, b: p, id: e.pointerId }; });
 cv.addEventListener('pointermove', e => { if (drag && drag.id === e.pointerId) drag.b = toWorld(e); });
 const endDrag = e => {
   if (!drag || drag.id !== e.pointerId) return;
@@ -220,7 +228,7 @@ function sky(h) {
 }
 const stars = Array.from({ length: 70 }, () => ({ x: Math.random() * VW, y: Math.random(), r: Math.random() * 1.5 + .4 }));
 
-let acc = 0, last = performance.now(), tAnim = 0;
+let lastBg = '', acc = 0, last = performance.now(), tAnim = 0;
 function frame(now) {
   const dt = Math.min(50, now - last); last = now; tAnim += dt;
   if (state === 'play') {
@@ -242,7 +250,7 @@ function draw() {
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, `rgb(${top})`); g.addColorStop(1, `rgb(${bot})`);
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  document.body.style.background = `rgb(${top})`;
+  const bg = `rgb(${top})`; if (bg !== lastBg) { lastBg = bg; document.body.style.background = bg; }
   if (phase > 1.5) { ctx.fillStyle = `rgba(255,255,255,${Math.min(1, phase - 1.5)})`; for (const s of stars) { const y = ((s.y * H - camY * 0.2) % H + H) % H; ctx.beginPath(); ctx.arc(s.x, y, s.r, 0, 7); ctx.fill(); } }
   // clouds (parallax)
   if (phase < 2) { ctx.fillStyle = `rgba(255,255,255,${0.6 * (1 - phase / 2)})`; for (let i = 0; i < 6; i++) { const y = (((i * 260 - camY * 0.5) % 1560) + 1560) % 1560 - 200; const x = (i * 137) % VW; ctx.beginPath(); ctx.ellipse(x, y, 50, 16, 0, 0, 7); ctx.ellipse(x + 30, y - 8, 34, 14, 0, 0, 7); ctx.fill(); } }
@@ -292,7 +300,9 @@ function drawTramp(a, b, sag, alpha, len) {
   ctx.restore();
 }
 
-reset(); requestAnimationFrame(frame);
+reset();
+Engine.update(Engine.create(), 1000 / 60); draw();
+requestAnimationFrame(frame);
   </script>
 </body>
 </html>
