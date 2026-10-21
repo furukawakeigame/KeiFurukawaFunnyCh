@@ -156,7 +156,8 @@
     }
 
     // ---- 描画準備 ----
-    const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), stage = document.getElementById('stage');
+    const cv = document.getElementById('cv'), stage = document.getElementById('stage');
+    let ctx = cv.getContext('2d');
     let W = 0, H = 0, DPR = 1, L = {};
     function resize() {
       const r = stage.getBoundingClientRect();
@@ -447,6 +448,100 @@
     }
     function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); }
 
+    // ---- 予報（山小屋の黒板） ----
+    let board = null, boardKey = '';
+    function drawBoard() {
+      const m = L.m, key = `${m.w}x${m.h}@${DPR}:${hazards.join()}:${[...hidden].join()}`;
+      if (key !== boardKey) { board = buildBoard(); boardKey = key; }
+      ctx.drawImage(board, m.x, m.y, m.w, m.h);
+    }
+    function buildBoard() {
+      const m = L.m, oc = document.createElement('canvas');
+      oc.width = Math.round(m.w * DPR); oc.height = Math.round(m.h * DPR);
+      const main = ctx, rnd = (() => { let s = 7; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
+      const bctx = oc.getContext('2d'); bctx.scale(DPR, DPR);
+      ctx = bctx;
+      const fw = Math.max(8, Math.min(m.w, m.h) * 0.04), ty = Math.max(10, m.h * 0.06);
+      const b = { x: fw + 4, y: fw + 4, w: m.w - fw * 2 - 8, h: m.h - fw * 2 - 8 - ty * 0.6 };
+      // 壁
+      ctx.fillStyle = '#c9a77c'; ctx.fillRect(0, 0, m.w, m.h);
+      ctx.strokeStyle = 'rgba(120,85,50,.25)'; ctx.lineWidth = 1;
+      for (let x = 0; x < m.w; x += 26) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, m.h); ctx.stroke(); }
+      // 木の枠
+      ctx.fillStyle = 'rgba(0,0,0,.25)'; rr(b.x - fw + 2, b.y - fw + 5, b.w + fw * 2, b.h + fw * 2, fw * 0.6); ctx.fill();
+      const wood = ctx.createLinearGradient(0, b.y - fw, 0, b.y + b.h + fw);
+      wood.addColorStop(0, '#9a6a3c'); wood.addColorStop(1, '#6e4524');
+      ctx.fillStyle = wood; rr(b.x - fw, b.y - fw, b.w + fw * 2, b.h + fw * 2, fw * 0.6); ctx.fill();
+      // 黒板
+      const bg = ctx.createLinearGradient(b.x, b.y, b.x + b.w, b.y + b.h);
+      bg.addColorStop(0, '#2f5544'); bg.addColorStop(1, '#22402f');
+      ctx.fillStyle = bg; ctx.fillRect(b.x, b.y, b.w, b.h);
+      // 消したあと
+      for (let i = 0; i < 7; i++) {
+        ctx.fillStyle = `rgba(255,255,255,${0.025 + rnd() * 0.03})`;
+        ctx.beginPath(); ctx.ellipse(b.x + rnd() * b.w, b.y + rnd() * b.h, b.w * (0.1 + rnd() * 0.15), b.h * (0.08 + rnd() * 0.1), rnd() * 3, 0, 7); ctx.fill();
+      }
+      // チョークの層
+      const lc = document.createElement('canvas'); lc.width = oc.width; lc.height = oc.height;
+      const l = lc.getContext('2d'); l.scale(DPR, DPR); ctx = l;
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      const chalk = (fn, col = 'rgba(245,245,235,.9)', w = 2.2) => {
+        ctx.strokeStyle = col; ctx.lineWidth = w;
+        for (let k = 0; k < 2; k++) { ctx.save(); ctx.translate((rnd() - 0.5) * 1.6, (rnd() - 0.5) * 1.6); ctx.beginPath(); fn(); ctx.stroke(); ctx.restore(); }
+      };
+      // 10マスの表（1→10の順に矢印でつなぐ）
+      const cols = b.w >= b.h ? 5 : 2, rows = 10 / cols;
+      const cw = b.w / cols, chh = b.h / rows, r = Math.max(9, Math.min(cw, chh) * 0.3);
+      const at = i => { const row = Math.floor(i / cols), col = row % 2 ? cols - 1 - (i % cols) : i % cols; return [b.x + cw * (col + 0.5), b.y + chh * (row + 0.5)]; };
+      // 表の罫線
+      for (let c2 = 1; c2 < cols; c2++) chalk(() => { ctx.moveTo(b.x + cw * c2, b.y + 6); ctx.lineTo(b.x + cw * c2 + (rnd() - 0.5) * 3, b.y + b.h - 6); }, 'rgba(245,245,235,.22)', 1.2);
+      for (let r2 = 1; r2 < rows; r2++) chalk(() => { ctx.moveTo(b.x + 6, b.y + chh * r2); ctx.lineTo(b.x + b.w - 6, b.y + chh * r2 + (rnd() - 0.5) * 3); }, 'rgba(245,245,235,.22)', 1.2);
+      // 矢印
+      for (let i = 0; i < 9; i++) {
+        const [x0, y0] = at(i), [x1, y1] = at(i + 1), dx = x1 - x0, dy = y1 - y0, d = Math.hypot(dx, dy), ux = dx / d, uy = dy / d;
+        const sx = x0 + ux * r * 1.25, sy = y0 + uy * r * 1.25, ex = x1 - ux * r * 1.25, ey = y1 - uy * r * 1.25;
+        if (Math.hypot(ex - sx, ey - sy) < r * 0.4) continue;
+        chalk(() => { ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.moveTo(ex - ux * r * 0.3 - uy * r * 0.22, ey - uy * r * 0.3 + ux * r * 0.22); ctx.lineTo(ex, ey); ctx.lineTo(ex - ux * r * 0.3 + uy * r * 0.22, ey - uy * r * 0.3 - ux * r * 0.22); }, 'rgba(245,245,235,.55)', Math.max(1.4, r * 0.08));
+      }
+      for (let i = 0; i < 10; i++) {
+        const [ix, iy] = at(i);
+        // 合目の数字（左上）
+        ctx.fillStyle = 'rgba(245,245,235,.75)'; ctx.font = `bold ${Math.max(10, r * 0.55)}px "Comic Sans MS", "Chalkboard SE", system-ui`;
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        const col = (ix - b.x) / cw - 0.5, row = (iy - b.y) / chh - 0.5;
+        ctx.fillText(String(i + 1), b.x + cw * col + 5, b.y + chh * row + 4);
+        if (i === 9) { // 山頂は旗の落書き
+          chalk(() => { ctx.moveTo(ix + r * 0.95, iy - r * 0.2); ctx.lineTo(ix + r * 0.95, iy - r * 1.2); ctx.lineTo(ix + r * 1.6, iy - r * 1.0); ctx.lineTo(ix + r * 0.95, iy - r * 0.8); }, 'rgba(255,170,130,.95)', Math.max(1.5, r * 0.1));
+        }
+        if (hidden.has(i)) {
+          // こすれて読めない
+          ctx.save(); ctx.globalAlpha = 0.55;
+          for (let j = 0; j < 14; j++) chalk(() => { const a = rnd() * 6.28, rr2 = r * (0.3 + rnd() * 0.7); ctx.moveTo(ix + Math.cos(a) * rr2, iy + Math.sin(a) * rr2); ctx.quadraticCurveTo(ix + (rnd() - 0.5) * r * 2, iy + (rnd() - 0.5) * r * 2, ix + (rnd() - 0.5) * r * 1.8, iy + (rnd() - 0.5) * r * 1.8); }, 'rgba(235,235,225,.6)', r * 0.25);
+          ctx.restore();
+        } else {
+          chalk(() => ctx.arc(ix, iy, r, 0, 7), 'rgba(245,245,235,.85)', Math.max(1.5, r * 0.08));
+          drawHazard(hazards[i], ix, iy, r * 1.5);
+        }
+      }
+      // 色をチョークっぽく白っぽくして、ざらつきを出す
+      ctx.save(); ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = 'rgba(255,255,245,.35)'; ctx.fillRect(0, 0, m.w, m.h); ctx.restore();
+      ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+      const n = Math.round(m.w * m.h / 25);
+      for (let i = 0; i < n; i++) { ctx.fillStyle = `rgba(0,0,0,${0.3 + rnd() * 0.6})`; ctx.fillRect(rnd() * m.w, rnd() * m.h, 1.2, 1.2); }
+      ctx.restore();
+      ctx = bctx;
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(lc, 0, 0); ctx.restore();
+      // チョーク置き場
+      const tyy = b.y + b.h + fw * 0.4;
+      ctx.fillStyle = '#5e3b1e'; rr(b.x - fw * 0.5, tyy, b.w + fw, ty * 0.55, 3); ctx.fill();
+      ctx.fillStyle = '#f4f1e6'; rr(b.x + b.w * 0.15, tyy - ty * 0.18, b.w * 0.07, ty * 0.24, 3); ctx.fill();
+      ctx.fillStyle = '#f5a3a3'; rr(b.x + b.w * 0.25, tyy - ty * 0.16, b.w * 0.05, ty * 0.22, 3); ctx.fill();
+      ctx.fillStyle = '#3b5f8a'; rr(b.x + b.w * 0.7, tyy - ty * 0.35, b.w * 0.13, ty * 0.4, 3); ctx.fill();
+      ctx.fillStyle = '#d9d2bf'; ctx.fillRect(b.x + b.w * 0.7, tyy - ty * 0.08, b.w * 0.13, ty * 0.13);
+      ctx = main;
+      return oc;
+    }
+
     // ---- トラブルの絵（中心 x,y、大きさ s） ----
     function drawHazard(k, x, y, s) {
       ctx.save(); ctx.translate(x, y); ctx.scale(s / 100, s / 100); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -528,7 +623,9 @@
       body(0, 0); ctx.fillStyle = g; ctx.fill();
       ctx.save(); ctx.clip();
       ctx.fillStyle = 'rgba(255,255,255,.22)';
-      for (const [x, y] of cells) if (!has.has([x, y - 1] + '')) { ctx.beginPath(); ctx.ellipse(ox + (x + 0.5) * s, oy + y * s + s * 0.08, s * 0.42, s * 0.16, 0, 0, 7); ctx.fill(); }
+      ctx.beginPath();
+      for (const [x, y] of cells) if (!has.has([x, y - 1] + '')) { ctx.moveTo(ox + (x + 0.92) * s, oy + y * s + s * 0.08); ctx.ellipse(ox + (x + 0.5) * s, oy + y * s + s * 0.08, s * 0.42, s * 0.16, 0, 0, 7); }
+      ctx.fill();
       ctx.restore();
       // 絵の位置：形の重心に近いマス
       const mx = cells.reduce((a, p) => a + p[0], 0) / cells.length, my = cells.reduce((a, p) => a + p[1], 0) / cells.length;
@@ -1111,7 +1208,7 @@
         drawGrid();
         drawParts();
       } else if (phase !== 'title') {
-        drawMountain(now);
+        drawBoard();
         drawGrid();
         if (phase === 'pack') { ctx.fillStyle = 'rgba(255,255,255,.5)'; rr(L.tray.x - 6, L.tray.y - 6, L.tray.w + 12, L.tray.h + 6, 16); ctx.fill(); }
         if (phase === 'pack') for (const it of items) if (it.gx === null && it !== drag?.it) drawItem(it, it.tx, it.ty, trayScale);
