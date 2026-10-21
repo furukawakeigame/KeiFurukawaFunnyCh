@@ -156,11 +156,13 @@ function reset() {
 function genRocks() {
   while (nextRockY > camY - H) {
     const h = (startY - nextRockY) / PX_PER_M;
-    const r = 16 + Math.random() * (12 + Math.min(h / 20, 20));
+    const r = 16 + Math.random() * (12 + Math.min(h / 8, 30));
     const x = r + 10 + Math.random() * (VW - 2 * r - 20);
     const rock = Bodies.polygon(x, nextRockY, 5 + (Math.random() * 3 | 0), r, { isStatic: true, restitution: 0.6, angle: Math.random() * 6, label: 'rock' });
+    // above 80m some rocks drift sideways, faster the higher you go
+    if (h > 80 && Math.random() < Math.min(0.7, (h - 80) / 300)) rock.drift = { x0: x, amp: 40 + Math.random() * 80, sp: (0.6 + Math.random()) * (1 + h / 400), ph: Math.random() * 6 };
     rocks.push(rock); Composite.add(engine.world, rock);
-    nextRockY -= Math.max(150, 320 - h * 0.6) + Math.random() * 160;
+    nextRockY -= Math.max(110, 320 - h * 0.9) + Math.random() * Math.max(60, 160 - h * 0.3);
   }
   for (let i = rocks.length - 1; i >= 0; i--) if (rocks[i].position.y > camY + H + 200) { Composite.remove(engine.world, rocks[i]); rocks.splice(i, 1); }
 }
@@ -187,10 +189,12 @@ function onHit(e) {
 
 function toWorld(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / S, y: (e.clientY - r.top) / S + camY }; }
 cv.addEventListener('pointerdown', e => { unlockAudio(); if (state === 'over') return; e.preventDefault(); cv.setPointerCapture(e.pointerId); const p = toWorld(e); drag = { a: p, b: p, id: e.pointerId }; });
-cv.addEventListener('pointermove', e => { if (drag && drag.id === e.pointerId) drag.b = toWorld(e); });
+cv.addEventListener('pointermove', e => { if (drag && drag.id === e.pointerId) drag.b = clampLen(drag.a, toWorld(e)); });
+const maxLen = () => Math.max(90, 300 - maxH * 0.5);
+function clampLen(a, b) { const l = Math.hypot(b.x - a.x, b.y - a.y), m = maxLen(); return l <= m ? b : { x: a.x + (b.x - a.x) * m / l, y: a.y + (b.y - a.y) * m / l }; }
 const endDrag = e => {
   if (!drag || drag.id !== e.pointerId) return;
-  drag.b = toWorld(e); const { a, b } = drag; drag = null;
+  drag.b = clampLen(drag.a, toWorld(e)); const { a, b } = drag; drag = null;
   const len = Math.hypot(b.x - a.x, b.y - a.y); if (len < 24) return;
   if (line) Composite.remove(engine.world, line.body);
   const body = Bodies.rectangle((a.x + b.x) / 2, (a.y + b.y) / 2, len, 8, { isStatic: true, angle: Math.atan2(b.y - a.y, b.x - a.x), label: 'line', restitution: 0.2 });
@@ -237,6 +241,8 @@ function frame(now) {
     while (acc >= 1000 / 60) { Engine.update(engine, 1000 / 60); acc -= 1000 / 60; }
     if (line && line.used) { line.t += dt; if (line.t > 350) { Composite.remove(engine.world, line.body); line = null; } }
     camY = Math.min(camY, ball.position.y - H * 0.45);
+    engine.gravity.y = 1 + Math.min(maxH / 500, 0.7);
+    for (const r of rocks) if (r.drift) { const d = r.drift; Body.setPosition(r, { x: Math.max(30, Math.min(VW - 30, d.x0 + Math.sin(tAnim / 1000 * d.sp + d.ph) * d.amp)), y: r.position.y }); }
     maxH = Math.max(maxH, (startY - ball.position.y) / PX_PER_M);
     if (ball.position.y > camY + H + BALL_R * 2) gameOver();
     trail.push({ x: ball.position.x, y: ball.position.y }); if (trail.length > 14) trail.shift();
