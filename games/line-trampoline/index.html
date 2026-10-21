@@ -129,7 +129,7 @@ resize();
 
 const { Engine, Bodies, Body, Composite, Events } = Matter;
 const BALL_R = 14, PX_PER_M = 40;
-let engine, ball, line, rocks, camY, startY, maxH, state, nextRockY, drag, trail, pops;
+let engine, walls, ball, line, rocks, camY, startY, maxH, state, nextRockY, drag, trail, pops;
 const best = () => store.get('best', 0);
 
 function reset() {
@@ -138,6 +138,8 @@ function reset() {
   ball = Bodies.circle(VW / 2, startY, BALL_R, { restitution: 0.5, friction: 0.02, frictionAir: 0.004, density: 0.002, label: 'ball' });
   Body.setStatic(ball, true);
   Composite.add(engine.world, ball);
+  walls = [-14, VW + 14].map(x => Bodies.rectangle(x, 0, 40, 6000, { isStatic: true, restitution: 0.6, friction: 0, label: 'wall' }));
+  Composite.add(engine.world, walls);
   rocks = []; nextRockY = startY - 260;
   Events.on(engine, 'collisionStart', onHit);
   lastResult = null; $('result').classList.remove('show');
@@ -171,7 +173,7 @@ function onHit(e) {
       line.used = true; line.t = 0; line.bend = 1;
       beep(220 + power * 30, 0.22, 'triangle');
       pops.push({ x: ball.position.x, y: ball.position.y, t: 0 });
-    } else if (other.label === 'rock') beep(110, 0.08, 'square', 0.08);
+    } else if (other.label === 'rock' || other.label === 'wall') beep(110, 0.08, 'square', 0.08);
   }
 }
 
@@ -223,12 +225,11 @@ function frame(now) {
   const dt = Math.min(50, now - last); last = now; tAnim += dt;
   if (state === 'play') {
     acc += dt;
+    for (const w of walls) Body.setPosition(w, { x: w.position.x, y: camY + H / 2 });
     while (acc >= 1000 / 60) { Engine.update(engine, 1000 / 60); acc -= 1000 / 60; }
     if (line && line.used) { line.t += dt; if (line.t > 350) { Composite.remove(engine.world, line.body); line = null; } }
     camY = Math.min(camY, ball.position.y - H * 0.45);
     maxH = Math.max(maxH, (startY - ball.position.y) / PX_PER_M);
-    if (ball.position.x < -BALL_R) Body.setPosition(ball, { x: VW + BALL_R, y: ball.position.y });
-    if (ball.position.x > VW + BALL_R) Body.setPosition(ball, { x: -BALL_R, y: ball.position.y });
     if (ball.position.y > camY + H + BALL_R * 2) gameOver();
     trail.push({ x: ball.position.x, y: ball.position.y }); if (trail.length > 14) trail.shift();
   }
@@ -275,8 +276,11 @@ function draw() {
   }
   ctx.restore();
 
+  // side walls
+  ctx.fillStyle = phase > 2 ? '#5a5a80' : '#7a6a5b'; ctx.fillRect(0, 0, 6, H); ctx.fillRect(W - 6, 0, 6, H);
+
   // height gauge (right edge)
-  const gb = Math.max(best(), 50), gx = W - 14, gh = H * 0.6, gy = H * 0.2;
+  const gb = Math.max(best(), 50), gx = W - 18, gh = H * 0.6, gy = H * 0.2;
   ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(gx, gy, 6, gh);
   const f = Math.min(1, maxH / gb);
   ctx.fillStyle = maxH > best() ? '#ffd23c' : '#ff7a3c'; ctx.fillRect(gx, gy + gh * (1 - f), 6, gh * f);
