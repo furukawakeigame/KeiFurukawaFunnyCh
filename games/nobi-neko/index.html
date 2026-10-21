@@ -117,13 +117,17 @@
     const t = k => I18N[lang][k];
 
     // ---- コース ----
-    const GOAL = 42;
-    const GAPS = [[7, 7.6], [15.2, 15.95], [26, 26.7], [36.5, 37.3]];
-    const CEIL = 1.12;
-    const SHELVES = [[10, 12.4], [19.5, 22.5], [30.5, 33]];
+    const GOAL = 30;
+    const GAPS = [[5.5, 5.95], [12.5, 13], [18.8, 19.3], [26, 26.55]];
+    const CEIL = 1.0;
+    const SHELVES = [[8, 9.8], [15, 17], [21.5, 23.5]];
 
     // ---- 猫の体 ----
-    const LEG = 0.35, SPINE = 1.7, LMAX = 1.6, LMIN = 0.6, R = 0.22;
+    // 背骨は長さ一定の弧。腰の曲がり（弧の半角 φ）だけを変えて、前足と後ろ足の間隔を変える
+    const LEG = 0.35, SPINE = 1.8, PHI0 = 0.35, PHI1 = 1.6, R = 0.22;
+    const phiOf = b => PHI0 + (PHI1 - PHI0) * b;
+    const spanOf = b => SPINE * Math.sin(phiOf(b)) / phiOf(b);
+    const LMAX = spanOf(0);
     const BEND_SPEED = 3.2;
     const cat = { bx: 0, fx: LMAX, b: 0, dir: 0, anchor: 'back', liftF: 0, liftB: 0, drop: 0, vy: 0 };
 
@@ -317,11 +321,12 @@
       catG.add(l, paw);
       legs.push({ l, paw, front: i < 2, z: i % 2 ? 0.12 : -0.12 });
     }
-    function archOf(L) { return Math.sqrt(Math.max(0, (SPINE / 2) ** 2 - (L / 2) ** 2)); }
     // 背骨の曲線（腰→肩）
     function spineCurve() {
-      const L = cat.fx - cat.bx, a = archOf(L);
-      return new THREE.QuadraticBezierCurve3(v(cat.bx, LEG), v((cat.bx + cat.fx) / 2, LEG + 2 * a), v(cat.fx, LEG));
+      const phi = phiOf(cat.b), r = SPINE / (2 * phi), mid = (cat.bx + cat.fx) / 2;
+      const pts = [];
+      for (let i = 0; i <= 12; i++) { const a = -phi + 2 * phi * i / 12; pts.push(v(mid + r * Math.sin(a), LEG + r * (Math.cos(a) - Math.cos(phi)))); }
+      return new THREE.CatmullRomCurve3(pts);
     }
     let time = 0;
     function updateCatMesh() {
@@ -405,7 +410,7 @@
       if (state === 'title') {
         // デモ: その場で丸まったり伸びたり
         cat.b = (1 - Math.cos(time * 2.4)) / 2;
-        const L = LMAX - (LMAX - LMIN) * cat.b;
+        const L = spanOf(cat.b);
         cat.bx = -L / 2 + 0.3; cat.fx = cat.bx + L;
         return;
       }
@@ -427,7 +432,7 @@
         beep(dir > 0 ? 330 : 440, 0.06, 'sine', 0.08);
         if (inGap(dir > 0 ? cat.fx : cat.bx)) { fall(); return; }
       }
-      const L = LMAX - (LMAX - LMIN) * cat.b;
+      const L = spanOf(cat.b);
       if (cat.anchor === 'front') cat.bx = cat.fx - L; else cat.fx = cat.bx + L;
       const moving = dir !== 0;
       cat.liftB += ((moving && cat.anchor === 'front' ? 0.12 : 0) - cat.liftB) * Math.min(1, dt * 20);
