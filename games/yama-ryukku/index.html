@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登山リュック</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="登山リュック">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/yama-ryukku/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/yama-ryukku/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #eef4f1; color: #2c3a33;
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+      display: flex; flex-direction: column; overflow: hidden;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom));
+      -webkit-user-select: none; user-select: none;
+    }
+    header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+    header a { color: #2c3a33; font-size: 14px; text-decoration: none; margin-right: auto; }
+    header button, header select {
+      background: #fff; border: 1px solid #b9cfc4; border-radius: 8px;
+      height: 34px; min-width: 40px; padding: 0 10px; font-size: 13px; color: #2c3a33; cursor: pointer;
+    }
+    header svg { width: 18px; height: 18px; display: block; }
+    #stage { position: relative; flex: 1; min-height: 0; }
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+    .btn {
+      font: inherit; font-size: 18px; font-weight: 700; border: 0; border-radius: 999px;
+      padding: 12px 32px; background: #e0743c; color: #fff; cursor: pointer;
+      box-shadow: 0 3px 0 #a94f22; text-decoration: none; display: inline-block;
+    }
+    .btn.sub { background: #fff; color: #2c3a33; box-shadow: 0 3px 0 #b9cfc4; border: 1px solid #b9cfc4; }
+    #go { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); display: none; }
+    .overlay {
+      position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+      background: rgba(238, 244, 241, .55); text-align: center; padding: 16px;
+    }
+    .overlay h1 { margin: 0; font-size: 40px; letter-spacing: .05em; color: #2c3a33; text-shadow: 0 2px 0 #fff; }
+    #resNum { font-size: 52px; font-weight: 800; color: #2c3a33; text-shadow: 0 2px 0 #fff; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    #msg { position: absolute; left: 0; right: 0; top: 40%; text-align: center; display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="../../" id="back">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <button class="btn" id="go"></button>
+    <div class="overlay" id="title">
+      <h1 id="titleText"></h1>
+      <button class="btn" id="start"></button>
+    </div>
+    <div class="overlay" id="result">
+      <div id="resNum"></div>
+      <div class="row">
+        <button class="btn" id="retry"></button>
+        <a class="btn sub" id="post"></a>
+      </div>
+    </div>
+  </div>
+  <script>
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/yama-ryukku/';
+    const TAG = '#登山リュックゲーム';
+    const I18N = {
+      ja: { back: '← トップへ戻る', title: '登山リュック', start: 'スタート', go: '出発', retry: 'もう一回', post: 'Xに投稿',
+        stage: n => n >= 10 ? '山頂' : `${n}合目`,
+        share: n => n >= 10 ? '登山リュックで山頂まで登った！' : `登山リュックで${n}合目まで登った！` },
+      ko: { back: '← 톱으로 돌아가기', title: '등산 배낭', start: '시작', go: '출발', retry: '다시 하기', post: 'X에 게시',
+        stage: n => n >= 10 ? '정상' : `${n}합목`,
+        share: n => n >= 10 ? '등산 배낭으로 정상까지 올랐다!' : `등산 배낭으로 ${n}합목까지 올랐다!` },
+      en: { back: '← Back to top', title: 'Mountain Pack', start: 'Start', go: 'Go', retry: 'Retry', post: 'Post on X',
+        stage: n => n >= 10 ? 'Summit' : `Stage ${n}/10`,
+        share: n => n >= 10 ? 'I reached the summit in Mountain Pack!' : `I reached stage ${n}/10 in Mountain Pack!` },
+      th: { back: '← กลับหน้าแรก', title: 'เป้ปีนเขา', start: 'เริ่ม', go: 'ออกเดินทาง', retry: 'เล่นอีกครั้ง', post: 'โพสต์ลง X',
+        stage: n => n >= 10 ? 'ยอดเขา' : `ขั้นที่ ${n}/10`,
+        share: n => n >= 10 ? 'ปีนถึงยอดเขาในเกมเป้ปีนเขา!' : `ปีนได้ถึงขั้นที่ ${n}/10 ในเกมเป้ปีนเขา!` },
+    };
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('yama-ryukku:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('yama-ryukku:' + k, JSON.stringify(v)); } catch {} },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (I18N[c]) return c; } return 'en'; };
+    let lang = store.get('lang', null) || autoLang();
+    const t = k => I18N[lang][k];
+
+    // ---- 道具とトラブル ----
+    const ITEMS = {
+      umbrella: { cells: [[0,0],[0,1],[0,2]], color: '#4d8fd6' },
+      helmet:   { cells: [[0,0],[1,0],[0,1],[1,1]], color: '#f0b429' },
+      bell:     { cells: [[0,0]], color: '#c9a227' },
+      rope:     { cells: [[0,0],[0,1],[0,2],[1,2]], color: '#b5793d' },
+      light:    { cells: [[0,0],[1,0]], color: '#5b6573' },
+      bottle:   { cells: [[0,0],[0,1]], color: '#3fa7a0' },
+      jacket:   { cells: [[0,0],[1,0],[0,1],[1,1],[0,2],[1,2]], color: '#d64d4d' },
+      onigiri:  { cells: [[0,0]], color: '#8a9a8f' },
+    };
+    const HAZ = { rain: 'umbrella', rock: 'helmet', bear: 'bell', cliff: 'rope', night: 'light', thirst: 'bottle', blizzard: 'jacket', hunger: 'onigiri' };
+    const LOW = ['rain', 'bear', 'thirst', 'hunger', 'rock', 'rain', 'bear'];
+    const HIGH = ['cliff', 'night', 'blizzard', 'rock', 'cliff', 'blizzard', 'thirst', 'hunger'];
+    const GW = 6, GH = 5;
+    const pick = a => a[Math.floor(Math.random() * a.length)];
+    const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+    function shapeOf(type, rot) {
+      let c = ITEMS[type].cells.map(p => p.slice());
+      for (let r = 0; r < rot; r++) {
+        const h = Math.max(...c.map(p => p[1])) + 1;
+        c = c.map(([x, y]) => [h - 1 - y, x]);
+      }
+      return c;
+    }
+    const dims = cells => [Math.max(...cells.map(p => p[0])) + 1, Math.max(...cells.map(p => p[1])) + 1];
+
+    // ---- 状態 ----
+    let phase = 'title', hazards = [], hidden = new Set(), items = [];
+    let climb = null, drag = null, flash = null, trayScale = 20;
+
+    function newGame() {
+      hazards = [];
+      for (let i = 0; i < 10; i++) hazards.push(pick(i < 4 ? LOW : i < 7 ? LOW.concat(HIGH) : HIGH));
+      hidden = new Set(shuffle([...Array(10).keys()]).slice(0, 3));
+      const types = hazards.map(h => HAZ[h]);
+      const all = Object.keys(ITEMS);
+      for (let i = 0; i < 4; i++) types.push(pick(all));
+      items = shuffle(types).map(type => ({ type, rot: 0, gx: null, gy: null, tx: 0, ty: 0 }));
+      climb = null; flash = null;
+    }
+
+    // ---- 描画準備 ----
+    const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), stage = document.getElementById('stage');
+    let W = 0, H = 0, DPR = 1, L = {};
+    function resize() {
+      const r = stage.getBoundingClientRect();
+      W = r.width; H = r.height; DPR = Math.min(window.devicePixelRatio || 1, 2);
+      cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+      layout();
+    }
+    function layout() {
+      const portrait = H > W * 0.9, pad = 10, btnH = 64;
+      if (portrait) {
+        const mh = Math.min(H * 0.4, W * 0.95);
+        L.m = { x: 0, y: 0, w: W, h: mh };
+        const rest = H - mh - btnH;
+        const cs = Math.min((W - pad * 2) / GW, rest * 0.55 / GH, 64);
+        L.cs = cs;
+        L.g = { x: (W - cs * GW) / 2, y: mh + 6, w: cs * GW, h: cs * GH };
+        L.tray = { x: pad, y: L.g.y + L.g.h + 12, w: W - pad * 2, h: H - btnH - (L.g.y + L.g.h + 12) };
+      } else {
+        const mw = Math.min(W * 0.42, H * 1.1);
+        L.m = { x: 0, y: 0, w: mw, h: H };
+        const rw = W - mw - pad * 2, rest = H - btnH;
+        const cs = Math.min(rw / GW, rest * 0.55 / GH, 64);
+        L.cs = cs;
+        L.g = { x: mw + pad + (rw - cs * GW) / 2, y: 8, w: cs * GW, h: cs * GH };
+        L.tray = { x: mw + pad, y: L.g.y + L.g.h + 12, w: rw, h: H - btnH - (L.g.y + L.g.h + 12) };
+      }
+      packTray();
+    }
+    function packTray() {
+      const a = L.tray, list = items.filter(it => it.gx === null && it !== drag?.it);
+      let s = L.cs * 0.8;
+      for (let k = 0; k < 40; k++) {
+        const gap = s * 0.35;
+        let x = a.x, y = a.y, rowH = 0;
+        for (const it of list) {
+          const [w, h] = dims(shapeOf(it.type, it.rot));
+          if (x + w * s > a.x + a.w && x > a.x) { x = a.x; y += rowH + gap; rowH = 0; }
+          it.tx = x; it.ty = y; x += w * s + gap; rowH = Math.max(rowH, h * s);
+        }
+        if (y + rowH <= a.y + a.h || s < 8) break;
+        s *= 0.92;
+      }
+      // 行ごとに中央寄せはせず、左詰めのまま
+      trayScale = s;
+    }
+
+    // ---- 山 ----
+    function pathPt(p) {
+      const m = L.m, base = m.y + m.h * 0.94, top = m.y + m.h * 0.16;
+      const cx = m.x + m.w / 2, half = Math.min(m.w * 0.46, m.h * 0.75);
+      const y = base - (p / 10) * (base - top);
+      const hw = half * (1 - p / 10.3);
+      return [cx + Math.sin(p * 1.35) * hw * 0.5 * (1 - p / 10), y];
+    }
+    function drawMountain(now) {
+      const m = L.m, base = m.y + m.h * 0.98, peakY = m.y + m.h * 0.1;
+      const cx = m.x + m.w / 2, half = Math.min(m.w * 0.48, m.h * 0.8);
+      ctx.save();
+      ctx.beginPath(); ctx.rect(m.x, m.y, m.w, m.h); ctx.clip();
+      const sky = ctx.createLinearGradient(0, m.y, 0, m.y + m.h);
+      sky.addColorStop(0, '#bfe0f2'); sky.addColorStop(1, '#eef4f1');
+      ctx.fillStyle = sky; ctx.fillRect(m.x, m.y, m.w, m.h);
+      // 奥の山
+      ctx.fillStyle = '#a9c7bb';
+      ctx.beginPath(); ctx.moveTo(cx - half * 1.3, base); ctx.lineTo(cx - half * 0.7, m.y + m.h * 0.45); ctx.lineTo(cx - half * 0.1, base); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(cx + half * 0.2, base); ctx.lineTo(cx + half * 0.85, m.y + m.h * 0.5); ctx.lineTo(cx + half * 1.4, base); ctx.fill();
+      // 本体
+      ctx.fillStyle = '#6f9a73';
+      ctx.beginPath(); ctx.moveTo(cx - half, base); ctx.lineTo(cx, peakY); ctx.lineTo(cx + half, base); ctx.fill();
+      ctx.fillStyle = '#8a7a66';
+      ctx.beginPath(); ctx.moveTo(cx - half * 0.55, peakY + (base - peakY) * 0.55); ctx.lineTo(cx, peakY); ctx.lineTo(cx + half * 0.55, peakY + (base - peakY) * 0.55);
+      ctx.lineTo(cx + half * 0.3, peakY + (base - peakY) * 0.5); ctx.lineTo(cx + half * 0.1, peakY + (base - peakY) * 0.58); ctx.lineTo(cx - half * 0.2, peakY + (base - peakY) * 0.5); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.moveTo(cx - half * 0.2, peakY + (base - peakY) * 0.2); ctx.lineTo(cx, peakY); ctx.lineTo(cx + half * 0.2, peakY + (base - peakY) * 0.2);
+      ctx.lineTo(cx + half * 0.08, peakY + (base - peakY) * 0.16); ctx.lineTo(cx, peakY + (base - peakY) * 0.23); ctx.lineTo(cx - half * 0.09, peakY + (base - peakY) * 0.16); ctx.fill();
+      // 道
+      ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 2; ctx.setLineDash([4, 5]);
+      ctx.beginPath();
+      for (let p = 0; p <= 10.001; p += 0.1) { const [x, y] = pathPt(p); p === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+      ctx.stroke(); ctx.setLineDash([]);
+      // 合目の印
+      for (let i = 1; i <= 10; i++) {
+        const [x, y] = pathPt(i);
+        const reached = climb && climb.p >= i - 0.001;
+        ctx.fillStyle = reached ? '#e0743c' : 'rgba(255,255,255,.9)';
+        ctx.beginPath(); ctx.arc(x, y, Math.max(2.5, m.h * 0.012), 0, Math.PI * 2); ctx.fill();
+      }
+      // 山頂の旗
+      const [fx, fy] = pathPt(10), fs = m.h * 0.07;
+      ctx.strokeStyle = '#2c3a33'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx, fy - fs); ctx.stroke();
+      ctx.fillStyle = '#e0743c'; ctx.beginPath(); ctx.moveTo(fx, fy - fs); ctx.lineTo(fx + fs * 0.7, fy - fs * 0.78); ctx.lineTo(fx, fy - fs * 0.56); ctx.fill();
+      // 予告
+      const r = Math.max(10, Math.min(m.h * 0.042, m.w * 0.05));
+      for (let i = 0; i < hazards.length; i++) {
+        const [x0, y0] = pathPt(i + 0.5);
+        const side = i % 2 ? 1 : -1;
+        const x = x0 + side * r * 1.9, y = y0;
+        const done = climb && (climb.idx > i || (climb.idx === i && climb.mode === 'walk2'));
+        const active = climb && climb.idx === i && (climb.mode === 'hazard' || climb.mode === 'fail');
+        ctx.globalAlpha = done ? 0.3 : 1;
+        ctx.fillStyle = active ? '#ffe7d6' : '#fff';
+        ctx.beginPath(); ctx.arc(x, y, r * (active ? 1.25 : 1), 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = active ? '#e0743c' : 'rgba(44,58,51,.25)'; ctx.lineWidth = active ? 2 : 1; ctx.stroke();
+        if (hidden.has(i) && !(climb && climb.idx >= i)) {
+          ctx.fillStyle = '#8a9a8f'; ctx.font = `bold ${r * 1.2}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText('?', x, y + r * 0.05);
+        } else drawHazard(hazards[i], x, y, r * 1.5 * (active ? 1.25 : 1));
+        ctx.globalAlpha = 1;
+      }
+      // 登山者
+      const cp = climb ? climb.p : 0;
+      const [hx, hy] = pathPt(cp);
+      let fall = 0;
+      if (climb && climb.mode === 'fail') fall = Math.min(1, climb.t / 0.8);
+      drawHiker(hx + fall * r * 2, hy + fall * fall * m.h * 0.15, r * 1.6, climb && climb.mode.startsWith('walk') ? now : 0, fall);
+      ctx.restore();
+    }
+    function drawHiker(x, y, s, now, fall) {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(fall * 1.8);
+      const step = Math.sin(now / 90) * 0.35;
+      ctx.strokeStyle = '#2c3a33'; ctx.lineWidth = Math.max(2, s * 0.12); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(0, -s * 0.45); ctx.lineTo(0, -s * 0.05);
+      ctx.moveTo(0, -s * 0.05); ctx.lineTo(Math.sin(step) * s * 0.3, s * 0.05 + 0);
+      ctx.moveTo(0, -s * 0.05); ctx.lineTo(-Math.sin(step) * s * 0.3, s * 0.05);
+      ctx.moveTo(0, -s * 0.35); ctx.lineTo(s * 0.3, -s * 0.15);
+      ctx.stroke();
+      ctx.fillStyle = '#e0743c'; rr(-s * 0.38, -s * 0.5, s * 0.3, s * 0.4, s * 0.08); ctx.fill();
+      ctx.fillStyle = '#f2d2b0'; ctx.beginPath(); ctx.arc(0, -s * 0.62, s * 0.15, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#d64d4d'; ctx.beginPath(); ctx.arc(0, -s * 0.66, s * 0.15, Math.PI, 0); ctx.fill();
+      ctx.restore();
+    }
+    function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); }
+
+    // ---- トラブルの絵（中心 x,y、大きさ s） ----
+    function drawHazard(k, x, y, s) {
+      ctx.save(); ctx.translate(x, y); ctx.scale(s / 100, s / 100); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      if (k === 'rain') {
+        ctx.fillStyle = '#7d8b99';
+        ctx.beginPath(); ctx.arc(-14, -8, 16, 0, 7); ctx.arc(8, -14, 20, 0, 7); ctx.arc(24, -4, 13, 0, 7); ctx.fill();
+        ctx.fillRect(-28, -6, 52, 14);
+        ctx.strokeStyle = '#4d8fd6'; ctx.lineWidth = 6;
+        ctx.beginPath(); for (const dx of [-18, 0, 18]) { ctx.moveTo(dx, 18); ctx.lineTo(dx - 5, 32); } ctx.stroke();
+      } else if (k === 'rock') {
+        ctx.fillStyle = '#7a6f66';
+        ctx.beginPath(); ctx.moveTo(-26, 6); ctx.lineTo(-14, -16); ctx.lineTo(10, -14); ctx.lineTo(18, 8); ctx.lineTo(0, 22); ctx.lineTo(-20, 20); ctx.fill();
+        ctx.fillStyle = '#9b9088';
+        ctx.beginPath(); ctx.moveTo(14, -30); ctx.lineTo(28, -24); ctx.lineTo(30, -10); ctx.lineTo(18, -8); ctx.fill();
+        ctx.strokeStyle = '#7a6f66'; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(-30, -26); ctx.lineTo(-22, -34); ctx.moveTo(-8, -30); ctx.lineTo(0, -38); ctx.stroke();
+      } else if (k === 'bear') {
+        ctx.fillStyle = '#6b4a2f';
+        ctx.beginPath(); ctx.arc(-20, -20, 10, 0, 7); ctx.arc(20, -20, 10, 0, 7); ctx.fill();
+        ctx.beginPath(); ctx.arc(0, 2, 28, 0, 7); ctx.fill();
+        ctx.fillStyle = '#c99a6b'; ctx.beginPath(); ctx.ellipse(0, 12, 12, 9, 0, 0, 7); ctx.fill();
+        ctx.fillStyle = '#1d1d1d';
+        ctx.beginPath(); ctx.arc(-10, -4, 3.5, 0, 7); ctx.arc(10, -4, 3.5, 0, 7); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(0, 8, 5, 3.5, 0, 0, 7); ctx.fill();
+      } else if (k === 'cliff') {
+        ctx.fillStyle = '#8a7a66';
+        ctx.beginPath(); ctx.moveTo(-34, -6); ctx.lineTo(-8, -6); ctx.lineTo(-12, 34); ctx.lineTo(-34, 34); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(10, -22); ctx.lineTo(34, -22); ctx.lineTo(34, 34); ctx.lineTo(14, 34); ctx.fill();
+        ctx.strokeStyle = '#2c3a33'; ctx.lineWidth = 4; ctx.setLineDash([5, 6]);
+        ctx.beginPath(); ctx.moveTo(-14, -14); ctx.quadraticCurveTo(0, -36, 14, -30); ctx.stroke(); ctx.setLineDash([]);
+      } else if (k === 'night') {
+        ctx.fillStyle = '#2e3a5c'; ctx.beginPath(); ctx.arc(0, 0, 34, 0, 7); ctx.fill();
+        ctx.fillStyle = '#f5d76e'; ctx.beginPath(); ctx.arc(-2, 0, 20, 0, 7); ctx.fill();
+        ctx.fillStyle = '#2e3a5c'; ctx.beginPath(); ctx.arc(8, -6, 17, 0, 7); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(18, 16, 2.5, 0, 7); ctx.arc(-18, -20, 2, 0, 7); ctx.fill();
+      } else if (k === 'thirst') {
+        ctx.strokeStyle = '#f0a020'; ctx.lineWidth = 5;
+        ctx.beginPath(); for (let a = 0; a < 8; a++) { const c = Math.cos(a * Math.PI / 4), d = Math.sin(a * Math.PI / 4); ctx.moveTo(c * 24, d * 24); ctx.lineTo(c * 34, d * 34); } ctx.stroke();
+        ctx.fillStyle = '#f5c242'; ctx.beginPath(); ctx.arc(0, 0, 18, 0, 7); ctx.fill();
+      } else if (k === 'blizzard') {
+        ctx.strokeStyle = '#6fb3e0'; ctx.lineWidth = 5;
+        ctx.beginPath();
+        for (let a = 0; a < 6; a++) {
+          const c = Math.cos(a * Math.PI / 3), d = Math.sin(a * Math.PI / 3);
+          ctx.moveTo(0, 0); ctx.lineTo(c * 32, d * 32);
+          const bx = c * 20, by = d * 20;
+          ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(a * Math.PI / 3 + 0.8) * 9, by + Math.sin(a * Math.PI / 3 + 0.8) * 9);
+          ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(a * Math.PI / 3 - 0.8) * 9, by + Math.sin(a * Math.PI / 3 - 0.8) * 9);
+        }
+        ctx.stroke();
+      } else if (k === 'hunger') {
+        ctx.fillStyle = '#fff'; ctx.strokeStyle = '#9aa7a0'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.ellipse(0, 8, 30, 14, 0, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(0, 6, 18, 7, 0, 0, 7); ctx.stroke();
+        ctx.strokeStyle = '#7a8580'; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(-6, -32); ctx.lineTo(-6, -8); ctx.moveTo(6, -32); ctx.lineTo(6, -8); ctx.moveTo(0, -32); ctx.lineTo(0, -8); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // ---- 道具の絵 ----
+    function drawItem(it, ox, oy, s, alpha = 1, bad = false) {
+      const cells = shapeOf(it.type, it.rot), col = ITEMS[it.type].color;
+      ctx.save(); ctx.globalAlpha = alpha;
+      for (const [cx, cy] of cells) {
+        ctx.fillStyle = bad ? '#d64d4d' : col; rr(ox + cx * s + 1.5, oy + cy * s + 1.5, s - 3, s - 3, s * 0.18); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,.18)'; rr(ox + cx * s + 3, oy + cy * s + 3, s - 6, (s - 6) * 0.4, s * 0.14); ctx.fill();
+      }
+      // 絵の位置：形の重心に近いマス
+      const mx = cells.reduce((a, p) => a + p[0], 0) / cells.length, my = cells.reduce((a, p) => a + p[1], 0) / cells.length;
+      let best = cells[0], bd = 1e9;
+      for (const p of cells) { const d = (p[0] - mx + 0.01) ** 2 + (p[1] - my) ** 2; if (d < bd) { bd = d; best = p; } }
+      const gx = cells.length >= 4 && it.type !== 'rope' ? ox + (mx + 0.5) * s : ox + (best[0] + 0.5) * s;
+      const gy = cells.length >= 4 && it.type !== 'rope' ? oy + (my + 0.5) * s : oy + (best[1] + 0.5) * s;
+      drawGlyph(it.type, gx, gy, s * (cells.length >= 4 ? 1.1 : 0.85));
+      ctx.restore();
+    }
+    function drawGlyph(k, x, y, s) {
+      ctx.save(); ctx.translate(x, y); ctx.scale(s / 100, s / 100);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#fff'; ctx.fillStyle = '#fff'; ctx.lineWidth = 7;
+      if (k === 'umbrella') {
+        ctx.beginPath(); ctx.moveTo(-32, 0); ctx.quadraticCurveTo(0, -48, 32, 0); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 26); ctx.quadraticCurveTo(0, 34, -8, 30); ctx.stroke();
+      } else if (k === 'helmet') {
+        ctx.beginPath(); ctx.arc(0, 8, 26, Math.PI, 0); ctx.fill();
+        ctx.fillRect(-34, 6, 68, 8);
+      } else if (k === 'bell') {
+        ctx.beginPath(); ctx.moveTo(-22, 16); ctx.quadraticCurveTo(-18, -26, 0, -26); ctx.quadraticCurveTo(18, -26, 22, 16); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.arc(0, 22, 6, 0, 7); ctx.fill();
+      } else if (k === 'rope') {
+        ctx.beginPath(); ctx.ellipse(0, 0, 26, 18, 0, 0, 7); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(0, 0, 14, 9, 0, 0, 7); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(24, 6); ctx.lineTo(34, 24); ctx.stroke();
+      } else if (k === 'light') {
+        rr(-30, -10, 32, 20, 4); ctx.fill();
+        ctx.globalAlpha *= 0.7; ctx.beginPath(); ctx.moveTo(4, -6); ctx.lineTo(34, -20); ctx.lineTo(34, 20); ctx.lineTo(4, 6); ctx.fill();
+      } else if (k === 'bottle') {
+        rr(-14, -18, 28, 46, 8); ctx.fill();
+        ctx.fillRect(-8, -30, 16, 10);
+      } else if (k === 'jacket') {
+        ctx.beginPath(); ctx.moveTo(-12, -30); ctx.lineTo(-34, -18); ctx.lineTo(-30, 4); ctx.lineTo(-20, 0); ctx.lineTo(-20, 32); ctx.lineTo(20, 32); ctx.lineTo(20, 0); ctx.lineTo(30, 4); ctx.lineTo(34, -18); ctx.lineTo(12, -30); ctx.lineTo(0, -20); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = ITEMS.jacket.color; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(0, 32); ctx.stroke();
+      } else if (k === 'onigiri') {
+        ctx.beginPath(); ctx.moveTo(0, -28); ctx.quadraticCurveTo(6, -28, 30, 16); ctx.quadraticCurveTo(32, 24, 22, 24); ctx.lineTo(-22, 24); ctx.quadraticCurveTo(-32, 24, -30, 16); ctx.quadraticCurveTo(-6, -28, 0, -28); ctx.fill();
+        ctx.fillStyle = '#1f2a24'; ctx.fillRect(-11, 6, 22, 18);
+      }
+      ctx.restore();
+    }
+
+    // ---- グリッド ----
+    function occupancy(skip) {
+      const g = Array.from({ length: GH }, () => Array(GW).fill(null));
+      for (const it of items) if (it.gx !== null && it !== skip) for (const [x, y] of shapeOf(it.type, it.rot)) g[it.gy + y][it.gx + x] = it;
+      return g;
+    }
+    function fits(it, gx, gy, rot) {
+      const o = occupancy(it);
+      return shapeOf(it.type, rot).every(([x, y]) => gx + x >= 0 && gy + y >= 0 && gx + x < GW && gy + y < GH && !o[gy + y][gx + x]);
+    }
+    function drawGrid() {
+      const g = L.g, s = L.cs;
+      // リュック
+      ctx.fillStyle = '#7a5a3a'; rr(g.x - 12, g.y - 10, g.w + 24, g.h + 20, 18); ctx.fill();
+      ctx.fillStyle = '#5e432a';
+      rr(g.x + g.w * 0.25, g.y - 16, g.w * 0.5, 12, 6); ctx.fill();
+      ctx.fillStyle = '#efe4d2'; rr(g.x - 2, g.y - 2, g.w + 4, g.h + 4, 10); ctx.fill();
+      ctx.strokeStyle = 'rgba(122,90,58,.2)'; ctx.lineWidth = 1;
+      for (let x = 0; x <= GW; x++) { ctx.beginPath(); ctx.moveTo(g.x + x * s, g.y); ctx.lineTo(g.x + x * s, g.y + g.h); ctx.stroke(); }
+      for (let y = 0; y <= GH; y++) { ctx.beginPath(); ctx.moveTo(g.x, g.y + y * s); ctx.lineTo(g.x + g.w, g.y + y * s); ctx.stroke(); }
+      for (const it of items) if (it.gx !== null && it !== drag?.it) {
+        let bad = flash && flash.it === it && flash.bad;
+        drawItem(it, g.x + it.gx * s, g.y + it.gy * s, s, 1, bad);
+      }
+      if (flash && flash.ghost) { const f = flash.ghost; drawItem(f.it, g.x + f.it.gx * s, g.y + f.it.gy * s - f.k * s * 0.6, s, 1 - f.k); }
+    }
+
+    // ---- ドラッグ ----
+    function pos(e) { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+    function hitItem(px, py) {
+      const g = L.g, s = L.cs;
+      const gx = Math.floor((px - g.x) / s), gy = Math.floor((py - g.y) / s);
+      if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) { const it = occupancy()[gy][gx]; if (it) return { it, ox: g.x + it.gx * s, oy: g.y + it.gy * s, sc: s }; }
+      if (phase !== 'pack') return null;
+      for (const it of items) if (it.gx === null) {
+        for (const [x, y] of shapeOf(it.type, it.rot)) {
+          const s2 = trayScale, x0 = it.tx + x * s2, y0 = it.ty + y * s2;
+          if (px >= x0 - 6 && px <= x0 + s2 + 6 && py >= y0 - 6 && py <= y0 + s2 + 6) return { it, ox: it.tx, oy: it.ty, sc: s2 };
+        }
+      }
+      return null;
+    }
+    cv.addEventListener('contextmenu', e => e.preventDefault());
+    cv.addEventListener('pointerdown', e => {
+      ensureAudio();
+      const [px, py] = pos(e);
+      if (phase === 'climb') { useItem(px, py); return; }
+      if (phase !== 'pack') return;
+      const h = hitItem(px, py); if (!h) return;
+      if (e.button === 2) { rotateItem(h.it); return; }
+      cv.setPointerCapture(e.pointerId);
+      drag = { it: h.it, fx: (px - h.ox) / h.sc, fy: (py - h.oy) / h.sc, px, py, sx: px, sy: py, moved: false, wasGrid: h.it.gx !== null };
+    });
+    cv.addEventListener('pointermove', e => {
+      if (!drag) return;
+      const [px, py] = pos(e); drag.px = px; drag.py = py;
+      if (Math.hypot(px - drag.sx, py - drag.sy) > 6 && !drag.moved) { drag.moved = true; drag.it.gx = null; packTray(); }
+    });
+    function endDrag(e) {
+      if (!drag) return;
+      const d = drag; drag = null;
+      if (!d.moved) { rotateItem(d.it); return; }
+      const g = L.g, s = L.cs;
+      const gx = Math.round((d.px - d.fx * s - g.x) / s), gy = Math.round((d.py - d.fy * s - g.y) / s);
+      if (fits(d.it, gx, gy, d.it.rot)) { d.it.gx = gx; d.it.gy = gy; sfx('put'); }
+      packTray();
+    }
+    cv.addEventListener('pointerup', endDrag);
+    cv.addEventListener('pointercancel', endDrag);
+    function rotateItem(it) {
+      const nr = (it.rot + 1) % 4;
+      if (it.gx === null) { it.rot = nr; }
+      else if (fits(it, it.gx, it.gy, nr)) it.rot = nr;
+      else { // その場で回せないときは位置をずらして探す
+        let ok = false;
+        for (const [dx, dy] of [[0, 0], [-1, 0], [0, -1], [-1, -1], [1, 0], [0, 1], [-2, 0], [0, -2]]) if (fits(it, it.gx + dx, it.gy + dy, nr)) { it.gx += dx; it.gy += dy; it.rot = nr; ok = true; break; }
+        if (!ok) { it.rot = nr; it.gx = null; }
+      }
+      sfx('rot'); packTray();
+    }
+    addEventListener('keydown', e => {
+      if ((e.key === 'r' || e.key === 'R') && drag) {
+        const [w, h] = dims(shapeOf(drag.it.type, drag.it.rot));
+        const fx = drag.fx; drag.fx = h - drag.fy; drag.fy = fx;
+        drag.it.rot = (drag.it.rot + 1) % 4; drag.moved = true; drag.it.gx = null; sfx('rot');
+      }
+    });
+
+    // ---- 登山 ----
+    const timeFor = i => 4.6 - i * 0.28;
+    function startClimb() {
+      phase = 'climb'; drag = null;
+      climb = { p: 0, idx: 0, mode: 'walk1', t: 0, limit: 0 };
+      ui();
+    }
+    function useItem(px, py) {
+      if (!climb || climb.mode !== 'hazard') return;
+      const h = hitItem(px, py); if (!h) return;
+      const need = HAZ[hazards[climb.idx]];
+      if (h.it.type === need) {
+        sfx('ok');
+        flash = { ghost: { it: h.it, k: 0 } };
+        items = items.filter(x => x !== h.it);
+        climb.mode = 'walk2'; climb.t = 0;
+      } else {
+        flash = { it: h.it, bad: true };
+        fail();
+      }
+    }
+    function fail() { sfx('ng'); climb.mode = 'fail'; climb.t = 0; }
+    function update(dt) {
+      if (flash && flash.ghost) { flash.ghost.k += dt / 0.5; if (flash.ghost.k >= 1) flash = null; }
+      if (!climb || phase !== 'climb') return;
+      const c = climb, speed = 1.1;
+      c.t += dt;
+      if (c.mode === 'walk1') {
+        c.p = Math.min(c.idx + 0.5, c.p + dt * speed);
+        if (c.p >= c.idx + 0.5) { c.mode = 'hazard'; c.t = 0; c.limit = timeFor(c.idx); sfx('alert'); }
+      } else if (c.mode === 'hazard') {
+        if (c.t >= c.limit) fail();
+      } else if (c.mode === 'walk2') {
+        c.p = Math.min(c.idx + 1, c.p + dt * speed);
+        if (c.p >= c.idx + 1) {
+          c.idx++;
+          if (c.idx >= 10) { c.mode = 'done'; c.t = 0; sfx('win'); }
+          else { c.mode = 'walk1'; }
+        }
+      } else if (c.mode === 'fail' && c.t > 1.2) showResult(c.idx);
+      else if (c.mode === 'done' && c.t > 1.2) showResult(10);
+    }
+    function drawHazardPanel() {
+      const a = L.tray, c = climb;
+      if (!c || (c.mode !== 'hazard' && c.mode !== 'fail')) return;
+      const cx = a.x + a.w / 2, cy = a.y + a.h * 0.42, s = Math.min(a.h * 0.75, a.w * 0.4, 150);
+      ctx.fillStyle = c.mode === 'fail' ? '#ffd9d0' : '#fff';
+      ctx.beginPath(); ctx.arc(cx, cy, s * 0.5, 0, Math.PI * 2); ctx.fill();
+      const shake = c.mode === 'hazard' ? Math.sin(c.t * 30) * s * 0.02 : 0;
+      drawHazard(hazards[c.idx], cx + shake, cy, s * 0.9);
+      if (c.mode === 'hazard') {
+        const k = 1 - c.t / c.limit, bw = Math.min(a.w * 0.7, 260), by = cy + s * 0.5 + 10;
+        ctx.fillStyle = 'rgba(44,58,51,.15)'; rr(cx - bw / 2, by, bw, 10, 5); ctx.fill();
+        ctx.fillStyle = k > 0.35 ? '#3fa77a' : '#d64d4d'; rr(cx - bw / 2, by, bw * Math.max(0, k), 10, 5); ctx.fill();
+      }
+    }
+
+    // ---- ループ ----
+    let last = performance.now();
+    function frame(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      update(dt);
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      ctx.fillStyle = '#eef4f1'; ctx.fillRect(0, 0, W, H);
+      if (phase !== 'title') {
+        drawMountain(now);
+        drawGrid();
+        if (phase === 'pack') for (const it of items) if (it.gx === null && it !== drag?.it) drawItem(it, it.tx, it.ty, trayScale);
+        drawHazardPanel();
+        if (drag) {
+          const s = L.cs, g = L.g, ox = drag.px - drag.fx * s, oy = drag.py - drag.fy * s;
+          const gx = Math.round((ox - g.x) / s), gy = Math.round((oy - g.y) / s);
+          if (drag.moved && fits(drag.it, gx, gy, drag.it.rot)) {
+            ctx.globalAlpha = 0.25;
+            for (const [x, y] of shapeOf(drag.it.type, drag.it.rot)) { ctx.fillStyle = ITEMS[drag.it.type].color; ctx.fillRect(g.x + (gx + x) * s, g.y + (gy + y) * s, s, s); }
+            ctx.globalAlpha = 1;
+          }
+          if (drag.moved) drawItem(drag.it, ox, oy, s, 0.92);
+          else if (drag.wasGrid) drawItem(drag.it, g.x + drag.it.gx * s, g.y + drag.it.gy * s, s);
+          else drawItem(drag.it, drag.it.tx, drag.it.ty, trayScale);
+        }
+      } else {
+        L.m = { x: 0, y: 0, w: W, h: H }; drawMountain(now); layout();
+      }
+      requestAnimationFrame(frame);
+    }
+
+    // ---- 音 ----
+    let actx = null, muted = store.get('muted', false);
+    function ensureAudio() {
+      if (actx) return;
+      try {
+        actx = new (window.AudioContext || window.webkitAudioContext)();
+        const g = actx.createGain(); g.gain.value = 0; g.connect(actx.destination);
+        const o = actx.createOscillator(); o.connect(g); o.start(); o.stop(actx.currentTime + 0.02);
+      } catch {}
+    }
+    function tone(f, d, type = 'sine', v = 0.15, at = 0, f2) {
+      if (!actx || muted) return;
+      const t0 = actx.currentTime + at, o = actx.createOscillator(), g = actx.createGain();
+      o.type = type; o.frequency.setValueAtTime(f, t0); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t0 + d);
+      g.gain.setValueAtTime(v, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + d);
+      o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0 + d);
+    }
+    function sfx(k) {
+      if (k === 'put') tone(520, 0.08, 'triangle');
+      else if (k === 'rot') tone(700, 0.05, 'triangle', 0.08);
+      else if (k === 'alert') { tone(880, 0.1, 'square', 0.06); tone(880, 0.1, 'square', 0.06, 0.15); }
+      else if (k === 'ok') { tone(660, 0.1, 'triangle'); tone(990, 0.15, 'triangle', 0.15, 0.08); }
+      else if (k === 'ng') tone(300, 0.6, 'sawtooth', 0.12, 0, 80);
+      else if (k === 'win') [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.25, 'triangle', 0.15, i * 0.12));
+    }
+    const soundBtn = document.getElementById('sound');
+    function drawSound() {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${muted ? '<path d="M17 9l5 6M22 9l-5 6"/>' : '<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>'}</svg>`;
+    }
+    soundBtn.onclick = () => { muted = !muted; store.set('muted', muted); drawSound(); };
+
+    // ---- 画面・文言 ----
+    let resultN = 0;
+    const $ = id => document.getElementById(id);
+    function ui() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      $('back').textContent = t('back');
+      $('titleText').textContent = t('title');
+      $('start').textContent = t('start');
+      $('go').textContent = t('go');
+      $('retry').textContent = t('retry');
+      $('post').textContent = t('post');
+      $('resNum').textContent = t('stage')(resultN);
+      $('title').style.display = phase === 'title' ? 'flex' : 'none';
+      $('go').style.display = phase === 'pack' ? 'block' : 'none';
+      $('result').style.display = phase === 'result' ? 'flex' : 'none';
+      const a = $('post');
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(resultN) + ' ' + TAG)}&url=${encodeURIComponent(SHARE_URL)}`;
+      if (matchMedia('(pointer: coarse)').matches) { a.removeAttribute('target'); a.removeAttribute('rel'); }
+      else { a.target = '_blank'; a.rel = 'noopener'; }
+    }
+    function showResult(n) { resultN = n; phase = 'result'; ui(); }
+    $('lang').value = lang;
+    $('lang').onchange = e => { lang = e.target.value; store.set('lang', lang); ui(); };
+    $('start').onclick = () => { ensureAudio(); newGame(); phase = 'pack'; layout(); ui(); };
+    $('retry').onclick = () => { newGame(); phase = 'pack'; layout(); ui(); };
+    $('go').onclick = () => { ensureAudio(); startClimb(); };
+
+    addEventListener('resize', resize);
+    newGame(); hazards = []; resize(); drawSound(); ui();
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
