@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>線トランポリン</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="線トランポリン">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/line-trampoline/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/line-trampoline/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #9fd8ff; font-family: system-ui, sans-serif; color: #223; }
+    body { display: flex; flex-direction: column; overflow: hidden; padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+    header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; gap: 8px; position: relative; z-index: 2; }
+    header a { color: #223; text-decoration: none; font-size: 14px; background: rgba(255,255,255,.8); padding: 6px 10px; border-radius: 16px; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill { height: 34px; min-width: 34px; border: none; border-radius: 17px; background: #fff; color: #223; font-size: 14px; padding: 0 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    #stage { flex: 1; position: relative; min-height: 0; }
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+    #result { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(10,15,40,.45); z-index: 5; padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+    #result.show { display: flex; }
+    .panel { background: #fff; border-radius: 18px; padding: 22px 26px; text-align: center; min-width: 240px; max-width: 90vw; }
+    .big { font-size: 48px; font-weight: 800; margin: 4px 0; }
+    .sub { font-size: 15px; color: #556; margin-bottom: 16px; }
+    .new { color: #e5533d; font-weight: 700; font-size: 15px; min-height: 20px; }
+    .btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .btn { border: none; border-radius: 24px; padding: 12px 20px; font-size: 16px; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-block; }
+    .again { background: #ffb02e; color: #223; }
+    .x { background: #111; color: #fff; }
+    #err { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <div class="hbtns">
+      <button class="pill" id="snd" aria-label="sound">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#223" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#223"/><path id="wave" d="M16 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/><path id="mute" d="M16 9l6 6M22 9l-6 6" style="display:none"/></svg>
+      </button>
+      <select class="pill" id="lang">
+        <option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option>
+      </select>
+    </div>
+  </header>
+  <div id="stage"><canvas id="cv"></canvas><div id="err"></div></div>
+  <div id="result">
+    <div class="panel">
+      <div class="big" id="rH"></div>
+      <div class="new" id="rNew"></div>
+      <div class="sub" id="rBest"></div>
+      <div class="btns">
+        <button class="btn again" id="again"></button>
+        <a class="btn x" id="post" target="_blank" rel="noopener"></a>
+      </div>
+    </div>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.20.0/matter.min.js"></script>
+  <script>
+const URL_ = 'https://keifurukawafunnych.com/games/line-trampoline/';
+const TAG = '#線トランポリンゲーム';
+const L = {
+  ja: { title: '線トランポリン', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', best: m => `最高 ${m}m`, nw: '新記録', err: '物理エンジンを読み込めませんでした。通信を確認して再読み込みしてください。', text: m => `線トランポリンで ${m}m まで上った ${TAG}` },
+  ko: { title: '선 트램펄린', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', best: m => `최고 ${m}m`, nw: '신기록', err: '물리 엔진을 불러오지 못했습니다. 연결을 확인하고 새로고침하세요.', text: m => `선 트램펄린으로 ${m}m까지 올라갔다 ${TAG}` },
+  en: { title: 'Line Trampoline', back: '← Back to top', again: 'Play again', post: 'Post on X', best: m => `Best ${m}m`, nw: 'New record', err: 'Could not load the physics engine. Check your connection and reload.', text: m => `I climbed ${m}m in Line Trampoline ${TAG}` },
+  th: { title: 'แทรมโพลีนเส้น', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', best: m => `สูงสุด ${m}m`, nw: 'สถิติใหม่', err: 'โหลดเอนจินฟิสิกส์ไม่ได้ กรุณาตรวจสอบการเชื่อมต่อแล้วโหลดใหม่', text: m => `ขึ้นไปได้ ${m}m ใน แทรมโพลีนเส้น ${TAG}` },
+};
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('line-trampoline:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('line-trampoline:' + k, JSON.stringify(v)); } catch {} },
+};
+function pickLang() {
+  const s = store.get('lang', null); if (L[s]) return s;
+  for (const l of (navigator.languages || [navigator.language || ''])) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; }
+  return 'en';
+}
+let lang = pickLang();
+const $ = id => document.getElementById(id);
+const langSel = $('lang'); langSel.value = lang;
+langSel.onchange = () => { lang = langSel.value; store.set('lang', lang); applyLang(); };
+function applyLang() {
+  const t = L[lang]; document.title = t.title; document.documentElement.lang = lang;
+  $('back').textContent = t.back; $('again').textContent = t.again; $('post').textContent = t.post;
+  $('err').textContent = t.err;
+  if (lastResult) showResult(lastResult);
+}
+
+// sound
+let soundOn = store.get('sound', true), ac = null;
+function updSnd() { $('wave').style.display = soundOn ? '' : 'none'; $('mute').style.display = soundOn ? 'none' : ''; }
+$('snd').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updSnd(); };
+updSnd();
+function beep(freq, dur = 0.18, type = 'sine', vol = 0.25) {
+  if (!soundOn) return;
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+    o.type = type; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq * 1.6, t + dur * 0.6);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur);
+  } catch {}
+}
+
+const cv = $('cv'), ctx = cv.getContext('2d');
+let W = 400, H = 700, S = 1, lastResult = null;
+const VW = 400; // world width
+function resize() {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
+  cv.width = r.width * dpr; cv.height = r.height * dpr;
+  S = r.width / VW; W = VW; H = r.height / S;
+  ctx.setTransform(dpr * S, 0, 0, dpr * S, 0, 0);
+}
+addEventListener('resize', resize);
+applyLang();
+if (!window.Matter) { $('err').style.display = 'flex'; throw new Error('matter'); }
+resize();
+
+const { Engine, Bodies, Body, Composite, Events } = Matter;
+const BALL_R = 14, PX_PER_M = 40;
+let engine, ball, line, rocks, camY, startY, maxH, state, nextRockY, drag, trail, pops;
+const best = () => store.get('best', 0);
+
+function reset() {
+  engine = Engine.create(); engine.gravity.y = 1;
+  startY = 0; camY = -H * 0.45; maxH = 0; state = 'ready'; line = null; drag = null; trail = []; pops = [];
+  ball = Bodies.circle(VW / 2, startY, BALL_R, { restitution: 0.5, friction: 0.02, frictionAir: 0.004, density: 0.002, label: 'ball' });
+  Body.setStatic(ball, true);
+  Composite.add(engine.world, ball);
+  rocks = []; nextRockY = startY - 260;
+  Events.on(engine, 'collisionStart', onHit);
+  lastResult = null; $('result').classList.remove('show');
+}
+
+function genRocks() {
+  while (nextRockY > camY - H) {
+    const h = (startY - nextRockY) / PX_PER_M;
+    const r = 16 + Math.random() * (12 + Math.min(h / 20, 20));
+    const x = r + 10 + Math.random() * (VW - 2 * r - 20);
+    const rock = Bodies.polygon(x, nextRockY, 5 + (Math.random() * 3 | 0), r, { isStatic: true, restitution: 0.6, angle: Math.random() * 6, label: 'rock' });
+    rocks.push(rock); Composite.add(engine.world, rock);
+    nextRockY -= Math.max(150, 320 - h * 0.6) + Math.random() * 160;
+  }
+  for (let i = rocks.length - 1; i >= 0; i--) if (rocks[i].position.y > camY + H + 200) { Composite.remove(engine.world, rocks[i]); rocks.splice(i, 1); }
+}
+
+function onHit(e) {
+  for (const p of e.pairs) {
+    const other = p.bodyA === ball ? p.bodyB : p.bodyB === ball ? p.bodyA : null;
+    if (!other) continue;
+    if (other.label === 'line' && line && other === line.body && !line.used) {
+      const a = line.body.angle;
+      let nx = -Math.sin(a), ny = Math.cos(a);
+      const dx = ball.position.x - line.body.position.x, dy = ball.position.y - line.body.position.y;
+      if (nx * dx + ny * dy < 0) { nx = -nx; ny = -ny; }
+      const power = Math.max(10, Math.min(19, 21 - line.len * 0.045));
+      const v = ball.velocity, tv = (v.x * -ny + v.y * nx) * 0.5; // keep some tangential speed
+      Body.setVelocity(ball, { x: nx * power + -ny * tv, y: ny * power + nx * tv });
+      Body.setAngularVelocity(ball, ball.angularVelocity + tv * 0.02);
+      line.used = true; line.t = 0; line.bend = 1;
+      beep(220 + power * 30, 0.22, 'triangle');
+      pops.push({ x: ball.position.x, y: ball.position.y, t: 0 });
+    } else if (other.label === 'rock') beep(110, 0.08, 'square', 0.08);
+  }
+}
+
+function toWorld(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / S, y: (e.clientY - r.top) / S + camY }; }
+cv.addEventListener('pointerdown', e => { if (state === 'over') return; e.preventDefault(); cv.setPointerCapture(e.pointerId); const p = toWorld(e); drag = { a: p, b: p, id: e.pointerId }; });
+cv.addEventListener('pointermove', e => { if (drag && drag.id === e.pointerId) drag.b = toWorld(e); });
+const endDrag = e => {
+  if (!drag || drag.id !== e.pointerId) return;
+  drag.b = toWorld(e); const { a, b } = drag; drag = null;
+  const len = Math.hypot(b.x - a.x, b.y - a.y); if (len < 24) return;
+  if (line) Composite.remove(engine.world, line.body);
+  const body = Bodies.rectangle((a.x + b.x) / 2, (a.y + b.y) / 2, len, 8, { isStatic: true, angle: Math.atan2(b.y - a.y, b.x - a.x), label: 'line', restitution: 0.2 });
+  line = { body, a, b, len, used: false, t: 0, bend: 0 };
+  Composite.add(engine.world, body);
+  beep(500, 0.06, 'sine', 0.1);
+  if (state === 'ready') { state = 'play'; Body.setStatic(ball, false); }
+};
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', e => { if (drag && drag.id === e.pointerId) drag = null; });
+document.addEventListener('touchmove', e => { if (e.target === cv) e.preventDefault(); }, { passive: false });
+
+function gameOver() {
+  state = 'over'; beep(300, 0.5, 'sawtooth', 0.12);
+  const m = Math.floor(maxH), b = best(), nw = m > b;
+  if (nw) store.set('best', m);
+  setTimeout(() => showResult({ m, best: Math.max(m, b), nw }), 500);
+}
+function showResult(r) {
+  lastResult = r; const t = L[lang];
+  $('rH').textContent = r.m + 'm'; $('rNew').textContent = r.nw ? t.nw : ''; $('rBest').textContent = t.best(r.best);
+  const a = $('post');
+  a.href = `https://x.com/intent/post?text=${encodeURIComponent(t.text(r.m))}&url=${encodeURIComponent(URL_)}`;
+  if (matchMedia('(pointer: coarse)').matches) { a.removeAttribute('target'); a.removeAttribute('rel'); }
+  $('result').classList.add('show');
+}
+$('again').onclick = () => { Events.off(engine); reset(); };
+
+// background colour by height
+const SKY = [[0, [159, 216, 255], [225, 245, 255]], [150, [255, 170, 120], [255, 220, 170]], [300, [70, 40, 110], [200, 110, 140]], [500, [8, 10, 30], [30, 30, 70]]];
+function sky(h) {
+  let i = 0; while (i < SKY.length - 2 && h > SKY[i + 1][0]) i++;
+  const [h0, a0, b0] = SKY[i], [h1, a1, b1] = SKY[i + 1], k = Math.max(0, Math.min(1, (h - h0) / (h1 - h0)));
+  const m = (x, y) => x.map((v, j) => Math.round(v + (y[j] - v) * k));
+  return [m(a0, a1), m(b0, b1), k + i];
+}
+const stars = Array.from({ length: 70 }, () => ({ x: Math.random() * VW, y: Math.random(), r: Math.random() * 1.5 + .4 }));
+
+let acc = 0, last = performance.now(), tAnim = 0;
+function frame(now) {
+  const dt = Math.min(50, now - last); last = now; tAnim += dt;
+  if (state === 'play') {
+    acc += dt;
+    while (acc >= 1000 / 60) { Engine.update(engine, 1000 / 60); acc -= 1000 / 60; }
+    if (line && line.used) { line.t += dt; if (line.t > 350) { Composite.remove(engine.world, line.body); line = null; } }
+    camY = Math.min(camY, ball.position.y - H * 0.45);
+    maxH = Math.max(maxH, (startY - ball.position.y) / PX_PER_M);
+    if (ball.position.x < -BALL_R) Body.setPosition(ball, { x: VW + BALL_R, y: ball.position.y });
+    if (ball.position.x > VW + BALL_R) Body.setPosition(ball, { x: -BALL_R, y: ball.position.y });
+    if (ball.position.y > camY + H + BALL_R * 2) gameOver();
+    trail.push({ x: ball.position.x, y: ball.position.y }); if (trail.length > 14) trail.shift();
+  }
+  genRocks(); draw(); requestAnimationFrame(frame);
+}
+
+function draw() {
+  const hNow = (startY - (camY + H * 0.45)) / PX_PER_M;
+  const [top, bot, phase] = sky(hNow);
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, `rgb(${top})`); g.addColorStop(1, `rgb(${bot})`);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  document.body.style.background = `rgb(${top})`;
+  if (phase > 1.5) { ctx.fillStyle = `rgba(255,255,255,${Math.min(1, phase - 1.5)})`; for (const s of stars) { const y = ((s.y * H - camY * 0.2) % H + H) % H; ctx.beginPath(); ctx.arc(s.x, y, s.r, 0, 7); ctx.fill(); } }
+  // clouds (parallax)
+  if (phase < 2) { ctx.fillStyle = `rgba(255,255,255,${0.6 * (1 - phase / 2)})`; for (let i = 0; i < 6; i++) { const y = (((i * 260 - camY * 0.5) % 1560) + 1560) % 1560 - 200; const x = (i * 137) % VW; ctx.beginPath(); ctx.ellipse(x, y, 50, 16, 0, 0, 7); ctx.ellipse(x + 30, y - 8, 34, 14, 0, 0, 7); ctx.fill(); } }
+
+  ctx.save(); ctx.translate(0, -camY);
+  // rocks
+  for (const r of rocks) {
+    ctx.beginPath(); r.vertices.forEach((v, i) => i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)); ctx.closePath();
+    ctx.fillStyle = phase > 2 ? '#8a8aa8' : '#8b7a6b'; ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 3; ctx.stroke();
+  }
+  // line (trampoline)
+  if (line) drawTramp(line.a, line.b, line.used ? Math.sin(line.t / 25) * 12 * (1 - line.t / 350) : 0, line.used ? 1 - line.t / 350 : 1, line.len);
+  if (drag) { ctx.setLineDash([8, 8]); drawTramp(drag.a, drag.b, 0, 0.6, Math.hypot(drag.b.x - drag.a.x, drag.b.y - drag.a.y)); ctx.setLineDash([]); }
+  // pops
+  for (let i = pops.length - 1; i >= 0; i--) { const p = pops[i]; p.t += 16; if (p.t > 300) { pops.splice(i, 1); continue; } ctx.strokeStyle = `rgba(255,255,255,${1 - p.t / 300})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(p.x, p.y, BALL_R + p.t / 8, 0, 7); ctx.stroke(); }
+  // trail & ball
+  trail.forEach((t, i) => { ctx.fillStyle = `rgba(255,120,60,${i / trail.length * 0.3})`; ctx.beginPath(); ctx.arc(t.x, t.y, BALL_R * i / trail.length, 0, 7); ctx.fill(); });
+  const bp = ball.position;
+  ctx.save(); ctx.translate(bp.x, bp.y); ctx.rotate(ball.angle);
+  ctx.fillStyle = '#ff7a3c'; ctx.beginPath(); ctx.arc(0, 0, BALL_R, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#c94d1c'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(-BALL_R, 0); ctx.lineTo(BALL_R, 0); ctx.moveTo(0, -BALL_R); ctx.lineTo(0, BALL_R); ctx.stroke();
+  ctx.restore();
+  // ready hint: animated finger drawing a line under the ball
+  if (state === 'ready' && !drag) {
+    const k = (tAnim % 1800) / 1200, kk = Math.min(1, k);
+    const a = { x: VW / 2 - 70, y: startY + 90 }, b = { x: VW / 2 + 70, y: startY + 70 };
+    const c = { x: a.x + (b.x - a.x) * kk, y: a.y + (b.y - a.y) * kk };
+    ctx.globalAlpha = 0.7; ctx.setLineDash([8, 8]); drawTramp(a, c, 0, 1, 140); ctx.setLineDash([]);
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#223'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(c.x, c.y + 4, 12, 0, 7); ctx.fill(); ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+
+  // height gauge (right edge)
+  const gb = Math.max(best(), 50), gx = W - 14, gh = H * 0.6, gy = H * 0.2;
+  ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(gx, gy, 6, gh);
+  const f = Math.min(1, maxH / gb);
+  ctx.fillStyle = maxH > best() ? '#ffd23c' : '#ff7a3c'; ctx.fillRect(gx, gy + gh * (1 - f), 6, gh * f);
+  ctx.fillStyle = '#fff'; ctx.fillRect(gx - 4, gy - 1, 14, 3);
+}
+function drawTramp(a, b, sag, alpha, len) {
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  const nx = -(b.y - a.y) / l, ny = (b.x - a.x) / l;
+  const s = Math.max(0, Math.min(1, (len - 24) / 300)); // short = hot colour
+  const col = `hsl(${10 + s * 190},85%,55%)`;
+  ctx.save(); ctx.globalAlpha *= alpha;
+  ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(mx + nx * sag, my + ny * sag, b.x, b.y); ctx.stroke();
+  ctx.fillStyle = '#334'; for (const p of [a, b]) { ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, 7); ctx.fill(); }
+  ctx.restore();
+}
+
+reset(); requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
