@@ -166,6 +166,22 @@
     }
     function layout() {
       const portrait = H > W * 0.9, pad = 10, btnH = 64;
+      if (climb) { // 登山中：上に場面、下にリュック
+        if (portrait) {
+          L.m = { x: 0, y: 0, w: W, h: H * 0.62 };
+          const cs = Math.min((W - pad * 2) / GW, (H - L.m.h - 24) / (GH + 0.9), 48);
+          L.cs = cs;
+          L.g = { x: (W - cs * GW) / 2, y: L.m.h + Math.max(8, cs * 0.3) + 12, w: cs * GW, h: cs * GH };
+        } else {
+          L.m = { x: 0, y: 0, w: W * 0.62, h: H };
+          const rw = W - L.m.w - pad * 2, cs = Math.min(rw / GW, (H - 40) / (GH + 0.9), 56);
+          L.cs = cs;
+          L.g = { x: L.m.w + pad + (rw - cs * GW) / 2, y: (H - cs * GH) / 2, w: cs * GW, h: cs * GH };
+        }
+        L.u = L.m.h / 10;
+        L.tray = { x: 0, y: H, w: W, h: 0 };
+        return;
+      }
       if (portrait) {
         const mh = Math.min(H * 0.4, W * 0.95);
         L.m = { x: 0, y: 0, w: W, h: mh };
@@ -620,7 +636,7 @@
     cv.addEventListener('pointerdown', e => {
       ensureAudio();
       const [px, py] = pos(e);
-      if (phase === 'climb') { useItem(px, py); return; }
+      if (phase === 'climb') return;
       if (phase !== 'pack') return;
       const h = hitItem(px, py); if (!h) return;
       if (e.button === 2) { rotateItem(h.it); return; }
@@ -662,34 +678,27 @@
       }
     });
 
-    // ---- 登山 ----
-    const timeFor = i => 4.6 - i * 0.28;
+    // ---- 登山（アップの場面。道具は自動で使う） ----
+    const clamp = v => Math.max(0, Math.min(1, v));
+    const ease = v => 1 - (1 - clamp(v)) ** 3;
+    const mix = (a, b, k) => a + (b - a) * k;
+    function mixCol(a, b, k) {
+      const p = parseInt(a.slice(1), 16), q = parseInt(b.slice(1), 16);
+      const c = (sh) => Math.round(mix(p >> sh & 255, q >> sh & 255, k));
+      return `rgb(${c(16)},${c(8)},${c(0)})`;
+    }
+    const WALK = 1.3, ARRIVE = 0.8, FLY = 0.45, USE = 1.6, FAILT = 1.6;
     function startClimb() {
       phase = 'climb'; drag = null;
-      climb = { p: 0, idx: 0, mode: 'walk1', t: 0, limit: 0 };
-      ui();
+      climb = { idx: 0, mode: 'walk', t: 0, scroll: 0, shift: 0, item: null, from: null };
+      layout(); ui();
     }
-    function useItem(px, py) {
-      if (!climb || climb.mode !== 'hazard') return;
-      const h = hitItem(px, py); if (!h) return;
-      const need = HAZ[hazards[climb.idx]];
-      if (h.it.type === need) {
-        sfx('ok');
-        flash = { ghost: { it: h.it, k: 0 } };
-        burst(L.g.x + (h.it.gx + 1) * L.cs, L.g.y + (h.it.gy + 1) * L.cs);
-        items = items.filter(x => x !== h.it);
-        climb.mode = 'walk2'; climb.t = 0;
-      } else {
-        flash = { it: h.it, bad: true };
-        fail();
-      }
-    }
-    function fail() { sfx('ng'); climb.mode = 'fail'; climb.t = 0; shakeT = 0.45; }
-    function burst(x, y) {
-      for (let i = 0; i < 26; i++) {
-        const a = Math.random() * Math.PI * 2, v = 80 + Math.random() * 220;
-        parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 120, t: 0, life: 0.6 + Math.random() * 0.4, s: 4 + Math.random() * 5, c: ['#f0b429', '#fff', '#3fa77a', '#e0743c'][i % 4] });
-      }
+    function beginEvent() {
+      const c = climb, need = HAZ[hazards[c.idx]];
+      c.mode = 'event'; c.t = 0; c.shift = 0;
+      c.item = items.find(it => it.gx !== null && it.type === need) || null;
+      c.from = null;
+      sfx('alert');
     }
     function update(dt) {
       if (flash && flash.ghost) { flash.ghost.k += dt / 0.5; if (flash.ghost.k >= 1) flash = null; }
@@ -697,41 +706,40 @@
       parts = parts.filter(p => p.t < p.life);
       shakeT = Math.max(0, shakeT - dt);
       if (!climb || phase !== 'climb') return;
-      const c = climb, speed = 1.1;
+      const c = climb, prev = c.t;
       c.t += dt;
-      if (c.mode === 'walk1') {
-        c.p = Math.min(c.idx + 0.5, c.p + dt * speed);
-        if (c.p >= c.idx + 0.5) { c.mode = 'hazard'; c.t = 0; c.limit = timeFor(c.idx); sfx('alert'); }
-      } else if (c.mode === 'hazard') {
-        if (c.t >= c.limit) fail();
-      } else if (c.mode === 'walk2') {
-        c.p = Math.min(c.idx + 1, c.p + dt * speed);
-        if (c.p >= c.idx + 1) {
-          c.idx++;
-          if (c.idx >= 10) { c.mode = 'done'; c.t = 0; sfx('win'); }
-          else { c.mode = 'walk1'; }
+      if (c.mode === 'walk') {
+        c.scroll += dt * L.u * 3.2;
+        if (c.t >= WALK) beginEvent();
+      } else if (c.mode === 'event') {
+        const t0 = ARRIVE;
+        if (c.item) {
+          // 道具がリュックから飛び出す
+          if (prev < t0 && c.t >= t0) {
+            const it = c.item;
+            c.from = [L.g.x + (it.gx + dims(shapeOf(it.type, it.rot))[0] / 2) * L.cs, L.g.y + (it.gy + dims(shapeOf(it.type, it.rot))[1] / 2) * L.cs];
+            flash = { ghost: { it, k: 0 } };
+            items = items.filter(x => x !== it);
+            sfx('rot');
+          }
+          if (prev < t0 + FLY && c.t >= t0 + FLY) { sfx('ok'); const [x, y] = handPos(); burst(x, y); }
+          if (hazards[c.idx] === 'cliff') { const q = scn(); c.shift = ease((c.t - t0 - FLY - 0.4) / (USE - 0.4)) * (q.hx - q.m.x + q.s * 0.45 + q.u * 3.6); }
+          if (c.t >= t0 + FLY + USE) {
+            c.scroll += c.shift; c.shift = 0;
+            c.idx++; c.t = 0; c.item = null;
+            if (c.idx >= 10) { c.mode = 'done'; sfx('win'); } else c.mode = 'walk';
+          }
+        } else {
+          if (prev < t0 + 0.5 && c.t >= t0 + 0.5) { sfx('ng'); shakeT = 0.45; }
+          if (c.t >= t0 + FAILT) { c.mode = 'fail'; c.t = 0; }
         }
-      } else if (c.mode === 'fail' && c.t > 1.2) showResult(c.idx);
-      else if (c.mode === 'done' && c.t > 1.2) showResult(10);
+      } else if (c.mode === 'fail' && c.t > 0.5) { climb.mode = 'over'; showResult(c.idx); }
+      else if (c.mode === 'done' && c.t > 2.2) { climb.mode = 'over'; showResult(10); }
     }
-    function drawHazardPanel() {
-      const a = L.tray, c = climb;
-      if (!c || (c.mode !== 'hazard' && c.mode !== 'fail')) return;
-      const cx = a.x + a.w / 2, cy = a.y + a.h * 0.45, s = Math.min(a.h * 0.7, a.w * 0.4, 150);
-      const pop = Math.min(1, c.t / 0.2), sc = c.mode === 'hazard' ? 0.7 + 0.3 * pop + (pop < 1 ? 0 : Math.sin(c.t * 8) * 0.02) : 1;
-      ctx.save();
-      ctx.shadowColor = 'rgba(0,0,0,.2)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 6;
-      ctx.fillStyle = c.mode === 'fail' ? '#ffd9d0' : '#fff';
-      ctx.beginPath(); ctx.arc(cx, cy, s * 0.5 * sc, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-      const shake = c.mode === 'hazard' ? Math.sin(c.t * 30) * s * 0.02 : 0;
-      drawHazard(hazards[c.idx], cx + shake, cy, s * 0.9 * sc);
-      if (c.mode === 'hazard') {
-        const k = Math.max(0, 1 - c.t / c.limit), R = s * 0.5 * sc + s * 0.07;
-        ctx.lineCap = 'round'; ctx.lineWidth = s * 0.07;
-        ctx.strokeStyle = 'rgba(44,58,51,.12)'; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
-        ctx.strokeStyle = k > 0.35 ? '#3fa77a' : '#d64d4d';
-        ctx.beginPath(); ctx.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k); ctx.stroke();
+    function burst(x, y) {
+      for (let i = 0; i < 26; i++) {
+        const a = Math.random() * Math.PI * 2, v = 80 + Math.random() * 220;
+        parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 120, t: 0, life: 0.6 + Math.random() * 0.4, s: 4 + Math.random() * 5, c: ['#f0b429', '#fff', '#3fa77a', '#e0743c'][i % 4] });
       }
     }
     function drawParts() {
@@ -744,6 +752,350 @@
       ctx.globalAlpha = 1;
     }
 
+    // 場面の基準位置
+    const scn = () => {
+      const m = L.m, u = L.u;
+      return { m, u, gy: m.y + m.h * 0.8, hx: m.x + m.w * 0.36, s: u * 2.6 };
+    };
+    let hiker = {}; // 直前に描いた登山者の姿勢（手の位置など）
+    function handPos() { return hiker.hand || [scn().hx, scn().gy - scn().s * 0.6]; }
+
+    // 横向きの登山者。o: step 歩き, arm 腕の上げ具合(0〜1), lie 倒れ具合, jacket, cold 寒さ, helmet
+    function drawHikerSide(x, y, s, o = {}) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(x, y + 2, s * 0.32, s * 0.06, 0, 0, 7); ctx.fill();
+      ctx.translate(x, y); ctx.rotate((o.lie || 0) * (o.lieDir || -1) * Math.PI / 2);
+      const st = o.step ? Math.sin(o.step) : 0, cold = o.cold || 0;
+      const skin = mixCol('#f2d2b0', '#bcd8f0', cold), shirt = o.jacket ? '#d64d4d' : '#3d6fb0';
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      // 脚
+      ctx.strokeStyle = '#2c3a33'; ctx.lineWidth = s * 0.11;
+      ctx.beginPath();
+      ctx.moveTo(0, -s * 0.38); ctx.lineTo(st * s * 0.16, -s * 0.18); ctx.lineTo(st * s * 0.2, 0);
+      ctx.moveTo(0, -s * 0.38); ctx.lineTo(-st * s * 0.16, -s * 0.18); ctx.lineTo(-st * s * 0.2, 0);
+      ctx.stroke();
+      ctx.fillStyle = '#5b3a24';
+      for (const d of [st, -st]) { rr(d * s * 0.2 - s * 0.05, -s * 0.05, s * 0.16, s * 0.07, s * 0.03); ctx.fill(); }
+      // リュック
+      const bg = ctx.createLinearGradient(-s * 0.36, 0, -s * 0.1, 0);
+      bg.addColorStop(0, '#7c5633'); bg.addColorStop(1, '#a87a4b');
+      ctx.fillStyle = bg; rr(-s * 0.36, -s * 0.78, s * 0.24, s * 0.42, s * 0.07); ctx.fill();
+      ctx.fillStyle = '#5e432a'; rr(-s * 0.37, -s * 0.8, s * 0.2, s * 0.08, s * 0.03); ctx.fill();
+      // 胴
+      ctx.fillStyle = shirt; rr(-s * 0.14, -s * 0.74, s * (o.jacket ? 0.3 : 0.26), s * 0.4, s * 0.1); ctx.fill();
+      if (o.jacket) { ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = s * 0.02; ctx.beginPath(); ctx.moveTo(-s * 0.12, -s * 0.6); ctx.lineTo(s * 0.14, -s * 0.6); ctx.moveTo(-s * 0.12, -s * 0.48); ctx.lineTo(s * 0.14, -s * 0.48); ctx.stroke(); }
+      // 頭
+      const hy = -s * 0.88;
+      ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(s * 0.02, hy, s * 0.15, 0, 7); ctx.fill();
+      ctx.fillStyle = '#2c3a33'; ctx.beginPath(); ctx.arc(s * 0.09, hy - s * 0.01, s * 0.022, 0, 7); ctx.fill();
+      if (o.helmet) {
+        ctx.fillStyle = '#f0b429'; ctx.beginPath(); ctx.arc(s * 0.02, hy - s * 0.02 - (o.helmetY || 0), s * 0.17, Math.PI, 0); ctx.fill();
+        ctx.fillRect(-s * 0.17, hy - s * 0.03 - (o.helmetY || 0), s * 0.38, s * 0.04);
+      } else {
+        ctx.fillStyle = '#d64d4d'; ctx.beginPath(); ctx.arc(s * 0.02, hy - s * 0.03, s * 0.15, Math.PI, 0); ctx.fill();
+        ctx.fillRect(s * 0.02, hy - s * 0.05, s * 0.2, s * 0.04);
+      }
+      if (o.sweat) { ctx.fillStyle = '#7cc3f0'; ctx.beginPath(); ctx.arc(-s * 0.1, hy + s * 0.05 + o.sweat * s * 0.2, s * 0.03, 0, 7); ctx.fill(); }
+      // 腕（arm 0=下, 1=上）
+      const a = mix(1.15, -1.25, o.arm || 0), sx = s * 0.04, sy = -s * 0.66, len = s * 0.32;
+      const hx2 = sx + Math.cos(a) * len, hy2 = sy + Math.sin(a) * len;
+      ctx.strokeStyle = shirt; ctx.lineWidth = s * 0.1;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(hx2, hy2); ctx.stroke();
+      ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(hx2, hy2, s * 0.05, 0, 7); ctx.fill();
+      ctx.restore();
+      hiker = { hand: [x + hx2, y + hy2], head: [x + s * 0.02, y + hy], lie: o.lie || 0 };
+      return hiker;
+    }
+    function drawBearSide(x, y, s, dir, standUp, run) {
+      ctx.save(); ctx.translate(x, y); ctx.scale(dir, 1);
+      ctx.rotate(-standUp * 0.9);
+      const leg = Math.sin(run) * s * 0.08;
+      ctx.fillStyle = '#5a3d26';
+      for (const [lx, d] of [[-0.35, 1], [-0.15, -1], [0.2, 1], [0.38, -1]]) { rr(lx * s + d * leg - s * 0.06, -s * 0.25, s * 0.13, s * 0.27, s * 0.05); ctx.fill(); }
+      ctx.fillStyle = '#6b4a2f'; ctx.beginPath(); ctx.ellipse(0, -s * 0.4, s * 0.5, s * 0.28, 0, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(-s * 0.5, -s * 0.55, s * 0.2, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(-s * 0.48, -s * 0.74, s * 0.07, 0, 7); ctx.fill();
+      ctx.fillStyle = '#c99a6b'; ctx.beginPath(); ctx.ellipse(-s * 0.66, -s * 0.5, s * 0.1, s * 0.07, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#1d1d1d'; ctx.beginPath(); ctx.arc(-s * 0.74, -s * 0.52, s * 0.03, 0, 7); ctx.arc(-s * 0.55, -s * 0.6, s * 0.025, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+    function rockShape(x, y, r, rot) {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+      ctx.fillStyle = '#7a6f66';
+      ctx.beginPath(); ctx.moveTo(-r, r * 0.1); ctx.lineTo(-r * 0.5, -r * 0.9); ctx.lineTo(r * 0.6, -r * 0.8); ctx.lineTo(r, r * 0.2); ctx.lineTo(r * 0.3, r); ctx.lineTo(-r * 0.7, r * 0.8); ctx.fill();
+      ctx.fillStyle = '#9b9088'; ctx.beginPath(); ctx.moveTo(-r * 0.5, -r * 0.9); ctx.lineTo(r * 0.6, -r * 0.8); ctx.lineTo(r * 0.2, -r * 0.2); ctx.lineTo(-r * 0.4, -r * 0.3); ctx.fill();
+      ctx.restore();
+    }
+    function star(x, y, r, col = '#f5d76e') {
+      ctx.fillStyle = col; ctx.beginPath();
+      for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5 - Math.PI / 2, rr2 = i % 2 ? r * 0.45 : r; ctx.lineTo(x + Math.cos(a) * rr2, y + Math.sin(a) * rr2); }
+      ctx.fill();
+    }
+
+    // 背景（高さで景色が変わる）
+    function drawScene(now) {
+      const { m, u, gy, hx, s } = scn(), c = climb, T = now / 1000;
+      const alt = clamp(((c ? Math.min(c.idx, 10) : 0) + (c && c.mode === 'walk' ? c.t / WALK : 0)) / 10);
+      const scroll = c ? c.scroll + c.shift : 0;
+      ctx.save();
+      ctx.beginPath(); ctx.rect(m.x, m.y, m.w, m.h); ctx.clip();
+      const sky = ctx.createLinearGradient(0, m.y, 0, gy);
+      sky.addColorStop(0, mixCol('#6fb0e3', '#3f7fc4', alt)); sky.addColorStop(1, mixCol('#d4ecf6', '#eaf2fa', alt));
+      ctx.fillStyle = sky; ctx.fillRect(m.x, m.y, m.w, m.h);
+      // 雲
+      ctx.fillStyle = 'rgba(255,255,255,.85)';
+      for (let i = 0; i < 4; i++) {
+        const cs2 = u * (1.6 + hash(i, 5)), span = m.w + cs2 * 3;
+        const x = m.x + span - ((hash(i, 6) * span + scroll * 0.08 + T * 8) % span) - cs2 * 1.5;
+        cloud(x, m.y + m.h * (0.1 + hash(i, 7) * 0.25), cs2);
+      }
+      // 遠くの山
+      const far = (col, base, amp, par, seed) => {
+        ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(m.x, gy);
+        const step = u * 3;
+        const off = (scroll * par) % step, i0 = Math.floor(scroll * par / step);
+        for (let i = -1; i <= m.w / step + 2; i++) ctx.lineTo(m.x + i * step - off, base - amp * (0.3 + hash(i + i0, seed) * 0.7));
+        ctx.lineTo(m.x + m.w, gy); ctx.fill();
+      };
+      far(mixCol('#b4cfdc', '#d8e4ee', alt), gy - u * 3.2, u * 2.5, 0.1, 21);
+      far(mixCol('#94b8a8', '#b9c7cf', alt), gy - u * 1.6, u * 2, 0.3, 22);
+      // 木（低いところだけ）
+      const treeA = clamp(1 - alt * 1.8);
+      if (treeA > 0) {
+        ctx.globalAlpha = treeA; ctx.fillStyle = '#3e7049';
+        const step = u * 1.7, off = (scroll * 0.6) % step, i0 = Math.floor(scroll * 0.6 / step);
+        for (let i = -1; i <= m.w / step + 2; i++) {
+          if (hash(i + i0, 31) < 0.45) continue;
+          const x = m.x + i * step - off, th = u * (1.2 + hash(i + i0, 32) * 1.2);
+          ctx.beginPath(); ctx.moveTo(x, gy - u * 0.3 - th); ctx.lineTo(x + th * 0.35, gy - u * 0.3); ctx.lineTo(x - th * 0.35, gy - u * 0.3); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+      // 地面（崖の穴をあける）
+      const ground = mixCol('#7aa874', '#f4f7fa', clamp((alt - 0.55) * 2.2)), soil = mixCol('#8a6d4f', '#9a8873', alt);
+      let gap = null;
+      if (c && c.mode === 'event' && hazards[c.idx] === 'cliff') {
+        const open = ease(c.t / ARRIVE), gw = u * 3.2 * open;
+        const gx0 = hx + s * 0.45 - c.shift;
+        gap = [gx0, gx0 + gw];
+      }
+      const seg = (x0, x1) => {
+        ctx.fillStyle = soil; ctx.fillRect(x0, gy, x1 - x0, m.y + m.h - gy);
+        ctx.fillStyle = ground; ctx.fillRect(x0, gy - u * 0.05, x1 - x0, u * 0.35);
+      };
+      if (gap) { seg(m.x, gap[0]); seg(gap[1], m.x + m.w); ctx.fillStyle = '#2b2622'; ctx.fillRect(gap[0], gy + u * 0.3, gap[1] - gap[0], m.h); }
+      else seg(m.x, m.x + m.w);
+      // 石ころ
+      ctx.fillStyle = 'rgba(60,45,30,.25)';
+      { const step = u * 1.3, off = scroll % step, i0 = Math.floor(scroll / step);
+        for (let i = -1; i <= m.w / step + 2; i++) { const x = m.x + i * step - off + hash(i + i0, 41) * step; if (gap && x > gap[0] - 4 && x < gap[1] + 4) continue; ctx.beginPath(); ctx.ellipse(x, gy + u * (0.6 + hash(i + i0, 42) * 1.2), u * 0.18, u * 0.1, 0, 0, 7); ctx.fill(); } }
+      if (c) drawEvent(now, gap);
+      ctx.restore();
+      // 進み具合（小さな山）
+      const ps = Math.max(26, u * 1.6), px = m.x + 12, py = m.y + 12;
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,.8)'; rr(px - 6, py - 6, ps + 12, ps * 0.9 + 12, 10); ctx.fill();
+      const tri = () => { ctx.beginPath(); ctx.moveTo(px, py + ps * 0.9); ctx.lineTo(px + ps / 2, py); ctx.lineTo(px + ps, py + ps * 0.9); ctx.closePath(); };
+      tri(); ctx.fillStyle = '#c9d6cf'; ctx.fill();
+      ctx.save(); tri(); ctx.clip(); ctx.fillStyle = '#e0743c'; const k = c ? Math.min(c.idx, 10) / 10 : 0; ctx.fillRect(px, py + ps * 0.9 * (1 - k), ps, ps); ctx.restore();
+      ctx.restore();
+    }
+
+    // トラブルと道具のアニメーション
+    function drawEvent(now, gap) {
+      const { m, u, gy, hx, s } = scn(), c = climb, T = now / 1000;
+      const o = { step: 0 };
+      if (c.mode === 'walk') { o.step = T * 9; drawHikerSide(hx, gy, s, o); return; }
+      if (c.mode === 'done' || c.mode === 'over' && climb.idx >= 10) {
+        // 山頂
+        ctx.strokeStyle = '#3b3b3b'; ctx.lineWidth = 3;
+        const fx = hx + s * 0.8, wave = Math.sin(T * 5) * u * 0.1;
+        ctx.beginPath(); ctx.moveTo(fx, gy); ctx.lineTo(fx, gy - s * 1.3); ctx.stroke();
+        ctx.fillStyle = '#e0743c'; ctx.beginPath(); ctx.moveTo(fx, gy - s * 1.3); ctx.quadraticCurveTo(fx + s * 0.3, gy - s * 1.3 - wave, fx + s * 0.6, gy - s * 1.15 + wave); ctx.lineTo(fx, gy - s * 0.95); ctx.fill();
+        drawHikerSide(hx, gy - Math.abs(Math.sin(T * 6)) * u * 0.4, s, { arm: 1 });
+        for (let i = 0; i < 50; i++) {
+          const x = m.x + hash(i, 11) * m.w + Math.sin(T * 2 + i) * 10, y = m.y + ((hash(i, 12) * m.h + T * m.h * 0.3 * (0.6 + hash(i, 13))) % m.h);
+          ctx.fillStyle = ['#e0743c', '#f0b429', '#4d8fd6', '#3fa77a', '#d64d4d'][i % 5];
+          ctx.save(); ctx.translate(x, y); ctx.rotate(T * 4 + i); ctx.fillRect(-4, -2.5, 8, 5); ctx.restore();
+        }
+        return;
+      }
+      const k = hazards[c.idx], has = !!c.item;
+      const t = c.mode === 'event' ? c.t : ARRIVE + FAILT;
+      const A = ease(t / ARRIVE), F = clamp((t - ARRIVE) / FLY), U = clamp((t - ARRIVE - FLY) / USE), X = clamp((t - ARRIVE) / FAILT);
+      const lie = has ? 0 : ease((X - 0.3) / 0.4);
+      o.lie = lie;
+      if (k === 'rain') {
+        const dark = A * (has ? 1 - U * 0.6 : 1);
+        ctx.fillStyle = `rgba(60,75,95,${0.35 * dark})`; ctx.fillRect(m.x, m.y, m.w, m.h);
+        ctx.fillStyle = `rgba(110,120,135,${dark})`;
+        for (let i = 0; i < 4; i++) cloud(m.x + m.w * (i * 0.28 - 0.05), m.y + u * 0.8 - (1 - A) * u * 3, u * 2.4);
+        o.arm = has ? ease(F) * 0.9 : 0; o.cold = has ? 0 : X;
+        if (!has) o.step = X < 0.3 ? Math.sin(T * 60) * 0.15 : 0;
+        const hk = drawHikerSide(hx, gy, s, o);
+        const open = has ? ease((t - ARRIVE - FLY * 0.6) / 0.35) : 0;
+        const [hdx, hdy] = hk.hand, cy0 = hdy - s * 0.55, cw = s * 0.75 * open;
+        if (has && F > 0.6) {
+          ctx.strokeStyle = '#2c3a33'; ctx.lineWidth = Math.max(2, s * 0.03);
+          ctx.beginPath(); ctx.moveTo(hdx, hdy + s * 0.05); ctx.lineTo(hdx, cy0); ctx.stroke();
+          ctx.fillStyle = '#4d8fd6';
+          ctx.beginPath(); ctx.moveTo(hdx - cw, cy0 + s * 0.12 * open); ctx.quadraticCurveTo(hdx, cy0 - s * 0.45 * open, hdx + cw, cy0 + s * 0.12 * open);
+          for (let j = 3; j >= 0; j--) ctx.quadraticCurveTo(hdx + cw * (j * 0.5 - 0.75), cy0 - s * 0.02, hdx + cw * (j * 0.5 - 1), cy0 + s * 0.12 * open);
+          ctx.fill();
+        }
+        ctx.strokeStyle = `rgba(200,225,255,${0.85 * dark})`; ctx.lineWidth = 1.6; ctx.beginPath();
+        for (let i = 0; i < 90; i++) {
+          const x = m.x + hash(i, 1) * m.w * 1.1, y = m.y + ((hash(i, 2) * m.h + T * m.h * 1.6) % (gy - m.y));
+          if (open > 0.5 && x > hdx - cw && x < hdx + cw && y > cy0 - s * 0.3) { if (y < cy0 + s * 0.05) { ctx.moveTo(x, cy0 - s * 0.25); ctx.lineTo(x + 4, cy0 - s * 0.32); } continue; }
+          ctx.moveTo(x, y); ctx.lineTo(x - 4, y + 12);
+        }
+        ctx.stroke();
+      } else if (k === 'rock') {
+        const head = [hx + s * 0.02, gy - s * 1.0];
+        const r = clamp(t / (ARRIVE + FLY)), rs = u * 0.7;
+        let rx, ry;
+        if (r < 1) { rx = mix(m.x + m.w + rs, head[0] + rs * 0.3, r); ry = mix(m.y + u, head[1] - rs * 0.8, r) - Math.sin(r * Math.PI) * u * 1.5; }
+        else if (has) { const b = t - ARRIVE - FLY; rx = head[0] + rs * 0.3 + b * u * 9; ry = head[1] - rs * 0.8 - b * u * 8 + b * b * u * 14; }
+        else { const b = clamp((t - ARRIVE - FLY) / 0.6); rx = head[0] + rs + b * u * 2.5; ry = mix(head[1] - rs * 0.8, gy - rs * 0.8, ease(b)); }
+        o.helmet = has && F > 0; o.helmetY = has ? (1 - ease(F)) * s * 0.8 : 0;
+        o.lie = has ? 0 : ease((t - ARRIVE - FLY) / 0.4);
+        const bump = has && t > ARRIVE + FLY && t < ARRIVE + FLY + 0.25 ? u * 0.12 : 0;
+        drawHikerSide(hx, gy + bump, s, o);
+        rockShape(rx, ry, rs, t * 8);
+        const hitT = t - ARRIVE - FLY;
+        if (hitT > 0 && hitT < 0.5) { ctx.globalAlpha = 1 - hitT / 0.5; star(head[0] + s * 0.1, head[1] - s * 0.25, u * (0.4 + hitT * 1.5), has ? '#fff6c0' : '#f5d76e'); ctx.globalAlpha = 1; }
+      } else if (k === 'bear') {
+        const run = !has ? 0 : ease((U - 0.25) / 0.75);
+        const bx = mix(m.x + m.w + s, hx + s * 1.3, A) + run * m.w * 0.9;
+        const stand = has ? clamp(F * 2) * 0.6 * (1 - run) : clamp(X * 2);
+        o.arm = has ? ease(F) : 0;
+        if (!has) { o.lieDir = -1; }
+        drawBearSide(bx, gy, s * 1.3, run > 0 ? -1 : 1, has && run > 0 ? 0 : stand, run > 0 ? T * 25 : A < 1 ? T * 12 : 0);
+        const hk = drawHikerSide(hx, gy, s, o);
+        if (has && F > 0.3) {
+          const [bx2, by2] = hk.hand, sw = Math.sin(T * 26) * 0.5;
+          ctx.save(); ctx.translate(bx2, by2); ctx.rotate(sw);
+          ctx.fillStyle = '#c9a227';
+          ctx.beginPath(); ctx.moveTo(-s * 0.12, s * 0.25); ctx.quadraticCurveTo(-s * 0.1, s * 0.02, 0, s * 0.02); ctx.quadraticCurveTo(s * 0.1, s * 0.02, s * 0.12, s * 0.25); ctx.closePath(); ctx.fill();
+          ctx.beginPath(); ctx.arc(sw * s * 0.06, s * 0.28, s * 0.04, 0, 7); ctx.fill();
+          ctx.restore();
+          ctx.strokeStyle = 'rgba(201,162,39,.7)'; ctx.lineWidth = 2.5;
+          for (let i = 0; i < 3; i++) { const ph = (T * 2 + i / 3) % 1; ctx.globalAlpha = 1 - ph; ctx.beginPath(); ctx.arc(bx2, by2 + s * 0.15, s * (0.25 + ph * 0.7), -0.6, 0.6); ctx.stroke(); }
+          ctx.globalAlpha = 1;
+        }
+        if (!has && X > 0.1 && X < 0.6) { ctx.globalAlpha = 1 - (X - 0.1) / 0.5; ctx.strokeStyle = '#d64d4d'; ctx.lineWidth = 3; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(bx - s * 0.9, gy - s * 1.4, s * (0.2 + i * 0.18), 2.4, 3.9); ctx.stroke(); } ctx.globalAlpha = 1; }
+      } else if (k === 'cliff') {
+        o.step = has && U > 0.25 && U < 1 ? T * 9 : 0;
+        if (!has) {
+          const w = ease(X / 0.4) * s * 0.9, fallY = X > 0.4 ? ((X - 0.4) / 0.6) ** 2 * m.h : 0;
+          o.step = X < 0.4 ? T * 9 : 0; o.arm = X > 0.4 ? 1 : 0; o.lie = 0;
+          drawHikerSide(hx + w, gy + fallY, s, o);
+        } else {
+          const [x0, x1] = gap;
+          const throwK = ease(F);
+          ctx.strokeStyle = '#b5793d'; ctx.lineWidth = Math.max(2.5, u * 0.12);
+          ctx.beginPath(); ctx.moveTo(x0 - u * 0.2, gy - u * 0.1);
+          ctx.quadraticCurveTo(mix(x0, x1, 0.5), gy - u * 1.5 * (1 - throwK) + u * 0.25 * throwK, mix(x0, x1 + u * 0.2, throwK), gy - u * 0.1);
+          ctx.stroke();
+          if (throwK >= 1) { ctx.fillStyle = '#7a6f66'; ctx.fillRect(x1 + u * 0.1, gy - u * 0.5, u * 0.2, u * 0.5); ctx.fillRect(x0 - u * 0.4, gy - u * 0.5, u * 0.2, u * 0.5); }
+          const over = hx > x0 && hx < x1;
+          o.arm = over ? 0.7 : 0;
+          drawHikerSide(hx, gy - (over ? u * 0.1 : 0), s, o);
+        }
+      } else if (k === 'night') {
+        const dark = A * 0.78;
+        o.arm = has ? ease(F) * 0.35 : 0;
+        if (!has) { o.step = X < 0.3 ? T * 9 : 0; o.lieDir = 1; }
+        const hk = drawHikerSide(hx + (!has ? ease(X / 0.3) * s * 0.4 : 0), gy, s, o);
+        ctx.fillStyle = `rgba(12,18,48,${dark})`; ctx.fillRect(m.x, m.y, m.w, m.h);
+        for (let i = 0; i < 40; i++) { ctx.fillStyle = `rgba(255,255,230,${A * (0.5 + 0.5 * Math.sin(T * 3 + i))})`; ctx.fillRect(m.x + hash(i, 7) * m.w, m.y + hash(i, 8) * (gy - m.y) * 0.6, 2, 2); }
+        ctx.fillStyle = `rgba(245,231,160,${A})`; ctx.beginPath(); ctx.arc(m.x + m.w * 0.8, m.y + u * 1.4, u * 0.7, 0, 7); ctx.fill();
+        if (has && F > 0.5) {
+          const [lx, ly] = hk.hand, on = clamp((t - ARRIVE - FLY) / 0.15) * (0.85 + Math.random() * 0.15 * (U < 0.2 ? 1 : 0));
+          ctx.save(); ctx.globalCompositeOperation = 'lighter';
+          const g = ctx.createLinearGradient(lx, 0, lx + m.w * 0.6, 0);
+          g.addColorStop(0, `rgba(255,240,170,${0.55 * on})`); g.addColorStop(1, 'rgba(255,240,170,0)');
+          ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx + m.w * 0.6, ly - s * 0.7); ctx.lineTo(lx + m.w * 0.6, gy + u * 0.3); ctx.fill();
+          ctx.restore();
+          ctx.fillStyle = '#5b6573'; ctx.save(); ctx.translate(lx, ly); ctx.rotate(0.15); rr(-s * 0.1, -s * 0.04, s * 0.18, s * 0.08, 2); ctx.fill(); ctx.restore();
+        }
+        // 暗い中でも人影は見えるように輪郭だけ
+        if (!has || F <= 0.5) { ctx.globalAlpha = 0.5; ctx.fillStyle = '#e6ecff'; ctx.beginPath(); ctx.arc(hk.head[0] + s * 0.07, hk.head[1], s * 0.03, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
+      } else if (k === 'thirst') {
+        const heat = A * (has ? 1 - ease(U) * 0.7 : 1);
+        const g = ctx.createRadialGradient(m.x + m.w * 0.85, m.y + u, 0, m.x + m.w * 0.85, m.y + u, m.w);
+        g.addColorStop(0, `rgba(255,230,140,${0.9 * heat})`); g.addColorStop(1, `rgba(255,140,40,${0.25 * heat})`);
+        ctx.fillStyle = g; ctx.fillRect(m.x, m.y, m.w, m.h);
+        ctx.fillStyle = `rgba(255,246,200,${heat})`; ctx.beginPath(); ctx.arc(m.x + m.w * 0.85, m.y + u, u * (1 + Math.sin(T * 4) * 0.05), 0, 7); ctx.fill();
+        ctx.strokeStyle = `rgba(255,255,255,${0.35 * heat})`; ctx.lineWidth = 2;
+        for (let i = 0; i < 6; i++) { const x = m.x + m.w * (i + 0.5) / 6; ctx.beginPath(); for (let y = gy - u * 2; y < gy; y += 4) ctx.lineTo(x + Math.sin(y * 0.15 + T * 6) * 3, y); ctx.stroke(); }
+        o.sweat = (T * 1.5) % 1;
+        if (has) {
+          const drink = ease((U - 0.05) / 0.3) * (1 - ease((U - 0.8) / 0.2));
+          o.arm = mix(ease(F) * 0.4, 0.62, drink); if (U > 0.3) o.sweat = 0;
+        } else { o.lieDir = 1; }
+        const hk = drawHikerSide(hx, gy, s, o);
+        if (has && F > 0.5) {
+          const [bx2, by2] = hk.hand, tilt = mix(0, -2.2, ease((U - 0.05) / 0.3)) * (1 - ease((U - 0.8) / 0.2));
+          ctx.save(); ctx.translate(bx2, by2); ctx.rotate(tilt);
+          ctx.fillStyle = '#3fa7a0'; rr(-s * 0.06, -s * 0.16, s * 0.12, s * 0.26, s * 0.03); ctx.fill();
+          ctx.fillStyle = '#2c3a33'; ctx.fillRect(-s * 0.035, -s * 0.21, s * 0.07, s * 0.05);
+          ctx.restore();
+          if (U > 0.3 && U < 0.8) for (let i = 0; i < 4; i++) { const ph = (T * 3 + i / 4) % 1; ctx.fillStyle = '#7cc3f0'; ctx.beginPath(); ctx.arc(hk.head[0] + s * 0.14, hk.head[1] + s * 0.08 + ph * s * 0.3, s * 0.025, 0, 7); ctx.fill(); }
+          if (U > 0.8) { ctx.globalAlpha = 1 - (U - 0.8) / 0.2; star(hk.head[0] + s * 0.25, hk.head[1] - s * 0.25, u * 0.35, '#fff6c0'); ctx.globalAlpha = 1; }
+        }
+      } else if (k === 'blizzard') {
+        const snow = A * (has ? 1 - ease(U) * 0.5 : 1);
+        ctx.fillStyle = `rgba(230,240,250,${0.5 * snow})`; ctx.fillRect(m.x, m.y, m.w, m.h);
+        o.jacket = has && F >= 1; o.cold = has ? (1 - ease(U * 2)) * A * 0.6 : X;
+        o.step = !has || U < 0.3 ? Math.sin(T * 60) * 0.12 : 0;
+        if (!has) o.lie = 0;
+        drawHikerSide(hx, gy, s, o);
+        if (has && F >= 1 && U < 0.4) { ctx.strokeStyle = `rgba(214,77,77,${1 - U / 0.4})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(hx, gy - s * 0.55, s * (0.3 + U * 1.2), 0, 7); ctx.stroke(); }
+        if (!has) {
+          const ice = ease((X - 0.3) / 0.5);
+          ctx.fillStyle = `rgba(190,225,250,${0.65 * ice})`; ctx.strokeStyle = `rgba(255,255,255,${ice})`; ctx.lineWidth = 2;
+          rr(hx - s * 0.45, gy - s * 1.15 * ice, s * 0.9, s * 1.15 * ice, 6); ctx.fill(); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(hx - s * 0.3, gy - s * 1.0 * ice); ctx.lineTo(hx - s * 0.1, gy - s * 0.8 * ice); ctx.stroke();
+        }
+        ctx.fillStyle = `rgba(255,255,255,${snow})`;
+        for (let i = 0; i < 120; i++) {
+          const x = m.x + ((hash(i, 3) * m.w - T * m.w * 0.8 * (0.6 + hash(i, 5))) % m.w + m.w) % m.w, y = m.y + ((hash(i, 4) * m.h + T * m.h * 0.3) % m.h);
+          ctx.beginPath(); ctx.arc(x, y, 1 + hash(i, 6) * 2.5, 0, 7); ctx.fill();
+        }
+      } else if (k === 'hunger') {
+        const growl = A * (has ? 1 - ease(U * 3) : 1);
+        if (has) { o.arm = mix(ease(F) * 0.4, 0.6, ease((U - 0.05) / 0.2)) * (1 - ease((U - 0.85) / 0.15)); }
+        else { o.lieDir = 1; o.step = X < 0.3 ? Math.sin(T * 20) * 0.2 : 0; }
+        const hk = drawHikerSide(hx, gy, s, o);
+        if (growl > 0.05) {
+          ctx.strokeStyle = `rgba(214,77,77,${growl})`; ctx.lineWidth = 2.5;
+          for (let i = 0; i < 3; i++) { ctx.beginPath(); const y0 = gy - s * (0.45 + i * 0.08); for (let x = 0; x < s * 0.35; x += 3) ctx.lineTo(hx + s * 0.25 + x, y0 + Math.sin(x * 0.5 + T * 20) * 3); ctx.stroke(); }
+        }
+        if (has && F > 0.5 && U < 0.85) {
+          const bites = Math.min(3, Math.floor(clamp((U - 0.25) / 0.6) * 4)), sc = 1 - bites / 3;
+          if (sc > 0) {
+            const [ox, oy] = hk.hand, r = s * 0.15 * (0.5 + 0.5 * sc);
+            ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(ox, oy - r); ctx.lineTo(ox + r, oy + r * 0.8); ctx.lineTo(ox - r, oy + r * 0.8); ctx.fill();
+            ctx.fillStyle = '#1f2a24'; ctx.fillRect(ox - r * 0.4, oy + r * 0.2, r * 0.8, r * 0.6);
+          }
+          if (U > 0.25) for (let i = 0; i < 3; i++) { const ph = (T * 2.5 + i / 3) % 1; ctx.fillStyle = `rgba(255,255,255,${1 - ph})`; ctx.fillRect(hk.head[0] + s * 0.15 + i * 3, hk.head[1] + s * 0.12 + ph * s * 0.6, 3, 3); }
+        }
+        if (has && U > 0.85) { ctx.globalAlpha = 1 - (U - 0.85) / 0.15; star(hk.head[0], hk.head[1] - s * 0.35, u * 0.4, '#fff6c0'); ctx.globalAlpha = 1; }
+      }
+      // 道具がリュックから手元へ飛ぶ
+      if (has && c.from && F > 0 && F < 1) {
+        const [fx, fy] = c.from, [tx, ty] = hiker.hand, e = ease(F);
+        const x = mix(fx, tx, e), y = mix(fy, ty, e) - Math.sin(F * Math.PI) * u * 2.5;
+        ctx.save(); ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,.3)'; ctx.shadowBlur = 8;
+        ctx.beginPath(); ctx.arc(x, y, u * 0.55, 0, 7); ctx.fill(); ctx.restore();
+        ctx.save(); ctx.beginPath(); ctx.arc(x, y, u * 0.48, 0, 7); ctx.fillStyle = ITEMS[c.item.type].color; ctx.fill(); ctx.restore();
+        drawGlyph(c.item.type, x, y, u * 0.8);
+      }
+      // 道具がないときは赤い点滅
+      if (!has && X > 0.25 && X < 0.6) { ctx.fillStyle = `rgba(214,77,77,${0.3 * (1 - (X - 0.25) / 0.35)})`; ctx.fillRect(m.x, m.y, m.w, m.h); }
+    }
+
     // ---- ループ ----
     let last = performance.now();
     function frame(now) {
@@ -754,13 +1106,15 @@
       bg.addColorStop(0, '#eef4f1'); bg.addColorStop(1, '#dbe8df');
       ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
       if (shakeT > 0) ctx.translate((Math.random() - 0.5) * shakeT * 24, (Math.random() - 0.5) * shakeT * 24);
-      if (phase !== 'title') {
+      if (climb) {
+        drawScene(now);
+        drawGrid();
+        drawParts();
+      } else if (phase !== 'title') {
         drawMountain(now);
         drawGrid();
         if (phase === 'pack') { ctx.fillStyle = 'rgba(255,255,255,.5)'; rr(L.tray.x - 6, L.tray.y - 6, L.tray.w + 12, L.tray.h + 6, 16); ctx.fill(); }
         if (phase === 'pack') for (const it of items) if (it.gx === null && it !== drag?.it) drawItem(it, it.tx, it.ty, trayScale);
-        drawHazardPanel();
-        drawParts();
         if (drag) {
           const s = L.cs, g = L.g, ox = drag.px - drag.fx * s, oy = drag.py - drag.fy * s;
           const gx = Math.round((ox - g.x) / s), gy = Math.round((oy - g.y) / s);
