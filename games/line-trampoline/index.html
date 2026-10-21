@@ -141,7 +141,7 @@ if (!window.Matter) { $('err').style.display = 'flex'; throw new Error('matter')
 resize();
 
 const { Engine, Bodies, Body, Composite, Events } = Matter;
-const BALL_R = 14, PX_PER_M = 40;
+const BALL_R = 18, PX_PER_M = 40;
 let engine, walls, ball, line, rocks, camY, startY, maxH, state, nextRockY, drag, trail, pops;
 const best = () => store.get('best', 0);
 
@@ -280,8 +280,14 @@ function draw() {
   ctx.save(); ctx.translate(0, -camY);
   // rocks
   for (const r of rocks) {
-    ctx.beginPath(); r.vertices.forEach((v, i) => i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)); ctx.closePath();
-    ctx.fillStyle = phase > 2 ? '#8a8aa8' : '#8b7a6b'; ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 3; ctx.stroke();
+    // fried egg: wobbly white through the polygon's edge midpoints, yolk in the middle
+    const vs = r.vertices, n = vs.length, mid = i => ({ x: (vs[i].x + vs[(i + 1) % n].x) / 2, y: (vs[i].y + vs[(i + 1) % n].y) / 2 });
+    ctx.beginPath(); let m0 = mid(n - 1); ctx.moveTo(m0.x, m0.y);
+    for (let i = 0; i < n; i++) { const m = mid(i); ctx.quadraticCurveTo(vs[i].x, vs[i].y, m.x, m.y); }
+    ctx.fillStyle = '#fffdf6'; ctx.fill(); ctx.strokeStyle = '#e8c98a'; ctx.lineWidth = 3; ctx.stroke();
+    const yr = Math.hypot(vs[0].x - r.position.x, vs[0].y - r.position.y) * 0.4;
+    ctx.fillStyle = '#ffb21e'; ctx.beginPath(); ctx.arc(r.position.x, r.position.y, yr, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.arc(r.position.x - yr * 0.35, r.position.y - yr * 0.35, yr * 0.25, 0, 7); ctx.fill();
   }
   // line (trampoline)
   if (line) drawTramp(line.a, line.b, line.used ? Math.sin(line.t / 25) * 12 * (1 - line.t / 350) : 0, line.used ? 1 - line.t / 350 : 1, line.len);
@@ -289,11 +295,10 @@ function draw() {
   // pops
   for (let i = pops.length - 1; i >= 0; i--) { const p = pops[i]; ctx.strokeStyle = `rgba(255,255,255,${1 - p.t / 300})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(p.x, p.y, BALL_R + p.t / 8, 0, 7); ctx.stroke(); }
   // trail & ball
-  trail.forEach((t, i) => { ctx.fillStyle = `rgba(255,120,60,${i / trail.length * 0.3})`; ctx.beginPath(); ctx.arc(t.x, t.y, BALL_R * i / trail.length, 0, 7); ctx.fill(); });
+  trail.forEach((t, i) => { ctx.fillStyle = `rgba(255,205,170,${i / trail.length * 0.35})`; ctx.beginPath(); ctx.arc(t.x, t.y, BALL_R * i / trail.length, 0, 7); ctx.fill(); });
   const bp = drawPos;
   ctx.save(); ctx.translate(bp.x, bp.y); ctx.rotate(ball.angle);
-  ctx.fillStyle = '#ff7a3c'; ctx.beginPath(); ctx.arc(0, 0, BALL_R, 0, 7); ctx.fill();
-  ctx.strokeStyle = '#c94d1c'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(-BALL_R, 0); ctx.lineTo(BALL_R, 0); ctx.moveTo(0, -BALL_R); ctx.lineTo(0, BALL_R); ctx.stroke();
+  drawOji(BALL_R);
   ctx.restore();
   // ready hint: animated finger drawing a line under the ball
   if (state === 'ready' && !drag) {
@@ -317,15 +322,34 @@ function draw() {
   ctx.fillStyle = phase > 2 ? '#5a5a80' : '#7a6a5b'; ctx.fillRect(0, 0, 6, H); ctx.fillRect(W - 6, 0, 6, H);
 
 }
+// bald uncle head (the ball)
+function drawOji(R) {
+  ctx.fillStyle = '#ffd2b0'; ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fill();
+  ctx.fillStyle = '#ffd2b0'; for (const sx of [-1, 1]) { ctx.beginPath(); ctx.ellipse(sx * R * 1.02, R * 0.1, R * 0.2, R * 0.28, 0, 0, 7); ctx.fill(); }
+  ctx.fillStyle = '#555'; for (const sx of [-1, 1]) { ctx.beginPath(); ctx.ellipse(sx * R * 0.78, R * 0.05, R * 0.18, R * 0.38, 0, 0, 7); ctx.fill(); }
+  ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.ellipse(-R * 0.3, -R * 0.55, R * 0.25, R * 0.14, -0.5, 0, 7); ctx.fill();
+  ctx.fillStyle = '#222'; for (const sx of [-1, 1]) { ctx.beginPath(); ctx.arc(sx * R * 0.32, R * 0.05, R * 0.09, 0, 7); ctx.fill(); }
+  ctx.beginPath(); ctx.moveTo(-R * 0.5, R * 0.45); ctx.quadraticCurveTo(-R * 0.2, R * 0.25, 0, R * 0.38); ctx.quadraticCurveTo(R * 0.2, R * 0.25, R * 0.5, R * 0.45); ctx.quadraticCurveTo(0, R * 0.6, -R * 0.5, R * 0.45); ctx.fill();
+}
+// green onion (the trampoline): roots at the start point, leaves at the end point
 function drawTramp(a, b, sag, alpha, len) {
   const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
   const nx = -(b.y - a.y) / l, ny = (b.x - a.x) / l;
-  const s = Math.max(0, Math.min(1, (len - 24) / 300)); // short = hot colour
-  const col = `hsl(${10 + s * 190},85%,55%)`;
-  ctx.save(); ctx.globalAlpha *= alpha;
-  ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(mx + nx * sag, my + ny * sag, b.x, b.y); ctx.stroke();
-  ctx.fillStyle = '#334'; for (const p of [a, b]) { ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, 7); ctx.fill(); }
+  const cx = mx + nx * sag, cy = my + ny * sag;
+  const g = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+  g.addColorStop(0, '#f6f8ee'); g.addColorStop(0.55, '#eef5d8'); g.addColorStop(0.68, '#8fcf4a'); g.addColorStop(1, '#3f9a2c');
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(60,80,40,.35)'; ctx.lineWidth = 12;
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(cx, cy, b.x, b.y); ctx.stroke();
+  ctx.strokeStyle = g; ctx.lineWidth = 9;
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(cx, cy, b.x, b.y); ctx.stroke();
+  // roots
+  const ux = (a.x - b.x) / l, uy = (a.y - b.y) / l;
+  ctx.strokeStyle = '#d9cfa8'; ctx.lineWidth = 1.5;
+  for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + ux * 9 + nx * i * 3, a.y + uy * 9 + ny * i * 3); ctx.stroke(); }
+  // split leaf tip
+  ctx.strokeStyle = '#3f9a2c'; ctx.lineWidth = 4;
+  for (const sd of [-1, 1]) { ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - ux * 12 + nx * sd * 6, b.y - uy * 12 + ny * sd * 6); ctx.stroke(); }
   ctx.restore();
 }
 
