@@ -376,19 +376,21 @@
         this.guardK += ((this.guard && this.stagger <= 0.25 ? 1 : 0) - this.guardK) * (1 - Math.exp(-dt * 14));
         this.updateBat(dt);
 
-        // 腰：その場で立ち続けようとするばね。押されると下がる
-        this.homeX += (this.hip.x - this.homeX) * (1 - Math.exp(-dt * (this.stagger > 0 ? 6 : 0.8)));
-        // 離れすぎたら、中央寄りにいる方（押した側）がすり足で詰める。前後の操作はいらない
-        const foe = this.foe;
-        if (foe?.alive && this.stagger <= 0 && Math.abs(foe.hip.x - this.hip.x) > 1.5 && Math.abs(this.homeX) <= Math.abs(foe.homeX) + 0.01) this.homeX += this.s * 0.9 * dt;
-        const swing = clamp((this.hB.x - this.shoulder(ZB).x) * this.s, -0.5, 0.8);
-        const tx = this.homeX + swing * 0.12 * this.s;
-        const ty = HIP_Y - Math.abs(Math.sin(this.breath * 2.2)) * 0.015 - (this.stagger > 0 ? 0.06 : 0);
-        this.hipV.x += ((tx - this.hip.x) * (this.stagger > 0 ? 8 : 40) - this.hipV.x * (this.stagger > 0 ? 3 : 9)) * dt;
+        // 腰：その場から前後には動かない。振りに合わせて大きくひねり、沈み、傾く
+        const sh0 = this.shoulder(ZB);
+        const swing = clamp((this.hB.x - sh0.x) * this.s, -0.6, 0.85);
+        const drop = clamp(sh0.y - this.hB.y, 0, 0.9);
+        const tx = this.homeX + (swing * 0.22 + drop * 0.08) * this.s;
+        const ty = HIP_Y - Math.abs(Math.sin(this.breath * 2.2)) * 0.015 - drop * 0.14 - (this.stagger > 0 ? 0.06 : 0);
+        this.hipV.x += ((tx - this.hip.x) * (this.stagger > 0 ? 30 : 60) - this.hipV.x * (this.stagger > 0 ? 6 : 10)) * dt;
         this.hipV.y += ((ty - this.hip.y) * 120 - this.hipV.y * 14) * dt;
         this.hip.addScaledVector(this.hipV, dt);
-        // 上体：振ると前に傾き、叩かれるとのけぞる
-        const tt = -this.s * swing * 0.25 - this.hipV.x * 0.05;
+        // ひねり：手が後ろ→前へ動くと腰が回る
+        const tw = clamp(swing * 0.9 - 0.15, -0.6, 0.8) * this.s + this.hBv.x * 0.02;
+        this.twistV = (this.twistV || 0) + ((tw - (this.twist || 0)) * 90 - (this.twistV || 0) * 11) * dt;
+        this.twist = (this.twist || 0) + this.twistV * dt;
+        // 上体：振ると前に倒れ込み、叩かれるとのけぞる
+        const tt = -this.s * (swing * 0.45 + drop * 0.35) - this.hipV.x * 0.08;
         const k = this.stagger > 0 ? 25 : 70;
         this.tiltV += ((tt - this.tilt) * k - this.tiltV * 7) * dt; this.tilt += this.tiltV * dt;
         // 首
@@ -432,7 +434,7 @@
         if (!this.alive) return;
         this.alive = false; this.guard = false;
         if (why === 'fall') { this.hipV.y = Math.max(this.hipV.y, 1.5); sndFall(); }
-        if (why === 'down') { this.tiltV += Math.sign(this.tilt) * 2; sndFall(); }
+        if (why === 'down') { this.tiltV += Math.sign(this.tilt) * 2; this.hipV.x -= Math.sign(this.tilt) * 3; sndFall(); }
         onKO(this);
       }
       popHead(dir, v) {
@@ -455,7 +457,7 @@
         if (f.p.y < -11.8) { f.p.y = -11.8; f.v.set(0, 0, 0); f.r.set(0, 0, 0); }
       }
       draw() {
-        this.torso.position.copy(this.hip); this.torso.rotation.z = this.tilt;
+        this.torso.position.copy(this.hip); this.torso.rotation.set(0, this.alive ? this.twist || 0 : 0, this.tilt);
         this.hipBall.position.copy(this.hip); this.hipBall.scale.set(0.24, 0.15, 0.2);
         if (this.headOn) { this.head.rotation.set(0, 0, this.headA); }
         else { this.head.position.copy(this.flying.p); this.head.rotation.copy(this.flying.q); }
@@ -518,7 +520,8 @@
       // バットどうし
       {
         const r = segSeg(g, tp, b.grip.clone().setZ(0), b.tip.clone().setZ(0));
-        if (r.d < 0.12) {
+        // 構えているだけのバットは邪魔をしない。お互いに振っている時だけぶつかる
+        if (r.d < 0.12 && b.tipV.length() > 5) {
           const v = velAt(r.u).length();
           if (v > 2) { sndClash(); a.cool = b.cool = 0.25; a.recoil = b.recoil = 0.2; }
           return;
@@ -550,11 +553,10 @@
         b.headAV += -dir * v * 1.6;
         b.tiltV += -dir * v * 0.05;
         b.hipV.x += dir * v * 0.08;
-        if (v > 28 || b.neck > 40) b.popHead(dir, v);
+        if (v > 28 || b.neck > 34) b.popHead(dir, v);
       } else {
         b.hipV.x += dir * v * 0.22;
         b.tiltV += -dir * v * 0.05;
-        b.homeX += dir * v * 0.015;
       }
     }
 
