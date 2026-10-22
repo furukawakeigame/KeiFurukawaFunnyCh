@@ -50,6 +50,16 @@
     #hint { position: absolute; left: 50%; top: 22%; width: 120px; height: 60px; margin-left: -150px; pointer-events: none; z-index: 2; }
     #hint .hand { animation: pull 1.2s ease-in-out infinite; }
     @keyframes pull { 0%, 15% { transform: translateX(0); } 70%, 100% { transform: translateX(-60px); } }
+    #hands { position: absolute; top: 34px; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 14px; pointer-events: none; z-index: 2; }
+    #hands div { width: 72px; height: 72px; transition: transform .15s, opacity .15s; }
+    #hands div.lose { opacity: .35; transform: scale(.8); }
+    #hands div.win { transform: scale(1.15); }
+    .jk { display: flex; gap: 14px; justify-content: center; }
+    .jk button { width: 88px; height: 88px; border-radius: 50%; border: 3px solid #f0c39a; background: #fff; padding: 8px; cursor: pointer; touch-action: manipulation; box-shadow: 0 4px 0 #f0c39a; }
+    .jk button:active { transform: translateY(3px); box-shadow: 0 1px 0 #f0c39a; }
+    #guardHint { position: absolute; left: 50%; top: 18%; width: 90px; height: 90px; margin-left: -45px; pointer-events: none; z-index: 2; animation: pulse .5s ease-in-out infinite alternate; }
+    #guardHint[hidden] { display: none; }
+    @keyframes pulse { to { transform: scale(1.15); } }
     #msg { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-weight: bold; padding: 0 16px; z-index: 3; }
     .overlay {
       position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
@@ -85,6 +95,14 @@
       <path d="M30 18L14 30l16 12" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
       <g class="hand"><circle cx="100" cy="30" r="13" fill="#e0603b" stroke="#fff" stroke-width="4"/></g>
     </svg>
+    <div id="hands"><div id="hMe"></div><div id="hCpu"></div></div>
+    <svg id="guardHint" viewBox="0 0 90 90" hidden>
+      <circle cx="45" cy="45" r="40" fill="#fff" opacity=".9"/>
+      <circle cx="45" cy="50" r="18" fill="#f2c9a0"/>
+      <rect x="22" y="26" width="16" height="34" rx="8" fill="#2f6fd0" transform="rotate(-12 30 43)"/>
+      <rect x="52" y="26" width="16" height="34" rx="8" fill="#2f6fd0" transform="rotate(12 60 43)"/>
+    </svg>
+    <div id="janken" class="overlay" hidden><div class="jk"><button data-k="0" aria-label="rock"></button><button data-k="1" aria-label="scissors"></button><button data-k="2" aria-label="paper"></button></div></div>
     <div id="msg"></div>
     <div id="title" class="overlay"><button id="start" class="big"></button></div>
     <div id="result" class="overlay" hidden>
@@ -357,8 +375,31 @@
     }
 
     // ---------- ゲーム進行 ----------
-    let state = 'title', stateT = 0, round = 0, score = [0, 0], maxCm = 0, cpuPlan = null, firstGame = true;
-    let timeScale = 1, slowT = 0, lastS = 0;
+    // 流れ: janken（手を選ぶ）→ attack（勝った側が引いて放す／負けた側はガード）→ snap → after → 次の janken
+    let state = 'title', stateT = 0, round = 0, score = [0, 0], maxCm = 0, firstGame = true;
+    let attacker = null, cpuPlan = null, atkT = 0;
+    let timeScale = 1, slowT = 0;
+
+    // 0:グー 1:チョキ 2:パー
+    function handSVG(k, c) {
+      const f = `fill="${c}"`;
+      const body = [
+        `<rect x="13" y="20" width="34" height="28" rx="11" ${f}/><path d="M24 22v9M32 22v9M40 22v9" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity=".7"/>`,
+        `<rect x="18" y="31" width="26" height="22" rx="9" ${f}/><rect x="17" y="5" width="9" height="32" rx="4.5" ${f} transform="rotate(-14 21 34)"/><rect x="34" y="5" width="9" height="32" rx="4.5" ${f} transform="rotate(14 38 34)"/>`,
+        `<rect x="14" y="29" width="32" height="24" rx="10" ${f}/>` + [15, 23, 31, 39].map((x, i) => `<rect x="${x}" y="${i % 3 ? 5 : 9}" width="7" height="30" rx="3.5" ${f}/>`).join('') + `<rect x="2" y="30" width="7" height="22" rx="3.5" ${f} transform="rotate(-45 6 41)"/>`,
+      ][k];
+      return `<svg viewBox="0 0 60 60" width="100%" height="100%">${body}</svg>`;
+    }
+    document.querySelectorAll('.jk button').forEach(b => {
+      b.innerHTML = handSVG(+b.dataset.k, '#e0603b');
+      b.onclick = () => pickHand(+b.dataset.k);
+    });
+    function showHands(m, c, res) {
+      $('hMe').innerHTML = m == null ? '' : handSVG(m, '#2f6fd0');
+      $('hCpu').innerHTML = c == null ? '' : `<div style="transform:scaleX(-1);width:100%;height:100%">${handSVG(c, '#d94a3c')}</div>`;
+      $('hMe').className = res === 1 ? 'win' : res === -1 ? 'lose' : '';
+      $('hCpu').className = res === -1 ? 'win' : res === 1 ? 'lose' : '';
+    }
 
     function setScore() {
       [...$('sMe').children].forEach((s, i) => s.classList.toggle('on', i < score[0]));
@@ -370,10 +411,28 @@
       startRound();
     }
     function startRound() {
-      resetPeople(); free = null; dragging = false;
-      state = 'ready'; stateT = 0;
-      const r = round;
-      cpuPlan = { thr: Math.min(0.97, 0.62 + r * 0.08 + Math.random() * 0.25), wait: 1.8 + Math.random() * 2.5, speed: 0.25, nextChange: 0, pause: false };
+      resetPeople(); free = null; dragging = false; attacker = null;
+      for (const p of people) p.guard = false;
+      showHands(null, null, 0);
+      state = 'janken'; stateT = 0;
+      $('janken').hidden = false;
+    }
+    function pickHand(k) {
+      if (state !== 'janken') return;
+      initAudio();
+      const c = Math.floor(Math.random() * 3);
+      const res = k === c ? 0 : (k + 1) % 3 === c ? 1 : -1; // グーはチョキに勝つ
+      $('janken').hidden = true;
+      showHands(k, c, res);
+      blip([res === 0 ? 520 : 700]);
+      if (res === 0) { state = 'aiko'; stateT = 0; return; }
+      attacker = res === 1 ? me : cpu;
+      state = 'attack'; stateT = 0; atkT = 0;
+      const lv = Math.min(round, 5);
+      cpuPlan = res === 1
+        ? { guardAt: Math.max(0.32, 0.75 - lv * 0.07 + Math.random() * 0.25) }            // CPU が守る
+        : { pullFor: Math.max(0.25, 0.6 - lv * 0.05 + Math.random() * 0.4), speed: 1.1 };   // CPU が攻める
+      if (firstGame) { if (attacker === me) $('hint').hidden = false; else $('guardHint').hidden = false; }
     }
     function stretch() {
       const a = mouthPos(me), b = mouthPos(cpu, tmpV);
@@ -381,13 +440,12 @@
       return { d, s: (d - REST) / (MAXLEN - REST) };
     }
     // hit: 当たる人、startPos: 飛び始める位置
-    function launch(hit, startPos, power, dropOnly) {
-      const holder = hit;
+    function launch(hit, startPos, power, dropOnly, cm = 0) {
       const other = hit === me ? cpu : me;
       other.grip = true;
-      free = { pos: new THREE.Vector3(startPos.x, startPos.y, startPos.z), vel: new THREE.Vector3(), to: holder, power, mode: dropOnly ? 'drop' : 'fly' };
+      free = { pos: new THREE.Vector3(startPos.x, startPos.y, startPos.z), vel: new THREE.Vector3(), to: hit, power, cm, mode: dropOnly ? 'drop' : 'fly' };
       state = 'snap'; stateT = 0;
-      $('hint').hidden = true;
+      $('hint').hidden = true; $('guardHint').hidden = true;
     }
     function onHit() {
       const p = free.to, power = free.power;
@@ -395,17 +453,26 @@
       const im = 2 + power * 8;
       p.head.b.applyImpulse(new CANNON.Vec3(dir.x * im, dir.y * im, 0));
       p.chest.b.applyImpulse(new CANNON.Vec3(dir.x * power * 5, 0, 0));
-      p.grip = false; p.squint = 1.2;
+      p.grip = false; p.squint = 1.2; p.guard = false;
       snapSound(power);
       timeScale = 0.3; slowT = 0.6;
-      if (p === cpu) score[0]++; else score[1]++;
+      if (p === cpu) { score[0]++; maxCm = Math.max(maxCm, free.cm); } else score[1]++;
       setScore();
       free.mode = 'hang';
       state = 'after'; stateT = 0;
     }
+    function onBlock() {
+      const p = free.to;
+      free.mode = 'hang';
+      free.vel.set(-p.dir * 2.5, 2, 0);
+      p.head.b.applyImpulse(new CANNON.Vec3(-p.dir * 1.2, 0, 0));
+      blip([180, 140]);
+      state = 'after'; stateT = 0.4;
+    }
     function endRoundCheck() {
       if (score[0] >= 2 || score[1] >= 2) {
         state = 'result';
+        firstGame = false;
         result = { win: score[0] >= 2, cm: maxCm };
         blip(result.win ? [660, 880, 1320] : [440, 330, 220]);
         showResult();
@@ -440,8 +507,10 @@
     }
     stage.addEventListener('pointerdown', e => {
       initAudio();
-      if (state !== 'ready' && state !== 'play') return;
+      if (state === 'snap' && free?.to === me && free.mode === 'fly') { me.guard = true; $('guardHint').hidden = true; return; }
+      if (state !== 'attack') return;
       e.preventDefault();
+      if (attacker !== me) { me.guard = true; $('guardHint').hidden = true; return; } // 負けたほうはタップでガード
       stage.setPointerCapture(e.pointerId);
       dragging = true; dragStart = worldAt(e); offStart.copy(me.off);
     });
@@ -449,21 +518,22 @@
       if (!dragging || !dragStart) return;
       const w = worldAt(e); if (!w) return;
       me.off.copy(offStart).add(w.sub(dragStart)); clampOff(me.off);
-      if (state === 'play') $('hint').hidden = true;
+      $('hint').hidden = true;
     });
     function release() {
       if (!dragging) return;
       dragging = false;
-      if (state !== 'play') return;
+      if (state !== 'attack' || attacker !== me) return;
       const { d, s } = stretch();
       const start = mouthPos(me);
-      if (s < 0.2) launch(cpu, start, 0, true);
-      else { maxCm = Math.max(maxCm, Math.round(d * 100)); launch(cpu, start, Math.min(s, 1)); }
+      if (s < 0.15) launch(cpu, start, 0, true);
+      else launch(cpu, start, Math.min(s, 1), false, Math.round(d * 100));
     }
     stage.addEventListener('pointerup', release);
     stage.addEventListener('pointercancel', release);
 
     // ---------- 1刻み ----------
+    const holding = () => state === 'title' || state === 'janken' || state === 'aiko' || state === 'attack';
     function tick() {
       stateT += H;
       for (const p of people) {
@@ -473,7 +543,16 @@
         uprightTorque(p.pelvis, 14, 0.8);
         uprightTorque(p.chest, 14, 0.7);
         uprightTorque(p.head, 9, 0.5);
-        for (const a of p.arms) uprightTorque(a, 3, 0.3);
+        for (const a of p.arms) uprightTorque(a, p.guard ? 0.5 : 3, 0.3);
+        if (p.guard) {
+          // 両手を顔の前に出す
+          const hp = p.head.b.position;
+          for (const [i, z] of [[1, -0.07], [3, 0.07]]) {
+            const lo = p.arms[i].b;
+            springTo(lo, hp.x + dir * 0.24, hp.y - 0.02, z, 900, 40, 220);
+            lo.force.y += (lo.mass + p.arms[i - 1].b.mass) * 9.8;
+          }
+        }
         if (p.grip) {
           const hr = p.head.rest;
           springTo(p.head.b, hr.x + p.off.x * dir, hr.y + p.off.y, 0, 500, 40, 260);
@@ -483,44 +562,38 @@
         if (!p.grip && p.squint < 0.5) { p.grip = true; p.off.set(-0.1, -0.1, 0); } // のけぞったあと立ち直る
       }
       // ゴムの張力
-      if (state === 'play' || state === 'ready' || state === 'title') {
+      if (holding()) {
         const a = mouthPos(me), b = mouthPos(cpu, tmpV.clone());
         const dv = b.vsub(a); const d = dv.length();
         if (d > REST) {
           const f = 140 * (d - REST) / d;
-          me.head.b.applyForce(new CANNON.Vec3(dv.x * f, dv.y * f, dv.z * f), a);
-          cpu.head.b.applyForce(new CANNON.Vec3(-dv.x * f, -dv.y * f, -dv.z * f), b);
+          me.head.b.applyForce(new CANNON.Vec3(dv.x * f, dv.y * f, dv.z * f));
+          cpu.head.b.applyForce(new CANNON.Vec3(-dv.x * f, -dv.y * f, -dv.z * f));
         }
       }
-      if (state === 'ready' && stateT > 0.7) {
-        state = 'play'; stateT = 0;
-        if (firstGame && round === 0) $('hint').hidden = false;
-      }
-      if (state === 'play') {
-        // CPU の引き
+      if (state === 'aiko' && stateT > 0.7) { showHands(null, null, 0); state = 'janken'; stateT = 0; $('janken').hidden = false; }
+      if (state === 'attack') {
         const pl = cpuPlan;
-        pl.nextChange -= H;
-        if (pl.nextChange <= 0) { pl.pause = Math.random() < 0.3; pl.speed = 0.12 + Math.random() * (0.2 + round * 0.06); pl.nextChange = 0.3 + Math.random() * 0.6; }
-        if (!pl.pause) { cpu.off.x = Math.max(-0.55, cpu.off.x - pl.speed * H); cpu.off.y = Math.max(-0.15, cpu.off.y - pl.speed * 0.3 * H); }
         const { s } = stretch();
-        if (s > 1) {
-          // 限界を超えた：たくさん引いていたほうに跳ね返る
-          const pm = me.head.rest.x - me.head.b.position.x, pc = cpu.head.b.position.x - cpu.head.rest.x;
-          const hit = pm >= pc ? me : cpu;
-          dragging = false;
-          launch(hit, mouthPos(hit === me ? cpu : me), 1);
-        } else if (stateT > pl.wait && (s >= pl.thr || (stateT > 8 && s >= 0.3))) {
-          launch(me, mouthPos(cpu), Math.min(s, 1));
+        if (attacker === cpu) {
+          if (stateT < pl.pullFor) { cpu.off.x = Math.max(-0.55, cpu.off.x - pl.speed * H); cpu.off.y = Math.max(-0.15, cpu.off.y - 0.3 * H); }
+          else launch(me, mouthPos(cpu), Math.max(0.3, Math.min(s, 1)));
+        } else {
+          if (s > 1) { dragging = false; launch(me, mouthPos(cpu), 1); } // 引きすぎて切れた：自分に返ってくる
+          else if (stateT > 3) { dragging = false; launch(cpu, mouthPos(me), 0, true); } // 放さないまま時間切れ
         }
-        lastS = s;
       }
+      // ジャンケンの勝負がついてからの時間で CPU はガードする（ゴムが飛んでいる間も間に合うことがある）
+      if (state === 'attack' || state === 'snap') atkT += H;
+      if (attacker === me && cpuPlan?.guardAt != null && atkT > cpuPlan.guardAt && (state === 'attack' || (state === 'snap' && free?.mode === 'fly'))) cpu.guard = true;
       if (free) {
         const p = free.to;
         const m = mouthPos(p); const anchor = new THREE.Vector3(m.x, m.y, m.z);
         if (free.mode === 'fly') {
           const to = anchor.clone().sub(free.pos); const dist = to.length();
-          const speed = 6 + free.power * 22;
-          if (dist < speed * H + 0.02) { free.pos.copy(anchor); onHit(); }
+          const speed = 5 + free.power * 14;
+          if (p.guard && dist < 0.3) onBlock();
+          else if (dist < speed * H + 0.02) { free.pos.copy(anchor); onHit(); }
           else free.pos.addScaledVector(to, speed * H / dist);
         } else {
           // ぶら下がる
@@ -580,7 +653,7 @@
       const s = render(acc / H);
       if (squeakGain) {
         const rate = Math.abs(s - prevS) / Math.max(dt, 1e-3);
-        const g = muted || state !== 'play' ? 0 : Math.min(0.06, rate * 0.05);
+        const g = muted || state !== 'attack' ? 0 : Math.min(0.06, rate * 0.05);
         squeakGain.gain.setTargetAtTime(g, ac.currentTime, 0.03);
         squeak.frequency.setTargetAtTime(250 + s * 700, ac.currentTime, 0.03);
       }
@@ -592,7 +665,6 @@
     tick(); render(1); // 最初の1回を空回し
     requestAnimationFrame(t0 => { last = t0; frame(t0); });
     // 1ゲーム遊んだらヒントは出さない
-    $('retry').addEventListener('click', () => { firstGame = false; });
   </script>
 </body>
 </html>
