@@ -42,7 +42,11 @@
     #gauge { position: absolute; left: 12px; right: 12px; top: 10px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.55); display: none; overflow: hidden; pointer-events: none; }
     #gauge i { display: block; height: 100%; width: 100%; background: #f2a531; border-radius: 5px; transform-origin: left; }
     #result { position: absolute; inset: 0 0 45% 0; display: none; align-items: center; justify-content: center; pointer-events: none; }
+    #result { flex-direction: column; gap: 4px; }
     #result b { font-size: clamp(44px, 14vw, 96px); font-weight: 900; color: #fff; text-shadow: 0 4px 0 #3b6b2a, 0 0 18px rgba(0,0,0,.25); }
+    #result span { font-size: clamp(22px, 7vw, 40px); font-weight: 900; color: #fff; text-shadow: 0 3px 0 #3b6b2a, 0 0 12px rgba(0,0,0,.25); padding: 0 12px; text-align: center; }
+    #stick { position: absolute; width: 96px; height: 96px; margin: -48px 0 0 -48px; border-radius: 50%; border: 3px solid rgba(255,255,255,.7); display: none; pointer-events: none; }
+    #stick i { position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; background: rgba(255,255,255,.8); }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
     #controls { display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; }
     #controls button, #controls a {
@@ -62,7 +66,7 @@
     <button id="sound" aria-label="sound"></button>
     <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
   </header>
-  <div id="stage"><div id="gauge"><i></i></div><div id="result"><b></b></div><div id="msg"></div></div>
+  <div id="stage"><div id="gauge"><i></i></div><div id="result"><b></b><span></span></div><div id="stick"><i></i></div><div id="msg"></div></div>
   <div id="controls"></div>
 
   <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
@@ -84,10 +88,32 @@
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
-      ja: { title: '巨大ヤギ', back: '← トップへ戻る', start: 'スタート', again: 'もう一度', post: 'Xに投稿', share: s => `ヤギを${s}まで大きくした #巨大ヤギゲーム` },
-      ko: { title: '거대 염소', back: '← 처음으로', start: '시작', again: '다시 하기', post: 'X에 게시', share: s => `염소를 ${s}까지 키웠다 #巨大ヤギゲーム` },
-      en: { title: 'Giant Goat', back: '← Back to top', start: 'Start', again: 'Play again', post: 'Post on X', share: s => `My goat grew to ${s} #巨大ヤギゲーム` },
-      th: { title: 'แพะยักษ์', back: '← กลับหน้าแรก', start: 'เริ่ม', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', share: s => `เลี้ยงแพะจนตัวใหญ่ถึง ${s} #巨大ヤギゲーム` },
+      ja: { title: '巨大ヤギ', back: '← トップへ戻る', start: 'スタート', again: 'もう一度', post: 'Xに投稿', share: (s, p) => `ヤギが${s}（${p}くらい）になった #巨大ヤギゲーム`, about: p => `${p}くらい` },
+      ko: { title: '거대 염소', back: '← 처음으로', start: '시작', again: '다시 하기', post: 'X에 게시', share: (s, p) => `염소가 ${s}(${p} 정도)가 됐다 #巨大ヤギゲーム`, about: p => `${p} 정도` },
+      en: { title: 'Giant Goat', back: '← Back to top', start: 'Start', again: 'Play again', post: 'Post on X', share: (s, p) => `My goat grew to ${s} (about the size of ${p}) #巨大ヤギゲーム`, about: p => `about ${p}` },
+      th: { title: 'แพะยักษ์', back: '← กลับหน้าแรก', start: 'เริ่ม', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', share: (s, p) => `แพะโตถึง ${s} (ใหญ่พอ ๆ กับ${p}) #巨大ヤギゲーム`, about: p => `ใหญ่พอ ๆ กับ${p}` },
+    };
+    // 大きさに近い日本の地名（目安の大きさ m）
+    const PLACES = [
+      [2, 'ハチ公', '하치코', 'Hachiko', 'ฮาจิโก'],
+      [12, '雷門', '가미나리몬', 'Kaminarimon', 'ประตูคามินาริมง'],
+      [46, '姫路城', '히메지성', 'Himeji Castle', 'ปราสาทฮิเมจิ'],
+      [206, '国会議事堂', '국회의사당', 'the National Diet Building', 'อาคารรัฐสภาญี่ปุ่น'],
+      [333, '東京タワー', '도쿄 타워', 'Tokyo Tower', 'โตเกียวทาวเวอร์'],
+      [634, '東京スカイツリー', '도쿄 스카이트리', 'Tokyo Skytree', 'โตเกียวสกายทรี'],
+      [1000, '四ツ谷', '요쓰야', 'Yotsuya', 'โยตสึยะ'],
+      [3776, '富士山', '후지산', 'Mt. Fuji', 'ภูเขาไฟฟูจิ'],
+      [8000, '山手線', '야마노테선', 'the Yamanote Line', 'รถไฟสายยามาโนเตะ'],
+      [25000, '東京23区', '도쿄 23구', "Tokyo's 23 wards", '23 เขตของโตเกียว'],
+      [63000, '琵琶湖', '비와호', 'Lake Biwa', 'ทะเลสาบบิวะ'],
+      [200000, '四国', '시코쿠', 'Shikoku', 'ชิโกกุ'],
+      [1300000, '本州', '혼슈', 'Honshu', 'ฮนชู'],
+      [3000000, '日本列島', '일본 열도', 'Japan', 'หมู่เกาะญี่ปุ่น'],
+    ];
+    const placeOf = size => {
+      let best = PLACES[0], bd = Infinity;
+      for (const p of PLACES) { const d = Math.abs(Math.log(size / p[0])); if (d < bd) { bd = d; best = p; } }
+      return best[1 + ['ja', 'ko', 'en', 'th'].indexOf(lang)];
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -99,6 +125,7 @@
       document.title = t('title');
       document.getElementById('back').textContent = t('back');
       renderControls();
+      if (state === 'result') showResult();
     }
 
     // ---------- 音 ----------
@@ -243,6 +270,11 @@
     defType(8, () => { const g = new THREE.Group(); g.add(box(.8, .55, .7, M.wall, 0, .275, 0)); const r = new THREE.Mesh(new THREE.ConeGeometry(.65, .45, 4), Math.random() < .5 ? M.roof : M.roof2); r.position.y = .77; r.rotation.y = Math.PI / 4; g.add(r); g.add(box(.16, .26, .02, M.trunk, 0, .13, .36)); return g; });
     defType(30, () => { const g = new THREE.Group(); const w = .32 + Math.random() * .1; g.add(box(w, 1, w, Math.random() < .5 ? M.concrete : M.concrete2, 0, .5, 0)); for (let y = .12; y < .95; y += .14) g.add(box(w + .01, .05, w + .01, M.glass, 0, y, 0)); return g; });
     defType(150, () => { const g = new THREE.Group(); const m = new THREE.Mesh(new THREE.ConeGeometry(.6, 1, 7), M.rock); m.position.y = .5; g.add(m); const s = new THREE.Mesh(new THREE.ConeGeometry(.21, .35, 7), M.snow); s.position.y = .83; g.add(s); return g; });
+    M.volcano = mat(0x6e6a5a); M.cloud = mat(0xffffff); M.moon = mat(0xd8d4c4); M.crater = mat(0xb4ae9c); M.sea = mat(0x2f7fd0); M.land = mat(0x4fae4a);
+    defType(700, () => { const g = new THREE.Group(); const m = new THREE.Mesh(new THREE.CylinderGeometry(.14, .75, 1, 10), M.volcano); m.position.y = .5; g.add(m); const s = new THREE.Mesh(new THREE.CylinderGeometry(.15, .3, .3, 10), M.snow); s.position.y = .86; g.add(s); return g; });
+    defType(2500, () => { const g = new THREE.Group(); for (const [x, y, z, r] of [[0, .45, 0, .32], [.3, .38, .05, .24], [-.3, .38, -.05, .24], [.05, .62, .05, .22]]) { const c = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), M.cloud); c.position.set(x, y, z); g.add(c); } return g; });
+    defType(10000, () => { const g = new THREE.Group(); const m = new THREE.Mesh(new THREE.IcosahedronGeometry(.5, 2), M.moon); m.position.y = .5; g.add(m); for (let i = 0; i < 6; i++) { const c = new THREE.Mesh(new THREE.CylinderGeometry(.08 + Math.random() * .06, .06, .04, 8), M.crater); const v = new THREE.Vector3().randomDirection(); c.position.copy(v.clone().multiplyScalar(.49)).add(new THREE.Vector3(0, .5, 0)); c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v); g.add(c); } return g; });
+    defType(50000, () => { const g = new THREE.Group(); const m = new THREE.Mesh(new THREE.IcosahedronGeometry(.5, 2), M.sea); m.position.y = .5; g.add(m); for (let i = 0; i < 5; i++) { const c = new THREE.Mesh(new THREE.IcosahedronGeometry(.2 + Math.random() * .1, 0), M.land); const v = new THREE.Vector3().randomDirection(); c.position.copy(v.multiplyScalar(.36)).add(new THREE.Vector3(0, .5, 0)); g.add(c); } return g; });
     // 種類ごとの見た目をいくつか作り回しする（生成の重さを抑える）
     const VARIANTS = TYPES.map(tp => Array.from({ length: 4 }, () => tp.build()));
     const pickType = size => {
@@ -289,14 +321,27 @@
     const keys = new Set();
     addEventListener('keydown', e => { keys.add(e.key.toLowerCase()); if (e.key.startsWith('Arrow')) e.preventDefault(); });
     addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
-    let ptr = null; // {x,y} ゲーム画面内のポインタ位置（中心から）
+    // ドラッグした向きに進む（押した場所が中心のスティック）
+    let ptr = null;
     const cv = renderer.domElement;
-    const setPtr = e => { const b = cv.getBoundingClientRect(); ptr = { x: e.clientX - b.left - b.width / 2, y: e.clientY - b.top - b.height * 0.55, touch: e.pointerType !== 'mouse' }; };
-    cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); setPtr(e); ptr.down = true; e.preventDefault(); });
-    cv.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' || ptr?.down) { const d = ptr?.down; setPtr(e); ptr.down = d; } });
-    const up = e => { if (e.pointerType !== 'mouse') ptr = null; else if (ptr) ptr.down = false; };
+    const stick = document.getElementById('stick'), knob = stick.firstElementChild;
+    const local = e => { const r = stage.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    cv.addEventListener('pointerdown', e => {
+      if (ptr) return;
+      e.preventDefault(); cv.setPointerCapture(e.pointerId);
+      const [x, y] = local(e);
+      ptr = { id: e.pointerId, ox: x, oy: y, x: 0, y: 0 };
+      if (state === 'play') { stick.style.left = x + 'px'; stick.style.top = y + 'px'; knob.style.transform = ''; stick.style.display = 'block'; }
+    });
+    cv.addEventListener('pointermove', e => {
+      if (!ptr || e.pointerId !== ptr.id) return;
+      const [x, y] = local(e);
+      ptr.x = x - ptr.ox; ptr.y = y - ptr.oy;
+      const l = Math.hypot(ptr.x, ptr.y), k = l > 36 ? 36 / l : 1;
+      knob.style.transform = `translate(${ptr.x * k}px, ${ptr.y * k}px)`;
+    });
+    const up = e => { if (ptr && e.pointerId === ptr.id) { ptr = null; stick.style.display = 'none'; } };
     cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
-    cv.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') ptr = null; });
 
     function readDir() {
       let x = 0, z = 0;
@@ -307,8 +352,7 @@
       if (x || z) { const l = Math.hypot(x, z); return [x / l, z / l, 1]; }
       if (ptr) {
         const l = Math.hypot(ptr.x, ptr.y);
-        const dead = ptr.touch ? 6 : 24;
-        if (l > dead) return [ptr.x / l, ptr.y / l, Math.min(1, (l - dead) / 60)];
+        if (l > 6) return [ptr.x / l, ptr.y / l, Math.min(1, (l - 6) / 30)];
       }
       return [0, 0, 0];
     }
@@ -435,7 +479,7 @@
       if (state === 'result') {
         const a = document.createElement('a');
         a.className = 'post'; a.textContent = t('post');
-        a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(fmt(finalS)))}&url=${encodeURIComponent(SHARE_URL)}`;
+        a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(fmt(finalS), placeOf(finalS)))}&url=${encodeURIComponent(SHARE_URL)}`;
         if (!matchMedia('(pointer: coarse)').matches) { a.target = '_blank'; a.rel = 'noopener'; }
         controls.append(a);
       }
@@ -446,10 +490,15 @@
       gaugeEl.style.display = 'block'; resultEl.style.display = 'none';
       renderControls();
     }
+    function showResult() {
+      resultEl.children[0].textContent = fmt(finalS);
+      resultEl.children[1].textContent = t('about')(placeOf(finalS));
+    }
     function finish() {
       state = 'result'; finalS = S;
       gaugeEl.style.display = 'none';
-      resultEl.firstElementChild.textContent = fmt(finalS);
+      stick.style.display = 'none';
+      showResult();
       resultEl.style.display = 'flex';
       meh(S);
       renderControls();
