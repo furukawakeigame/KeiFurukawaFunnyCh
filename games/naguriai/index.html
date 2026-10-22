@@ -76,8 +76,7 @@
   </style>
   <script type="importmap">
     { "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-      "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
     } }
   </script>
 </head>
@@ -115,7 +114,6 @@
   </script>
   <script type="module">
     import * as THREE from 'three';
-    import * as CANNON from 'cannon-es';
     window.__ok = true;
 
     const SHARE_URL = 'https://keifurukawafunnych.com/games/naguriai/';
@@ -199,6 +197,8 @@
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     stage.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     {
@@ -211,282 +211,352 @@
     }
     scene.fog = new THREE.Fog(0xcfeaff, 18, 60);
     const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x88a070, 1.3));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.7);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x88a070, 1.2));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.8);
     sun.position.set(3, 8, 6); sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024); sun.shadow.bias = -0.002; sun.shadow.normalBias = 0.03;
     Object.assign(sun.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4, near: 1, far: 30 });
     scene.add(sun);
-    const lam = c => new THREE.MeshLambertMaterial({ color: c });
+    const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, ...o });
 
     // 足場：細い台と、下に柱。遠くに地面
-    const PLAT_W = 4.2, PLAT_D = 1.6, PLAT_H = 0.4;
-    const plat = new THREE.Mesh(new THREE.BoxGeometry(PLAT_W, PLAT_H, PLAT_D), lam(0xc9935a));
+    const PLAT_W = 4.2, PLAT_D = 1.6, PLAT_H = 0.4, EDGE = PLAT_W / 2;
+    const plat = new THREE.Mesh(new THREE.BoxGeometry(PLAT_W, PLAT_H, PLAT_D), std(0xc9935a));
     plat.position.y = -PLAT_H / 2; plat.receiveShadow = true; plat.castShadow = true; scene.add(plat);
-    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 12, 20), lam(0x9a7048));
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 12, 20), std(0x9a7048));
     pillar.position.y = -6.4; scene.add(pillar);
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 40), lam(0x8fcf6a));
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 40), std(0x8fcf6a));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -12; scene.add(ground);
 
-    // ---------- 物理 ----------
-    const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -20, 0) });
-    world.solver.iterations = 14;
-    const mat = new CANNON.Material();
-    world.addContactMaterial(new CANNON.ContactMaterial(mat, mat, { friction: 0, restitution: 0.1 }));
-    // 当たりのグループ：台 / 自分の体 / 自分の道具 / 相手の体 / 相手の道具
-    const G = { plat: 1, body: [2, 8], tool: [4, 16] };
-    const platBody = new CANNON.Body({ mass: 0, material: mat, shape: new CANNON.Box(new CANNON.Vec3(PLAT_W / 2, PLAT_H / 2, PLAT_D / 2)) });
-    platBody.position.set(0, -PLAT_H / 2, 0);
-    platBody.collisionFilterGroup = G.plat; platBody.collisionFilterMask = 0xff;
-    world.addBody(platBody);
-
-    const H = 1 / 60;
-    // 速いバットが体をすり抜けないよう、1刻みを4回に分けて計算する
-    const SUBS = 4, SUB = H / SUBS;
-    const tmpV = new CANNON.Vec3();
-    const zAngle = q => 2 * Math.atan2(q.z, q.w);
-    const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+    const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const DT = 1 / 120;  // 計算の刻み（速いバットがすり抜けないよう細かめ）
+    const G = 20;
 
-    // 補間して描くための一覧
-    const tracked = [];
-    function track(body, mesh) {
-      const o = { body, mesh, pp: new THREE.Vector3(), pq: new THREE.Quaternion(), cp: new THREE.Vector3(), cq: new THREE.Quaternion() };
-      o.cp.copy(body.position); o.cq.copy(body.quaternion); o.pp.copy(o.cp); o.pq.copy(o.cq);
-      tracked.push(o); return o;
+    // ---------- 人の形（火鍋アルバイトシミュレーターと同じ、手の位置から腕と脚を決める作り） ----------
+    const cyl = new THREE.CylinderGeometry(1, 1, 1, 14), ball = new THREE.SphereGeometry(1, 18, 12);
+    const UP = V(0, 1, 0);
+    function limb(mat, r) { const m = new THREE.Mesh(cyl, mat); m.castShadow = true; m.userData.r = r; scene.add(m); return m; }
+    function joint(mat, r) { const m = new THREE.Mesh(ball, mat); m.scale.setScalar(r); m.castShadow = true; scene.add(m); return m; }
+    function placeLimb(m, a, b) {
+      const d = b.clone().sub(a), len = Math.max(1e-4, d.length());
+      m.position.copy(a).add(b).multiplyScalar(0.5);
+      m.quaternion.setFromUnitVectors(UP, d.divideScalar(len));
+      m.scale.set(m.userData.r, len, m.userData.r);
     }
-    function untrack(body) { const i = tracked.findIndex(o => o.body === body); if (i >= 0) tracked.splice(i, 1); }
+    // 2本の骨の IK。pole は曲げる向き
+    function ik(a, b, l1, l2, pole) {
+      const d = b.clone().sub(a); let len = d.length();
+      len = Math.min(Math.max(len, 1e-4), (l1 + l2) * 0.999); d.normalize();
+      const ca = (l1 * l1 + len * len - l2 * l2) / (2 * l1 * len);
+      const sa = Math.sqrt(Math.max(0, 1 - ca * ca));
+      const p = pole.clone().sub(d.clone().multiplyScalar(pole.dot(d))).normalize();
+      return a.clone().add(d.multiplyScalar(l1 * ca)).add(p.multiplyScalar(l1 * sa));
+    }
+    // 点と線分の距離（と線分上の位置）
+    function segDist(p, a, b) {
+      const ab = b.clone().sub(a), u = clamp(p.clone().sub(a).dot(ab) / Math.max(1e-6, ab.lengthSq()), 0, 1);
+      return { d: a.clone().addScaledVector(ab, u).distanceTo(p), u };
+    }
+    function segSeg(a, b, c, d) {
+      // 線分どうしの近さ（数点で調べる簡易版）
+      let best = { d: 1e9, u: 0 };
+      for (let i = 0; i <= 8; i++) {
+        const u = i / 8, p = a.clone().lerp(b, u), r = segDist(p, c, d);
+        if (r.d < best.d) best = { d: r.d, u };
+      }
+      return best;
+    }
 
-    const COLORS = [0x2f7de1, 0xe2453a, 0xf0a020, 0x8a4fd8, 0x2aa868, 0x333333, 0xe0609a];
-    const SKIN = 0xf3c9a0;
-    const SHOULDER = new CANNON.Vec3(0.05, 1.38, 0);  // 体の原点（足元）からの肩
-    const BAT_LEN = 1.3, BAT_OFF = 0.12;
-    const BAT_Z = 0.18;
+    const COLORS = [0x2f7de1, 0xe2453a, 0xf0a020, 0x8a4fd8, 0x2aa868, 0x555555, 0xe0609a];
+    const ARM = 0.42, LEG = 0.48, HIP_Y = 1.04;
+    const SH_Y = 0.6, NECK_Y = 0.9, HEAD_R = 0.21, BAT_LEN = 1.15;
+    const ZB = 0.3, ZS = -0.28;  // バットの腕は手前、盾の腕は奥
+    const skin = std(0xf2c9a0), pantsM = std(0x2a2a3a), shoeM = std(0x111111), batM = std(0xd6a564, { roughness: 0.5 });
 
     class Fighter {
-      // side: 0 = 自分（左・右向き）, 1 = 相手（右・左向き）
+      // side 0 = 自分（左・右向き）, 1 = 相手（右・左向き）
       constructor(side, color, x) {
         this.side = side; this.s = side === 0 ? 1 : -1;
-        this.alive = true; this.headOn = true; this.down = false;
-        this.stagger = 0; this.neck = 0; this.guard = true;
-        this.batAim = -2.3; this.maxW = 24;
-        const grp = G.body[side], tgrp = G.tool[side], og = G.body[1 - side], ot = G.tool[1 - side];
-        this.parts = [];
+        this.alive = true; this.headOn = true; this.koT = 0;
+        this.hip = V(x, HIP_Y, 0); this.hipV = V();
+        this.homeX = x;
+        this.tilt = 0; this.tiltV = 0;
+        this.headA = 0; this.headAV = 0; this.neck = 0;
+        this.stagger = 0; this.recoil = 0; this.cool = 0; this.breath = Math.random() * 6;
+        this.guard = true; this.guardK = 1;
+        this.rate = 22;  // 手が目標へ追いつく速さ
+        const shirt = std(color);
+        this.mats = [shirt];
 
-        // 体（足＋胴）
-        const b = this.body = new CANNON.Body({ mass: 6, material: mat, linearDamping: 0.05, angularDamping: 0.3 });
-        b.addShape(new CANNON.Box(new CANNON.Vec3(0.2, 0.42, 0.22)), new CANNON.Vec3(0, 0.42, 0));
-        b.addShape(new CANNON.Box(new CANNON.Vec3(0.26, 0.36, 0.22)), new CANNON.Vec3(0, 1.2, 0));
-        b.position.set(x, 0.01, 0);
-        b.linearFactor.set(1, 1, 0); b.angularFactor.set(0, 0, 1);
-        b.collisionFilterGroup = grp; b.collisionFilterMask = G.plat | og | ot;
-        world.addBody(b);
-        const bm = new THREE.Group();
-        const legG = new THREE.CylinderGeometry(0.09, 0.08, 0.84, 10);
-        for (const z of [-0.12, 0.12]) { const l = new THREE.Mesh(legG, lam(0x3a3f50)); l.position.set(0, 0.42, z); l.castShadow = true; bm.add(l); }
-        const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.42, 6, 14), lam(color));
-        torso.position.y = 1.18; torso.scale.z = 0.85; torso.castShadow = true; bm.add(torso);
-        scene.add(bm); this.parts.push(track(b, bm));
+        // 胴（腰を中心に傾く）
+        this.torso = new THREE.Group(); scene.add(this.torso);
+        const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.36, 6, 16), shirt);
+        body.position.y = 0.36; body.scale.z = 0.85; body.castShadow = true; this.torso.add(body);
+        const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.245, 0.245, 0.07, 16), std(0x222222));
+        belt.position.y = 0.08; belt.scale.z = 0.85; this.torso.add(belt);
+        const neckM = new THREE.Mesh(cyl, skin); neckM.scale.set(0.07, 0.2, 0.07); neckM.position.y = 0.72; this.torso.add(neckM);
+        this.hipBall = joint(pantsM, 0.22);
 
-        // 頭（首は弱めのロックでつなぐ。叩かれるほど弱る）
-        const hb = this.head = new CANNON.Body({ mass: 0.7, material: mat, linearDamping: 0.05, angularDamping: 0.2, shape: new CANNON.Sphere(0.23) });
-        hb.position.set(x, 1.86, 0);
-        hb.linearFactor.set(1, 1, 0); hb.angularFactor.set(0, 0, 1);
-        hb.collisionFilterGroup = grp; hb.collisionFilterMask = G.plat | og | ot;
-        world.addBody(hb);
-        const hm = new THREE.Group();
-        const skull = new THREE.Mesh(new THREE.SphereGeometry(0.23, 20, 14), lam(SKIN)); skull.castShadow = true; hm.add(skull);
-        const eyeG = new THREE.SphereGeometry(0.035, 8, 6), eyeM = lam(0x111111);
-        for (const z of [-0.08, 0.08]) { const e = new THREE.Mesh(eyeG, eyeM); e.position.set(0.2 * this.s, 0.04, z); hm.add(e); }
-        const hair = new THREE.Mesh(new THREE.SphereGeometry(0.24, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.42), lam(0x2a1a10));
-        hair.rotation.z = 0.35 * this.s; hm.add(hair);
-        scene.add(hm); this.parts.push(track(hb, hm));
-        this.neckC = new CANNON.LockConstraint(b, hb, { maxForce: 900 });
-        world.addConstraint(this.neckC);
+        // 頭（首の上で揺れる。強く叩かれると飛んでいく）
+        this.head = new THREE.Group(); this.torso.add(this.head); this.head.position.y = NECK_Y;
+        const face = new THREE.Mesh(ball, skin); face.scale.setScalar(HEAD_R); face.castShadow = true; this.head.add(face);
+        const look = new THREE.Group(); look.rotation.y = this.s * Math.PI / 2; this.head.add(look);
+        const hair = new THREE.Mesh(new THREE.SphereGeometry(HEAD_R + 0.01, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.45), std(0x2a1a10));
+        hair.rotation.x = -0.3; look.add(hair);
+        const eyeM = std(0x111111);
+        for (const ex of [-0.07, 0.07]) { const e = new THREE.Mesh(ball, eyeM); e.scale.set(0.025, 0.035, 0.02); e.position.set(ex, 0.03, HEAD_R - 0.015); look.add(e); }
+        this.mouth = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.012, 6, 12, Math.PI), std(0x7a1a10));
+        this.mouth.position.set(0, -0.07, HEAD_R - 0.02); look.add(this.mouth);
 
-        // バット
-        const bat = this.bat = new CANNON.Body({ mass: 1, material: mat, shape: new CANNON.Box(new CANNON.Vec3(BAT_LEN / 2, 0.07, 0.08)) });
-        bat.linearFactor.set(1, 1, 0); bat.angularFactor.set(0, 0, 1);
-        bat.collisionFilterGroup = tgrp; bat.collisionFilterMask = og | ot;
-        bat.gravityOff = true;
-        world.addBody(bat);
-        const batM = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.035, BAT_LEN, 12).rotateZ(Math.PI / 2), lam(0xd6a564));
-        batM.castShadow = true; scene.add(batM); this.parts.push(track(bat, batM));
-        this.placeBat(true);
+        // 腕・脚
+        const arm = () => ({ up: limb(shirt, 0.07), fo: limb(skin, 0.055), el: joint(shirt, 0.07), sh: joint(shirt, 0.08), hand: joint(skin, 0.075) });
+        this.armB = arm(); this.armS = arm();
+        this.legs = [-1, 1].map(k => ({ k, th: limb(pantsM, 0.095), sn: limb(pantsM, 0.08), kn: joint(pantsM, 0.095),
+          foot: new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.16), shoeM), f: V(), ft: V() }));
+        this.legs.forEach(l => { l.foot.castShadow = true; scene.add(l.foot); this.placeFoot(l); l.f.copy(l.ft); });
 
-        // 盾（構えると前へ、振っている間は体の奥へ下げる）
-        const sh = this.shield = new CANNON.Body({ mass: 3, material: mat, shape: new CANNON.Box(new CANNON.Vec3(0.05, 0.55, 0.36)) });
-        sh.angularFactor.set(0, 0, 0);
-        sh.collisionFilterGroup = tgrp; sh.collisionFilterMask = ot;
-        world.addBody(sh);
-        const shM = new THREE.Group();
-        const plate = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.1, 0.72), lam(0xb8c2cc)); plate.castShadow = true; shM.add(plate);
-        const rim = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.9, 0.5), lam(color)); shM.add(rim);
-        scene.add(shM); this.parts.push(track(sh, shM));
-        this.placeShield(true);
+        // バットと盾
+        this.batMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.035, BAT_LEN, 12).translate(0, BAT_LEN / 2, 0), batM);
+        this.batMesh.castShadow = true; scene.add(this.batMesh);
+        this.shield = new THREE.Group();
+        const plate = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.0, 0.66), std(0xb8c2cc, { metalness: 0.4, roughness: 0.4 }));
+        plate.castShadow = true; this.shield.add(plate);
+        const mark = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.8, 0.46), shirt); this.shield.add(mark);
+        scene.add(this.shield);
 
-        // 腕（肩からバットの握りへ、肩から盾へ）
-        const armG = new THREE.CylinderGeometry(0.06, 0.06, 1, 8).translate(0, 0.5, 0);
-        this.armBat = new THREE.Mesh(armG, lam(color)); this.armSh = new THREE.Mesh(armG, lam(color));
-        this.armBat.castShadow = this.armSh.castShadow = true;
-        scene.add(this.armBat, this.armSh);
-
-        // 当たり
-        bat.addEventListener('collide', e => this.onBatHit(e));
+        // 手（目標へ追いかける）
+        this.hB = this.restB(); this.hBt = this.hB.clone(); this.hBv = V();
+        this.hS = this.guardS(); this.hSt = this.hS.clone();
+        this.batDir = V(-this.s, -1, 0).normalize();
+        this.tip = V(); this.tipV = V(); this.grip = V(); this.gripV = V();
+        this.updateBat(0);
+        this.flying = null;  // 頭が飛んだあとの動き
       }
-      shoulder(out = new CANNON.Vec3()) {
-        const sp = new CANNON.Vec3(SHOULDER.x * this.s, SHOULDER.y, 0);
-        this.body.quaternion.vmult(sp, out); out.vadd(this.body.position, out);
-        out.z = BAT_Z; return out;
+      placeFoot(l) { l.ft.set(this.hip.x + l.k * this.s * 0.17, 0.05, l.k * 0.12); }
+      shoulder(z) { return V(this.hip.x - Math.sin(this.tilt) * SH_Y, this.hip.y + Math.cos(this.tilt) * SH_Y, z); }
+      neckPos() { return V(this.hip.x - Math.sin(this.tilt) * NECK_Y, this.hip.y + Math.cos(this.tilt) * NECK_Y, 0); }
+      headPos() {
+        if (!this.headOn) return this.flying.p.clone();
+        const a = this.tilt + this.headA, n = this.neckPos();
+        return V(n.x - Math.sin(a) * 0.04, n.y + Math.cos(a) * 0.04, 0);
       }
-      angle() { return zAngle(this.body.quaternion); }
-      // バットの向き（自分から見た角度 a → 世界の角度）
-      worldAim() { const a = this.batAim; return Math.atan2(Math.sin(a), Math.cos(a) * this.s) + this.angle(); }
-      batTarget() {
-        const sp = this.shoulder(), phi = this.worldAim();
-        const d = BAT_OFF + BAT_LEN / 2;
-        return { x: sp.x + Math.cos(phi) * d, y: sp.y + Math.sin(phi) * d, phi };
+      restB() { const sh = this.shoulder(ZB); return sh.add(V(-this.s * 0.2, -0.72, 0)); }
+      guardS() { const sh = this.shoulder(0.05); return sh.add(V(this.s * 0.42, -0.08, 0)); }
+      downS() { const sh = this.shoulder(ZS); return sh.add(V(-this.s * 0.05, -0.7, 0)); }
+      // 腕が届く範囲に収める
+      reach(p, z) {
+        const sh = this.shoulder(z), d = p.clone().sub(sh);
+        if (d.length() > ARM * 2 * 0.97) p.copy(sh).add(d.setLength(ARM * 2 * 0.97));
+        p.y = Math.max(p.y, this.hip.y - 0.85);
+        return p;
       }
-      placeBat(snap) {
-        const tg = this.batTarget(), b = this.bat;
-        if (snap || !this.alive) {
-          if (snap) { b.position.set(tg.x, tg.y, BAT_Z); b.quaternion.setFromEuler(0, 0, tg.phi); }
-          return;
+      updateBat(dt) {
+        const sh = this.shoulder(ZB), d = this.hB.clone().sub(sh); d.z = 0;
+        if (d.length() > 0.15) this.batDir.lerp(d.normalize(), dt > 0 ? 1 - Math.exp(-dt * 40) : 1).normalize();
+        const grip = this.hB.clone(), tip = grip.clone().addScaledVector(this.batDir, BAT_LEN);
+        if (dt > 0) { this.gripV.copy(grip).sub(this.grip).divideScalar(dt); this.tipV.copy(tip).sub(this.tip).divideScalar(dt); }
+        this.grip.copy(grip); this.tip.copy(tip);
+      }
+      step(dt) {
+        this.breath += dt;
+        this.stagger = Math.max(0, this.stagger - dt);
+        this.recoil = Math.max(0, this.recoil - dt);
+        this.cool = Math.max(0, this.cool - dt);
+        if (!this.alive) return this.stepDown(dt);
+
+        // 手の目標：振っている間は指の位置、離すと盾を構える
+        const tB = this.recoil > 0 || this.stagger > 0.25 ? this.restB() : (this.guard ? this.restB() : this.reach(this.hBt.clone(), ZB));
+        const tS = this.guard && this.stagger <= 0.25 ? this.guardS() : this.downS();
+        const prev = this.hB.clone();
+        this.hB.lerp(tB, 1 - Math.exp(-dt * (this.recoil > 0 ? 14 : this.rate)));
+        this.reach(this.hB, ZB);
+        this.hBv.copy(this.hB).sub(prev).divideScalar(dt);
+        this.hS.lerp(tS, 1 - Math.exp(-dt * 16));
+        this.guardK += ((this.guard && this.stagger <= 0.25 ? 1 : 0) - this.guardK) * (1 - Math.exp(-dt * 14));
+        this.updateBat(dt);
+
+        // 腰：その場で立ち続けようとするばね。押されると下がる
+        this.homeX += (this.hip.x - this.homeX) * (1 - Math.exp(-dt * (this.stagger > 0 ? 6 : 0.8)));
+        // 離れすぎたら、中央寄りにいる方（押した側）がすり足で詰める。前後の操作はいらない
+        const foe = this.foe;
+        if (foe?.alive && this.stagger <= 0 && Math.abs(foe.hip.x - this.hip.x) > 1.5 && Math.abs(this.homeX) <= Math.abs(foe.homeX) + 0.01) this.homeX += this.s * 0.9 * dt;
+        const swing = clamp((this.hB.x - this.shoulder(ZB).x) * this.s, -0.5, 0.8);
+        const tx = this.homeX + swing * 0.12 * this.s;
+        const ty = HIP_Y - Math.abs(Math.sin(this.breath * 2.2)) * 0.015 - (this.stagger > 0 ? 0.06 : 0);
+        this.hipV.x += ((tx - this.hip.x) * (this.stagger > 0 ? 8 : 40) - this.hipV.x * (this.stagger > 0 ? 3 : 9)) * dt;
+        this.hipV.y += ((ty - this.hip.y) * 120 - this.hipV.y * 14) * dt;
+        this.hip.addScaledVector(this.hipV, dt);
+        // 上体：振ると前に傾き、叩かれるとのけぞる
+        const tt = -this.s * swing * 0.25 - this.hipV.x * 0.05;
+        const k = this.stagger > 0 ? 25 : 70;
+        this.tiltV += ((tt - this.tilt) * k - this.tiltV * 7) * dt; this.tilt += this.tiltV * dt;
+        // 首
+        this.headAV += (-this.headA * Math.max(15, 90 - this.neck * 2) - this.headAV * 5) * dt; this.headA += this.headAV * dt;
+        this.headA = clamp(this.headA, -1.2, 1.2);
+
+        // 足：腰が離れたら踏み直す（前後に歩くことはしない）
+        const fc = (this.legs[0].ft.x + this.legs[1].ft.x) / 2;
+        if (Math.abs(this.hip.x - fc) > 0.18) this.legs.forEach(l => this.placeFoot(l));
+        for (const l of this.legs) { l.f.lerp(l.ft, 1 - Math.exp(-dt * 14)); l.f.y = 0.05 + Math.min(0.15, l.f.distanceTo(l.ft) * 0.8); }
+
+        // 負け：台から落ちる、倒れる
+        if (Math.abs(fc) > EDGE - 0.02 && Math.abs(this.hip.x) > EDGE) this.ko('fall');
+        else if (Math.abs(this.tilt) > 1.15) this.ko('down');
+      }
+      stepDown(dt) {
+        // 力が抜けて、勢いのまま落ちる・倒れる
+        this.koT += dt;
+        const onPlat = Math.abs(this.hip.x) < EDGE + 0.1 && this.hip.y > -0.2;
+        this.hipV.y -= G * dt;
+        this.hipV.x *= onPlat ? Math.exp(-dt * 1.5) : 1;
+        this.hip.addScaledVector(this.hipV, dt);
+        const lie = 0.3;
+        if (onPlat && this.hip.y < lie) { this.hip.y = lie; this.hipV.y = 0; this.tiltV *= Math.exp(-dt * 6); }
+        if (onPlat && this.hip.y <= lie + 0.01) this.tilt += (clamp(this.tilt * 9, -1.45, 1.45) - this.tilt) * (1 - Math.exp(-dt * 6));
+        this.tilt += this.tiltV * dt;
+        if (this.hip.y < -11.3) { this.hip.y = -11.3; this.hipV.set(0, 0, 0); this.tiltV = 0; }
+        // 手足はぶらんと
+        const sB = this.shoulder(ZB), sS = this.shoulder(ZS);
+        this.hB.lerp(sB.clone().add(V(0, -0.8, 0)), 1 - Math.exp(-dt * 5));
+        this.hS.lerp(sS.clone().add(V(0, -0.8, 0)), 1 - Math.exp(-dt * 5));
+        this.updateBat(dt);
+        for (const l of this.legs) {
+          const want = V(this.hip.x + Math.sin(this.tilt) * 0.9 + l.k * 0.1, this.hip.y - Math.cos(this.tilt) * 0.9, l.k * 0.12);
+          l.f.lerp(want, 1 - Math.exp(-dt * 10));
+          if (onPlat) l.f.y = Math.max(l.f.y, 0.05);
         }
-        const k = 28, vmax = 26;
-        let vx = (tg.x - b.position.x) * k, vy = (tg.y - b.position.y) * k;
-        const m = Math.hypot(vx, vy); if (m > vmax) { vx *= vmax / m; vy *= vmax / m; }
-        b.velocity.set(vx, vy, 0);
-        b.angularVelocity.set(0, 0, clamp(wrap(tg.phi - zAngle(b.quaternion)) * 30, -this.maxW, this.maxW));
-      }
-      shieldTarget() {
-        const p = this.body.position, a = this.angle();
-        if (this.guard) return { x: p.x + this.s * 0.5 - Math.sin(a) * 1.4, y: p.y + 1.4 + Math.sin(a * this.s) * 0.0, z: 0.12 };
-        return { x: p.x - this.s * 0.05, y: p.y + 0.9, z: -0.75 };
-      }
-      placeShield(snap) {
-        const tg = this.shieldTarget(), b = this.shield;
-        if (snap) { b.position.set(tg.x, tg.y, tg.z); return; }
-        if (!this.alive) return;
-        const k = 30, vmax = 14;
-        let vx = (tg.x - b.position.x) * k, vy = (tg.y - b.position.y) * k, vz = (tg.z - b.position.z) * k;
-        const m = Math.hypot(vx, vy, vz); if (m > vmax) { vx *= vmax / m; vy *= vmax / m; vz *= vmax / m; }
-        b.velocity.set(vx, vy, vz);
-      }
-      onBatHit(e) {
-        if (!this.alive || state !== 'fight') return;
-        const o = e.body, foe = this.foe;
-        if (!foe) return;
-        const v = Math.abs(e.contact.getImpactVelocityAlongNormal());
-        const now = performance.now();
-        if (now - (this.lastHit || 0) < 90) return;
-        if (o === foe.shield) {
-          if (v < 1.5) return;
-          this.lastHit = now; sndPon();
-          // 盾で弾かれると、叩いた側がよろける
-          hits.push(() => { this.stagger = Math.max(this.stagger, 0.4 + v * 0.03); this.body.applyImpulse(new CANNON.Vec3(-this.s * (3 + v * 0.35), 0, 0)); });
-          return;
-        }
-        if (o === foe.bat) { if (v > 2) { this.lastHit = now; sndClash(); } return; }
-        if (o !== foe.body && o !== foe.head) return;
-        if (v < 2) return;
-        this.lastHit = now;
-        sndPoka(v);
-        const dir = Math.sign(this.bat.velocity.x) || this.s;
-        hits.push(() => {
-          if (!foe.alive) return;
-          foe.stagger = Math.max(foe.stagger, 0.25 + v * 0.06);
-          if (o === foe.head && foe.headOn) {
-            foe.neck += v;
-            foe.neckC.equations.forEach(eq => { eq.maxForce = Math.max(150, 900 - foe.neck * 28); eq.minForce = -eq.maxForce; });
-            foe.head.applyImpulse(new CANNON.Vec3(dir * v * 0.5, v * 0.15, 0));
-            if (v > 15 || foe.neck > 30) foe.popHead(dir, v);
-            else foe.body.applyImpulse(new CANNON.Vec3(dir * v * 0.9, 0, 0), new CANNON.Vec3(foe.body.position.x, foe.body.position.y + 1.6, 0));
-          } else {
-            foe.body.applyImpulse(new CANNON.Vec3(dir * v * 0.8, 0, 0), new CANNON.Vec3(foe.body.position.x, foe.body.position.y + 1.1, 0));
-          }
-        });
-      }
-      popHead(dir, v) {
-        if (!this.headOn) return;
-        this.headOn = false;
-        world.removeConstraint(this.neckC);
-        const h = this.head;
-        h.linearFactor.set(1, 1, 1); h.angularFactor.set(1, 1, 1);
-        h.collisionFilterMask = G.plat;
-        h.velocity.set(dir * (8 + v * 0.5), 9 + v * 0.3, (Math.random() - 0.3) * 4);
-        h.angularVelocity.set(Math.random() * 20 - 10, Math.random() * 20 - 10, -dir * 15);
-        sndPop();
-        this.ko('head');
+        this.headAV *= Math.exp(-dt * 2); this.headA += this.headAV * dt;
       }
       ko(why) {
         if (!this.alive) return;
-        this.alive = false;
-        // 力が抜けて、そのままの勢いで崩れる
-        this.body.linearFactor.set(1, 1, 1); this.body.angularFactor.set(1, 1, 1);
-        this.bat.gravityOff = false; this.shield.angularFactor.set(1, 1, 1);
-        for (const b of [this.bat, this.shield]) b.collisionFilterMask = G.plat | G.body[1 - this.side];
-        this.bat.collisionFilterMask |= G.plat; this.shield.collisionFilterMask |= G.plat;
-        if (why !== 'head') sndFall();
+        this.alive = false; this.guard = false;
+        if (why === 'fall') { this.hipV.y = Math.max(this.hipV.y, 1.5); sndFall(); }
+        if (why === 'down') { this.tiltV += Math.sign(this.tilt) * 2; sndFall(); }
         onKO(this);
       }
-      control() {
-        const b = this.body;
-        if (!this.alive) return;
-        // 立ち直ろうとする力（よろけ中は弱い）
-        const a = this.angle(), bal = this.stagger > 0 ? 0.25 : 1;
-        b.torque.z += -(380 * bal) * a - 28 * b.angularVelocity.z;
-        // 相手との間合いを保とうと、少しずつ歩く
-        if (this.stagger <= 0 && this.foe?.alive && b.position.y > -0.05) {
-          const dist = Math.abs(this.foe.body.position.x - b.position.x);
-          let want = clamp((dist - 1.45) * 2, -0.7, 0.7) * this.s;
-          // 台の端へは歩いていかない
-          if (want * b.position.x > 0 && Math.abs(b.position.x) > 1.4) want = 0;
-          b.velocity.x += (want - b.velocity.x) * 0.04;
-        } else if (b.position.y > -0.05) {
-          // 足は台の上で滑る（摩擦は物理エンジンに任せず、ここでゆるく止める）
-          b.velocity.x *= 1 - 1.6 * SUB;
+      popHead(dir, v) {
+        if (!this.headOn) return;
+        const p = this.headPos();
+        this.headOn = false;
+        this.torso.remove(this.head); scene.add(this.head);
+        this.flying = { p, v: V(dir * (5 + v * 0.35), 8 + v * 0.25, (Math.random() - 0.3) * 3), r: V(Math.random() * 14 - 7, Math.random() * 14 - 7, -dir * 14), q: new THREE.Euler() };
+        sndPop();
+        this.ko('head');
+        this.tiltV += -dir * 3;
+      }
+      stepHead(dt) {
+        const f = this.flying; if (!f) return;
+        f.v.y -= G * dt; f.p.addScaledVector(f.v, dt);
+        f.q.x += f.r.x * dt; f.q.y += f.r.y * dt; f.q.z += f.r.z * dt;
+        if (Math.abs(f.p.x) < EDGE && Math.abs(f.p.z) < PLAT_D / 2 && f.p.y < HEAD_R && f.v.y < 0) {
+          f.p.y = HEAD_R; f.v.y *= -0.45; f.v.x *= 0.7; f.v.z *= 0.7; f.r.multiplyScalar(0.7);
         }
-        this.placeBat(false);
-        this.placeShield(false);
+        if (f.p.y < -11.8) { f.p.y = -11.8; f.v.set(0, 0, 0); f.r.set(0, 0, 0); }
       }
-      tick(dt) {
-        this.stagger = Math.max(0, this.stagger - dt);
-        if (!this.alive) return;
-        if (this.body.position.y < -0.6) this.ko('fall');
-        else if (Math.abs(this.angle()) > 1.15) this.ko('down');
+      draw() {
+        this.torso.position.copy(this.hip); this.torso.rotation.z = this.tilt;
+        this.hipBall.position.copy(this.hip); this.hipBall.scale.set(0.24, 0.15, 0.2);
+        if (this.headOn) { this.head.rotation.set(0, 0, this.headA); }
+        else { this.head.position.copy(this.flying.p); this.head.rotation.copy(this.flying.q); }
+        this.mouth.scale.y = this.alive ? 1 + (this.stagger > 0 ? 1.5 : 0) : 2.5;
+        const drawArm = (a, sh, hand, pole) => {
+          const el = ik(sh, hand, ARM, ARM, pole);
+          placeLimb(a.up, sh, el); placeLimb(a.fo, el, hand);
+          a.sh.position.copy(sh); a.el.position.copy(el); a.hand.position.copy(hand);
+        };
+        drawArm(this.armB, this.shoulder(ZB), this.hB, V(-this.s * 0.6, -1, 0.3));
+        drawArm(this.armS, this.shoulder(ZS + 0.05), this.hS, V(-this.s * 0.3, -1, -0.5));
+        // バット：握りから、肩→手の向きへ伸ばす
+        this.batMesh.position.copy(this.grip);
+        this.batMesh.quaternion.setFromUnitVectors(UP, this.batDir);
+        // 盾：手の前に立てる
+        this.shield.position.copy(this.hS).add(V(this.s * 0.07, 0.05, 0));
+        this.shield.rotation.set(0, 0, this.tilt * 0.5 + (1 - this.guardK) * 0.25 * this.s);
+        for (const l of this.legs) {
+          const hp = V(this.hip.x + Math.cos(this.tilt) * 0 - Math.sin(this.tilt) * -0.05, this.hip.y - 0.05, l.k * 0.12);
+          const ank = l.f.clone().add(V(-this.s * 0.04, 0.05, 0));
+          const kn = ik(hp, ank, LEG, LEG, V(this.s, 0.1, 0));
+          placeLimb(l.th, hp, kn); placeLimb(l.sn, kn, ank);
+          l.kn.position.copy(kn); l.foot.position.copy(l.f).add(V(this.s * 0.05, 0, 0));
+          l.foot.rotation.z = this.alive ? 0 : this.tilt;
+        }
       }
-      updateArms() {
-        const sp = new THREE.Vector3().copy(this.parts[0].mesh.position);
-        const q = this.parts[0].mesh.quaternion;
-        const sh = new THREE.Vector3(SHOULDER.x * this.s, SHOULDER.y, 0).applyQuaternion(q).add(sp);
-        const grip = new THREE.Vector3(-BAT_LEN / 2 + 0.05, 0, 0).applyQuaternion(this.parts[2].mesh.quaternion).add(this.parts[2].mesh.position);
-        const shp = this.parts[3].mesh.position.clone().add(new THREE.Vector3(-this.s * 0.06, -0.1, 0));
-        const show = this.alive;
-        this.armBat.visible = this.armSh.visible = show;
-        if (!show) return;
-        aim(this.armBat, sh.clone().setZ(0.24), grip);
-        aim(this.armSh, sh.clone().setZ(0.0), shp);
+      // 盾の板（線分）。構えている時だけ守る
+      shieldSeg() {
+        const c = this.hS.clone().add(V(this.s * 0.07, 0.05, 0)); c.z = 0;
+        return [c.clone().add(V(0, -0.52, 0)), c.clone().add(V(0, 0.52, 0))];
       }
       remove() {
-        if (this.headOn) world.removeConstraint(this.neckC);
-        for (const o of this.parts) { world.removeBody(o.body); scene.remove(o.mesh); untrack(o.body); }
-        scene.remove(this.armBat, this.armSh);
+        const objs = [this.torso, this.hipBall, this.batMesh, this.shield, this.head];
+        for (const a of [this.armB, this.armS]) objs.push(a.up, a.fo, a.el, a.sh, a.hand);
+        for (const l of this.legs) objs.push(l.th, l.sn, l.kn, l.foot);
+        for (const o of objs) scene.remove(o);
       }
     }
-    const UP = new THREE.Vector3(0, 1, 0);
-    function aim(mesh, a, b) {
-      const d = b.clone().sub(a), len = Math.max(0.01, d.length());
-      mesh.position.copy(a); mesh.scale.set(1, len, 1);
-      mesh.quaternion.setFromUnitVectors(UP, d.divideScalar(len));
-    }
-    // バットは重さを打ち消して浮かせて持つ
-    world.addEventListener('preStep', () => {
-      for (const f of fighters) {
-        if (f.bat.gravityOff) { tmpV.set(0, 20 * f.bat.mass, 0); f.bat.force.vadd(tmpV, f.bat.force); }
-        f.control();
+
+    // ---------- 当たり ----------
+    function checkHits(a, b) {
+      // a のバットが b に当たったか
+      if (!a.alive || !b.alive || a.cool > 0) return;
+      const g = a.grip.clone().setZ(0), tp = a.tip.clone().setZ(0);
+      const velAt = u => a.gripV.clone().lerp(a.tipV, u).setZ(0);
+      // 盾
+      if (b.guardK > 0.6) {
+        const [s0, s1] = b.shieldSeg(), r = segSeg(g, tp, s0, s1);
+        if (r.d < 0.09) {
+          const v = velAt(r.u).length();
+          if (v > 1.5) {
+            sndPon();
+            a.cool = 0.3; a.recoil = 0.35; a.stagger = Math.max(a.stagger, 0.35 + v * 0.02);
+            a.hipV.x -= a.s * (0.3 + v * 0.025); a.tiltV += a.s * (1 + v * 0.1);
+            b.hipV.x += a.s * v * 0.02;
+          } else { a.recoil = 0.15; a.cool = 0.15; }
+          return;
+        }
       }
-    });
+      // バットどうし
+      {
+        const r = segSeg(g, tp, b.grip.clone().setZ(0), b.tip.clone().setZ(0));
+        if (r.d < 0.12) {
+          const v = velAt(r.u).length();
+          if (v > 2) { sndClash(); a.cool = b.cool = 0.25; a.recoil = b.recoil = 0.2; }
+          return;
+        }
+      }
+      // 頭
+      if (b.headOn) {
+        const r = segDist(b.headPos(), g, tp);
+        if (r.d < HEAD_R + 0.06) {
+          const vel = velAt(r.u), v = vel.length();
+          if (v > 2) return hitBody(a, b, true, v, Math.sign(vel.x) || a.s);
+        }
+      }
+      // 胴
+      const n = b.neckPos(); n.z = 0;
+      const h0 = b.hip.clone().setZ(0), r = segSeg(g, tp, h0, n);
+      if (r.d < 0.3) {
+        const vel = velAt(r.u), v = vel.length();
+        if (v > 2) hitBody(a, b, false, v, Math.sign(vel.x) || a.s);
+        else { a.recoil = 0.1; a.cool = 0.1; }
+      }
+    }
+    function hitBody(a, b, head, v, dir) {
+      sndPoka(v);
+      a.cool = 0.25; a.recoil = 0.18;
+      b.stagger = Math.max(b.stagger, 0.3 + v * 0.04);
+      if (head) {
+        b.neck += v;
+        b.headAV += -dir * v * 1.6;
+        b.tiltV += -dir * v * 0.05;
+        b.hipV.x += dir * v * 0.08;
+        if (v > 28 || b.neck > 40) b.popHead(dir, v);
+      } else {
+        b.hipV.x += dir * v * 0.22;
+        b.tiltV += -dir * v * 0.05;
+        b.homeX += dir * v * 0.015;
+      }
+    }
 
     // ---------- 相手の動き ----------
     class CPU {
@@ -496,34 +566,33 @@
         this.react = Math.max(0.12, 0.45 - level * 0.05);   // 盾を出すまでの遅れ
         this.guardRate = Math.min(0.85, 0.3 + level * 0.08);
         this.windup = Math.max(0.25, 0.7 - level * 0.06);
-        f.maxW = Math.min(28, 13 + level * 2.5);
+        f.rate = Math.min(22, 9 + level * 2);
         this.seen = -1;
       }
+      aim(dx, dy) { const sh = this.f.shoulder(ZB); this.f.hBt.set(sh.x + dx * this.f.s, sh.y + dy, ZB); }
       tick(dt, me) {
         const f = this.f;
         if (!f.alive) return;
         this.t -= dt;
-        if (f.stagger > 0 && this.mode !== 'wait') { this.mode = 'wait'; this.t = 0.5 + Math.random() * 0.5; f.guard = true; f.batAim = -2.3; }
-        // 相手が振りかぶったら、少し遅れて盾
-        const threat = me.alive && !me.guard && Math.abs(me.bat.angularVelocity.z) > 6;
-        if (threat && this.mode === 'wait' && this.seen < 0) this.seen = Math.random() < this.guardRate ? this.react : -2;
-        if (!threat && this.seen < -1) this.seen = -1;
-        if (this.seen >= 0) { this.seen -= dt; if (this.seen < 0) { this.seen = -3; f.guard = true; this.mode = 'wait'; this.t = Math.max(this.t, 0.4); } }
-        if (this.seen === -3 && !threat) this.seen = -1;
+        if (f.stagger > 0.2 && this.mode !== 'wait') { this.mode = 'wait'; this.t = 0.5 + Math.random() * 0.5; f.guard = true; }
+        // 相手が振ってきたら、少し遅れて盾
+        const threat = me.alive && !me.guard && me.hBv.length() > 3;
+        if (threat && this.mode === 'wait' && this.seen === -1) this.seen = Math.random() < this.guardRate ? this.react : -2;
+        if (this.seen >= 0) { this.seen -= dt; if (this.seen < 0) { this.seen = -2; f.guard = true; this.t = Math.max(this.t, 0.4); } }
+        if (!threat && this.seen === -2) this.seen = -1;
         switch (this.mode) {
           case 'wait':
-            f.batAim = -2.3;
             if (this.t <= 0) {
-              if (Math.random() < 0.65) { this.mode = 'up'; this.t = this.windup; f.guard = false; }
+              if (Math.random() < 0.65) { this.mode = 'up'; this.t = this.windup; f.guard = false; this.aim(-0.1, 0.75); this.f.hBt.copy(this.f.hB); }
               else { f.guard = Math.random() < this.guardRate; this.t = 0.6 + Math.random() * 1.2; }
             }
             break;
           case 'up':  // 振りかぶる
-            f.batAim = 1.9 + Math.random() * 0.02;
-            if (this.t <= 0) { this.mode = 'swing'; this.t = 0.35; this.low = Math.random() < 0.35; }
+            this.aim(-0.15, 0.78);
+            if (this.t <= 0) { this.mode = 'swing'; this.t = 0.4; this.low = Math.random() < 0.35; }
             break;
           case 'swing':  // 振り下ろす
-            f.batAim = this.low ? -0.9 : -0.35;
+            this.aim(0.75, this.low ? -0.45 : -0.15);
             if (this.t <= 0) { this.mode = 'wait'; this.t = Math.max(0.3, 1.4 - this.lv * 0.12) + Math.random() * 0.8; f.guard = true; }
             break;
         }
@@ -543,39 +612,35 @@
     const up = () => { dragging = false; };
     canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
     addEventListener('blur', up);
-    const pv = new THREE.Vector3();
+    const ray = new THREE.Raycaster(), plane = new THREE.Plane(V(0, 0, 1), -ZB), ndc = new THREE.Vector2();
     function playerAim() {
       const p = fighters[0];
       if (!p || !p.alive) return;
       p.guard = !dragging;
-      if (!dragging) { p.batAim = -2.3; return; }
-      // 肩から指へ向かう方向にバットを向ける
-      const sp = p.shoulder();
-      pv.set(sp.x, sp.y, sp.z).project(camera);
+      if (!dragging) return;
+      // 指の場所（バットを持つ手の高さの面の上）へ手を動かす
       const r = canvas.getBoundingClientRect();
-      const sx = (pv.x + 1) / 2 * r.width + r.left, sy = (1 - pv.y) / 2 * r.height + r.top;
-      const wa = Math.atan2(-(ptr.y - sy), ptr.x - sx) - p.angle();
-      p.batAim = Math.atan2(Math.sin(wa), Math.cos(wa));
+      ndc.set((ptr.x - r.left) / r.width * 2 - 1, -((ptr.y - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      const hit = V();
+      if (ray.ray.intersectPlane(plane, hit)) p.hBt.copy(hit);
     }
 
     // ---------- ゲーム進行 ----------
-    let fighters = [], cpu = null, hits = [];
+    let fighters = [], cpu = null;
     let state = 'title', wins = 0, level = 0, koTimer = 0, loser = null;
     function spawn() {
       for (const f of fighters) f.remove();
-      // 前の試合で飛んでいった頭なども片付ける
-      fighters = [new Fighter(0, COLORS[0], -0.75), new Fighter(1, COLORS[1 + (level % (COLORS.length - 1))], 0.75)];
+      fighters = [new Fighter(0, COLORS[0], -0.72), new Fighter(1, COLORS[1 + (level % (COLORS.length - 1))], 0.72)];
       fighters[0].foe = fighters[1]; fighters[1].foe = fighters[0];
       cpu = new CPU(fighters[1], level);
-      hits = []; loser = null; koTimer = 0;
+      loser = null; koTimer = 0;
     }
-    function onKO(f) { if (!loser) { loser = f; koTimer = f.side === 1 ? 1.6 : 2.2; } }
-    function drawWins() {
-      const el = $('wins');
-      el.innerHTML = '';
-      for (let i = 0; i < wins; i++) el.insertAdjacentHTML('beforeend', headIcon(COLORS[1 + (i % (COLORS.length - 1))]));
-    }
+    function onKO(f) { if (!loser) { loser = f; koTimer = f.side === 1 ? 1.8 : 2.2; } }
     const headIcon = c => `<svg width="22" height="22" viewBox="0 0 22 22"><circle cx="11" cy="11" r="9" fill="#f3c9a0" stroke="#${c.toString(16).padStart(6, '0')}" stroke-width="3"/><path d="M7 8l3 3M10 8l-3 3M12 8l3 3M15 8l-3 3" stroke="#222" stroke-width="1.5"/></svg>`;
+    function drawWins() {
+      $('wins').innerHTML = Array.from({ length: wins }, (_, i) => headIcon(COLORS[1 + (i % (COLORS.length - 1))])).join('');
+    }
     function startGame() {
       wins = 0; level = 0; drawWins();
       $('title').hidden = true; $('result').hidden = true;
@@ -594,13 +659,13 @@
     $('retry').onclick = startGame;
 
     function step(dt) {
+      const [p, c] = fighters;
       if (state === 'fight' || state === 'ko') {
         playerAim();
-        if (cpu) cpu.tick(dt, fighters[0]);
+        if (cpu && state === 'fight') cpu.tick(dt, p);
       }
-      for (let i = 0; i < SUBS; i++) world.step(SUB);
-      const q = hits; hits = []; q.forEach(fn => fn());
-      for (const f of fighters) f.tick(dt);
+      for (const f of fighters) { f.step(dt); f.stepHead(dt); }
+      if (state === 'fight') { checkHits(p, c); checkHits(c, p); }
       if (loser) {
         state = 'ko';
         koTimer -= dt;
@@ -612,7 +677,7 @@
     }
 
     // ---------- 画面 ----------
-    let camX = 0;
+    let camX = 0, camDist = 6;
     function resize() {
       const w = stage.clientWidth, h = stage.clientHeight;
       renderer.setSize(w, h, false);
@@ -622,43 +687,32 @@
       camDist = Math.max(2.3 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), 2.5 / Math.tan(hf / 2));
       camera.updateProjectionMatrix();
     }
-    let camDist = 6;
     addEventListener('resize', resize);
     resize();
 
-    function render(alpha) {
-      for (const o of tracked) {
-        o.mesh.position.lerpVectors(o.pp, o.cp, alpha);
-        o.mesh.quaternion.slerpQuaternions(o.pq, o.cq, alpha);
-      }
-      for (const f of fighters) f.updateArms();
-      const mid = fighters.length ? (fighters[0].body.position.x + fighters[1].body.position.x) / 2 : 0;
+    function render() {
+      for (const f of fighters) f.draw();
+      const mid = fighters.length ? (fighters[0].hip.x + fighters[1].hip.x) / 2 : 0;
       camX += (clamp(mid, -1, 1) * 0.6 - camX) * 0.05;
-      const camY = 1.4 + camDist * 0.1;
       // 少し自分の後ろ側から見て、盾の面が見えるようにする
-      camera.position.set(camX - camDist * 0.22, camY, camDist * 0.97);
+      camera.position.set(camX - camDist * 0.22, 1.4 + camDist * 0.1, camDist * 0.97);
       camera.lookAt(camX - 0.15, 1.0, 0);
       renderer.render(scene, camera);
-    }
-    function snapshot() {
-      for (const o of tracked) { o.pp.copy(o.cp); o.pq.copy(o.cq); o.cp.copy(o.body.position); o.cq.copy(o.body.quaternion); }
     }
 
     let last = performance.now(), acc = 0;
     function loop(now) {
       const dt = Math.min(0.05, (now - last) / 1000); last = now;
       acc += dt;
-      while (acc >= H) { step(H); snapshot(); acc -= H; }
-      // 遠くへ落ちたものは止める
-      for (const o of tracked) if (o.body.position.y < -11 && o.body.type !== CANNON.Body.STATIC) { o.body.velocity.set(0, 0, 0); o.body.type = CANNON.Body.STATIC; o.body.updateMassProperties(); }
-      render(acc / H);
+      while (acc >= DT) { step(DT); acc -= DT; }
+      render();
       requestAnimationFrame(loop);
     }
 
     // タイトル画面でも2人を立たせておく（読み込み時に1回空回しも兼ねる）
     spawn(); cpu = null;
-    for (let i = 0; i < 30; i++) { step(H); snapshot(); }
-    render(1);
+    for (let i = 0; i < 30; i++) step(DT);
+    render();
     applyLang();
     requestAnimationFrame(loop);
   </script>
