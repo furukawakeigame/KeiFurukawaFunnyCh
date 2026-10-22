@@ -125,7 +125,7 @@
       document.title = t('title');
       document.getElementById('back').textContent = t('back');
       renderControls();
-      if (state === 'result') showResult();
+      if (state === 'result') { showResult(); prepareShare(); }
     }
 
     // ---------- 音 ----------
@@ -455,12 +455,15 @@
     new ResizeObserver(resize).observe(stage);
     resize();
 
+    let needSnap = false;
     let acc = 0, last = performance.now();
     function loop(tm) {
       const dt = Math.min(0.05, (tm - last) / 1000); last = tm;
       acc += dt;
       while (acc >= DT) { step(); acc -= DT; }
       draw(acc / DT, dt);
+      // 描いた直後なら WebGL の画面を読み取れる
+      if (needSnap) { needSnap = false; takeSnap(); prepareShare(); }
       requestAnimationFrame(loop);
     }
 
@@ -480,10 +483,58 @@
         const a = document.createElement('a');
         a.className = 'post'; a.textContent = t('post');
         a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(fmt(finalS), placeOf(finalS)))}&url=${encodeURIComponent(SHARE_URL)}`;
-        if (!matchMedia('(pointer: coarse)').matches) { a.target = '_blank'; a.rel = 'noopener'; }
+        const coarse = matchMedia('(pointer: coarse)').matches;
+        if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
+        // スマホは画像ごと共有シートへ。PCは画像を保存してから投稿画面を開く
+        a.addEventListener('click', e => {
+          const text = t('share')(fmt(finalS), placeOf(finalS));
+          if (coarse && navigator.share) {
+            e.preventDefault();
+            const file = shareFile();
+            const data = file && navigator.canShare?.({ files: [file] }) ? { files: [file], text: `${text}\n${SHARE_URL}` } : { text: `${text}\n${SHARE_URL}` };
+            navigator.share(data).catch(() => {});
+            return;
+          }
+          const img = resultImage();
+          if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'giant-goat.png'; d.click(); }
+        });
         controls.append(a);
       }
     }
+    // 結果画像: 結果が出た瞬間の3D画面に、大きさと地名を重ねる
+    let snap = null, shareCache = null;
+    function takeSnap() {
+      const src = renderer.domElement, side = Math.min(src.width, src.height);
+      snap = document.createElement('canvas'); snap.width = snap.height = 1080;
+      snap.getContext('2d').drawImage(src, (src.width - side) / 2, (src.height - side) / 2, side, side, 0, 0, 1080, 1080);
+      shareCache = null;
+    }
+    function resultImage() {
+      if (!snap) return null;
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      g.drawImage(snap, 0, 0);
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.lineJoin = 'round';
+      const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
+      const text = (str, y, px, max) => {
+        g.font = font(px);
+        const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
+        g.lineWidth = px * .16; g.strokeStyle = '#3b6b2a'; g.strokeText(str, 540, y); g.fillText(str, 540, y);
+      };
+      text(fmt(finalS), 250, 190, 960);
+      text(t('about')(placeOf(finalS)), 360, 80, 960);
+      text(t('title'), 1020, 52, 900);
+      return c;
+    }
+    // 共有用ファイルは言語ごとに作っておく（クリック時に待つと Safari で共有が止まるため）
+    function prepareShare() {
+      if (!snap) return;
+      const key = lang;
+      if (shareCache?.key === key) return;
+      shareCache = { key, file: null };
+      resultImage().toBlob(b => { if (b && shareCache?.key === key) shareCache.file = new File([b], 'giant-goat.png', { type: 'image/png' }); }, 'image/png');
+    }
+    const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
     function start() {
       reset();
       state = 'play'; lastGauge = -1;
@@ -501,6 +552,7 @@
       showResult();
       resultEl.style.display = 'flex';
       meh(S);
+      snap = null; needSnap = true;
       renderControls();
     }
 
