@@ -138,6 +138,7 @@ function whoosh(dur, vol) {
 
 // ---- world (meters) ----
 // a pole on a cart; angle from straight up, positive = leaning toward +x
+const catImg = new Image(); catImg.src = 'cat.png';
 const cv = $('cv'), ctx = cv.getContext('2d');
 const G = 6.5, DT = 1 / 240;                  // a bit gentler than real gravity so a person can react
 const POLE = 1.5, PIVOT = 0.42, RAIL = 1.6;   // pole length, pivot height, half the rail length
@@ -152,7 +153,7 @@ function reset(st) {
   const tilt = (0.02 + Math.random() * 0.03) * (Math.random() < 0.5 ? -1 : 1);
   s = { x: 0, v: 0, a: tilt, w: 0 };
   prev = { ...s };
-  target = 0; offset = null; playT = 0; finalT = 0; wait = 0;
+  target = 0; offset = null; playT = 0; zoom = 1; finalT = 0; wait = 0;
   gust = null; nextGust = FIRST_GUST; warnT = 0; streaks.length = 0;
   state = st;
 }
@@ -202,7 +203,7 @@ function step(dt) {
 }
 
 // ---- input ----
-let scale = 100, originX = 0, groundY = 0;
+let scale = 100, baseScale = 100, zoom = 1, originX = 0, groundY = 0;
 const toWorldX = e => (e.clientX - cv.getBoundingClientRect().left - originX) / scale;
 // the finger moves the cart relative to where it first touched, so the cart never jumps to the finger
 function aimAt(e) {
@@ -264,7 +265,7 @@ function resize() {
   cv.width = r.width * dpr; cv.height = r.height * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const W = r.width, H = r.height;
   groundY = H - Math.max(110, H * 0.24);
-  scale = Math.min(W / (2 * RAIL + 1.1), (groundY - 70) / (PIVOT + POLE + 0.5));
+  scale = baseScale = Math.min(W / (2 * RAIL + 1.1), (groundY - 70) / (PIVOT + POLE + 0.5));
   originX = W / 2;
 }
 addEventListener('resize', resize);
@@ -287,6 +288,11 @@ let lastBg = '';
 function draw(fdt, k) {
   const W = cv.clientWidth, H = cv.clientHeight;
   const x = prev.x + (s.x - prev.x) * k, a = prev.a + (s.a - prev.a) * k;
+  // after a fall, zoom out until the cat's head is on screen
+  const fell = state === 'fall' || state === 'done';
+  const zt = fell ? Math.min(1, (W / 2 - 8) / ((Math.abs(x + Math.sin(a) * POLE) + 1.1) * baseScale)) : 1;
+  zoom += (zt - zoom) * Math.min(1, fdt * 5);
+  scale = baseScale * zoom;
   const X = v => originX + v * scale, Y = v => groundY - v * scale;
   const tm = state === 'title' ? 0 : (state === 'play' ? playT : finalT);
   const [top, bot] = skyAt(tm);
@@ -348,12 +354,15 @@ function draw(fdt, k) {
   ctx.beginPath(); ctx.roundRect(cx - cw / 2, cy, cw, ch, Math.min(10, ch / 3)); ctx.fill();
   ctx.fillStyle = '#343a40';
   for (const sgn of [-1, 1]) { ctx.beginPath(); ctx.arc(cx + sgn * cw * 0.3, railY - 2, Math.max(5, scale * 0.07), 0, 7); ctx.fill(); }
-  // pole and weight
+  // pole and the cat's head on top (tilts with the pole)
   const tx = cx + Math.sin(a) * POLE * scale, ty = cy - Math.cos(a) * POLE * scale;
   ctx.strokeStyle = '#8d5524'; ctx.lineWidth = Math.max(5, scale * 0.06);
   ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke();
-  ctx.fillStyle = '#e8590c'; ctx.beginPath(); ctx.arc(tx, ty, Math.max(10, scale * 0.13), 0, 7); ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,.4)'; ctx.beginPath(); ctx.arc(tx - scale * 0.04, ty - scale * 0.04, Math.max(3, scale * 0.04), 0, 7); ctx.fill();
+  { const hr = Math.max(26, scale * 0.42);
+    ctx.save(); ctx.translate(tx, ty); ctx.rotate(a);
+    if (catImg.complete && catImg.naturalWidth) ctx.drawImage(catImg, -hr, -hr * 1.7, hr * 2, hr * 2); // chin sits on the pole tip
+    else { ctx.fillStyle = '#e8590c'; ctx.beginPath(); ctx.arc(0, 0, hr * 0.6, 0, 7); ctx.fill(); }
+    ctx.restore(); }
   ctx.fillStyle = '#ffd43b'; ctx.beginPath(); ctx.arc(cx, cy, Math.max(4, scale * 0.05), 0, 7); ctx.fill();
   // waiting for the first move: arrows on both sides of the cart
   if (state === 'ready') {
