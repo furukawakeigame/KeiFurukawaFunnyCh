@@ -244,10 +244,61 @@ function showResult() {
   a.href = `https://x.com/intent/post?text=${encodeURIComponent(L[lang].post(secs(finalT)))}&url=${encodeURIComponent(URL_)}`;
   if (coarse) { a.removeAttribute('target'); a.removeAttribute('rel'); }
   else { a.target = '_blank'; a.rel = 'noopener'; }
+  prepareShare();
 }
+// phones: open the share sheet with the result image. PC: save the image, then open the X post page
+$('share').addEventListener('click', e => {
+  const text = `${L[lang].post(secs(finalT))}\n${URL_}`;
+  if (coarse && navigator.share) {
+    e.preventDefault();
+    const file = shareFile();
+    navigator.share(file && navigator.canShare?.({ files: [file] }) ? { files: [file], text } : { text }).catch(() => {});
+    return;
+  }
+  const img = resultImage();
+  if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'pendulum-balance.png'; d.click(); }
+});
+// result image: the fallen scene, squared, with the time and the title on top
+let snap = null, shareCache = null;
+function takeSnap() {
+  const side = Math.min(cv.width, cv.height), dpr = cv.width / cv.clientWidth;
+  // keep the ground and the fallen cat in frame on tall screens
+  const sy = clamp(groundY * dpr - side * 0.72, 0, cv.height - side);
+  snap = document.createElement('canvas'); snap.width = snap.height = 1080;
+  // and center on the cart and the cat on wide screens
+  const sx = clamp((originX + (s.x + Math.sin(s.a) * POLE * 0.5) * scale) * dpr - side / 2, 0, cv.width - side);
+  snap.getContext('2d').drawImage(cv, sx, sy, side, side, 0, 0, 1080, 1080);
+  shareCache = null;
+}
+function resultImage() {
+  if (!snap) return null;
+  const c = document.createElement('canvas'); c.width = c.height = 1080;
+  const g = c.getContext('2d');
+  g.drawImage(snap, 0, 0);
+  g.textAlign = 'center'; g.lineJoin = 'round';
+  const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
+  const text = (str, y, px, max, fill, line) => {
+    g.font = font(px);
+    const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
+    g.lineWidth = px * .16; g.strokeStyle = line; g.strokeText(str, 540, y); g.fillStyle = fill; g.fillText(str, 540, y);
+  };
+  text(L[lang].sec(secs(finalT)), 260, 200, 960, '#223', '#fff');
+  text(t('title'), 1030, 56, 900, '#fff', '#223');
+  return c;
+}
+// the share file is made ahead for each language (waiting on click stops the share in Safari)
+function prepareShare() {
+  if (!snap) return;
+  const key = lang;
+  if (shareCache?.key === key) return;
+  shareCache = { key, file: null };
+  resultImage().toBlob(b => { if (b && shareCache?.key === key) shareCache.file = new File([b], 'pendulum-balance.png', { type: 'image/png' }); }, 'image/png');
+}
+const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
 function finish() {
   state = 'done';
   if (best === null || finalT > best) { best = finalT; store.set('best', best); }
+  takeSnap();
   showResult(); $('result').hidden = false;
   beep(500, .15, 'sine', .15); setTimeout(() => beep(800, .25, 'sine', .15), 150);
 }
