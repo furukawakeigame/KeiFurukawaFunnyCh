@@ -37,7 +37,7 @@
       height: 34px; min-width: 40px; padding: 0 10px; font-size: 13px; color: #5a2a10; cursor: pointer;
     }
     header svg { width: 18px; height: 18px; display: block; }
-    #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; cursor: pointer; }
+    #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; cursor: grab; touch-action: none; }
     #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     #result { position: absolute; left: 0; right: 0; top: 2%; display: none; flex-direction: column; align-items: center; pointer-events: none; }
     #result b { font-size: clamp(44px, min(15vw, 13vh), 120px); font-weight: 900; line-height: 1.1; color: #fff; text-shadow: 0 4px 0 #b3261e, 0 0 18px rgba(0,0,0,.2); }
@@ -88,10 +88,10 @@
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
-      ja: { title: 'ポテトおみくじ', back: '← トップへ戻る', pull: '引く', again: 'もう一回', post: 'Xに投稿', best: s => `自己ベスト ${s}`, share: s => `${s}のポテトが出た #ポテトおみくじゲーム` },
-      ko: { title: '감자튀김 뽑기', back: '← 처음으로', pull: '뽑기', again: '다시 뽑기', post: 'X에 게시', best: s => `최고 기록 ${s}`, share: s => `${s}짜리 감자튀김이 나왔다 #ポテトおみくじゲーム` },
-      en: { title: 'Fry Fortune', back: '← Back to top', pull: 'Pull', again: 'Pull again', post: 'Post on X', best: s => `Best ${s}`, share: s => `I pulled a ${s} fry #ポテトおみくじゲーム` },
-      th: { title: 'เสี่ยงทายเฟรนช์ฟราย', back: '← กลับหน้าแรก', pull: 'ดึง', again: 'ดึงอีกครั้ง', post: 'โพสต์ลง X', best: s => `สถิติดีที่สุด ${s}`, share: s => `ได้เฟรนช์ฟรายยาว ${s} #ポテトおみくじゲーム` },
+      ja: { title: 'ポテトおみくじ', back: '← トップへ戻る', again: 'もう一回', post: 'Xに投稿', best: s => `自己ベスト ${s}`, share: s => `${s}のポテトが出た #ポテトおみくじゲーム` },
+      ko: { title: '감자튀김 뽑기', back: '← 처음으로', again: '다시 뽑기', post: 'X에 게시', best: s => `최고 기록 ${s}`, share: s => `${s}짜리 감자튀김이 나왔다 #ポテトおみくじゲーム` },
+      en: { title: 'Fry Fortune', back: '← Back to top', again: 'Pull again', post: 'Post on X', best: s => `Best ${s}`, share: s => `I pulled a ${s} fry #ポテトおみくじゲーム` },
+      th: { title: 'เสี่ยงทายเฟรนช์ฟราย', back: '← กลับหน้าแรก', again: 'ดึงอีกครั้ง', post: 'โพสต์ลง X', best: s => `สถิติดีที่สุด ${s}`, share: s => `ได้เฟรนช์ฟรายยาว ${s} #ポテトおみくじゲーム` },
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -125,20 +125,18 @@
     }
     addEventListener('pointerdown', initAudio, { capture: true });
     addEventListener('keydown', initAudio, { capture: true });
-    // 引き抜く音: 長いほど長く高く上がっていく
-    function pullSound(dur) {
+    // 引く音: 1cmごとに短くキュッと鳴り、だんだん高くなる
+    function tick(cm) {
       if (!soundOn || !ac) return;
-      const now = ac.currentTime;
+      const now = ac.currentTime, f = 260 * Math.pow(2, Math.min(cm, 60) / 24);
       const o = ac.createOscillator(); o.type = 'triangle';
-      o.frequency.setValueAtTime(180, now);
-      o.frequency.exponentialRampToValueAtTime(180 + dur * 260, now + dur);
+      o.frequency.setValueAtTime(f, now);
+      o.frequency.linearRampToValueAtTime(f * 1.15, now + 0.06);
       const g = ac.createGain();
-      g.gain.setValueAtTime(0, now);
-      g.gain.linearRampToValueAtTime(0.18, now + 0.05);
-      g.gain.setValueAtTime(0.18, now + dur - 0.05);
-      g.gain.linearRampToValueAtTime(0, now + dur);
+      g.gain.setValueAtTime(0.12, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
       o.connect(g).connect(ac.destination);
-      o.start(now); o.stop(now + dur);
+      o.start(now); o.stop(now + 0.1);
     }
     function popSound(big) {
       if (!soundOn || !ac) return;
@@ -241,38 +239,45 @@
     const RIM = BOX_H - 0.5;
 
     let state = 'idle', L = 8, best = store.get('best', 0), isNewBest = false;
-    let animT = 0, pullDur = 1, needSnap = false;
+    let pulled = 0, grabbing = false, lastY = 0, keyHold = false, lastTick = 0, needSnap = false;
     const cam = { y: 9, d: 60, x: 0 };
+    // 引く前に箱から出ている長さと、抜けきるまでに引く長さ
+    const PEEK = 2.5;
+    const needPull = () => L - PEEK + 0.6;
+    const pickBase = () => RIM + PEEK - L;
 
     function reset() {
-      pick.scale.y = 10;
-      pick.position.set(0, 1, 0);
+      state = 'idle';
+      L = rollLength();
+      pulled = 0; grabbing = false; lastTick = 0;
+      pick.scale.y = L;
+      pick.position.set(0, pickBase(), 0);
       pick.rotation.set(0, 0, 0);
       pickMat.emissive.set('#000000');
       pickMat.color.set('#f4c552');
       ruler.visible = false;
+      resultEl.style.display = 'none';
+      snap = null; needSnap = false;
+      renderControls();
     }
-    function pull() {
-      if (state === 'pull') return;
-      L = rollLength();
+    // 自分で引いた分だけ抜ける
+    function pullBy(dy) {
+      if (state === 'result' || dy === 0) return;
+      state = 'pull';
+      pulled = Math.max(0, Math.min(needPull(), pulled + dy));
+      // 1cm引くごとにキュッと鳴る（少しずつ高く）
+      const cm = Math.floor(pulled);
+      if (cm > lastTick) { lastTick = cm; tick(cm); }
+      if (cm < lastTick) lastTick = cm;
+      if (pulled >= needPull()) finish();
+    }
+    function finish() {
+      state = 'result'; grabbing = false; keyHold = false;
       isNewBest = L > best;
       if (isNewBest) { best = L; store.set('best', best); }
-      state = 'pull'; animT = 0;
-      pullDur = 0.7 + Math.min(L, 60) * 0.045;
-      pick.scale.y = L;
-      pick.position.set(0, RIM - L + 0.5, 0);
-      pick.rotation.set(0, 0, 0);
       // 長いほどきつね色、40cm超えは光る
       pickMat.color.set(L >= 20 ? '#f0a83a' : '#f4c552');
       pickMat.emissive.set(L >= 40 ? '#7a4a00' : '#000000');
-      ruler.visible = false;
-      resultEl.style.display = 'none';
-      snap = null;
-      renderControls();
-      pullSound(pullDur);
-    }
-    function finish() {
-      state = 'result';
       ruler.visible = true;
       ruler.scale.y = Math.ceil(L) + 1;
       rulerTex.repeat.set(1, ruler.scale.y / 10);
@@ -311,26 +316,17 @@
     let time = 0;
     function update(dt) {
       time += dt;
-      let top = 17, wid = 14;
+      if (keyHold) pullBy(dt * 12);
+      let y = pickBase() + pulled;
       if (state === 'idle') {
-        // 押せそうに見えるよう、ときどき箱が揺れる
-        const k = (time % 2.2);
-        box.rotation.z = k < 0.5 ? Math.sin(k * 25) * 0.04 * (1 - k / 0.5) : 0;
-      } else {
-        box.rotation.z = 0;
+        // 引けそうに見えるよう、ときどきポテトが少し浮く
+        const k = time % 1.6;
+        y += k < 0.5 ? Math.sin(k / 0.5 * Math.PI) * 0.8 : 0;
       }
-      if (state === 'pull') {
-        animT += dt;
-        const p = Math.min(1, animT / pullDur);
-        const e = 1 - Math.pow(1 - p, 2);
-        pick.position.y = (RIM - L + 0.5) + e * (L - 0.5 + 0.6);
-        pick.rotation.z = Math.sin(animT * 14) * 0.02 * (1 - p);
-        if (p >= 1) finish();
-      }
-      if (state !== 'idle') {
-        top = Math.max(17, pick.position.y + L + 1);
-        wid = 14;
-      }
+      if (state === 'result') y += 0.6;
+      pick.position.y += (y - pick.position.y) * (state === 'result' ? 1 - Math.exp(-dt * 12) : 1);
+      pick.rotation.z = state === 'pull' && grabbing ? Math.sin(time * 30) * 0.01 : 0;
+      const top = Math.max(17, pick.position.y + L + 1), wid = 14;
       if (state === 'result') {
         ruler.position.set(FRY_W / 2 + 1.1, pick.position.y, 0);
         pickMat.emissiveIntensity = L >= 40 ? 0.7 + Math.sin(time * 5) * 0.3 : 1;
@@ -358,20 +354,34 @@
     }
 
     // ---------- 操作 ----------
-    stage.addEventListener('pointerdown', e => { if (e.button === 0) pull(); });
-    addEventListener('keydown', e => {
-      if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat && e.target.tagName !== 'SELECT' && e.target.tagName !== 'A' && e.target.tagName !== 'BUTTON') { e.preventDefault(); pull(); }
+    stage.addEventListener('pointerdown', e => {
+      if (state === 'result' || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      grabbing = true; lastY = e.clientY;
+      stage.setPointerCapture?.(e.pointerId);
     });
+    stage.addEventListener('pointermove', e => {
+      if (!grabbing) return;
+      // 画面上の指の移動を、3D空間のcmに直す
+      const perPx = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * cam.d / stage.clientHeight;
+      pullBy((lastY - e.clientY) * perPx);
+      lastY = e.clientY;
+    });
+    const release = () => { grabbing = false; };
+    stage.addEventListener('pointerup', release);
+    stage.addEventListener('pointercancel', release);
+    const isKey = e => (e.code === 'Space' || e.code === 'ArrowUp') && !['SELECT', 'A', 'BUTTON'].includes(e.target.tagName);
+    addEventListener('keydown', e => { if (isKey(e)) { e.preventDefault(); if (state !== 'result') keyHold = true; } });
+    addEventListener('keyup', e => { if (isKey(e)) keyHold = false; });
 
     // ---------- 画面 ----------
     const controls = document.getElementById('controls');
     function renderControls() {
       controls.innerHTML = '';
-      controls.classList.toggle('hide', state === 'pull');
-      if (state === 'pull') return;
+      controls.classList.toggle('hide', state !== 'result');
+      if (state !== 'result') return;
       const b = document.createElement('button');
-      b.className = 'go'; b.textContent = state === 'result' ? t('again') : t('pull');
-      b.addEventListener('click', pull);
+      b.className = 'go'; b.textContent = t('again');
+      b.addEventListener('click', reset);
       controls.append(b);
       if (state === 'result') {
         const a = document.createElement('a');
