@@ -161,6 +161,7 @@
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.localClippingEnabled = true;
     stage.prepend(renderer.domElement);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#ffe6b8');
@@ -196,22 +197,41 @@
     const FRY_W = 0.8;
     const fryGeo = new THREE.BoxGeometry(FRY_W, 1, FRY_W); fryGeo.translate(0, 0.5, 0);
     const fryMat = new THREE.MeshStandardMaterial({ color: '#f4c552', roughness: 0.75 });
-    // 箱の中のポテト（飾り）
+    // 箱の中のポテト。どれも引っぱれて、長さは1本ずつ違う（抜けるまで分からない）
     const rand = (a, b) => a + Math.random() * (b - a);
-    for (let i = 0; i < 26; i++) {
-      const m = new THREE.Mesh(fryGeo, fryMat);
-      const x = rand(-2.6, 2.6), z = rand(-1.1, 1.1);
-      if (Math.abs(x) < 1 && Math.abs(z) < 1) continue;
-      m.scale.y = rand(11, 16);
-      m.position.set(x, 1, z);
-      m.rotation.set(rand(-0.06, 0.06), rand(0, Math.PI), x * -0.06 + rand(-0.05, 0.05));
+    // 箱の底より下は描かない（長いポテトが床から突き出ないように）
+    const floorClip = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.05);
+    const FRY_N = 20;
+    const fries = [];
+    for (let i = 0; i < FRY_N; i++) {
+      const m = new THREE.Mesh(fryGeo, new THREE.MeshStandardMaterial({ color: '#f4c552', roughness: 0.72, emissive: '#000000', clippingPlanes: [floorClip] }));
+      m.userData = { base: new THREE.Vector3(), dir: new THREE.Vector3(), rot: new THREE.Euler(), L: 8, peek: 3, pulled: 0 };
       box.add(m);
+      fries.push(m);
     }
-
-    // 引くポテト
-    const pickMat = new THREE.MeshStandardMaterial({ color: '#f4c552', roughness: 0.7, emissive: '#000000' });
-    const pick = new THREE.Mesh(fryGeo, pickMat);
-    box.add(pick);
+    function fillBox() {
+      // 箱の口に、ほどよくばらけるように並べる
+      fries.forEach((m, i) => {
+        const u = m.userData;
+        const col = i % 5, row = Math.floor(i / 5);
+        const x = -2.4 + col * 1.2 + rand(-0.2, 0.2), z = -1.2 + row * 0.8 + rand(-0.15, 0.15);
+        u.L = rollLength();
+        u.peek = rand(1.5, 5.5);
+        u.pulled = 0;
+        // 長いポテトほど傾きを小さくして、箱の底や横から突き出ないようにする
+        const tilt = Math.min(1, 8 / u.L);
+        u.rot.set(rand(-0.06, 0.06) * tilt, rand(0, Math.PI), (x * -0.05 + rand(-0.05, 0.05)) * tilt);
+        u.dir.set(0, 1, 0).applyEuler(u.rot);
+        // 箱の口（RIM）の高さで x, z の位置に来るように根元を決める
+        u.base.set(x, RIM, z).addScaledVector(u.dir, u.peek - u.L);
+        m.scale.y = u.L;
+        m.rotation.copy(u.rot);
+        m.position.copy(u.base);
+        m.material.color.set('#f4c552');
+        m.material.emissive.set('#000000');
+        m.visible = true;
+      });
+    }
 
     // ものさし（10cmごとの目盛りの絵をくり返す）
     const rc = document.createElement('canvas'); rc.width = 64; rc.height = 640;
@@ -239,45 +259,45 @@
     const RIM = BOX_H - 0.5;
 
     let state = 'idle', L = 8, best = store.get('best', 0), isNewBest = false;
-    let pulled = 0, grabbing = false, lastY = 0, keyHold = false, lastTick = 0, needSnap = false;
+    let pick = null, grabbing = false, lastY = 0, keyHold = false, lastTick = 0, needSnap = false, hint = 0;
     const cam = { y: 9, d: 60, x: 0 };
-    // 引く前に箱から出ている長さと、抜けきるまでに引く長さ
-    const PEEK = 2.5;
-    const needPull = () => L - PEEK + 0.6;
-    const pickBase = () => RIM + PEEK - L;
+    // 抜けきるまでに引く長さ
+    const needPull = m => m.userData.L - m.userData.peek + 0.6;
 
     function reset() {
       state = 'idle';
-      L = rollLength();
-      pulled = 0; grabbing = false; lastTick = 0;
-      pick.scale.y = L;
-      pick.position.set(0, pickBase(), 0);
-      pick.rotation.set(0, 0, 0);
-      pickMat.emissive.set('#000000');
-      pickMat.color.set('#f4c552');
+      fillBox();
+      pick = null; grabbing = false; lastTick = 0;
       ruler.visible = false;
       resultEl.style.display = 'none';
       snap = null; needSnap = false;
       renderControls();
     }
+    // 引くポテトを決める（前に抜いたポテトは食べたことにして消す）
+    function choose(m) {
+      if (state === 'result') { pick.visible = false; ruler.visible = false; resultEl.style.display = 'none'; snap = null; needSnap = false; }
+      pick = m; L = m.userData.L; lastTick = Math.floor(m.userData.pulled);
+      state = 'pull';
+      renderControls();
+    }
     // 自分で引いた分だけ抜ける
     function pullBy(dy) {
-      if (state === 'result' || dy === 0) return;
-      state = 'pull';
-      pulled = Math.max(0, Math.min(needPull(), pulled + dy));
+      if (state !== 'pull' || !pick || dy === 0) return;
+      const u = pick.userData;
+      u.pulled = Math.max(0, Math.min(needPull(pick), u.pulled + dy));
       // 1cm引くごとにキュッと鳴る（少しずつ高く）
-      const cm = Math.floor(pulled);
+      const cm = Math.floor(u.pulled);
       if (cm > lastTick) { lastTick = cm; tick(cm); }
       if (cm < lastTick) lastTick = cm;
-      if (pulled >= needPull()) finish();
+      if (u.pulled >= needPull(pick)) finish();
     }
     function finish() {
       state = 'result'; grabbing = false; keyHold = false;
       isNewBest = L > best;
       if (isNewBest) { best = L; store.set('best', best); }
       // 長いほどきつね色、40cm超えは光る
-      pickMat.color.set(L >= 20 ? '#f0a83a' : '#f4c552');
-      pickMat.emissive.set(L >= 40 ? '#7a4a00' : '#000000');
+      pick.material.color.set(L >= 20 ? '#f0a83a' : '#f4c552');
+      pick.material.emissive.set(L >= 40 ? '#7a4a00' : '#000000');
       ruler.visible = true;
       ruler.scale.y = Math.ceil(L) + 1;
       rulerTex.repeat.set(1, ruler.scale.y / 10);
@@ -317,19 +337,27 @@
     function update(dt) {
       time += dt;
       if (keyHold) pullBy(dt * 12);
-      let y = pickBase() + pulled;
-      if (state === 'idle') {
-        // 引けそうに見えるよう、ときどきポテトが少し浮く
-        const k = time % 1.6;
-        y += k < 0.5 ? Math.sin(k / 0.5 * Math.PI) * 0.8 : 0;
+      // 待っている間は、ときどきどれか1本がピョコッと浮く（引けそうに見せる）
+      const hk = time % 1.2;
+      if (hk < dt) hint = Math.floor(Math.random() * FRY_N);
+      const lift = 1 - Math.exp(-dt * 12);
+      for (let i = 0; i < FRY_N; i++) {
+        const m = fries[i], u = m.userData;
+        if (m === pick && state === 'result') {
+          // 抜けたポテトはまっすぐ立てて、ものさしと並べる
+          m.position.y += (RIM + 0.6 - m.position.y) * lift;
+          m.rotation.x += (0 - m.rotation.x) * lift; m.rotation.z += (0 - m.rotation.z) * lift;
+          continue;
+        }
+        const bob = state === 'idle' && i === hint && hk < 0.5 ? Math.sin(hk / 0.5 * Math.PI) * 0.8 : 0;
+        m.position.copy(u.base).addScaledVector(u.dir, u.pulled + bob);
+        if (m === pick && grabbing) m.rotation.z = u.rot.z + Math.sin(time * 30) * 0.01;
+        else m.rotation.z = u.rot.z;
       }
-      if (state === 'result') y += 0.6;
-      pick.position.y += (y - pick.position.y) * (state === 'result' ? 1 - Math.exp(-dt * 12) : 1);
-      pick.rotation.z = state === 'pull' && grabbing ? Math.sin(time * 30) * 0.01 : 0;
-      const top = Math.max(17, pick.position.y + L + 1), wid = 14;
+      const top = Math.max(17, pick && pick.visible ? pick.position.y + L + 1 : 0), wid = 14;
       if (state === 'result') {
-        ruler.position.set(FRY_W / 2 + 1.1, pick.position.y, 0);
-        pickMat.emissiveIntensity = L >= 40 ? 0.7 + Math.sin(time * 5) * 0.3 : 1;
+        ruler.position.set(pick.position.x + FRY_W / 2 + 1.1, pick.position.y, pick.position.z + 0.6);
+        pick.material.emissiveIntensity = L >= 40 ? 0.7 + Math.sin(time * 5) * 0.3 : 1;
       }
       const f = frameFor(0, top, wid);
       const k = 1 - Math.exp(-dt * 6);
@@ -342,7 +370,7 @@
       if (needSnap && state === 'result') {
         // カメラが落ち着いてから撮る
         const f = frameFor(0, Math.max(17, pick.position.y + L + 1), 14);
-        if (Math.abs(f.d - cam.d) < f.d * 0.01) { needSnap = false; setTimeout(() => { if (state === 'result') { takeSnap(); prepareShare(); } }); }
+        if (Math.abs(pick.rotation.z) < 0.002 && Math.abs(f.d - cam.d) < f.d * 0.01) { needSnap = false; setTimeout(() => { if (state === 'result') { takeSnap(); prepareShare(); } }); }
       }
     }
     let last = 0;
@@ -354,8 +382,29 @@
     }
 
     // ---------- 操作 ----------
+    // 押したところにいちばん近いポテト（見えている先っぽ）をつかむ
+    const v = new THREE.Vector3();
+    function fryAt(cx, cy) {
+      const r = stage.getBoundingClientRect();
+      let best = null, bd = Infinity;
+      for (const m of fries) {
+        if (!m.visible || (m === pick && state === 'result')) continue;
+        const u = m.userData;
+        // 箱から出ている部分（口〜先っぽ）の線分に一番近い点との距離
+        for (let s = 0; s <= 4; s++) {
+          v.copy(u.base).addScaledVector(u.dir, u.L - u.peek + (u.peek + u.pulled) * s / 4).project(camera);
+          const px = r.left + (v.x + 1) / 2 * r.width, py = r.top + (1 - v.y) / 2 * r.height;
+          const d = Math.hypot(px - cx, py - cy);
+          if (d < bd) { bd = d; best = m; }
+        }
+      }
+      return bd < Math.max(40, r.width * 0.12) ? best : null;
+    }
     stage.addEventListener('pointerdown', e => {
-      if (state === 'result' || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      const m = fryAt(e.clientX, e.clientY);
+      if (!m) return;
+      choose(m);
       grabbing = true; lastY = e.clientY;
       stage.setPointerCapture?.(e.pointerId);
     });
@@ -370,7 +419,14 @@
     stage.addEventListener('pointerup', release);
     stage.addEventListener('pointercancel', release);
     const isKey = e => (e.code === 'Space' || e.code === 'ArrowUp') && !['SELECT', 'A', 'BUTTON'].includes(e.target.tagName);
-    addEventListener('keydown', e => { if (isKey(e)) { e.preventDefault(); if (state !== 'result') keyHold = true; } });
+    addEventListener('keydown', e => {
+      if (!isKey(e)) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      // キーのときは、まだ箱にあるポテトからランダムに1本
+      if (state !== 'pull') { const left = fries.filter(m => m.visible && m !== pick); if (!left.length) return; choose(left[Math.floor(Math.random() * left.length)]); }
+      keyHold = true;
+    });
     addEventListener('keyup', e => { if (isKey(e)) keyHold = false; });
 
     // ---------- 画面 ----------
