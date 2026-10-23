@@ -33,7 +33,6 @@
     canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
     .panel { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(255,255,255,.35); padding: 16px 16px calc(100px + env(safe-area-inset-bottom)); }
     .panel[hidden] { display: none; }
-    #title { background: none; justify-content: flex-start; padding-top: 18vh; }
     .big { font-size: 56px; font-weight: 800; margin: 0; text-shadow: 0 2px 0 #fff; }
     .sub { margin: 0; font-size: 16px; background: rgba(255,255,255,.8); border-radius: 12px; padding: 4px 12px; }
     .btn { border: none; border-radius: 28px; background: #2b8a3e; color: #fff; font-size: 20px; font-weight: 700; padding: 14px 36px; cursor: pointer; text-decoration: none; }
@@ -52,9 +51,6 @@
   </header>
   <div id="wrap">
     <canvas id="cv"></canvas>
-    <div id="title" class="panel">
-      <button id="start" class="btn"></button>
-    </div>
     <div id="result" class="panel" hidden>
       <p class="big" id="rTime"></p>
       <p class="sub" id="rBest"></p>
@@ -71,13 +67,13 @@ const store = {
 const URL_ = 'https://keifurukawafunnych.com/games/pendulum-balance/';
 const TAG = '#振り子倒立ゲーム';
 const L = {
-  ja: { title: '振り子倒立', back: '← トップへ戻る', start: 'スタート', again: 'もう一度', share: 'Xでポスト', best: '自己ベスト',
+  ja: { title: '振り子倒立', back: '← トップへ戻る', again: 'もう一度', share: 'Xでポスト', best: '自己ベスト',
         sec: s => `${s}秒`, post: s => `振り子倒立で ${s}秒 耐えた\n${TAG}` },
-  ko: { title: '진자 세우기', back: '← 처음으로', start: '시작', again: '다시 하기', share: 'X에 게시', best: '최고 기록',
+  ko: { title: '진자 세우기', back: '← 처음으로', again: '다시 하기', share: 'X에 게시', best: '최고 기록',
         sec: s => `${s}초`, post: s => `진자 세우기에서 ${s}초 버텼다\n${TAG}` },
-  en: { title: 'Pendulum Balance', back: '← Top', start: 'Start', again: 'Retry', share: 'Post on X', best: 'Best',
+  en: { title: 'Pendulum Balance', back: '← Top', again: 'Retry', share: 'Post on X', best: 'Best',
         sec: s => `${s}s`, post: s => `I kept the pendulum up for ${s}s in Pendulum Balance\n${TAG}` },
-  th: { title: 'ตั้งลูกตุ้ม', back: '← กลับหน้าแรก', start: 'เริ่ม', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X', best: 'สถิติสูงสุด',
+  th: { title: 'ตั้งลูกตุ้ม', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X', best: 'สถิติสูงสุด',
         sec: s => `${s} วินาที`, post: s => `ตั้งลูกตุ้มไว้ได้ ${s} วินาที ในเกมตั้งลูกตุ้ม\n${TAG}` },
 };
 const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
@@ -90,7 +86,6 @@ function applyLang() {
   document.title = t('title');
   $('lang').value = lang;
   $('back').textContent = t('back');
-  $('start').textContent = t('start');
   $('again').textContent = t('again'); $('share').textContent = t('share');
   if (!$('result').hidden) showResult();
 }
@@ -145,8 +140,8 @@ const POLE = 1.5, PIVOT = 0.42, RAIL = 1.6;   // pole length, pivot height, half
 const K = 140, C = 2 * Math.sqrt(140), AMAX = 45; // the cart chases the finger like a stiff spring, with limited push
 const FALL = 80 * Math.PI / 180, REST = Math.PI / 2 + Math.asin(PIVOT / POLE); // lost at 80°, lies on the ground here
 const FIRST_GUST = 5;
-// states: title -> ready (waiting for the first move) -> play -> fall -> done
-let s, prev, state = 'title', target = 0, offset = null, keys = 0, playT = 0, best = store.get('best', null), finalT = 0, wait = 0;
+// states: ready (waiting for the first move) -> play -> fall -> done
+let s, prev, state = 'ready', target = 0, offset = null, keys = 0, playT = 0, best = store.get('best', null), finalT = 0, wait = 0;
 let gust, nextGust, warnT;
 
 function reset(st) {
@@ -172,7 +167,6 @@ let warnDir = 1;
 
 function step(dt) {
   prev = { ...s };
-  if (state === 'title') { s.a = 0.03 * Math.sin(performance.now() / 650); return; }
   if (state === 'ready') return;
   let acc = 0, wind = 0;
   if (state === 'play') {
@@ -239,7 +233,6 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { held.delete(e.key); keys = clamp([...held].reduce((n, k) => n + keyDir[k], 0), -1, 1); });
 addEventListener('blur', () => { held.clear(); keys = 0; });
 
-$('start').onclick = () => { $('title').hidden = true; reset('ready'); beep(600, .1, 'sine', .15); };
 $('again').onclick = () => { $('result').hidden = true; reset('ready'); beep(600, .1, 'sine', .15); };
 
 const coarse = matchMedia('(pointer: coarse)').matches;
@@ -294,7 +287,7 @@ function draw(fdt, k) {
   zoom += (zt - zoom) * Math.min(1, fdt * 5);
   scale = baseScale * zoom;
   const X = v => originX + v * scale, Y = v => groundY - v * scale;
-  const tm = state === 'title' ? 0 : (state === 'play' ? playT : finalT);
+  const tm = state === 'ready' ? 0 : (state === 'play' ? playT : finalT);
   const [top, bot] = skyAt(tm);
   const gr = ctx.createLinearGradient(0, 0, 0, groundY);
   gr.addColorStop(0, top); gr.addColorStop(1, bot);
@@ -385,7 +378,7 @@ function loop(now) {
   draw(fdt, (now - simT) / (DT * 1000));
   requestAnimationFrame(loop);
 }
-reset('title'); resize(); applyLang(); draw(0, 1); requestAnimationFrame(loop);
+reset('ready'); resize(); applyLang(); draw(0, 1); requestAnimationFrame(loop);
 </script>
 </body>
 </html>
