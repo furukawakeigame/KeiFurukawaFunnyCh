@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>振り子倒立</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="振り子倒立">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/pendulum-balance/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/pendulum-balance/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #8fd0ff; font-family: system-ui, sans-serif; color: #223; }
+    body { display: flex; flex-direction: column; overflow: hidden; }
+    header { position: absolute; top: 0; left: 0; right: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; gap: 8px; }
+    header a { color: #223; text-decoration: none; font-size: 14px; background: rgba(255,255,255,.75); border-radius: 14px; padding: 6px 10px; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill { height: 34px; min-width: 34px; border: none; border-radius: 17px; background: #fff; color: #223; font-size: 14px; padding: 0 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    select.pill { appearance: none; -webkit-appearance: none; }
+    #wrap { position: relative; flex: 1; min-height: 0; }
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+    .panel { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(255,255,255,.35); padding: 16px 16px calc(100px + env(safe-area-inset-bottom)); }
+    .panel[hidden] { display: none; }
+    #title { background: none; justify-content: flex-start; padding-top: 18vh; }
+    .big { font-size: 56px; font-weight: 800; margin: 0; text-shadow: 0 2px 0 #fff; }
+    .sub { margin: 0; font-size: 16px; background: rgba(255,255,255,.8); border-radius: 12px; padding: 4px 12px; }
+    .btn { border: none; border-radius: 28px; background: #2b8a3e; color: #fff; font-size: 20px; font-weight: 700; padding: 14px 36px; cursor: pointer; text-decoration: none; }
+    .btn.x { background: #111; font-size: 16px; padding: 10px 24px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <div class="hbtns">
+      <button id="sound" class="pill" aria-label="sound">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#223" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#223"/><path id="wave" d="M16 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/><path id="mute" d="M16 9l6 6M22 9l-6 6" style="display:none"/></svg>
+      </button>
+      <select id="lang" class="pill" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+    </div>
+  </header>
+  <div id="wrap">
+    <canvas id="cv"></canvas>
+    <div id="title" class="panel">
+      <button id="start" class="btn"></button>
+    </div>
+    <div id="result" class="panel" hidden>
+      <p class="big" id="rTime"></p>
+      <p class="sub" id="rBest"></p>
+      <button id="again" class="btn"></button>
+      <a id="share" class="btn x"></a>
+    </div>
+  </div>
+<script>
+const KEY = 'pendulum-balance:';
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(KEY + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(KEY + k, JSON.stringify(v)); } catch {} },
+};
+const URL_ = 'https://keifurukawafunnych.com/games/pendulum-balance/';
+const TAG = '#振り子倒立ゲーム';
+const L = {
+  ja: { title: '振り子倒立', back: '← トップへ戻る', start: 'スタート', again: 'もう一度', share: 'Xでポスト', best: '自己ベスト',
+        sec: s => `${s}秒`, post: s => `振り子倒立で ${s}秒 耐えた\n${TAG}` },
+  ko: { title: '진자 세우기', back: '← 처음으로', start: '시작', again: '다시 하기', share: 'X에 게시', best: '최고 기록',
+        sec: s => `${s}초`, post: s => `진자 세우기에서 ${s}초 버텼다\n${TAG}` },
+  en: { title: 'Pendulum Balance', back: '← Top', start: 'Start', again: 'Retry', share: 'Post on X', best: 'Best',
+        sec: s => `${s}s`, post: s => `I kept the pendulum up for ${s}s in Pendulum Balance\n${TAG}` },
+  th: { title: 'ตั้งลูกตุ้ม', back: '← กลับหน้าแรก', start: 'เริ่ม', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X', best: 'สถิติสูงสุด',
+        sec: s => `${s} วินาที`, post: s => `ตั้งลูกตุ้มไว้ได้ ${s} วินาที ในเกมตั้งลูกตุ้ม\n${TAG}` },
+};
+const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
+let lang = store.get('lang', autoLang());
+if (!L[lang]) lang = 'en';
+const t = k => L[lang][k];
+const $ = id => document.getElementById(id);
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = t('title');
+  $('lang').value = lang;
+  $('back').textContent = t('back');
+  $('start').textContent = t('start');
+  $('again').textContent = t('again'); $('share').textContent = t('share');
+  if (!$('result').hidden) showResult();
+}
+$('lang').onchange = () => { lang = $('lang').value; store.set('lang', lang); applyLang(); };
+
+// ---- sound ----
+let soundOn = store.get('sound', true), ac = null, noise = null;
+function updSound() { $('wave').style.display = soundOn ? '' : 'none'; $('mute').style.display = soundOn ? 'none' : ''; }
+$('sound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updSound(); };
+updSound();
+// the audio context is made on the first touch (with a silent sound) so the first real sound doesn't stutter
+function initAudio() {
+  if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    const g = ac.createGain(); g.gain.value = 0; g.connect(ac.destination);
+    const o = ac.createOscillator(); o.connect(g); o.start(); o.stop(ac.currentTime + 0.05);
+    noise = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+    const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  } catch { ac = null; }
+}
+addEventListener('pointerdown', initAudio, true);
+addEventListener('keydown', initAudio, true);
+function beep(freq, dur, type = 'square', vol = .2, slide = 0) {
+  if (!soundOn || !ac) return;
+  try {
+    const o = ac.createOscillator(), g = ac.createGain(), n = ac.currentTime;
+    o.type = type; o.frequency.setValueAtTime(freq, n);
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, n + dur);
+    g.gain.setValueAtTime(vol, n); g.gain.exponentialRampToValueAtTime(.001, n + dur);
+    o.connect(g).connect(ac.destination); o.start(n); o.stop(n + dur);
+  } catch {}
+}
+// wind: filtered noise that swells and fades with the gust
+function whoosh(dur, vol) {
+  if (!soundOn || !ac || !noise) return;
+  try {
+    const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(), n = ac.currentTime;
+    s.buffer = noise; s.loop = true;
+    f.type = 'bandpass'; f.Q.value = 0.8; f.frequency.setValueAtTime(300, n); f.frequency.linearRampToValueAtTime(900, n + dur / 2); f.frequency.linearRampToValueAtTime(300, n + dur);
+    g.gain.setValueAtTime(0.0001, n); g.gain.linearRampToValueAtTime(vol, n + dur / 2); g.gain.linearRampToValueAtTime(0.0001, n + dur);
+    s.connect(f).connect(g).connect(ac.destination); s.start(n); s.stop(n + dur + 0.05);
+  } catch {}
+}
+
+// ---- world (meters) ----
+// a pole on a cart; angle from straight up, positive = leaning toward +x
+const cv = $('cv'), ctx = cv.getContext('2d');
+const G = 6.5, DT = 1 / 240;                  // a bit gentler than real gravity so a person can react
+const POLE = 1.5, PIVOT = 0.42, RAIL = 1.6;   // pole length, pivot height, half the rail length
+const K = 140, C = 2 * Math.sqrt(140), AMAX = 45; // the cart chases the finger like a stiff spring, with limited push
+const FALL = 80 * Math.PI / 180, REST = Math.PI / 2 + Math.asin(PIVOT / POLE); // lost at 80°, lies on the ground here
+const FIRST_GUST = 5;
+// states: title -> ready (waiting for the first move) -> play -> fall -> done
+let s, prev, state = 'title', target = 0, offset = null, keys = 0, playT = 0, best = store.get('best', null), finalT = 0, wait = 0;
+let gust, nextGust, warnT;
+
+function reset(st) {
+  const tilt = (0.02 + Math.random() * 0.03) * (Math.random() < 0.5 ? -1 : 1);
+  s = { x: 0, v: 0, a: tilt, w: 0 };
+  prev = { ...s };
+  target = 0; offset = null; playT = 0; finalT = 0; wait = 0;
+  gust = null; nextGust = FIRST_GUST; warnT = 0; streaks.length = 0;
+  state = st;
+}
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const ease = k => Math.sin(Math.PI * clamp(k, 0, 1)); // gust envelope
+
+function newGust() {
+  // stronger and more often the longer you last
+  const str = Math.min(6, 1 + playT * 0.06);
+  gust = { t: 0, dur: 0.7 + Math.random() * 0.6, f: str * (Math.random() < 0.5 ? -1 : 1) };
+  nextGust = playT + gust.dur + Math.max(0.8, (2.5 + Math.random() * 2.5) * Math.max(0.4, 1 - playT / 100));
+  whoosh(gust.dur + 0.3, Math.min(0.5, 0.12 + Math.abs(gust.f) * 0.04));
+}
+const WARN = 0.8; // streaks show up this long before the gust hits
+let warnDir = 1;
+
+function step(dt) {
+  prev = { ...s };
+  if (state === 'title') { s.a = 0.03 * Math.sin(performance.now() / 650); return; }
+  if (state === 'ready') return;
+  let acc = 0, wind = 0;
+  if (state === 'play') {
+    playT += dt;
+    target = clamp(target + keys * 2.8 * dt, -RAIL, RAIL);
+    acc = clamp(K * (target - s.x) - C * s.v, -AMAX, AMAX);
+    if (!gust && playT >= nextGust - WARN && warnT === 0) { warnT = WARN; warnDir = Math.random() < 0.5 ? -1 : 1; }
+    if (warnT > 0) { warnT -= dt; if (warnT <= 0) { warnT = 0; newGust(); gust.f = Math.abs(gust.f) * warnDir; } }
+    if (gust) { gust.t += dt; wind = gust.f * ease(gust.t / gust.dur); if (gust.t >= gust.dur) gust = null; }
+  } else {
+    acc = clamp(-s.v * 6, -AMAX, AMAX); // cart rolls to a stop once the pole is gone
+  }
+  s.v += acc * dt; s.x += s.v * dt;
+  if (Math.abs(s.x) > RAIL) {
+    // hitting the stopper jolts the pole
+    s.x = Math.sign(s.x) * RAIL;
+    if (state === 'play' || state === 'fall') { s.w += s.v * Math.cos(s.a) / POLE; if (Math.abs(s.v) > 0.6) beep(120, .1, 'triangle', .3); }
+    s.v = 0;
+  }
+  const al = (G * Math.sin(s.a) - acc * Math.cos(s.a) + wind * Math.cos(s.a)) / POLE - 0.08 * s.w;
+  s.w += al * dt; s.a += s.w * dt;
+  if (state === 'play' && Math.abs(s.a) > FALL) { state = 'fall'; finalT = playT; gust = null; warnT = 0; beep(300, .4, 'sine', .15, 90); }
+  if ((state === 'fall' || state === 'done') && Math.abs(s.a) >= REST) {
+    s.a = Math.sign(s.a) * REST;
+    if (Math.abs(s.w) > 0.8) { if (Math.abs(s.w) > 2) beep(70, .35, 'triangle', .6); s.w = -s.w * 0.25; }
+    else s.w = 0;
+  }
+}
+
+// ---- input ----
+let scale = 100, originX = 0, groundY = 0;
+const toWorldX = e => (e.clientX - cv.getBoundingClientRect().left - originX) / scale;
+// the finger moves the cart relative to where it first touched, so the cart never jumps to the finger
+function aimAt(e) {
+  const wx = toWorldX(e);
+  if (offset === null) offset = s.x - wx;
+  target = clamp(wx + offset, -RAIL, RAIL);
+  // pull the offset along so going past the rail end doesn't leave a dead zone
+  offset = target - wx;
+  if (state === 'ready') begin();
+}
+function begin() { state = 'play'; target = s.x; beep(500, .08, 'sine', .12); }
+cv.addEventListener('pointerdown', e => {
+  if (state !== 'ready' && state !== 'play') return;
+  e.preventDefault(); cv.setPointerCapture(e.pointerId);
+  offset = null; aimAt(e);
+});
+cv.addEventListener('pointermove', e => {
+  if (state !== 'ready' && state !== 'play') return;
+  if (e.pointerType !== 'mouse' && !e.buttons) return; // touch / pen only steer while pressed
+  if (e.pointerType === 'mouse' && offset === null && !e.buttons) offset = s.x - toWorldX(e); // first hover just grabs
+  aimAt(e);
+});
+cv.addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') offset = null; });
+cv.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') offset = null; });
+const keyDir = { ArrowLeft: -1, ArrowRight: 1, a: -1, d: 1, A: -1, D: 1 };
+const held = new Set();
+addEventListener('keydown', e => {
+  if (!(e.key in keyDir)) return;
+  e.preventDefault(); held.add(e.key);
+  keys = clamp([...held].reduce((n, k) => n + keyDir[k], 0), -1, 1);
+  if (state === 'ready') begin();
+});
+addEventListener('keyup', e => { held.delete(e.key); keys = clamp([...held].reduce((n, k) => n + keyDir[k], 0), -1, 1); });
+addEventListener('blur', () => { held.clear(); keys = 0; });
+
+$('start').onclick = () => { $('title').hidden = true; reset('ready'); beep(600, .1, 'sine', .15); };
+$('again').onclick = () => { $('result').hidden = true; reset('ready'); beep(600, .1, 'sine', .15); };
+
+const coarse = matchMedia('(pointer: coarse)').matches;
+const secs = v => v.toFixed(2);
+function showResult() {
+  $('rTime').textContent = L[lang].sec(secs(finalT));
+  $('rBest').textContent = `${t('best')} ${L[lang].sec(secs(best))}`;
+  const a = $('share');
+  a.href = `https://x.com/intent/post?text=${encodeURIComponent(L[lang].post(secs(finalT)))}&url=${encodeURIComponent(URL_)}`;
+  if (coarse) { a.removeAttribute('target'); a.removeAttribute('rel'); }
+  else { a.target = '_blank'; a.rel = 'noopener'; }
+}
+function finish() {
+  state = 'done';
+  if (best === null || finalT > best) { best = finalT; store.set('best', best); }
+  showResult(); $('result').hidden = false;
+  beep(500, .15, 'sine', .15); setTimeout(() => beep(800, .25, 'sine', .15), 150);
+}
+
+// ---- render ----
+function resize() {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  cv.width = r.width * dpr; cv.height = r.height * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = r.width, H = r.height;
+  groundY = H - Math.max(110, H * 0.24);
+  scale = Math.min(W / (2 * RAIL + 1.1), (groundY - 70) / (PIVOT + POLE + 0.5));
+  originX = W / 2;
+}
+addEventListener('resize', resize);
+
+// sky goes from afternoon to sunset to night as you last; keyframes at 0, 20, 40, 60 s
+const SKY = [[0, '#8fd0ff', '#e3f4ff'], [20, '#ff9f5a', '#ffe0a8'], [40, '#5b3f8c', '#f08a5d'], [60, '#0b1a3a', '#2a3a6b']];
+const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const mix = (a, b, k) => { const x = hex(a), y = hex(b); return `rgb(${x.map((v, i) => Math.round(v + (y[i] - v) * k)).join(',')})`; };
+function skyAt(tm) {
+  for (let i = 0; i < SKY.length - 1; i++) {
+    const [t0, a0, b0] = SKY[i], [t1, a1, b1] = SKY[i + 1];
+    if (tm < t1) { const k = clamp((tm - t0) / (t1 - t0), 0, 1); return [mix(a0, a1, k), mix(b0, b1, k)]; }
+  }
+  return [SKY[SKY.length - 1][1], SKY[SKY.length - 1][2]];
+}
+const STARS = Array.from({ length: 70 }, () => [Math.random(), Math.random() * 0.7, 0.6 + Math.random() * 1.4]);
+const streaks = [];
+let lastBg = '';
+
+function draw(fdt, k) {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  const x = prev.x + (s.x - prev.x) * k, a = prev.a + (s.a - prev.a) * k;
+  const X = v => originX + v * scale, Y = v => groundY - v * scale;
+  const tm = state === 'title' ? 0 : (state === 'play' ? playT : finalT);
+  const [top, bot] = skyAt(tm);
+  const gr = ctx.createLinearGradient(0, 0, 0, groundY);
+  gr.addColorStop(0, top); gr.addColorStop(1, bot);
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+  if (top !== lastBg) { document.body.style.background = top; lastBg = top; }
+  // stars fade in after sunset
+  const night = clamp((tm - 38) / 20, 0, 1);
+  if (night > 0) {
+    for (const [sx, sy, r] of STARS) {
+      ctx.fillStyle = `rgba(255,255,255,${night * (0.5 + 0.5 * Math.sin(performance.now() / 700 + sx * 50))})`;
+      ctx.beginPath(); ctx.arc(sx * W, sy * groundY, r, 0, 7); ctx.fill();
+    }
+  }
+  // the sun sinks behind the hills
+  const sunK = clamp(tm / 45, 0, 1), sunY = groundY * (0.15 + sunK * 0.95), sunR = Math.max(24, scale * 0.35);
+  ctx.fillStyle = mix('#fff6c2', '#ff6b3d', sunK);
+  ctx.beginPath(); ctx.arc(W * 0.78, sunY, sunR, 0, 7); ctx.fill();
+  // the moon rises at night
+  if (night > 0) {
+    const my = groundY * (1.05 - night * 0.8);
+    ctx.fillStyle = '#fdf6d8'; ctx.beginPath(); ctx.arc(W * 0.2, my, sunR * 0.8, 0, 7); ctx.fill();
+    ctx.fillStyle = top; ctx.beginPath(); ctx.arc(W * 0.2 + sunR * 0.35, my - sunR * 0.15, sunR * 0.7, 0, 7); ctx.fill();
+  }
+  // hills
+  ctx.fillStyle = mix('#7fbf7f', '#1c2a3a', clamp(tm / 60, 0, 1));
+  ctx.beginPath(); ctx.moveTo(0, groundY);
+  for (let sx = 0; sx <= W + 10; sx += 10) ctx.lineTo(sx, groundY - (30 + 22 * Math.sin(sx / 90) * Math.sin(sx / 37 + 1)) * Math.min(1.5, scale / 100));
+  ctx.lineTo(W, groundY); ctx.fill();
+  // ground
+  ctx.fillStyle = mix('#5cb85c', '#1f3b2a', clamp(tm / 60, 0, 1)); ctx.fillRect(0, groundY, W, H - groundY);
+  ctx.fillStyle = mix('#4a9a4a', '#18301f', clamp(tm / 60, 0, 1)); ctx.fillRect(0, groundY, W, Math.max(6, scale * 0.06));
+
+  // wind streaks (from the upwind side, a little before the gust)
+  const blowing = gust ? ease(gust.t / gust.dur) : 0, dir = gust ? Math.sign(gust.f) : warnDir;
+  const want = gust ? 3 + blowing * 10 : warnT > 0 ? 2 : 0;
+  if (fdt > 0 && Math.random() < want * fdt * 6) {
+    streaks.push({ x: dir > 0 ? -0.2 : 1.2, y: 0.08 + Math.random() * 0.8, len: 0.08 + Math.random() * 0.12, sp: (gust ? 1.2 + Math.abs(gust.f) * 0.12 : 0.9) * dir, life: 1 });
+  }
+  ctx.lineCap = 'round'; ctx.lineWidth = 3;
+  for (let i = streaks.length - 1; i >= 0; i--) {
+    const st = streaks[i];
+    st.x += st.sp * fdt;
+    if (st.x < -0.4 || st.x > 1.4) { streaks.splice(i, 1); continue; }
+    const sx = st.x * W, sy = st.y * groundY, len = st.len * W;
+    ctx.strokeStyle = night > 0.5 ? 'rgba(200,215,255,.6)' : 'rgba(40,70,120,.4)';
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - len * Math.sign(st.sp), sy);
+    ctx.quadraticCurveTo(sx - len * 1.3 * Math.sign(st.sp), sy, sx - len * 1.2 * Math.sign(st.sp), sy - 8); ctx.stroke();
+  }
+
+  // rail with stoppers
+  const railY = Y(0.08);
+  ctx.fillStyle = '#495057'; ctx.fillRect(X(-RAIL - 0.35), railY - 3, (2 * RAIL + 0.7) * scale, 6);
+  for (const sgn of [-1, 1]) { ctx.fillStyle = '#e03131'; ctx.fillRect(X(sgn * (RAIL + 0.35)) - 5, railY - 18, 10, 22); }
+  // cart
+  const cw = 0.6 * scale, ch = (PIVOT - 0.14) * scale, cx = X(x), cy = Y(PIVOT);
+  ctx.fillStyle = '#1971c2';
+  ctx.beginPath(); ctx.roundRect(cx - cw / 2, cy, cw, ch, Math.min(10, ch / 3)); ctx.fill();
+  ctx.fillStyle = '#343a40';
+  for (const sgn of [-1, 1]) { ctx.beginPath(); ctx.arc(cx + sgn * cw * 0.3, railY - 2, Math.max(5, scale * 0.07), 0, 7); ctx.fill(); }
+  // pole and weight
+  const tx = cx + Math.sin(a) * POLE * scale, ty = cy - Math.cos(a) * POLE * scale;
+  ctx.strokeStyle = '#8d5524'; ctx.lineWidth = Math.max(5, scale * 0.06);
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke();
+  ctx.fillStyle = '#e8590c'; ctx.beginPath(); ctx.arc(tx, ty, Math.max(10, scale * 0.13), 0, 7); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.4)'; ctx.beginPath(); ctx.arc(tx - scale * 0.04, ty - scale * 0.04, Math.max(3, scale * 0.04), 0, 7); ctx.fill();
+  ctx.fillStyle = '#ffd43b'; ctx.beginPath(); ctx.arc(cx, cy, Math.max(4, scale * 0.05), 0, 7); ctx.fill();
+  // waiting for the first move: arrows on both sides of the cart
+  if (state === 'ready') {
+    const p = (performance.now() / 600) % 1, off = cw * 0.8 + p * 18;
+    ctx.fillStyle = `rgba(25,113,194,${1 - p})`;
+    for (const sgn of [-1, 1]) {
+      const ax = cx + sgn * off, ay = cy + ch / 2;
+      ctx.beginPath(); ctx.moveTo(ax + sgn * 16, ay); ctx.lineTo(ax, ay - 12); ctx.lineTo(ax, ay + 12); ctx.fill();
+    }
+  }
+}
+
+let last = performance.now(), simT = performance.now();
+function loop(now) {
+  const fdt = Math.min(0.05, (now - last) / 1000); last = now;
+  // fixed-step physics in real time, whatever the frame rate
+  if (now - simT > 250) simT = now - 250;
+  while (simT + DT * 1000 <= now) { step(DT); simT += DT * 1000; }
+  if (state === 'fall' && Math.abs(s.a) >= REST && s.w === 0 && Math.abs(s.v) < 0.05) { wait += fdt; if (wait > 0.5) finish(); }
+  draw(fdt, (now - simT) / (DT * 1000));
+  requestAnimationFrame(loop);
+}
+reset('title'); resize(); applyLang(); draw(0, 1); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
