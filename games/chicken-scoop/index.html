@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>チキンすくい</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="チキンすくい">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/chicken-scoop/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/chicken-scoop/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #2a1a2e; color: #fbeedd;
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif;
+      display: flex; flex-direction: column; overflow: hidden;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom));
+      -webkit-user-select: none; user-select: none;
+    }
+    header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+    header a { color: #fbeedd; font-size: 14px; text-decoration: none; margin-right: auto; }
+    header button, header select {
+      background: #fff; border: 1px solid #c9a0a0; border-radius: 8px;
+      height: 34px; min-width: 40px; padding: 0 10px; font-size: 13px; color: #4a2a12; cursor: pointer;
+    }
+    header svg { width: 18px; height: 18px; display: block; }
+    #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: none; }
+    #result { position: absolute; left: 0; right: 0; top: 3%; display: none; justify-content: center; pointer-events: none; }
+    #result b { font-size: clamp(48px, min(16vw, 15vh), 120px); font-weight: 900; color: #fff; text-shadow: 0 5px 0 #b0281e, 0 0 18px rgba(0,0,0,.3); }
+    #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+    #controls { display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; }
+    #controls button, #controls a {
+      flex: 1; height: clamp(56px, 8vh, 72px); border: none; border-radius: 14px; font-size: clamp(18px, 2.6vh, 22px); font-weight: 800;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none;
+      touch-action: manipulation;
+    }
+    .go { background: #d8402e; color: #fff; box-shadow: 0 4px 0 #7a1a12; }
+    .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 34% !important; font-size: clamp(16px, 2.3vh, 19px) !important; }
+    #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
+    #controls.hide { visibility: hidden; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="stage"><div id="result"><b></b></div><div id="msg"></div></div>
+  <div id="controls" class="hide"><button class="go">-</button></div>
+
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+  <script>
+    // CDN が読めないときの一言
+    setTimeout(() => { if (!window.SCOOP_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 8000);
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    window.SCOOP_READY = true;
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/chicken-scoop/';
+
+    // ---------- 言語 ----------
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('chicken-scoop:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('chicken-scoop:' + k, JSON.stringify(v)); } catch {} },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
+    const DICT = {
+      ja: { title: 'チキンすくい', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', share: g => `フライドチキンを${g}すくった #チキンすくいゲーム` },
+      ko: { title: '치킨 건지기', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', share: g => `프라이드치킨을 ${g} 건졌다 #チキンすくいゲーム` },
+      en: { title: 'Chicken Scoop', back: '← Back to top', again: 'Play again', post: 'Post on X', share: g => `I scooped ${g} of fried chicken #チキンすくいゲーム` },
+      th: { title: 'ช้อนไก่ทอด', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', share: g => `ช้อนไก่ทอดได้ ${g} #チキンすくいゲーム` },
+    };
+    let lang = store.get('lang', null) || autoLang();
+    const t = k => DICT[lang][k];
+    const langSel = document.getElementById('lang');
+    langSel.value = lang;
+    langSel.addEventListener('change', () => { lang = langSel.value; store.set('lang', lang); applyLang(); });
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      renderControls();
+      if (state === 'result') prepareShare();
+    }
+
+    // ---------- 音 ----------
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const drawSoundBtn = () => {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${soundOn ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>'}</svg>`;
+    };
+    drawSoundBtn();
+    soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); if (sizzle) sizzle.gain.value = soundOn ? 0.035 : 0; });
+    let ac = null, noiseBuf = null, sizzle = null;
+    function initAudio() {
+      if (ac) return;
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
+        o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.05);
+        noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+        const d = noiseBuf.getChannelData(0);
+        // 油のパチパチ: ところどころ強い粒が入ったノイズ
+        for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (Math.random() < 0.004 ? 1 : 0.25);
+        const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+        const f = ac.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 2500;
+        sizzle = ac.createGain(); sizzle.gain.value = soundOn ? 0.035 : 0;
+        s.connect(f).connect(sizzle).connect(ac.destination); s.start();
+      } catch { ac = null; }
+    }
+    addEventListener('pointerdown', initAudio, { capture: true });
+    function noise(len, freq, q, vol, type = 'bandpass') {
+      const now = ac.currentTime;
+      const s = ac.createBufferSource(); s.buffer = noiseBuf;
+      const f = ac.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+      const g = ac.createGain(); g.gain.setValueAtTime(vol, now); g.gain.exponentialRampToValueAtTime(0.001, now + len);
+      s.connect(f).connect(g).connect(ac.destination);
+      s.start(now, Math.random(), len + 0.02);
+    }
+    function tone(f0, f1, len, vol, type = 'sine') {
+      const now = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+      o.type = type; o.frequency.setValueAtTime(f0, now); o.frequency.exponentialRampToValueAtTime(f1, now + len);
+      g.gain.setValueAtTime(vol, now); g.gain.exponentialRampToValueAtTime(0.001, now + len);
+      o.connect(g).connect(ac.destination); o.start(now); o.stop(now + len + 0.02);
+    }
+    const sfx = {
+      // すくった「ザバッ」
+      scoop: () => { noise(0.25, 700, 0.7, 0.6, 'lowpass'); noise(0.15, 3000, 1, 0.15); },
+      // 沈める「チャポ」
+      dip: () => { tone(500, 180, 0.08, 0.15); noise(0.12, 1200, 1, 0.12); },
+      // お椀に入った「コトン」
+      bowl: () => { tone(320, 200, 0.12, 0.35, 'triangle'); tone(640, 500, 0.06, 0.12); },
+      // 破れる「ビリッ」
+      rip: () => { noise(0.35, 2200, 0.6, 0.7); noise(0.2, 600, 1, 0.4); },
+      bone: () => { tone(900, 700, 0.05, 0.15, 'square'); },
+    };
+    const play = k => { if (soundOn && ac) sfx[k](); };
+
+    // ---------- 3D ----------
+    const stage = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    stage.prepend(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x2a1a2e);
+    const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
+    scene.add(new THREE.HemisphereLight(0xffe8c8, 0x3a2030, 1.0));
+    // 裸電球の明かり
+    const bulb = new THREE.PointLight(0xffc880, 60, 30, 1.6);
+    bulb.position.set(-1.5, 6, 1.5); bulb.castShadow = true; bulb.shadow.mapSize.set(1024, 1024); bulb.shadow.bias = -0.003;
+    scene.add(bulb);
+    const fill = new THREE.DirectionalLight(0xffe0c0, 0.9);
+    fill.position.set(3, 5, 4);
+    scene.add(fill);
+
+    // 屋台の台（赤白の布）
+    const clothTex = (() => {
+      const c = document.createElement('canvas'); c.width = c.height = 128;
+      const g = c.getContext('2d');
+      g.fillStyle = '#f4ece0'; g.fillRect(0, 0, 128, 128);
+      g.fillStyle = '#c8322a'; g.fillRect(0, 0, 64, 128);
+      const tx = new THREE.CanvasTexture(c);
+      tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(10, 1); tx.colorSpace = THREE.SRGBColorSpace;
+      return tx;
+    })();
+    const table = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ map: clothTex, roughness: 0.9 }));
+    table.rotation.x = -Math.PI / 2; table.position.y = -0.45; table.receiveShadow = true;
+    scene.add(table);
+
+    // 鍋
+    const POT_R = 2.3, OIL_Y = 0;
+    const pot = new THREE.Group(); scene.add(pot);
+    {
+      const red = new THREE.MeshStandardMaterial({ color: 0xc8322a, roughness: 0.35 });
+      const inner = new THREE.MeshStandardMaterial({ color: 0x3a3230, roughness: 0.5, metalness: 0.5, side: THREE.BackSide });
+      const wall = new THREE.Mesh(new THREE.CylinderGeometry(POT_R + 0.1, POT_R, 0.75, 64, 1, true), red);
+      wall.position.y = -0.1; wall.castShadow = true; pot.add(wall);
+      const inw = new THREE.Mesh(new THREE.CylinderGeometry(POT_R, POT_R - 0.05, 0.75, 64, 1, true), inner);
+      inw.position.y = -0.1; pot.add(inw);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(POT_R + 0.05, 0.08, 12, 80), red);
+      rim.rotation.x = Math.PI / 2; rim.position.y = 0.27; pot.add(rim);
+    }
+    // 油の水面（ゆらゆら揺らす）
+    const oilGeo = new THREE.RingGeometry(0.001, POT_R, 72, 24);
+    oilGeo.rotateX(-Math.PI / 2);
+    const oilBase = oilGeo.attributes.position.array.slice();
+    const oil = new THREE.Mesh(oilGeo, new THREE.MeshStandardMaterial({ color: 0xd8941c, roughness: 0.08, metalness: 0.25, emissive: 0x5a2800, emissiveIntensity: 0.5 }));
+    oil.receiveShadow = true;
+    scene.add(oil);
+    // 泡
+    const bubbleMat = new THREE.MeshStandardMaterial({ color: 0xffe6a0, roughness: 0.05, transparent: true, opacity: 0.7 });
+    const bubbles = Array.from({ length: 26 }, () => {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), bubbleMat);
+      m.userData.t = Math.random(); scene.add(m); return m;
+    });
+    const placeBubble = m => { const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * (POT_R - 0.2); m.userData.x = Math.cos(a) * r; m.userData.z = Math.sin(a) * r; m.userData.s = 0.015 + Math.random() * 0.03; };
+    bubbles.forEach(placeBubble);
+
+    // お椀（画面の向きで鍋の横か下に置く）
+    const BOWL_R = 0.95;
+    const bowl = new THREE.Group(); scene.add(bowl);
+    {
+      const pts = [[0, -0.45], [0.55, -0.43], [0.85, -0.2], [BOWL_R, 0.15], [BOWL_R - 0.06, 0.15], [0.8, -0.18], [0.5, -0.36], [0, -0.37]].map(([x, y]) => new THREE.Vector2(x, y));
+      const m = new THREE.Mesh(new THREE.LatheGeometry(pts, 48), new THREE.MeshStandardMaterial({ color: 0x7a3a1a, roughness: 0.5, side: THREE.DoubleSide }));
+      m.castShadow = m.receiveShadow = true; bowl.add(m);
+      const inside = new THREE.Mesh(new THREE.CircleGeometry(0.5, 32), new THREE.MeshStandardMaterial({ color: 0x2a0e08, roughness: 0.6 }));
+      inside.rotation.x = -Math.PI / 2; inside.position.y = -0.36; bowl.add(inside);
+    }
+
+    // なめらかなノイズ（衣のデコボコ用）
+    const hash = (x, y, z) => { const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453; return s - Math.floor(s); };
+    function vnoise(x, y, z) {
+      const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+      const f = v => v * v * (3 - 2 * v);
+      const u = f(x - xi), v = f(y - yi), w = f(z - zi);
+      let r = 0;
+      for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) for (let c = 0; c < 2; c++)
+        r += hash(xi + a, yi + b, zi + c) * (a ? u : 1 - u) * (b ? v : 1 - v) * (c ? w : 1 - w);
+      return r;
+    }
+    function crustGeometry(sx, sy, sz, seed) {
+      const geo = new THREE.SphereGeometry(1, 28, 18);
+      const p = geo.attributes.position, col = new Float32Array(p.count * 3);
+      const v = new THREE.Vector3();
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i);
+        const n1 = vnoise(v.x * 2.2 + seed, v.y * 2.2, v.z * 2.2);
+        const n2 = vnoise(v.x * 7 + seed, v.y * 7 + 3, v.z * 7);
+        const n3 = vnoise(v.x * 16, v.y * 16 + seed, v.z * 16);
+        const k = 1 + (n1 - 0.5) * 0.3 + (n2 - 0.5) * 0.18 + (n3 - 0.5) * 0.07;
+        p.setXYZ(i, v.x * k * sx, v.y * k * sy, v.z * k * sz);
+        // 出っぱりは濃く、くぼみは明るいきつね色
+        const d = Math.min(1, Math.max(0, (n2 - 0.35) * 1.6 + (n1 - 0.5) * 0.6));
+        const crumb = n3 > 0.72 ? 0.12 : 0;
+        col[i * 3] = 0.78 - d * 0.36 + crumb;
+        col[i * 3 + 1] = 0.44 - d * 0.28 + crumb * 0.8;
+        col[i * 3 + 2] = 0.12 - d * 0.08 + crumb * 0.3;
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      geo.computeVertexNormals();
+      return geo;
+    }
+    const crustMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4 });
+    const boneMat = new THREE.MeshStandardMaterial({ color: 0xf2e6cf, roughness: 0.55 });
+    const mesh = (g, m, x = 0, y = 0, z = 0) => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.castShadow = true; return o; };
+    function boneShape(len, r) {
+      const g = new THREE.Group();
+      const s = mesh(new THREE.CylinderGeometry(r, r * 1.1, len, 10), boneMat); s.rotation.z = Math.PI / 2; g.add(s);
+      for (const x of [-len / 2, len / 2]) for (const z of [-r, r]) g.add(mesh(new THREE.SphereGeometry(r * 1.6, 12, 8), boneMat, x, 0, z));
+      return g;
+    }
+    // チキンの種類（g: 重さ、r: すくうときの大きさ、sp: 泳ぐ速さ）
+    const KINDS = {
+      karaage: { g: 30, r: 0.2, sp: 0.85, build: s => { const g = new THREE.Group(); g.add(mesh(crustGeometry(0.2, 0.15, 0.17, s), crustMat)); return g; } },
+      wing: { g: 60, r: 0.3, sp: 0.6, build: s => {
+        const g = new THREE.Group();
+        g.add(mesh(crustGeometry(0.2, 0.1, 0.13, s), crustMat, -0.1, 0, 0));
+        const b = mesh(crustGeometry(0.17, 0.09, 0.11, s + 5), crustMat, 0.17, 0, 0.06); b.rotation.y = -0.6; g.add(b);
+        return g;
+      } },
+      drum: { g: 150, r: 0.42, sp: 0.35, build: s => {
+        const g = new THREE.Group();
+        g.add(mesh(crustGeometry(0.34, 0.2, 0.24, s), crustMat, -0.1, 0, 0));
+        g.add(mesh(crustGeometry(0.2, 0.12, 0.13, s + 3), crustMat, 0.2, 0, 0));
+        const b = boneShape(0.3, 0.04); b.position.x = 0.42; g.add(b);
+        return g;
+      } },
+      bone: { g: 0, r: 0.3, sp: 0.5, build: () => boneShape(0.5, 0.045) },
+    };
+    // 形は種類ごとにいくつか作って使い回す（生成の重さを抑える）
+    const PROTOS = Object.fromEntries(Object.entries(KINDS).map(([k, d]) => [k, Array.from({ length: 3 }, (_, i) => d.build(i * 17 + k.length))]));
+
+    // ポイ（赤い枠＋紙）
+    const POI_R = 0.5;
+    const poi = new THREE.Group(); scene.add(poi);
+    const paperCv = document.createElement('canvas'); paperCv.width = paperCv.height = 128;
+    const paperTex = new THREE.CanvasTexture(paperCv); paperTex.colorSpace = THREE.SRGBColorSpace;
+    const paper = new THREE.Mesh(new THREE.CircleGeometry(POI_R, 40), new THREE.MeshStandardMaterial({ map: paperTex, transparent: true, roughness: 0.7, side: THREE.DoubleSide, alphaTest: 0.05 }));
+    paper.rotation.x = -Math.PI / 2; paper.receiveShadow = true;
+    poi.add(paper);
+    {
+      const frame = new THREE.MeshStandardMaterial({ color: 0xe0302a, roughness: 0.3 });
+      const ring = mesh(new THREE.TorusGeometry(POI_R, 0.035, 8, 48), frame); ring.rotation.x = Math.PI / 2; poi.add(ring);
+      const handle = mesh(new THREE.BoxGeometry(0.9, 0.05, 0.1), frame, POI_R + 0.45, 0.03, 0); poi.add(handle);
+    }
+    poi.rotation.y = -0.5;
+    const carryGroup = new THREE.Group(); poi.add(carryGroup);
+    let holes = [];
+    function drawPaper(hp, ripped) {
+      const g = paperCv.getContext('2d'), w = 1 - hp;
+      g.clearRect(0, 0, 128, 128);
+      // 白い紙が油を吸って黄色く透けていく
+      g.fillStyle = `rgba(${255 - w * 30}, ${252 - w * 70}, ${245 - w * 160}, ${0.95 - w * 0.4})`;
+      g.fillRect(0, 0, 128, 128);
+      g.globalCompositeOperation = 'destination-out';
+      for (const h of holes) { g.beginPath(); g.arc(h.x, h.y, h.r, 0, 6.28); g.fill(); }
+      if (ripped) {
+        g.beginPath(); g.moveTo(20, 64);
+        for (let i = 0; i <= 10; i++) g.lineTo(20 + i * 9, 64 + (Math.random() - 0.5) * 50);
+        for (let i = 10; i >= 0; i--) g.lineTo(20 + i * 9, 64 + (Math.random() - 0.5) * 20 + 22);
+        g.fill();
+      }
+      g.globalCompositeOperation = 'source-over';
+      paperTex.needsUpdate = true;
+    }
+
+    // ---------- ゲームの状態 ----------
+    const DT = 1 / 60;
+    let items = [], carried = [], inBowl = [];
+    let state = 'ready', hp = 1, finalG = 0, outTimer = 0, lastPaperQ = -1;
+    let poiX = 0, poiZ = 0, poiY = 0.35, pX = 0, pZ = 0, pY = 0.35, tx = 0, tz = 0, poiV = 0, down = false, sub = false;
+    let bowlX = 3.3, bowlZ = 0;
+
+    function spawn(kind, x, z) {
+      const proto = PROTOS[kind][Math.random() * 3 | 0];
+      const m = proto.clone();
+      const s = 1.05 + Math.random() * 0.25;
+      m.scale.setScalar(s);
+      scene.add(m);
+      const a = Math.random() * 6.28;
+      const it = { kind, m, g: KINDS[kind].g * s * s * s, r: KINDS[kind].r * s, sp: KINDS[kind].sp * (0.8 + Math.random() * 0.4), x, z, px: x, pz: z, h: a, turn: 0, ph: Math.random() * 6 };
+      m.position.set(x, OIL_Y, z);
+      items.push(it);
+      return it;
+    }
+    function randomPos() { const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * (POT_R - 0.5); return [Math.cos(a) * r, Math.sin(a) * r]; }
+    function reset() {
+      for (const it of [...items, ...carried, ...inBowl]) it.m.parent?.remove(it.m);
+      items = []; carried = []; inBowl = [];
+      const mix = ['karaage', 'karaage', 'karaage', 'karaage', 'karaage', 'karaage', 'wing', 'wing', 'wing', 'wing', 'drum', 'drum', 'bone', 'bone'];
+      for (const k of mix) spawn(k, ...randomPos());
+      hp = 1; holes = []; drawPaper(1, false); lastPaperQ = -1;
+      state = 'ready'; outTimer = 0; down = false; sub = false;
+      carryGroup.position.y = 0;
+    }
+    const bowlG = () => inBowl.reduce((s, it) => s + it.g, 0);
+
+    // ---------- 入力 ----------
+    const cv = renderer.domElement;
+    const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), hit = new THREE.Vector3();
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.2);
+    let ptrId = null;
+    function aim(e) {
+      const r = cv.getBoundingClientRect();
+      ndc.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      if (ray.ray.intersectPlane(plane, hit)) { tx = hit.x; tz = hit.z; }
+    }
+    cv.addEventListener('pointerdown', e => {
+      if (ptrId !== null || state === 'out' || state === 'result') return;
+      e.preventDefault(); cv.setPointerCapture(e.pointerId);
+      ptrId = e.pointerId; aim(e);
+      // 指はその場所にポイを持ってくる
+      if (e.pointerType !== 'mouse') { poiX = pX = tx; poiZ = pZ = tz; }
+      down = true;
+      if (state === 'ready') state = 'play';
+    });
+    cv.addEventListener('pointermove', e => { if (ptrId === null || e.pointerId === ptrId || e.pointerType === 'mouse') aim(e); });
+    const up = e => { if (e.pointerId === ptrId) { ptrId = null; down = false; } };
+    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+
+    // ---------- 更新（固定刻み） ----------
+    function damage(d) {
+      hp -= d * (1 + (1 - hp) * 0.6);
+      // 限界が近いと小さな穴が開きはじめる
+      while (hp < 0.4 && holes.length < (0.4 - hp) * 30) holes.push({ x: 20 + Math.random() * 88, y: 20 + Math.random() * 88, r: 2 + Math.random() * 5 });
+      if (hp <= 0) rip();
+    }
+    function rip() {
+      if (state !== 'play') return;
+      hp = 0; state = 'out'; outTimer = 0;
+      play('rip'); drawPaper(0, true);
+      // 乗っていたチキンは油に落ちる
+      for (const it of carried) {
+        const w = it.m.getWorldPosition(new THREE.Vector3());
+        scene.attach(it.m);
+        if (Math.hypot(w.x, w.z) < POT_R - 0.3) { it.x = it.px = w.x; it.z = it.pz = w.z; items.push(it); }
+        else { items.push(it); it.x = it.px = w.x * 0.8; it.z = it.pz = w.z * 0.8; }
+      }
+      carried = [];
+    }
+    function step() {
+      pX = poiX; pZ = poiZ; pY = poiY;
+      for (const it of items) { it.px = it.x; it.pz = it.z; }
+      const playing = state === 'play' || state === 'ready';
+      if (playing) {
+        const nx = poiX + (tx - poiX) * 0.35, nz = poiZ + (tz - poiZ) * 0.35;
+        poiV = Math.hypot(nx - poiX, nz - poiZ) / DT;
+        poiX = nx; poiZ = nz;
+      }
+      const overPot = Math.hypot(poiX, poiZ) < POT_R - 0.25;
+      // 何か乗っているときは沈めない（お椀まで運ぶ）
+      const wantSub = playing && down && overPot && !carried.length;
+      if (wantSub && !sub) { sub = true; play('dip'); }
+      if (!wantSub && sub) {
+        sub = false;
+        // 持ち上げた瞬間に、上にいるチキンをすくう
+        let load = 0;
+        for (let i = items.length - 1; i >= 0; i--) {
+          const it = items[i];
+          if (Math.hypot(it.x - poiX, it.z - poiZ) < POI_R - it.r * 0.4) {
+            items.splice(i, 1); carried.push(it);
+            carryGroup.attach(it.m);
+            load += it.g;
+          }
+        }
+        if (carried.length) {
+          play('scoop');
+          // 紙が重さに耐えられないと破れる
+          damage(load / 600 + carried.length * 0.02);
+        }
+      }
+      if (state === 'play') {
+        if (sub) damage((0.025 + Math.min(poiV, 4) * 0.025) * DT);
+        if (carried.length) damage(carried.reduce((s, it) => s + it.g, 0) / 150 * 0.03 * DT);
+      }
+      poiY += ((sub ? -0.06 : 0.38) - poiY) * 0.25;
+      // お椀の上に来たら入れる
+      if (state === 'play' && carried.length && Math.hypot(poiX - bowlX, poiZ - bowlZ) < BOWL_R * 0.8) {
+        for (const it of carried) {
+          bowl.attach(it.m);
+          const a = Math.random() * 6.28, r = Math.random() * 0.4;
+          it.bowlTo = new THREE.Vector3(Math.cos(a) * r, -0.3 + Math.min(0.5, inBowl.length * 0.035) + 0.08, Math.sin(a) * r);
+          inBowl.push(it);
+          play(it.kind === 'bone' ? 'bone' : 'bowl');
+        }
+        carried = [];
+      }
+      // 泳ぐ: ふらふら向きを変え、沈んだポイが近いと逃げる
+      for (const it of items) {
+        it.turn += (Math.random() - 0.5) * 0.3; it.turn *= 0.95;
+        let sp = it.sp * 0.5;
+        const dx = it.x - poiX, dz = it.z - poiZ, d = Math.hypot(dx, dz);
+        // 沈めたポイを速く動かすと驚いて逃げる。そっと近づけば逃げない
+        const scare = sub ? Math.min(1, Math.max(0, (poiV - 0.8) / 1.5)) : 0;
+        if (scare > 0 && d < 1.2 && d > 0.001) {
+          const away = Math.atan2(dz, dx);
+          let df = away - it.h; df = Math.atan2(Math.sin(df), Math.cos(df));
+          it.h += df * 0.1 * scare; sp = it.sp * (0.5 + scare * (1.4 - d * 0.6));
+        }
+        it.h += it.turn * DT * 3;
+        // 鍋のふちからは離れる
+        const rr = Math.hypot(it.x, it.z);
+        if (rr > POT_R - 0.35 - it.r * 0.5) {
+          const inw = Math.atan2(-it.z, -it.x);
+          let df = inw - it.h; df = Math.atan2(Math.sin(df), Math.cos(df));
+          it.h += df * 0.12;
+        }
+        it.x += Math.cos(it.h) * sp * DT; it.z += Math.sin(it.h) * sp * DT;
+        const lim = POT_R - 0.3 - it.r * 0.5;
+        const r2 = Math.hypot(it.x, it.z); if (r2 > lim) { it.x *= lim / r2; it.z *= lim / r2; }
+      }
+      // ぶつかったら少し押し合う
+      for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
+        const a = items[i], b = items[j], dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz), m = (a.r + b.r) * 0.8;
+        if (d < m && d > 0.0001) { const k = (m - d) / d * 0.25; a.x -= dx * k; a.z -= dz * k; b.x += dx * k; b.z += dz * k; }
+      }
+      // 減ったら足す
+      if (state === 'play' && items.length < 10) {
+        const kinds = ['karaage', 'karaage', 'karaage', 'wing', 'wing', 'drum', 'bone'];
+        const it = spawn(kinds[Math.random() * kinds.length | 0], ...randomPos()); it.pop = 0;
+      }
+      if (state === 'out') { outTimer += DT; if (outTimer > 1.2) finish(); }
+    }
+
+    // ---------- 描画 ----------
+    function draw(alpha, dtReal) {
+      const now = performance.now() / 1000;
+      const x = pX + (poiX - pX) * alpha, z = pZ + (poiZ - pZ) * alpha, y = pY + (poiY - pY) * alpha;
+      // 水面: ゆるい波と、沈めたポイのまわりの波紋
+      const pos = oilGeo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const bx = oilBase[i * 3], bz = oilBase[i * 3 + 2];
+        let h = Math.sin(bx * 2.1 + now * 1.3) * 0.012 + Math.sin(bz * 2.7 - now * 1.1) * 0.012;
+        if (sub) { const d = Math.hypot(bx - x, bz - z); h += Math.sin(d * 14 - now * 10) * 0.018 * Math.exp(-d * 1.5); }
+        pos.setY(i, OIL_Y + h);
+      }
+      pos.needsUpdate = true;
+      oilGeo.computeVertexNormals();
+      for (const b of bubbles) {
+        b.userData.t += dtReal * 0.8;
+        if (b.userData.t > 1) { b.userData.t = 0; placeBubble(b); }
+        const s = b.userData.s * Math.sin(b.userData.t * Math.PI);
+        b.position.set(b.userData.x, OIL_Y + 0.005, b.userData.z); b.scale.set(s, s * 0.6, s);
+      }
+      for (const it of items) {
+        const ix = it.px + (it.x - it.px) * alpha, iz = it.pz + (it.z - it.pz) * alpha;
+        let iy = OIL_Y - 0.02 + Math.sin(now * 2 + it.ph) * 0.02;
+        if (it.pop !== undefined) { it.pop = Math.min(1, it.pop + dtReal * 1.5); iy -= (1 - it.pop) * 0.4; }
+                it.m.position.set(ix, iy, iz);
+        it.m.rotation.set(Math.sin(now * 1.7 + it.ph) * 0.08, -it.h, Math.sin(now * 1.3 + it.ph) * 0.08);
+      }
+      for (const it of inBowl) if (it.bowlTo) it.m.position.lerp(it.bowlTo, Math.min(1, dtReal * 10));
+      poi.position.set(x, y, z);
+      // 紙はしんなりすると重みで少したわむ
+      carryGroup.position.y = 0.06;
+      const q = Math.round(hp * 20);
+      if (q !== lastPaperQ && state !== 'out' && state !== 'result') { lastPaperQ = q; drawPaper(hp, false); }
+      renderer.render(scene, camera);
+    }
+
+    // 画面の形に合わせて、鍋とお椀がちょうど入るように置く
+    const PITCH = 1.12;
+    function resize() {
+      const w = stage.clientWidth, h = Math.max(1, stage.clientHeight);
+      renderer.setSize(w, h, false);
+      const asp = w / h;
+      camera.aspect = asp;
+      const portrait = asp < 1.05;
+      // 横長: お椀は右 / 縦長: お椀は手前（下）
+      bowlX = portrait ? 0 : POT_R + 1.3; bowlZ = portrait ? POT_R + 1.25 : 0;
+      bowl.position.set(bowlX, 0, bowlZ);
+      const sp = Math.sin(PITCH);
+      const cx = portrait ? 0 : bowlX / 2, cz = portrait ? bowlZ / 2 : 0;
+      const hw = (portrait ? POT_R + 0.2 : (POT_R + bowlX + BOWL_R + 0.3) / 2);
+      let hh = (portrait ? (POT_R + bowlZ + BOWL_R + 0.3) / 2 : POT_R + 0.2) * sp + 0.3;
+      hh *= 1.08;
+      const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      const dist = Math.max(hh / tv, hw / (tv * asp)) + 0.5;
+      const target = new THREE.Vector3(cx, 0, cz - hh * 0.05);
+      camera.position.set(target.x, target.y + Math.sin(PITCH) * dist, target.z + Math.cos(PITCH) * dist);
+      camera.lookAt(target);
+      camera.updateProjectionMatrix();
+      if (state === 'ready') { poiX = pX = tx = POT_R * 0.35; poiZ = pZ = tz = POT_R * 0.35; }
+    }
+    new ResizeObserver(resize).observe(stage);
+
+    let needSnap = false;
+    let acc = 0, last = performance.now();
+    function loop(tm) {
+      const dt = Math.min(0.05, (tm - last) / 1000); last = tm;
+      acc += dt;
+      while (acc >= DT) { step(); acc -= DT; }
+      draw(acc / DT, dt);
+      // 描いた直後なら WebGL の画面を読み取れる
+      if (needSnap) { needSnap = false; takeSnap(); prepareShare(); }
+      requestAnimationFrame(loop);
+    }
+
+    // ---------- 画面 ----------
+    const controls = document.getElementById('controls');
+    const resultEl = document.getElementById('result');
+    const fmt = g => `${Math.round(g)}g`;
+    function renderControls() {
+      controls.innerHTML = '';
+      controls.classList.toggle('hide', state !== 'result');
+      if (state !== 'result') { const b = document.createElement('button'); b.className = 'go'; b.textContent = '-'; controls.append(b); return; }
+      const b = document.createElement('button');
+      b.className = 'go'; b.textContent = t('again');
+      b.addEventListener('click', () => { reset(); resize(); resultEl.style.display = 'none'; renderControls(); });
+      controls.append(b);
+      const a = document.createElement('a');
+      a.className = 'post'; a.textContent = t('post');
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(fmt(finalG)))}&url=${encodeURIComponent(SHARE_URL)}`;
+      const coarse = matchMedia('(pointer: coarse)').matches;
+      if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
+      // スマホは画像ごと共有シートへ。PCは画像を保存してから投稿画面を開く
+      a.addEventListener('click', e => {
+        const text = t('share')(fmt(finalG));
+        if (coarse && navigator.share) {
+          e.preventDefault();
+          const file = shareFile();
+          const data = file && navigator.canShare?.({ files: [file] }) ? { files: [file], text: `${text}\n${SHARE_URL}` } : { text: `${text}\n${SHARE_URL}` };
+          navigator.share(data).catch(() => {});
+          return;
+        }
+        const img = resultImage();
+        if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'chicken-scoop.png'; d.click(); }
+      });
+      controls.append(a);
+    }
+    // 結果画像: 結果が出た瞬間の3D画面（お椀が入るように）に、すくった重さを重ねる
+    let snap = null, shareCache = null;
+    function takeSnap() {
+      const src = renderer.domElement, side = Math.min(src.width, src.height);
+      snap = document.createElement('canvas'); snap.width = snap.height = 1080;
+      const b = bowl.position.clone().project(camera);
+      const bx = (b.x + 1) / 2 * src.width, by = (1 - b.y) / 2 * src.height;
+      const sx = Math.max(0, Math.min(src.width - side, bx - side * 0.6)), sy = Math.max(0, Math.min(src.height - side, by - side * 0.6));
+      snap.getContext('2d').drawImage(src, sx, sy, side, side, 0, 0, 1080, 1080);
+      shareCache = null;
+    }
+    function resultImage() {
+      if (!snap) return null;
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      g.drawImage(snap, 0, 0);
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.lineJoin = 'round';
+      const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
+      const text = (str, y, px, max) => {
+        g.font = font(px);
+        const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
+        g.lineWidth = px * .16; g.strokeStyle = '#b0281e'; g.strokeText(str, 540, y); g.fillText(str, 540, y);
+      };
+      text(fmt(finalG), 230, 200, 960);
+      text(t('title'), 1030, 54, 900);
+      return c;
+    }
+    // 共有用ファイルは言語ごとに作っておく（クリック時に待つと Safari で共有が止まるため）
+    function prepareShare() {
+      if (!snap) return;
+      const key = lang;
+      if (shareCache?.key === key) return;
+      shareCache = { key, file: null };
+      resultImage().toBlob(b => { if (b && shareCache?.key === key) shareCache.file = new File([b], 'chicken-scoop.png', { type: 'image/png' }); }, 'image/png');
+    }
+    const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
+    function finish() {
+      state = 'result'; finalG = bowlG();
+      resultEl.children[0].textContent = fmt(finalG);
+      resultEl.style.display = 'flex';
+      snap = null; needSnap = true;
+      renderControls();
+    }
+
+    // テスト用（#debug のときだけ）
+    if (location.hash === '#debug') window.__dbg = { items: () => items.map(it => { const v = new THREE.Vector3(it.x, 0, it.z).project(camera); return { kind: it.kind, sx: v.x, sy: v.y }; }), hp: () => hp, carried: () => carried.length };
+    reset();
+    resize();
+    applyLang();
+    // 最初のフレームで固まらないよう、先に1回描いておく
+    for (let i = 0; i < 3; i++) step();
+    draw(1, 0);
+    requestAnimationFrame(t0 => { last = t0; requestAnimationFrame(loop); });
+  </script>
+</body>
+</html>
