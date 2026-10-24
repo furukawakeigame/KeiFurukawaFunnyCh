@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>チキン骨抜き</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="チキン骨抜き">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/chicken-bone/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/chicken-bone/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #f1dfc2; color: #4a2a12;
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif;
+      display: flex; flex-direction: column; overflow: hidden;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom));
+      -webkit-user-select: none; user-select: none;
+    }
+    header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+    header a { color: #4a2a12; font-size: 14px; text-decoration: none; margin-right: auto; }
+    header button, header select {
+      background: #fff; border: 1px solid #d4b48a; border-radius: 8px;
+      height: 34px; min-width: 40px; padding: 0 10px; font-size: 13px; color: #4a2a12; cursor: pointer;
+    }
+    header svg { width: 18px; height: 18px; display: block; }
+    #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+    #stage canvas.grab { cursor: grabbing; }
+    #result { position: absolute; left: 0; right: 0; top: 3%; display: none; justify-content: center; pointer-events: none; }
+    #result b { font-size: clamp(48px, min(16vw, 15vh), 120px); font-weight: 900; color: #fff; text-shadow: 0 5px 0 #8a4a14, 0 0 18px rgba(0,0,0,.2); }
+    #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+    #controls { display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; }
+    #controls button, #controls a {
+      flex: 1; height: clamp(56px, 8vh, 72px); border: none; border-radius: 14px; font-size: clamp(18px, 2.6vh, 22px); font-weight: 800;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none;
+      touch-action: manipulation;
+    }
+    .go { background: #e08a1e; color: #fff; box-shadow: 0 4px 0 #8a4a14; }
+    .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 34% !important; font-size: clamp(16px, 2.3vh, 19px) !important; }
+    #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
+    #controls.hide { visibility: hidden; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="stage"><div id="result"><b></b></div><div id="msg"></div></div>
+  <div id="controls" class="hide"><button class="go">-</button></div>
+
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+  <script>
+    // CDN が読めないときの一言
+    setTimeout(() => { if (!window.CHICKEN_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 8000);
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    window.CHICKEN_READY = true;
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/chicken-bone/';
+
+    // ---------- 言語 ----------
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('chicken-bone:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('chicken-bone:' + k, JSON.stringify(v)); } catch {} },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
+    const DICT = {
+      ja: { title: 'チキン骨抜き', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', share: g => `骨を抜いて、肉が${g}残った #チキン骨抜きゲーム` },
+      ko: { title: '치킨 뼈 빼기', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', share: g => `뼈를 빼고 살이 ${g} 남았다 #チキン骨抜きゲーム` },
+      en: { title: 'Chicken Deboner', back: '← Back to top', again: 'Play again', post: 'Post on X', share: g => `I pulled the bone out and kept ${g} of chicken #チキン骨抜きゲーム` },
+      th: { title: 'ดึงกระดูกไก่', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', share: g => `ดึงกระดูกออกแล้ว เหลือเนื้อไก่ ${g} #チキン骨抜きゲーム` },
+    };
+    let lang = store.get('lang', null) || autoLang();
+    const t = k => DICT[lang][k];
+    const langSel = document.getElementById('lang');
+    langSel.value = lang;
+    langSel.addEventListener('change', () => { lang = langSel.value; store.set('lang', lang); applyLang(); });
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      renderControls();
+      if (state === 'result') prepareShare();
+    }
+
+    // ---------- 音 ----------
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const drawSoundBtn = () => {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${soundOn ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>'}</svg>`;
+    };
+    drawSoundBtn();
+    soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); });
+    let ac = null, noiseBuf = null;
+    function initAudio() {
+      if (ac) return;
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
+        o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.05);
+        noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+        const d = noiseBuf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      } catch { ac = null; }
+    }
+    addEventListener('pointerdown', initAudio, { capture: true });
+    function noise(len, freq, q, vol, type = 'bandpass') {
+      const now = ac.currentTime;
+      const s = ac.createBufferSource(); s.buffer = noiseBuf;
+      const f = ac.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+      const g = ac.createGain(); g.gain.setValueAtTime(vol, now); g.gain.exponentialRampToValueAtTime(0.001, now + len);
+      s.connect(f).connect(g).connect(ac.destination);
+      s.start(now, Math.random() * 0.5, len + 0.02);
+    }
+    // 張りつめる「ミチミチ」
+    function michi(k) { if (soundOn && ac) noise(0.03 + Math.random() * 0.03, 1800 + Math.random() * 2200, 3, 0.05 + k * 0.12); }
+    // ちぎれる「ブチッ」
+    function buchi() {
+      if (!soundOn || !ac) return;
+      noise(0.12, 900, 1.2, 0.5);
+      const now = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+      o.frequency.setValueAtTime(180, now); o.frequency.exponentialRampToValueAtTime(60, now + 0.12);
+      g.gain.setValueAtTime(0.35, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      o.connect(g).connect(ac.destination); o.start(now); o.stop(now + 0.16);
+    }
+    // 抜ける「スポン」
+    function spon() {
+      if (!soundOn || !ac) return;
+      const now = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(260, now); o.frequency.exponentialRampToValueAtTime(900, now + 0.09);
+      o.frequency.exponentialRampToValueAtTime(500, now + 0.2);
+      g.gain.setValueAtTime(0.001, now); g.gain.exponentialRampToValueAtTime(0.4, now + 0.02); g.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+      o.connect(g).connect(ac.destination); o.start(now); o.stop(now + 0.3);
+    }
+    function plop() { if (soundOn && ac) noise(0.08, 400, 0.8, 0.25, 'lowpass'); }
+
+    // ---------- 3D ----------
+    const stage = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    stage.prepend(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf1dfc2);
+    const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
+    scene.add(new THREE.HemisphereLight(0xfff4e0, 0x8a5a30, 1.1));
+    const key = new THREE.DirectionalLight(0xfff0d8, 2.4);
+    key.position.set(-2.5, 6, 3);
+    key.castShadow = true;
+    key.shadow.mapSize.set(1024, 1024);
+    Object.assign(key.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4, near: 1, far: 15 });
+    key.shadow.bias = -0.002;
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0xffd8a0, 1.2);
+    rim.position.set(3, 2, -4);
+    scene.add(rim);
+
+    // 机（木目）
+    const woodTex = (() => {
+      const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+      const g = c.getContext('2d');
+      g.fillStyle = '#b07a48'; g.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 90; i++) {
+        const y = Math.random() * 256;
+        g.strokeStyle = `rgba(${Math.random() < .5 ? '90,50,20' : '210,160,110'},${0.12 + Math.random() * 0.15})`;
+        g.lineWidth = 1 + Math.random() * 3;
+        g.beginPath(); g.moveTo(0, y);
+        for (let x = 0; x <= 256; x += 32) g.lineTo(x, y + Math.sin(x / 256 * Math.PI * 4 + i) * 3);
+        g.stroke();
+      }
+      const tx = new THREE.CanvasTexture(c);
+      tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(8, 8); tx.colorSpace = THREE.SRGBColorSpace;
+      return tx;
+    })();
+    const table = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.8 }));
+    table.rotation.x = -Math.PI / 2; table.receiveShadow = true;
+    scene.add(table);
+
+    // 全体の台。画面の向きに合わせて回す（横長: 骨が右へ / 縦長: 骨が上へ）
+    const rig = new THREE.Group(); scene.add(rig);
+    const plate = (() => {
+      const pts = [[0, 0.02], [1.35, 0.02], [1.6, 0.1], [1.75, 0.16], [1.78, 0.13], [1.6, 0.05], [1.3, 0], [0, 0]].map(([x, y]) => new THREE.Vector2(x, y));
+      const m = new THREE.Mesh(new THREE.LatheGeometry(pts, 64), new THREE.MeshStandardMaterial({ color: 0xfbfaf6, roughness: 0.25, side: THREE.DoubleSide }));
+      m.receiveShadow = true; m.castShadow = true; m.position.x = -0.25;
+      return m;
+    })();
+    rig.add(plate);
+    const chicken = new THREE.Group(); rig.add(chicken);
+
+    // なめらかなノイズ（衣のデコボコ用）
+    const hash = (x, y, z) => { const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453; return s - Math.floor(s); };
+    function vnoise(x, y, z) {
+      const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+      const f = v => v * v * (3 - 2 * v);
+      const u = f(x - xi), v = f(y - yi), w = f(z - zi);
+      let r = 0;
+      for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) for (let c = 0; c < 2; c++)
+        r += hash(xi + a, yi + b, zi + c) * (a ? u : 1 - u) * (b ? v : 1 - v) * (c ? w : 1 - w);
+      return r;
+    }
+
+    // 肉の形: 軸(x)に沿った太さ
+    const MEAT_MIN = -1.15, MEAT_MAX = 0.6, AXIS_Y = 0.5;
+    const radiusAt = u => {
+      const r = 0.16 + 0.48 * Math.exp(-(((u + 0.55) / 0.52) ** 2));
+      const endCap = Math.min(1, (u - MEAT_MIN + 0.15) / 0.35);
+      return r * (0.55 + 0.45 * Math.sqrt(Math.max(0, endCap)));
+    };
+    function crustGeometry(sx, sy, sz, seed) {
+      const geo = new THREE.SphereGeometry(1, 36, 24);
+      const p = geo.attributes.position, col = new Float32Array(p.count * 3);
+      const v = new THREE.Vector3();
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i);
+        const n1 = vnoise(v.x * 2.2 + seed, v.y * 2.2, v.z * 2.2);
+        const n2 = vnoise(v.x * 7 + seed, v.y * 7 + 3, v.z * 7);
+        const n3 = vnoise(v.x * 16, v.y * 16 + seed, v.z * 16);
+        const k = 1 + (n1 - 0.5) * 0.28 + (n2 - 0.5) * 0.16 + (n3 - 0.5) * 0.07;
+        p.setXYZ(i, v.x * k * sx, v.y * k * sy, v.z * k * sz);
+        // 出っぱりは濃く、くぼみは明るいきつね色
+        const d = Math.min(1, Math.max(0, (n2 - 0.35) * 1.6 + (n1 - 0.5) * 0.6));
+        const crumb = n3 > 0.72 ? 0.12 : 0;
+        col[i * 3] = 0.86 - d * 0.36 + crumb;
+        col[i * 3 + 1] = 0.55 - d * 0.32 + crumb * 0.8;
+        col[i * 3 + 2] = 0.2 - d * 0.13 + crumb * 0.3;
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      geo.computeVertexNormals();
+      return geo;
+    }
+
+    // 骨（軸に沿って、ext だけ外へ引き出される）
+    const boneMat = new THREE.MeshStandardMaterial({ color: 0xf2e6cf, roughness: 0.55, emissive: 0xffc070, emissiveIntensity: 0 });
+    const BONE_IN = -0.85, BONE_OUT = 1.4;
+    const bone = new THREE.Group();
+    (() => {
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.075, BONE_OUT - BONE_IN, 16), boneMat);
+      shaft.rotation.z = Math.PI / 2; shaft.position.x = (BONE_IN + BONE_OUT) / 2;
+      bone.add(shaft);
+      for (const z of [-0.07, 0.07]) { const k = new THREE.Mesh(new THREE.SphereGeometry(0.11, 20, 14), boneMat); k.position.set(BONE_OUT, 0, z); k.scale.set(1, 0.85, 1); bone.add(k); }
+      const k2 = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 12), boneMat); k2.position.x = BONE_IN; bone.add(k2);
+      bone.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    })();
+    chicken.add(bone);
+    // 引く向きを伝える矢じるし（つかむ前だけ）
+    const arrows = [];
+    {
+      const sh = new THREE.Shape(); sh.moveTo(0, 0.16); sh.lineTo(0.14, 0); sh.lineTo(0, -0.16); sh.lineTo(-0.05, -0.16); sh.lineTo(0.08, 0); sh.lineTo(-0.05, 0.16);
+      const g = new THREE.ShapeGeometry(sh);
+      for (let i = 0; i < 3; i++) {
+        const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }));
+        m.rotation.x = -Math.PI / 2; m.position.set(BONE_OUT + 0.35 + i * 0.22, AXIS_Y, 0);
+        chicken.add(m); arrows.push(m);
+      }
+    }
+
+    // 湯気
+    const steamTex = (() => {
+      const c = document.createElement('canvas'); c.width = c.height = 64;
+      const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, 'rgba(255,255,255,.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+      return new THREE.CanvasTexture(c);
+    })();
+    const steam = Array.from({ length: 10 }, (_, i) => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: steamTex, transparent: true, depthWrite: false, opacity: 0 }));
+      s.userData.ph = i / 10; s.userData.x = -0.9 + Math.random() * 1.3; s.userData.z = (Math.random() - 0.5) * 0.5;
+      chicken.add(s); return s;
+    });
+    // 肉汁のしずく
+    const juiceMat = new THREE.MeshStandardMaterial({ color: 0xf0b030, roughness: 0.1, transparent: true, opacity: 0.85 });
+    const juiceGeo = new THREE.SphereGeometry(0.03, 8, 6);
+    const drops = [];
+
+    // ---------- ゲームの状態 ----------
+    let chunks = [], totalG = 0;
+    let state = 'ready', ext = 0, prevExt = 0, vel = 0, lat = 0, tension = 0, sticky = [], hard = 1;
+    let boneFly = null, outTimer = 0, finalG = 0, wobble = 0, michiT = 0;
+    const DT = 1 / 60, MAX_EXT = MEAT_MAX - BONE_IN + 0.05;
+
+    function buildChicken() {
+      for (const c of chunks) { c.mesh.parent?.remove(c.mesh); c.mesh.geometry.dispose(); c.mesh.material.dispose(); }
+      chunks = [];
+      const SEG = 8, AROUND = 4;
+      const twist = Math.random() * 6;
+      for (let i = 0; i < SEG; i++) {
+        const u = MEAT_MIN + 0.12 + (i / (SEG - 1)) * (MEAT_MAX - MEAT_MIN - 0.2);
+        const r = radiusAt(u);
+        for (let j = 0; j < AROUND; j++) {
+          const a = twist + i * 0.9 + j * Math.PI * 2 / AROUND;
+          const off = r * 0.3;
+          const geo = crustGeometry(0.2 + r * 0.22, r * 0.8, r * 0.8, i * 7 + j * 13 + twist * 10);
+          const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0, emissive: 0x7a2a00, emissiveIntensity: 0 });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.castShadow = mesh.receiveShadow = true;
+          const home = new THREE.Vector3(u, AXIS_Y + Math.sin(a) * off * 0.8, Math.cos(a) * off);
+          mesh.position.copy(home);
+          mesh.rotation.x = a;
+          chicken.add(mesh);
+          const g = r * r * 1;
+          chunks.push({ mesh, home, u, g, state: 'on', v: new THREE.Vector3(), spin: new THREE.Vector3() });
+        }
+      }
+      // 1本ごとに重さ・抜けにくさを変える
+      totalG = 185 + Math.random() * 45;
+      const sum = chunks.reduce((s, c) => s + c.g, 0);
+      for (const c of chunks) c.g *= totalG / sum;
+      hard = 0.8 + Math.random() * 0.5;
+      sticky = Array.from({ length: 2 + (Math.random() * 2 | 0) }, () => ({ at: 0.2 + Math.random() * (MAX_EXT - 0.4), k: 1 + Math.random() * 2.2, w: 0.08 + Math.random() * 0.1 }));
+    }
+    function reset() {
+      buildChicken();
+      for (const d of drops) chicken.remove(d.m);
+      drops.length = 0;
+      ext = prevExt = vel = lat = tension = 0; boneFly = null; outTimer = 0; wobble = 0;
+      chicken.add(bone);
+      bone.position.set(0, AXIS_Y, 0); bone.rotation.set(0, 0, 0);
+      state = 'ready';
+    }
+    const remainingG = () => chunks.reduce((s, c) => s + (c.state === 'on' ? c.g : 0), 0);
+
+    // ---------- 入力 ----------
+    const cv = renderer.domElement;
+    const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), hit = new THREE.Vector3();
+    const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -AXIS_Y);
+    let ptr = null;
+    function localPoint(cx, cy) {
+      const r = cv.getBoundingClientRect();
+      ndc.set((cx - r.left) / r.width * 2 - 1, -(cy - r.top) / r.height * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      if (!ray.ray.intersectPlane(dragPlane, hit)) return null;
+      return rig.worldToLocal(hit.clone());
+    }
+    cv.addEventListener('pointerdown', e => {
+      if (ptr || (state !== 'ready' && state !== 'play')) return;
+      e.preventDefault(); cv.setPointerCapture(e.pointerId);
+      const p = localPoint(e.clientX, e.clientY); if (!p) return;
+      ptr = { id: e.pointerId, start: p, cur: p.clone(), ext0: ext };
+      cv.classList.add('grab');
+      if (state === 'ready') state = 'play';
+    });
+    cv.addEventListener('pointermove', e => {
+      if (!ptr || e.pointerId !== ptr.id) return;
+      const p = localPoint(e.clientX, e.clientY); if (p) ptr.cur = p;
+    });
+    const up = e => { if (ptr && e.pointerId === ptr.id) { ptr = null; cv.classList.remove('grab'); } };
+    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+
+    // ---------- 更新（固定刻み） ----------
+    function tear() {
+      const inner = BONE_IN + ext;
+      const cand = chunks.filter(c => c.state === 'on' && c.u > inner - 0.15);
+      if (!cand.length) return;
+      // 骨の出口に近い肉ほどちぎれやすい
+      let pick = cand[0], best = -1;
+      for (const c of cand) { const s = (c.u - inner + 0.3) * (0.5 + Math.random()); if (s > best) { best = s; pick = c; } }
+      buchi();
+      wobble = 1;
+      tension = 0.35;
+      if (Math.random() < 0.5) {
+        // 骨にくっついて持っていかれる
+        pick.state = 'stuck';
+        bone.attach(pick.mesh);
+        pick.mesh.scale.multiplyScalar(0.8);
+      } else {
+        pick.state = 'fly';
+        pick.v.set(1.6 + Math.random() * 1.8, 1.8 + Math.random() * 1.6, (Math.random() - 0.5) * 3 + lat * 3);
+        pick.spin.set(Math.random() * 8, Math.random() * 8, Math.random() * 8);
+      }
+      for (let i = 0; i < 6; i++) spawnDrop(pick.mesh.getWorldPosition(new THREE.Vector3()));
+    }
+    function spawnDrop(world) {
+      const m = new THREE.Mesh(juiceGeo, juiceMat);
+      m.position.copy(chicken.worldToLocal(world.clone()));
+      chicken.add(m);
+      drops.push({ m, v: new THREE.Vector3((Math.random() - 0.3) * 2, 1 + Math.random() * 1.5, (Math.random() - 0.5) * 2), life: 1.2 });
+    }
+    function step() {
+      prevExt = ext;
+      if (state === 'play') {
+        let target = ext, side = 0;
+        if (ptr) {
+          target = ptr.ext0 + (ptr.cur.x - ptr.start.x);
+          side = Math.max(-0.7, Math.min(0.7, ptr.cur.z - ptr.start.z));
+        }
+        // 骨は押し戻せない。急に動かしても速さには上限
+        const next = Math.max(ext, Math.min(target, ext + 7 * DT, MAX_EXT + 0.1));
+        const v = (next - ext) / DT;
+        ext = next;
+        vel += (v - vel) * 0.25;
+        lat += (side - lat) * 0.2;
+        // 引っかかる場所ではゆっくりでないと耐えられない
+        let k = 1;
+        for (const s of sticky) k += s.k * Math.exp(-(((ext - s.at) / s.w) ** 2));
+        const safe = 0.6 / (k * hard);
+        let dT = Math.max(0, vel - safe) * 1.7 * hard + vel * 0.08 + Math.max(0, Math.abs(lat) - 0.12) * 1.8;
+        dT -= (vel < safe ? 0.7 : 0.15);
+        tension = Math.max(0, tension + dT * DT);
+        if (tension >= 1) tear();
+        if (ext >= MAX_EXT) {
+          state = 'out'; outTimer = 0;
+          spon(); wobble = 1.3;
+          boneFly = { v: new THREE.Vector3(1.5, 2.6, lat * 2), spin: 6 + Math.random() * 3 };
+          ptr = null; cv.classList.remove('grab');
+          tension = 0;
+        }
+      } else if (state === 'out') {
+        outTimer += DT;
+        if (outTimer > 1.1) finish();
+      }
+      // 骨が飛んでお皿の横に落ちる
+      if (boneFly) {
+        boneFly.v.y -= 9 * DT;
+        bone.position.addScaledVector(boneFly.v, DT);
+        bone.rotation.y += boneFly.spin * DT * 0.3;
+        bone.rotation.z += boneFly.spin * DT * (bone.position.y > 0.15 ? 1 : 0);
+        if (bone.position.y < 0.12) { bone.position.y = 0.12; if (boneFly.v.y < -1) plop(); boneFly.v.y *= -0.25; boneFly.v.x *= 0.6; boneFly.v.z *= 0.6; boneFly.spin *= 0.5; }
+      }
+      for (const c of chunks) {
+        if (c.state !== 'fly') continue;
+        c.v.y -= 9 * DT;
+        const p = c.mesh.position;
+        p.addScaledVector(c.v, DT);
+        c.mesh.rotation.x += c.spin.x * DT; c.mesh.rotation.y += c.spin.y * DT;
+        const floor = Math.hypot(p.x + 0.25, p.z) < 1.6 ? 0.2 : 0.15;
+        if (p.y < floor) {
+          p.y = floor;
+          if (c.v.y < -1.5) plop();
+          c.v.y *= -0.3; c.v.x *= 0.7; c.v.z *= 0.7; c.spin.multiplyScalar(0.6);
+        }
+      }
+      for (let i = drops.length - 1; i >= 0; i--) {
+        const d = drops[i];
+        d.v.y -= 9 * DT; d.m.position.addScaledVector(d.v, DT);
+        if (d.m.position.y < 0.05) { d.m.position.y = 0.05; d.v.set(0, 0, 0); }
+        d.life -= DT;
+        if (d.life <= 0) { chicken.remove(d.m); drops.splice(i, 1); }
+      }
+    }
+
+    // ---------- 描画 ----------
+    let lastCls = '';
+    function draw(alpha, dtReal) {
+      const now = performance.now() / 1000;
+      const e = prevExt + (ext - prevExt) * alpha;
+      wobble = Math.max(0, wobble - dtReal * 1.6);
+      if (!boneFly) {
+        // 骨は肉の出口を支点に、横へ引いた分だけ傾く
+        const a = -lat * 0.45;
+        bone.rotation.set(0, a, 0);
+        bone.position.set(MEAT_MAX - (MEAT_MAX - e) * Math.cos(a), AXIS_Y, (MEAT_MAX - e) * Math.sin(a));
+      }
+      const ten = state === 'play' ? tension : 0;
+      const inner = BONE_IN + e;
+      const shake = ten > 0.4 ? (ten - 0.4) * 0.03 : 0;
+      for (const c of chunks) {
+        if (c.state !== 'on') continue;
+        // 骨が通っている所の肉は、骨の方へ引っぱられて震える
+        const touch = c.u > inner - 0.1 ? Math.min(1, (c.u - inner + 0.1) / 0.5) : 0;
+        const pull = ten * touch;
+        const jig = Math.sin(now * 30 + c.u * 9) * wobble * 0.04;
+        c.mesh.position.set(
+          c.home.x + pull * 0.16 + (Math.random() - 0.5) * shake * touch,
+          c.home.y + (Math.random() - 0.5) * shake * touch,
+          c.home.z + lat * pull * 0.25 + (Math.random() - 0.5) * shake * touch);
+        c.mesh.scale.set(1 + pull * 0.18 + jig, 1 - pull * 0.06 - jig * 0.6, 1 - pull * 0.06 - jig * 0.6);
+        c.mesh.material.emissiveIntensity = pull * pull * 0.9;
+      }
+      if (ten > 0.55 && now > michiT) { michiT = now + 0.05 + (1 - ten) * 0.25; michi(ten); if (Math.random() < ten - 0.5) spawnDrop(bone.localToWorld(new THREE.Vector3(MEAT_MAX - bone.position.x, 0.1, 0))); }
+
+      // つかむ前は骨の先が光って、矢じるしが外へ流れる
+      const hint = (state === 'ready' || (state === 'play' && !ptr && ext < 0.05)) ? 1 : 0;
+      boneMat.emissiveIntensity = hint * (0.25 + 0.25 * Math.sin(now * 5));
+      arrows.forEach((m, i) => { m.visible = !!hint; m.material.opacity = hint * Math.max(0, Math.sin(now * 4 - i * 0.9)) * 0.9; });
+
+      for (const s of steam) {
+        const ph = (now * 0.25 + s.userData.ph) % 1;
+        s.position.set(s.userData.x + Math.sin(now + s.userData.ph * 9) * 0.1, AXIS_Y + 0.4 + ph * 1.4, s.userData.z);
+        s.scale.setScalar(0.35 + ph * 0.7);
+        s.material.opacity = Math.sin(ph * Math.PI) * 0.35;
+      }
+      renderer.render(scene, camera);
+    }
+
+    // 画面の形に合わせて、チキンと引き抜く範囲がちょうど入るように置く
+    const PITCH = 1.0;
+    function resize() {
+      const w = stage.clientWidth, h = Math.max(1, stage.clientHeight);
+      renderer.setSize(w, h, false);
+      const asp = w / h;
+      camera.aspect = asp;
+      const portrait = asp < 1;
+      rig.rotation.y = portrait ? Math.PI / 2 : 0;
+      // 見せたい範囲（ローカル）: 軸方向 -1.4〜2.9 / 横 ±1.7
+      const cx = 0.75, halfAxis = 2.15, halfSide = 1.7;
+      const sp = Math.sin(PITCH);
+      let hw = portrait ? halfSide : halfAxis;
+      let hh = (portrait ? halfAxis : halfSide) * sp + 0.35;
+      hh *= 1.22; // 上に結果の数字を出す余白
+      const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      const dist = Math.max(hh / tv, hw / (tv * asp)) + 0.6;
+      rig.position.set(portrait ? 0 : -cx, 0, portrait ? cx : 0);
+      const target = new THREE.Vector3(0, 0.25, -hh * 0.16);
+      camera.position.set(target.x, target.y + Math.sin(PITCH) * dist, target.z + Math.cos(PITCH) * dist);
+      camera.lookAt(target);
+      camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(stage);
+    resize();
+
+    let needSnap = false;
+    let acc = 0, last = performance.now();
+    function loop(tm) {
+      const dt = Math.min(0.05, (tm - last) / 1000); last = tm;
+      acc += dt;
+      while (acc >= DT) { step(); acc -= DT; }
+      draw(acc / DT, dt);
+      // 描いた直後なら WebGL の画面を読み取れる
+      if (needSnap) { needSnap = false; takeSnap(); prepareShare(); }
+      requestAnimationFrame(loop);
+    }
+
+    // ---------- 画面 ----------
+    const controls = document.getElementById('controls');
+    const resultEl = document.getElementById('result');
+    const fmt = g => `${Math.round(g)}g`;
+    function renderControls() {
+      controls.innerHTML = '';
+      controls.classList.toggle('hide', state !== 'result');
+      if (state !== 'result') { const b = document.createElement('button'); b.className = 'go'; b.textContent = '-'; controls.append(b); return; }
+      const b = document.createElement('button');
+      b.className = 'go'; b.textContent = t('again');
+      b.addEventListener('click', () => { reset(); resultEl.style.display = 'none'; renderControls(); });
+      controls.append(b);
+      const a = document.createElement('a');
+      a.className = 'post'; a.textContent = t('post');
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(fmt(finalG)))}&url=${encodeURIComponent(SHARE_URL)}`;
+      const coarse = matchMedia('(pointer: coarse)').matches;
+      if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
+      // スマホは画像ごと共有シートへ。PCは画像を保存してから投稿画面を開く
+      a.addEventListener('click', e => {
+        const text = t('share')(fmt(finalG));
+        if (coarse && navigator.share) {
+          e.preventDefault();
+          const file = shareFile();
+          const data = file && navigator.canShare?.({ files: [file] }) ? { files: [file], text: `${text}\n${SHARE_URL}` } : { text: `${text}\n${SHARE_URL}` };
+          navigator.share(data).catch(() => {});
+          return;
+        }
+        const img = resultImage();
+        if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'chicken-bone.png'; d.click(); }
+      });
+      controls.append(a);
+    }
+    // 結果画像: 結果が出た瞬間の3D画面に、残った肉の重さを重ねる
+    let snap = null, shareCache = null;
+    function takeSnap() {
+      const src = renderer.domElement, side = Math.min(src.width, src.height);
+      snap = document.createElement('canvas'); snap.width = snap.height = 1080;
+      // 少し下寄り（チキンのある所）を切り抜く
+      const sy = Math.min(src.height - side, Math.max(0, (src.height - side) * 0.7));
+      snap.getContext('2d').drawImage(src, (src.width - side) / 2, sy, side, side, 0, 0, 1080, 1080);
+      shareCache = null;
+    }
+    function resultImage() {
+      if (!snap) return null;
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      g.drawImage(snap, 0, 0);
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.lineJoin = 'round';
+      const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
+      const text = (str, y, px, max) => {
+        g.font = font(px);
+        const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
+        g.lineWidth = px * .16; g.strokeStyle = '#8a4a14'; g.strokeText(str, 540, y); g.fillText(str, 540, y);
+      };
+      text(fmt(finalG), 230, 200, 960);
+      text(t('title'), 1030, 54, 900);
+      return c;
+    }
+    // 共有用ファイルは言語ごとに作っておく（クリック時に待つと Safari で共有が止まるため）
+    function prepareShare() {
+      if (!snap) return;
+      const key = lang;
+      if (shareCache?.key === key) return;
+      shareCache = { key, file: null };
+      resultImage().toBlob(b => { if (b && shareCache?.key === key) shareCache.file = new File([b], 'chicken-bone.png', { type: 'image/png' }); }, 'image/png');
+    }
+    const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
+    function finish() {
+      state = 'result'; finalG = remainingG();
+      resultEl.children[0].textContent = fmt(finalG);
+      resultEl.style.display = 'flex';
+      snap = null; needSnap = true;
+      renderControls();
+    }
+
+    reset();
+    applyLang();
+    // 最初のフレームで固まらないよう、先に1回描いておく
+    draw(1, 0);
+    requestAnimationFrame(t0 => { last = t0; requestAnimationFrame(loop); });
+  </script>
+</body>
+</html>
