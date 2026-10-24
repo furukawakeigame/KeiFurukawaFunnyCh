@@ -44,6 +44,8 @@
     #meter { position: absolute; right: 14px; top: 28px; bottom: 16px; width: clamp(16px, 3.2vmin, 28px); border-radius: 10px; background: rgba(255,255,255,.65); border: 2px solid rgba(58,46,30,.25); display: none; overflow: hidden; pointer-events: none; }
     #meter i { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; background: #f2a531; transform-origin: bottom; }
     #meter b { position: absolute; left: -2px; right: -2px; height: 4px; margin-top: -2px; background: #3a2e1e; top: 33.3%; }
+    #trail { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    #watt { position: absolute; right: calc(clamp(16px, 3.2vmin, 28px) + 24px); top: 24px; font-size: clamp(26px, 7vmin, 56px); font-weight: 900; color: #fff; text-shadow: 0 3px 0 #8a5a1a, 0 0 10px rgba(0,0,0,.2); display: none; pointer-events: none; font-variant-numeric: tabular-nums; }
     #hint { position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; pointer-events: none; display: none; }
     #hint svg { width: 100%; height: 100%; animation: spin 1.6s linear infinite; }
     @keyframes spin { to { transform: rotate(-360deg); } }
@@ -72,6 +74,8 @@
   <div id="stage">
     <div id="timer"><i></i></div>
     <div id="meter"><i></i><b></b></div>
+    <canvas id="trail"></canvas>
+    <div id="watt"></div>
     <div id="hint"><svg viewBox="0 0 100 100" fill="none" stroke="#e0703a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M50 12 A38 38 0 1 0 88 50"/><path d="M76 38 L88 52 L98 36"/></svg></div>
     <div id="result"><b></b><span></span></div>
     <div id="msg"></div>
@@ -469,7 +473,7 @@
     });
     const MAX_W = 2600;
     // 起動に必要な時間
-    const CHARGE_TIME = 1.6;
+    const CHARGE_TIME = 1.2;
 
     // ---------- 配置とカメラ ----------
     const slot = new THREE.Group(); scene.add(slot);
@@ -541,6 +545,7 @@
       const [x, y] = local(e);
       ptr = { id: e.pointerId, a: angleAt(x, y)[0] };
       dragging = true; everDragged = true;
+      trail.push({ x, y, t: performance.now(), start: true });
     });
     cv.addEventListener('pointermove', e => {
       if (!ptr || e.pointerId !== ptr.id) return;
@@ -550,6 +555,7 @@
       let d = a - ptr.a; d = Math.atan2(Math.sin(d), Math.cos(d));
       ptr.a = a;
       pending += d;
+      trail.push({ x, y, t: performance.now() });
     });
     const up = e => { if (ptr && e.pointerId === ptr.id) { ptr = null; dragging = false; } };
     cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
@@ -592,9 +598,9 @@
         if (charge >= 1) { charge = 1; act = 0; done++; chime(mi); if (mi === MACHINES.length - 1) whoosh(); flash = 1; }
       } else {
         act += DT;
-        if (act > 1.8) {
+        if (act > (mi === MACHINES.length - 1 ? 1.8 : 0.9)) {
           if (mi < MACHINES.length - 1) setMachine(mi + 1);
-          else if (act > 2.6) { finish(); return; }
+          else if (act > 2.4) { finish(); return; }
         }
       }
       if (timeLeft <= 0) finish();
@@ -605,7 +611,28 @@
     const timerEl = document.getElementById('timer'), timerBar = timerEl.firstElementChild;
     const meterEl = document.getElementById('meter'), meterBar = meterEl.firstElementChild, meterLine = meterEl.lastElementChild;
     const hint = document.getElementById('hint');
-    let lastTimer = -1, lastMeter = '', lastHint = '';
+    let lastTimer = -1, lastMeter = '', lastHint = '', lastWatt = '';
+    const wattEl = document.getElementById('watt');
+    const trailCv = document.getElementById('trail'), tg = trailCv.getContext('2d');
+    const trail = [];
+    let trailDrawn = false;
+    // ドラッグの軌跡: 新しいほど太く濃く、0.3秒で消える
+    function drawTrail() {
+      const now = performance.now(), life = 300;
+      while (trail.length && now - trail[0].t > life) trail.shift();
+      if (!trail.length && !trailDrawn) return;
+      const k = trailCv.width / Math.max(1, stage.clientWidth);
+      tg.setTransform(1, 0, 0, 1, 0, 0); tg.clearRect(0, 0, trailCv.width, trailCv.height);
+      tg.setTransform(k, 0, 0, k, 0, 0); tg.lineCap = 'round';
+      for (let i = 1; i < trail.length; i++) {
+        const p = trail[i], q = trail[i - 1];
+        if (p.start) continue;
+        const f = 1 - (now - p.t) / life;
+        tg.strokeStyle = `rgba(255, 150, 60, ${f * 0.85})`; tg.lineWidth = 4 + f * 14;
+        tg.beginPath(); tg.moveTo(q.x, q.y); tg.lineTo(p.x, p.y); tg.stroke();
+      }
+      trailDrawn = trail.length > 0;
+    }
     function draw(alpha, dtReal) {
       const th = prevTheta + (theta - prevTheta) * alpha;
       const now = performance.now() / 1000;
@@ -624,7 +651,7 @@
       }
       if (cur) {
         // 新しい機械は上から落ちてくる
-        const k = Math.min(1, enter / 0.35);
+        const k = Math.min(1, enter / 0.2);
         cur.g.position.y = (1 - k) * (1 - k) * 2.5;
         const lv = state === 'play' ? charge : 0;
         cur.g.rotation.z = act < 0 ? (Math.random() - 0.5) * lv * 0.03 : 0;
@@ -643,6 +670,11 @@
         const key = Math.round(f * 200) + (ok ? 'o' : 'x') + (act >= 0 ? 'a' : '');
         if (key !== lastMeter) { lastMeter = key; meterBar.style.transform = `scaleY(${f})`; meterBar.style.background = act >= 0 ? '#ffd040' : ok ? '#4aa84a' : '#f2a531'; }
       }
+      if (state === 'play') {
+        const wt = `${Math.round(watt)}W`;
+        if (wt !== lastWatt) { lastWatt = wt; wattEl.textContent = wt; }
+      }
+      drawTrail();
       // 遊び方は回る矢印で見せる
       const showHint = state === 'title' || (state === 'play' && !everDragged);
       const [hx, hy] = crankScreen();
@@ -655,6 +687,7 @@
     function resize() {
       const w = stage.clientWidth, h = stage.clientHeight;
       renderer.setSize(w, h, false);
+      const pr = Math.min(devicePixelRatio, 2); trailCv.width = w * pr; trailCv.height = h * pr; trailDrawn = true;
       camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix();
       layout();
       const hs = Math.max(70, Math.min(160, Math.min(w, h) * 0.28));
@@ -749,7 +782,7 @@
     function start() {
       reset();
       state = 'play'; lastTimer = -1; lastMeter = ''; everDragged = false;
-      timerEl.style.display = 'block'; meterEl.style.display = 'block'; resultEl.style.display = 'none';
+      timerEl.style.display = 'block'; meterEl.style.display = 'block'; wattEl.style.display = 'block'; lastWatt = ''; resultEl.style.display = 'none';
       renderControls();
     }
     function showResult() {
@@ -759,7 +792,7 @@
     function finish() {
       state = 'result'; finalN = done; finalW = Math.round(peak);
       ptr = null; dragging = false;
-      timerEl.style.display = 'none'; meterEl.style.display = 'none';
+      timerEl.style.display = 'none'; meterEl.style.display = 'none'; wattEl.style.display = 'none';
       showResult();
       resultEl.style.display = 'flex';
       snap = null; needSnap = true;
