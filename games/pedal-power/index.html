@@ -293,6 +293,72 @@
       return V(a.x + l1 * Math.cos(ang + dir * b), a.y + l1 * Math.sin(ang + dir * b));
     }
     const _hip = V(0, 0), _pp = V(0, 0), _sh = V(0, 0), _hd = V(0, 0);
+    const jp = {};
+    // ---------- 疲れ果てたあとのラグドール ----------
+    // 関節を点、骨を長さの決まった棒としてつなぎ、重力で崩れ落ちる
+    let rag = null;
+    function startRag() {
+      const names = ['h1', 'h-1', 's1', 's-1', 'k1', 'k-1', 'a1', 'a-1', 'e1', 'e-1', 'w1', 'w-1'];
+      const pts = {};
+      for (const n of names) {
+        const p = jp[n].clone();
+        // 横（手前）へ倒れ込む勢い
+        const v = V(-1.0 - (n[0] === 's' || n[0] === 'e' || n[0] === 'w' ? 0.8 : 0), 0.9, 0.12 + Math.random() * 0.1);
+        pts[n] = { p, o: p.clone().addScaledVector(v, -DT), r: n[0] === 'h' ? 0.1 : n[0] === 's' ? 0.13 : 0.05 };
+      }
+      const hp = headG.getWorldPosition(new THREE.Vector3());
+      pts.hd = { p: hp, o: hp.clone().add(V(2.0 * DT, -0.9 * DT, -0.15 * DT)), r: 0.14 };
+      const cons = [];
+      const link = (a, b) => cons.push([pts[a], pts[b], pts[a].p.distanceTo(pts[b].p)]);
+      // 胴体は箱のまま崩れないように対角線もつなぐ
+      link('h1', 'h-1'); link('s1', 's-1'); link('h1', 's1'); link('h-1', 's-1'); link('h1', 's-1'); link('h-1', 's1');
+      // 頭も胴にしっかりつける（床にめり込まないよう点を持たせる）
+      link('hd', 's1'); link('hd', 's-1'); link('hd', 'h1'); link('hd', 'h-1');
+      for (const k of ['1', '-1']) { link('h' + k, 'k' + k); link('k' + k, 'a' + k); link('s' + k, 'e' + k); link('e' + k, 'w' + k); }
+      rag = { pts, cons };
+    }
+    function stepRag() {
+      const list = Object.values(rag.pts);
+      for (const q of list) {
+        const vx = q.p.x - q.o.x, vy = q.p.y - q.o.y, vz = q.p.z - q.o.z;
+        q.o.copy(q.p);
+        q.p.x += vx * 0.995; q.p.y += vy * 0.995 - 9.8 * DT * DT; q.p.z += vz * 0.995;
+      }
+      for (let it = 0; it < 10; it++) {
+        for (const [a, b, len] of rag.cons) {
+          _d.subVectors(b.p, a.p); const l = _d.length() || 1e-6;
+          const k = (l - len) / l * 0.5;
+          a.p.addScaledVector(_d, k); b.p.addScaledVector(_d, -k);
+        }
+        for (const q of list) if (q.p.y < q.r) {
+          q.p.y = q.r;
+          // 床でこすれて止まる
+          q.o.x += (q.p.x - q.o.x) * 0.5; q.o.z += (q.p.z - q.o.z) * 0.5;
+          if (q.o.y < q.p.y - 0.001) q.o.y = q.p.y + (q.p.y - q.o.y) * 0.2;
+        }
+      }
+    }
+    const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3(), _m = new THREE.Matrix4();
+    function poseRag() {
+      const P = n => rag.pts[n].p;
+      const hip = P('h1').clone().add(P('h-1')).multiplyScalar(0.5), sh = P('s1').clone().add(P('s-1')).multiplyScalar(0.5);
+      _y.subVectors(sh, hip).normalize();
+      _z.subVectors(P('h1'), P('h-1')).add(_d.subVectors(P('s1'), P('s-1'))); _z.addScaledVector(_y, -_z.dot(_y)).normalize();
+      _x.crossVectors(_y, _z);
+      // 肩の点は胴の少し下にあるので、胴の根元を腰に合わせる
+      torso.position.copy(hip);
+      torso.quaternion.setFromRotationMatrix(_m.makeBasis(_x, _y, _z));
+      for (const l of legs) {
+        const H = P('h' + l.s), K = P('k' + l.s), A = P('a' + l.s);
+        place(l.thigh, H, K); place(l.shin, K, A); l.knee.position.copy(K);
+        l.foot.position.copy(A); l.foot.rotation.set(0, 0, -1.2);
+      }
+      for (const a of armsH) {
+        const S = P('s' + a.s), E = P('e' + a.s), W = P('w' + a.s);
+        place(a.up, S, E); place(a.fore, E, W); a.elbow.position.copy(E); a.hand.position.copy(W);
+      }
+      mouth.scale.y = 3.5;
+    }
     function poseMan(theta, w, now) {
       // 回すほど前のめり、リズムに合わせて体が揺れる
       const effort = Math.min(1, w / 1500);
@@ -312,6 +378,7 @@
         const k = ik2(hip, ankle, L1, L2, 1);
         const hz = l.s * 0.09;
         const H3 = V(hip.x, hip.y, hz), K3 = V(k.x, k.y, (hz + pz) / 2 + l.s * 0.02), A3 = V(ankle.x, ankle.y, pz);
+        jp['h' + l.s] = H3; jp['k' + l.s] = K3; jp['a' + l.s] = A3;
         place(l.thigh, H3, K3); place(l.shin, K3, A3); l.knee.position.copy(K3);
         l.foot.position.set(px + 0.03, py + 0.035, pz);
         l.foot.rotation.z = Math.sin(th) * 0.25;
@@ -322,6 +389,7 @@
         const S3 = V(sh.x, sh.y - 0.04, a.s * 0.19), Hn = V(BAR.x, BAR.y, a.s * 0.21);
         const e = ik2(S3, Hn, A1, A2, -1);
         const E3 = V(e.x, e.y, a.s * 0.21);
+        jp['s' + a.s] = S3; jp['e' + a.s] = E3; jp['w' + a.s] = Hn;
         place(a.up, S3, E3); place(a.fore, E3, Hn); a.elbow.position.copy(E3); a.hand.position.copy(Hn);
       }
       mouth.scale.y = 1 + effort * 2.5;
@@ -625,7 +693,7 @@
       const target = (portrait ? V(0.12, 0.85, -1.3) : V(0.55, 0.8, 0)).clone();
       const dir = (portrait ? V(0.12, 0.85, 1) : V(0.12, 0.16, 1)).normalize();
       const sp = slot.position;
-      const pts = [V(-0.95, 0, 0.2), V(0.95, 0, 0.2), V(-0.55, 1.75, 0), V(0.75, 1.55, 0),
+      const pts = [V(-1.7, 0, 0.3), V(-0.95, 0, 0.2), V(0.95, 0, 0.2), V(-0.55, 1.75, 0), V(0.75, 1.55, 0),
         V(sp.x - 0.55, 0, sp.z + 0.3), V(sp.x + 0.55, 0, sp.z + 0.3), V(sp.x - 0.55, 1.6, sp.z), V(sp.x + 0.55, 1.6, sp.z)];
       // 右端のメーターぶん横は少し狭く使う
       const fits = d => {
@@ -700,6 +768,7 @@
     const DT = 1 / 60;
     let titleT = 0;
     function step() {
+      if (rag) stepRag();
       prevTheta = theta;
       if (state === 'title') { titleT += DT; omega = 5; theta -= omega * DT; watt = 0; return; }
       if (state === 'play') {
@@ -775,6 +844,7 @@
       genRoller.rotation.z = -th * 18;
       genLamp.material.color.setRGB(0.3 + Math.min(1, watt / 300) * 0.7, 0.2 + Math.min(1, watt / 300) * 0.7, 0);
       poseMan(th, watt, now);
+      if (rag) poseRag();
       // 汗: 強く漕ぐと飛ぶ
       const hard = watt > 500;
       for (const s of sweat) {
@@ -830,14 +900,14 @@
     new ResizeObserver(resize).observe(stage);
     resize();
 
-    let needSnap = false;
+    let needSnap = false, snapAt = 0;
     let acc = 0, last = performance.now();
     function loop(tm) {
       const dt = Math.min(0.05, (tm - last) / 1000); last = tm;
       acc += dt;
       while (acc >= DT) { step(); acc -= DT; }
       draw(acc / DT, dt);
-      if (needSnap) { needSnap = false; takeSnap(); prepareShare(); }
+      if (needSnap && performance.now() > snapAt) { needSnap = false; takeSnap(); prepareShare(); }
       requestAnimationFrame(loop);
     }
 
@@ -913,6 +983,7 @@
     }
     const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
     function start() {
+      rag = null; needSnap = false;
       reset();
       state = 'play'; lastTimer = -1; lastMeter = ''; everDragged = false;
       timerEl.style.display = 'block'; meterEl.style.display = 'block'; wattEl.style.display = 'block'; lastWatt = ''; resultEl.style.display = 'none';
@@ -928,7 +999,8 @@
       timerEl.style.display = 'none'; meterEl.style.display = 'none'; wattEl.style.display = 'none';
       showResult();
       resultEl.style.display = 'flex';
-      snap = null; needSnap = true;
+      snap = null; needSnap = true; snapAt = performance.now() + 1800;
+      startRag();
       renderControls();
     }
 
