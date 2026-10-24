@@ -48,7 +48,7 @@
     #watt { position: absolute; right: calc(clamp(16px, 3.2vmin, 28px) + 24px); top: 24px; font-size: clamp(26px, 7vmin, 56px); font-weight: 900; color: #fff; text-shadow: 0 3px 0 #8a5a1a, 0 0 10px rgba(0,0,0,.2); display: none; pointer-events: none; font-variant-numeric: tabular-nums; }
     #hint { position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; pointer-events: none; display: none; }
     #hint svg { width: 100%; height: 100%; animation: spin 1.6s linear infinite; }
-    @keyframes spin { to { transform: rotate(-360deg); } }
+    @keyframes spin { to { transform: rotate(360deg); } }
     #result { position: absolute; left: 0; right: 0; top: 4%; display: none; align-items: center; justify-content: center; pointer-events: none; flex-direction: column; gap: 2px; }
     #result b { padding: 0 12px; line-height: 1.15; text-align: center; font-size: clamp(28px, 7.5vmin, 72px); font-weight: 900; color: #fff; text-shadow: 0 4px 0 #8a5a1a, 0 0 18px rgba(0,0,0,.25); }
     #result span { font-size: clamp(20px, 5.5vmin, 40px); font-weight: 900; color: #fff; text-shadow: 0 3px 0 #8a5a1a, 0 0 12px rgba(0,0,0,.25); }
@@ -76,7 +76,7 @@
     <div id="meter"><i></i><b></b></div>
     <canvas id="trail"></canvas>
     <div id="watt"></div>
-    <div id="hint"><svg viewBox="0 0 100 100" fill="none" stroke="#e0703a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M50 12 A38 38 0 1 0 88 50"/><path d="M76 38 L88 52 L98 36"/></svg></div>
+    <div id="hint"><svg viewBox="0 0 100 100" fill="none" stroke="#e0703a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 50 A38 38 0 1 1 50 88"/><path d="M63 76 L49 88 L63 100"/></svg></div>
     <div id="result"><b></b><span></span></div>
     <div id="msg"></div>
   </div>
@@ -712,9 +712,9 @@
       cable.geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([a, V(a.x - 0.2, 0.02, a.z + (portrait ? -0.3 : 0.4)), mid, b]), 40, 0.015, 5);
       // 必要な範囲（自転車と機械）が必ず入る距離を探す
       const target = (portrait ? V(0.12, 0.85, -1.3) : V(0.55, 0.8, 0)).clone();
-      const dir = (portrait ? V(0.12, 0.85, 1) : V(0.12, 0.16, 1)).normalize();
+      const dir = (portrait ? V(0, 0.85, 1) : V(0, 0.16, 1)).normalize();
       const sp = slot.position;
-      const pts = [V(-1.7, 0, 0.3), V(-0.95, 0, 0.2), V(0.95, 0, 0.2), V(-0.55, 1.75, 0), V(0.75, 1.55, 0),
+      const pts = [V(-1.5, 0, 0.3), V(1.5, 0, 0.3), V(0.95, 0, 0.2), V(-0.55, 1.75, 0), V(0.75, 1.55, 0),
         V(sp.x - 0.55, 0, sp.z + 0.3), V(sp.x + 0.55, 0, sp.z + 0.3), V(sp.x - 0.55, 1.6, sp.z), V(sp.x + 0.55, 1.6, sp.z)];
       // 右端のメーターぶん横は少し狭く使う
       const fits = d => {
@@ -732,7 +732,7 @@
         const hh = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * hi;
         camUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
         const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-        target.addScaledVector(camUp, (y0 + y1) / 2 * hh).addScaledVector(camRight, ((x0 + x1) / 2 + 0.04) * hh * camera.aspect);
+        target.addScaledVector(camUp, (y0 + y1) / 2 * hh).addScaledVector(camRight, ((x0 + x1) / 2) * hh * camera.aspect);
       }
     }
 
@@ -793,23 +793,24 @@
       prevTheta = theta;
       if (state === 'title') { titleT += DT; omega = 5; theta -= omega * DT; watt = 0; return; }
       if (state === 'play') {
-        timeLeft -= DT;
+        // 最初に回し始めるまで時間は進まない
+        if (everDragged) timeLeft -= DT;
         if (dragging) {
           // 指の動きそのままにペダルが回る
           theta += pending;
-          const w = Math.abs(pending) / DT;
+          // 時計回り（画面上で角度が減る向き）だけが発電になる
+          const w = Math.max(0, -pending) / DT;
           omega += (w - omega) * 0.12;
           pending = 0;
         } else {
           // 手を離しても惰性で少し回る
           omega *= Math.exp(-3 * DT);
-          theta -= omega * DT * (lastDir || -1);
+          theta -= omega * DT;
         }
       } else {
         omega *= Math.exp(-1.2 * DT);
-        theta -= omega * DT * (lastDir || -1);
+        theta -= omega * DT;
       }
-      if (dragging && Math.abs(theta - prevTheta) > 1e-4) lastDir = theta < prevTheta ? 1 : -1;
       watt = toWatt(omega);
       if (state === 'play') peak = Math.max(peak, watt);
       if (state !== 'play') return;
@@ -828,7 +829,7 @@
       }
       if (timeLeft <= 0) finish();
     }
-    let lastDir = -1, flash = 0;
+    let flash = 0;
 
     // ---------- 描画 ----------
     const timerEl = document.getElementById('timer'), timerBar = timerEl.firstElementChild;
@@ -1025,8 +1026,9 @@
       renderControls();
     }
 
-    reset();
     applyLang();
+    // スタート画面は出さず、回し始めたらすぐ始まる
+    start();
     // 最初のフレームで固まらないよう、先に1回描いておく
     draw(1, 0);
     requestAnimationFrame(t0 => { last = t0; requestAnimationFrame(loop); });
