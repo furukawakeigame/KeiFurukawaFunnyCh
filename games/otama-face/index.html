@@ -28,6 +28,8 @@
       font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
       -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
     }
+    /* 長押しで出る拡大鏡・文字選択・メニューを止める */
+    * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
     #cv { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
     header {
       position: fixed; top: 0; left: 0; right: 0; z-index: 2;
@@ -123,6 +125,11 @@
   const t = k => DICT[lang][k];
   const $ = id => document.getElementById(id);
   const coarse = matchMedia('(pointer: coarse)').matches;
+  // 長押しの拡大鏡（iPhone）・選択・メニューを出さない。ボタンやリンクのタップはそのまま
+  const onStage = e => e.target === document.getElementById('cv');
+  document.addEventListener('touchstart', e => { if (onStage(e)) e.preventDefault(); }, { passive: false });
+  document.addEventListener('touchmove', e => { if (onStage(e)) e.preventDefault(); }, { passive: false });
+  for (const ev of ['contextmenu', 'selectstart', 'dragstart']) document.addEventListener(ev, e => e.preventDefault());
   const showErr = msg => { let e = $('err'); if (!e) { e = document.createElement('div'); e.id = 'err'; document.body.appendChild(e); } e.textContent = msg; clearTimeout(showErr.t); showErr.t = setTimeout(() => e.remove(), 2600); };
 
   // ---------- 声（オタマトーン風の合成） ----------
@@ -408,7 +415,7 @@
     if (e.pointerId !== ptr) return;
     ptrY = e.clientY; pitchT = pitchAt(e.clientY);
   });
-  const up = e => { if (mode === 'cut' || mode === 'mouth') { cutUp(e); return; } if (e.pointerId === ptr) { ptr = null; press = false; } };
+  const up = e => { if (actx?.state === 'suspended') actx.resume(); if (mode === 'cut' || mode === 'mouth') { cutUp(e); return; } if (e.pointerId === ptr) { ptr = null; press = false; } };
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
   function setMouth(e) {
     const fw = vimg.width * view.k, fh = vimg.height * view.k;

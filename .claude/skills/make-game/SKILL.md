@@ -64,6 +64,7 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
   - `<meta charset="UTF-8">` と `<meta name="viewport" content="width=device-width, initial-scale=1">`
   - トップに戻るリンク `<a href="../../">← トップへ戻る</a>`
   - PCとスマホの両方で遊べる操作。タッチ操作中に画面がスクロールしないようにする。
+  - **長押しで拡大鏡・文字選択・メニューが出ないようにする**（毎回必ず。オタマ顔を参考にする）: CSS で `* { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }` を付け、ゲーム画面（canvas）上の `touchstart`／`touchmove` を `{ passive: false }` で `preventDefault()` する（ボタンやリンクは除く）。`contextmenu`・`selectstart`・`dragstart` も止める。`touchstart` を止めると iPhone で音の解禁が `pointerdown` だけでは足りないことがあるので、`pointerup` でも `actx.resume()` する。
   - **画面比率とウィンドウサイズへの対応**（毎回必ずやる）: 縦長スマホ・横向きスマホ・タブレット・大きいPC画面・横に広く背の低いウィンドウのどれでも、遊ぶのに必要なもの（キャラ・操作する物・ゴールなど）がはみ出さず、小さくなりすぎず、余白ばかりにならないようにする。
     - 「横幅で決まる大きさ」と「高さで決まる大きさ」の小さい方を使って、必要な範囲が必ず入るようにする。極端に大きくならないよう上限も付ける。
     - 余った高さ（縦長スマホなど）は、空や背景に回して絵を画面の真ん中あたりに置く。地面や下の余白だけが広がらないようにする。
@@ -120,6 +121,7 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
   - `games/<フォルダ名>/index.html` をスクラッチパッドにコピーし、`<!DOCTYPE>`・`<html>`・`<head>`・`<body>` のタグと、charset・viewport・`icon.png` を参照する行を消してから、Artifact ツールで publish する（`icon` は `game`）。CDNは jsdelivr なら読める。
   - 修正したら同じコピーを作り直して同じパスで publish すると、同じURLのまま更新される。
   - Artifact では `../../` のリンク、ダウンロード、Web Share は動かないので、そこは本番で確かめる。
+  - Artifact は読み込みが重く、**初回の操作で一瞬固まりやすい**（画像の base64 埋め込み・枠の中での実行のため）。テストプレイのリンクを渡すときに「初回が重いのは Artifact のせいで、本番では起きない」と伝え、動きの重さは本番かローカルで判断する。ゲーム側でも、最初の1回だけ重くならない対策（音の準備・描画の空回し）は毎回入れておく。
 - ユーザーにも遊んでもらい、感想や直したい点を聞く。直したい点があれば修正し、OKが出るまで繰り返す。
 - 実機でしか確かめられないこと（タッチ操作、共有シート、ファイル選択など）は、確認できていないと正直に伝える。
 
