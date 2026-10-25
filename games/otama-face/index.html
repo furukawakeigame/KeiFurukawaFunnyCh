@@ -68,6 +68,7 @@
     #panel .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
     #panel .btn.x { background: #000; color: #fff; box-shadow: 0 4px 0 #444; }
     @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+      #ui { flex-direction: column; left: auto; right: 16px; top: 56px; }
       #panel { flex-direction: row; top: calc(50% - 20px); }
       #panel video { width: min(45vw, calc(100dvh - 150px)); }
       #panel .row { flex-direction: column; }
@@ -189,31 +190,16 @@
   // 茎の位置: 0（下・低い）〜1（頭の近く・高い）
   const freqOf = tt => mtof(55 + tt * 26);
   function layout(w, h, top, bottom) {
-    const ah = h - top - bottom, cxm = w / 2;
-    const ar = (face.img.naturalWidth || 1) / (face.img.naturalHeight || 1);
-    const portrait = ah > w * 1.05;
-    let fw, fh, fx, fy, s0, s1, sw;
-    if (portrait) {
-      const fhMax = Math.min(ah * 0.5, w * 0.82 / ar, 560);
-      fh = fhMax; fw = fh * ar;
-      const stemLen = Math.min(ah * 0.42, fh * 1.2);
-      const total = fh + stemLen; const y0 = top + (ah - total) / 2;
-      fx = cxm - fw / 2; fy = y0; sw = Math.max(26, Math.min(56, w * 0.1));
-      s1 = { x: cxm, y: fy + fh + sw * 0.2 }; s0 = { x: cxm, y: fy + fh + stemLen };
-    } else {
-      // 横長: 顔を左に、茎を右へ寝かせる
-      fh = Math.min(ah * 0.86, (w * 0.5) / ar, 560); fw = fh * ar;
-      const stemLen = Math.min(w * 0.38, fh * 1.4);
-      const total = fw + stemLen; const x0 = (w - total) / 2;
-      fx = x0; fy = top + (ah - fh) / 2; sw = Math.max(24, Math.min(56, h * 0.08));
-      s1 = { x: fx + fw + sw * 0.2, y: fy + fh * 0.6 }; s0 = { x: fx + fw + stemLen, y: fy + fh * 0.6 };
-    }
-    return { fx, fy, fw, fh, s0, s1, sw };
+    const ah = h - top - bottom, ar = (face.img.naturalWidth || face.img.width || 1) / (face.img.naturalHeight || face.img.height || 1);
+    const fh = Math.min(ah * 0.82, w * 0.86 / ar, 640), fw = fh * ar;
+    return { fx: (w - fw) / 2, fy: top + (ah - fh) / 2 + fh * 0.04, fw, fh };
   }
+  // 背の低い横長画面ではボタンを右に縦に並べる
+  const low = () => matchMedia('(max-height: 520px) and (min-aspect-ratio: 4/3)').matches;
   function resize() {
     dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
     cv.width = W * dpr; cv.height = H * dpr;
-    L = layout(W, H, 56, 80 + 90);
+    L = layout(W, H, 56, low() ? 80 : 80 + 90);
     if ((mode === 'cut' || mode === 'mouth') && vimg) placeImage();
   }
   addEventListener('resize', resize);
@@ -229,26 +215,6 @@
     // 床のステージ
     const sg = c.createRadialGradient(w / 2, h * 1.02, 0, w / 2, h * 1.02, w * 0.7); sg.addColorStop(0, 'rgba(255,230,180,.45)'); sg.addColorStop(1, 'rgba(255,230,180,0)');
     c.fillStyle = sg; c.fillRect(0, 0, w, h);
-  }
-  function drawStem(c, l, tt, pressed) {
-    const { s0, s1, sw } = l;
-    c.save(); c.lineCap = 'round';
-    c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = sw; c.beginPath(); c.moveTo(s1.x + 6, s1.y + 8); c.lineTo(s0.x + 6, s0.y + 8); c.stroke();
-    const g = c.createLinearGradient(s1.x - sw / 2, s1.y - sw / 2, s1.x + sw / 2, s1.y + sw / 2);
-    c.strokeStyle = '#141018'; c.lineWidth = sw; c.beginPath(); c.moveTo(s1.x, s1.y); c.lineTo(s0.x, s0.y); c.stroke();
-    // つやの線
-    const dx = s0.x - s1.x, dy = s0.y - s1.y, len = Math.hypot(dx, dy), nx = -dy / len, ny = dx / len;
-    c.strokeStyle = 'rgba(255,255,255,.22)'; c.lineWidth = sw * 0.14;
-    c.beginPath(); c.moveTo(s1.x + nx * sw * 0.22, s1.y + ny * sw * 0.22); c.lineTo(s0.x + nx * sw * 0.22, s0.y + ny * sw * 0.22); c.stroke();
-    // 尻尾の音符玉
-    c.fillStyle = '#141018'; c.beginPath(); c.ellipse(s0.x + dx / len * sw * 0.2, s0.y + dy / len * sw * 0.2, sw * 0.95, sw * 0.75, Math.atan2(dy, dx) + 0.5, 0, 7); c.fill();
-    // 押している場所
-    if (pressed) {
-      const px = s0.x + (s1.x - s0.x) * tt, py = s0.y + (s1.y - s0.y) * tt;
-      const rg = c.createRadialGradient(px, py, 0, px, py, sw * 0.9); rg.addColorStop(0, 'rgba(255,220,120,.95)'); rg.addColorStop(1, 'rgba(255,220,120,0)');
-      c.fillStyle = rg; c.beginPath(); c.arc(px, py, sw * 0.9, 0, 7); c.fill();
-    }
-    c.restore();
   }
   // 口の線の高さ（u: 0〜1 の横位置）。線の外側は端の高さ
   function lineY(ln, u) {
@@ -269,7 +235,7 @@
     c.drawImage(img, 0, 0); c.restore();
   }
   // 顔をメッシュで変形させて口を開ける（切らずに、線の下を伸ばして下げる）
-  const GX = 18, GT = 8, GB = 10;
+  const GX = 28, GT = 10, GB = 12;
   function drawFace(c, l, op, showLine) {
     const { img } = face; const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height; if (!iw) return;
     const { fx, fw, fh } = l; const fy = l.fy + bob;
@@ -277,15 +243,18 @@
     if (ln.length < 2 || op < 0.002) c.drawImage(img, fx, fy, fw, fh);
     else {
       const x0 = ln[0][0], x1 = ln[ln.length - 1][0], gap = op * fh * 0.2;
-      const wx = u => { const t = (u - x0) / (x1 - x0); return t <= 0 || t >= 1 ? 0 : Math.pow(Math.sin(Math.PI * t), 0.6); };
+      const wx = u => { const t = (u - x0) / (x1 - x0); return t <= 0 || t >= 1 ? 0 : Math.sin(Math.PI * t); };
       const span = Math.max(0.05, x1 - x0);
       // 横はなめらかに広がりを足す（線の外側も引っぱられる）
-      const blur = u => { let s = 0, n = 0; for (let k = -3; k <= 3; k++) { const uu = u + k * span * 0.08, ww = Math.exp(-k * k / 4); s += wx(uu) * ww; n += ww; } return s / n; };
+      const blur = u => { let s = 0, n = 0; for (let k = -5; k <= 5; k++) { const uu = u + k * span * 0.06, ww = Math.exp(-k * k / 8); s += wx(uu) * ww; n += ww; } return s / n; };
       const Wb = []; for (let i = 0; i <= GX; i++) Wb.push(blur(i / GX));
       const vert = (i, j, lower) => {
         const u = i / GX, ly = lineY(ln, u), w = Wb[i];
-        const v = lower ? ly + (1 - ly) * j / GB : ly * j / GT;
-        const dy = lower ? gap * w * (1 - 0.35 * (j / GB)) : (() => { const k = Math.max(0, 1 - (ly - v) / (span * 0.5)); return -gap * 0.18 * w * k * k; })();
+        // 口の近くほど網目を細かくする
+        const jj = lower ? j / GB : 1 - j / GT, v = lower ? ly + (1 - ly) * jj * jj : ly * (1 - jj * jj);
+        const sm = x => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+        const dy = lower ? gap * w * (0.6 + 0.4 * (1 - sm((v - ly) / Math.max(0.05, span * 0.9))))
+                         : -gap * 0.2 * w * (1 - sm((ly - v) / (span * 0.6)));
         return { s: [u * iw, v * ih], d: [fx + fw * u, fy + fh * v + dy] };
       };
       // 口の中（上唇と下唇の間）
@@ -332,7 +301,6 @@
   function drawScene(c, w, h, l, line) {
     drawBg(c, w, h);
     drawCat(c, w, h);
-    drawStem(c, l, pitchT, press || keyDown !== null);
     drawFace(c, l, open, line);
     drawParts(c, l, l.fh / 300);
   }
@@ -384,26 +352,20 @@
   };
 
   // ---------- 操作 ----------
-  function stemHit(x, y, l, slack) {
-    const { s0, s1, sw } = l, dx = s1.x - s0.x, dy = s1.y - s0.y, len2 = dx * dx + dy * dy;
-    let u = ((x - s0.x) * dx + (y - s0.y) * dy) / len2; const uc = Math.max(0, Math.min(1, u));
-    const d = Math.hypot(x - (s0.x + dx * uc), y - (s0.y + dy * uc));
-    return { u: uc, d, hit: d < sw * slack && u > -0.15 && u < 1.1 };
-  }
-  function inFace(x, y) { return x > L.fx && x < L.fx + L.fw && y > L.fy && y < L.fy + L.fh * 1.2; }
+  // 画面の高さで音程を決める（上ほど高い）
+  const pitchAt = y => Math.max(0, Math.min(1, 1 - (y - 56) / Math.max(1, H - 56 - (low() ? 80 : 170))));
+  let ptrY = 0;
   let ptr = null;
   cv.addEventListener('pointerdown', e => {
     initAudio(); if (actx?.state === 'suspended') actx.resume();
     if (mode === 'cut' || mode === 'mouth') { cutDown(e); return; }
     if (mode !== 'play') return;
-    const h = stemHit(e.clientX, e.clientY, L, 1.6);
-    if (h.hit) { ptr = e.pointerId; pitchT = h.u; press = true; cv.setPointerCapture(e.pointerId); }
-    else if (inFace(e.clientX, e.clientY)) { ptr = e.pointerId; press = true; cv.setPointerCapture(e.pointerId); } // 顔をつまむとワウ
+    ptr = e.pointerId; ptrY = e.clientY; pitchT = pitchAt(e.clientY); press = true; cv.setPointerCapture(e.pointerId);
   });
   cv.addEventListener('pointermove', e => {
     if (mode === 'cut' || mode === 'mouth') { cutMove(e); return; }
     if (e.pointerId !== ptr) return;
-    const h = stemHit(e.clientX, e.clientY, L, 99); pitchT = h.u;
+    ptrY = e.clientY; pitchT = pitchAt(e.clientY);
   });
   const up = e => { if (mode === 'cut' || mode === 'mouth') { cutUp(e); return; } if (e.pointerId === ptr) { ptr = null; press = false; } };
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
@@ -462,7 +424,7 @@
     vimg = pimg; placeImage(); setBar('cut');
   }
   function placeImage() {
-    const top = 56, bot = 80 + 90, pad = 12, k = Math.min((W - pad * 2) / vimg.width, (H - top - bot - pad * 2) / vimg.height);
+    const top = 56, bot = low() ? 80 : 80 + 90, pad = 12, k = Math.min((W - pad * 2) / vimg.width, (H - top - bot - pad * 2) / vimg.height);
     view = { k, fit: k, x: (W - vimg.width * k) / 2, y: top + (H - top - bot - vimg.height * k) / 2 };
   }
   function snapFit() { if (view.k <= view.fit * 1.001) placeImage(); }
@@ -574,7 +536,14 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (mode === 'cut') drawCut(ctx);
     else if (mode === 'mouth') { drawBg(ctx, W, H); drawFace(ctx, { fx: view.x, fy: view.y, fw: vimg.width * view.k, fh: vimg.height * view.k }, 0, true); }
-    else drawScene(ctx, W, H, L, false);
+    else {
+      drawScene(ctx, W, H, L, false);
+      if (press && mode === 'play') {
+        const g = ctx.createLinearGradient(0, ptrY - 40, 0, ptrY + 40);
+        g.addColorStop(0, 'rgba(255,220,120,0)'); g.addColorStop(0.5, 'rgba(255,220,120,.28)'); g.addColorStop(1, 'rgba(255,220,120,0)');
+        ctx.fillStyle = g; ctx.fillRect(0, ptrY - 40, W, 80);
+      }
+    }
     if (rec) {
       const rl = layout(RS, RS, 30, 30);
       rctx.setTransform(1, 0, 0, 1, 0, 0); drawScene(rctx, RS, RS, rl, false);
