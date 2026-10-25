@@ -370,12 +370,16 @@
   // フレット: ギターと同じく、下（低い音）ほど間隔が広く、上へ行くほど狭くなる
   const FRETS = 24, fretArea = () => ({ top: 56, h: Math.max(1, H - 56 - (low() ? 80 : 170)) });
   const fretY = i => { const a = fretArea(); return a.top + a.h - a.h * (1 - Math.pow(2, -i / 12)) / (1 - Math.pow(2, -FRETS / 12)); };
-  // 押した高さのフレットの間の音（k 番目の間 = 55 + k）
-  const pitchAt = y => { let k = 0; while (k < FRETS - 1 && y < fretY(k + 1)) k++; return k / 26; };
+  // フレットは目印だけ。音程は押した高さでなめらかに変わる（フレットの間の真ん中がちょうど半音）
+  const pitchAt = y => { const a = fretArea(), f = Math.max(0, Math.min(1, (a.top + a.h - y) / a.h)) * (1 - Math.pow(2, -FRETS / 12)); return Math.max(0, -12 * Math.log2(1 - f) - 0.5) / 26; };
   const DOTS = [3, 5, 7, 9, 15, 17, 19, 21], DOUBLE = [12, 24];
   function drawFrets(c) {
-    const cur = (press || keyDown !== null) && mode === 'play' ? Math.round(pitchT * 26) : -1;
-    if (cur >= 0 && cur < FRETS) { c.fillStyle = 'rgba(255,220,120,.3)'; c.fillRect(0, fretY(cur + 1), W, fretY(cur) - fretY(cur + 1)); }
+    // 押している高さに光の線
+    if ((press || keyDown !== null) && mode === 'play') {
+      const y = press ? ptrY : fretY(pitchT * 26 + 0.5), g = c.createLinearGradient(0, y - 30, 0, y + 30);
+      g.addColorStop(0, 'rgba(255,220,120,0)'); g.addColorStop(0.5, 'rgba(255,220,120,.4)'); g.addColorStop(1, 'rgba(255,220,120,0)');
+      c.fillStyle = g; c.fillRect(0, y - 30, W, 60);
+    }
     for (let i = 0; i <= FRETS; i++) {
       const y = fretY(i);
       // 金属のフレット（0 はナットで太め）
