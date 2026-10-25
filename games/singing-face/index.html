@@ -150,8 +150,9 @@
   let soundOn = store.get('sound', true), actx = null, V = null, pitch = store.get('pitch', 0);
   const FORM = { a: [800, 1250, 2700], i: [300, 2300, 3000], u: [350, 1350, 2500], e: [500, 1900, 2650], o: [520, 900, 2500] };
   const OPEN = { a: 1, o: 0.8, e: 0.65, u: 0.45, i: 0.4 };
+  let audioEl = null;
   function ensureAudio() {
-    if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
+    if (actx) { if (actx.state === 'suspended') actx.resume(); if (audioEl && audioEl.paused) audioEl.play().catch(() => {}); return; }
     // iPhone: 消音モードでも鳴らし、画面収録にも音が入るよう「再生」扱いにする
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
     actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -159,6 +160,18 @@
     const z = actx.createGain(); z.gain.value = 0; s.connect(z); z.connect(actx.destination); s.start();
     const master = actx.createGain(); master.gain.value = soundOn ? 0.9 : 0;
     const comp = actx.createDynamicsCompressor(); master.connect(comp); comp.connect(actx.destination);
+    // iPhone の画面収録は Web Audio の音を録らないことがあるので、<audio> から流す（録画に入る経路）
+    const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (ios && actx.createMediaStreamDestination) {
+      try {
+        const dest = actx.createMediaStreamDestination(); comp.connect(dest);
+        const au = document.createElement('audio'); au.setAttribute('playsinline', ''); au.srcObject = dest.stream;
+        // <audio> が鳴り出したら、二重にならないよう直接の出力を止める
+        au.addEventListener('playing', () => { try { comp.disconnect(actx.destination); } catch {} }, { once: true });
+        au.play().catch(() => {});
+        audioEl = au;
+      } catch {}
+    }
     // ステージの響き（作った残響）
     const rv = actx.createConvolver(), len = actx.sampleRate * 1.6, ir = actx.createBuffer(2, len, actx.sampleRate);
     for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
