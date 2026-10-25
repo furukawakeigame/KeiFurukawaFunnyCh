@@ -218,7 +218,7 @@
     const canvasTex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; return tx; };
     scene.background = canvasTex(4, 256, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#6fb8ef'); gr.addColorStop(0.6, '#bfe3f5'); gr.addColorStop(1, '#eef8e8'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
     scene.fog = new THREE.Fog('#dff0e6', 16, 40);
-    const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+    const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
     scene.add(new THREE.HemisphereLight('#e8f4ff', '#5a7a3a', 1.1));
     const sun = new THREE.DirectionalLight('#fff4e0', 2.4); sun.position.set(-4, 10, 6);
     sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.radius = 4; sun.shadow.bias = -0.0008;
@@ -227,6 +227,7 @@
 
     const mat = (c, rough = 0.75) => new THREE.MeshStandardMaterial({ color: c, roughness: rough });
     const shade = o => { o.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } }); return o; };
+    let cat;
     const SP = 2.1, HR = 0.78;
     const HOLES = [];
     for (let r = -1; r <= 1; r++) for (let c = -1; c <= 1; c++) HOLES.push(new THREE.Vector3(c * SP, 0, r * SP));
@@ -269,9 +270,15 @@
           scene.add(f);
         } else for (let k = 0; k < 3; k++) { const m = part(tuft, tuftM, x + rnd(-.1, .1), -1.95, z + rnd(-.1, .1), 1, rnd(0.7, 1.3), 1); m.rotation.z = rnd(-.4, .4); scene.add(m); }
       }
+      // 奥にとんでもなく大きい猫の顔（地面から覗いている）
+      const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
+      cat = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: catTex, fog: false, alphaTest: 0.5, depthTest: false, depthWrite: false }));
+      // 地面の次に描き、台・キャラ・木はその上に描く（位置と大きさは resize で画面に合わせる）
+      cat.renderOrder = -1; ground.renderOrder = -2;
+      scene.add(cat);
       const leaf = mat('#3f8f3a'), trunk = mat('#7a4a28');
       for (let i = 0; i < 14; i++) {
-        const a = Math.PI * (1.02 + 0.96 * i / 13) + rnd(-.05, .05), d = rnd(13, 19); // カメラの手前には置かない
+        const a = Math.PI * (i < 7 ? 1.02 + 0.2 * i / 6 : 1.78 + 0.2 * (i - 7) / 6), d = rnd(13, 19); // 手前と猫の前には置かない
         const tr = new THREE.Group(); tr.position.set(Math.cos(a) * d, -2.15, Math.sin(a) * d); const k = rnd(0.8, 1.4); tr.scale.setScalar(k);
         part(CYLG, trunk, 0, 0.8, 0, 0.25, 1.6, 0.25, tr);
         part(SPHG, leaf, 0, 2.3, 0, 1.3, 1.2, 1.3, tr); part(SPHG, leaf, 0.6, 1.9, 0.3, 0.8, 0.8, 0.8, tr); part(SPHG, leaf, -0.6, 2.0, -0.2, 0.9, 0.8, 0.9, tr);
@@ -465,8 +472,10 @@
       const reserve = Math.max(0, stage.getBoundingClientRect().bottom - controls.getBoundingClientRect().bottom) + btnH;
       stage.style.setProperty('--reserve', reserve + 'px');
       const h = Math.max(120, H - reserve);
-      camera.aspect = w / h;
-      camera.setViewOffset(w, h, 0, 0, w, H);
+      // 上の方は奥の巨大な猫の顔を見せる所にして、台はその下に収める
+      const band = Math.round(h * 0.24), fh = h - band;
+      camera.aspect = w / fh;
+      camera.setViewOffset(w, fh, 0, -band, w, H);
       const vf = THREE.MathUtils.degToRad(camera.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
       const R = 4.0; // 台が入る半径
       const d = Math.min(R / Math.sin(Math.min(vf, hf) / 2), 30);
@@ -476,6 +485,13 @@
       camera.position.copy(CENTER).addScaledVector(dir, d).add(new THREE.Vector3(side, 0, 0));
       camera.lookAt(CENTER.x + side, CENTER.y, CENTER.z);
       camera.updateProjectionMatrix();
+      camera.updateMatrixWorld();
+      // 猫: 上の帯の真ん中に顔が来るように、カメラに正対させて置く
+      const L = d + 18, py = band * 0.95, perPx = 2 * L * Math.tan(vf / 2) / fh;
+      const vp = new THREE.Vector3(0, 1 - 2 * py / H, 0.5).unproject(camera);
+      cat.position.copy(camera.position).addScaledVector(vp.sub(camera.position).normalize(), L);
+      cat.quaternion.copy(camera.quaternion);
+      cat.scale.setScalar(Math.max(band * 3.2, w * 0.9) * perPx);
     }
     addEventListener('resize', resize);
 
