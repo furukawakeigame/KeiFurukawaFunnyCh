@@ -250,29 +250,61 @@
     }
     c.restore();
   }
+  // 口の線の高さ（u: 0〜1 の横位置）。線の外側は端の高さ
+  function lineY(ln, u) {
+    if (u <= ln[0][0]) return ln[0][1];
+    for (let i = 1; i < ln.length; i++) if (u <= ln[i][0]) { const a = ln[i - 1], b = ln[i], k = (u - a[0]) / ((b[0] - a[0]) || 1); return a[1] + (b[1] - a[1]) * k; }
+    return ln[ln.length - 1][1];
+  }
+  // 三角形1枚ぶんの画像をアフィン変換で貼る
+  function tri(c, img, s, d) {
+    const [x0, y0, x1, y1, x2, y2] = s, [X0, Y0, X1, Y1, X2, Y2] = d;
+    const den = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0); if (!den) return;
+    const a = ((X1 - X0) * (y2 - y0) - (X2 - X0) * (y1 - y0)) / den, b = ((Y1 - Y0) * (y2 - y0) - (Y2 - Y0) * (y1 - y0)) / den;
+    const cc = ((X2 - X0) * (x1 - x0) - (X1 - X0) * (x2 - x0)) / den, dd = ((Y2 - Y0) * (x1 - x0) - (Y1 - Y0) * (x2 - x0)) / den;
+    // すき間が出ないよう、重心から少し広げて切り抜く
+    const mx = (X0 + X1 + X2) / 3, my = (Y0 + Y1 + Y2) / 3, g = (X, Y) => { const dx = X - mx, dy = Y - my, l = Math.hypot(dx, dy) || 1; return [X + dx / l * 0.7, Y + dy / l * 0.7]; };
+    c.save(); c.beginPath(); c.moveTo(...g(X0, Y0)); c.lineTo(...g(X1, Y1)); c.lineTo(...g(X2, Y2)); c.closePath(); c.clip();
+    c.transform(a, b, cc, dd, X0 - a * x0 - cc * y0, Y0 - b * x0 - dd * y0);
+    c.drawImage(img, 0, 0); c.restore();
+  }
+  // 顔をメッシュで変形させて口を開ける（切らずに、線の下を伸ばして下げる）
+  const GX = 18, GT = 8, GB = 10;
   function drawFace(c, l, op, showLine) {
-    const { img } = face; if (!img.naturalWidth) return;
+    const { img } = face; const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height; if (!iw) return;
     const { fx, fw, fh } = l; const fy = l.fy + bob;
     const ln = face.line, P = ([x, y], dy = 0) => [fx + fw * x, fy + fh * y + dy];
-    if (ln.length < 2) { c.drawImage(img, fx, fy, fw, fh); }
+    if (ln.length < 2 || op < 0.002) c.drawImage(img, fx, fy, fw, fh);
     else {
-      const gap = op * fh * 0.18; // 下あごが下がる量
-      // 下あご: 描いた線から画像の下端まで
-      const jaw = (dy, keep) => { if (!keep) c.beginPath(); ln.forEach((p, i) => { const [x, y] = P(p, dy); i ? c.lineTo(x, y) : c.moveTo(x, y); }); c.lineTo(...P([ln[ln.length - 1][0], 1.02], dy)); c.lineTo(...P([ln[0][0], 1.02], dy)); c.closePath(); };
-      // 上の顔（あごの部分をくり抜く）
-      c.save(); c.beginPath(); c.rect(fx, fy, fw, fh); jaw(0, true); c.clip('evenodd'); c.drawImage(img, fx, fy, fw, fh); c.restore();
-      // 口の中
-      if (gap > 0.5) {
-        c.save(); c.beginPath();
-        ln.forEach((p, i) => { const [x, y] = P(p); i ? c.lineTo(x, y) : c.moveTo(x, y); });
-        for (let i = ln.length - 1; i >= 0; i--) c.lineTo(...P(ln[i], gap));
-        c.closePath(); c.fillStyle = '#3a0612'; c.fill(); c.clip();
-        const mid = P([face.mx, face.my], gap);
-        c.fillStyle = '#d4485e'; c.beginPath(); c.ellipse(mid[0], mid[1], fw * Math.abs(ln[ln.length - 1][0] - ln[0][0]) * 0.3, gap * 0.4, 0, 0, 7); c.fill();
-        c.restore();
+      const x0 = ln[0][0], x1 = ln[ln.length - 1][0], gap = op * fh * 0.2;
+      const wx = u => { const t = (u - x0) / (x1 - x0); return t <= 0 || t >= 1 ? 0 : Math.pow(Math.sin(Math.PI * t), 0.6); };
+      const span = Math.max(0.05, x1 - x0);
+      // 横はなめらかに広がりを足す（線の外側も引っぱられる）
+      const blur = u => { let s = 0, n = 0; for (let k = -3; k <= 3; k++) { const uu = u + k * span * 0.08, ww = Math.exp(-k * k / 4); s += wx(uu) * ww; n += ww; } return s / n; };
+      const Wb = []; for (let i = 0; i <= GX; i++) Wb.push(blur(i / GX));
+      const vert = (i, j, lower) => {
+        const u = i / GX, ly = lineY(ln, u), w = Wb[i];
+        const v = lower ? ly + (1 - ly) * j / GB : ly * j / GT;
+        const dy = lower ? gap * w * (1 - 0.35 * (j / GB)) : (() => { const k = Math.max(0, 1 - (ly - v) / (span * 0.5)); return -gap * 0.18 * w * k * k; })();
+        return { s: [u * iw, v * ih], d: [fx + fw * u, fy + fh * v + dy] };
+      };
+      // 口の中（上唇と下唇の間）
+      const top = [], bot = [];
+      for (let i = 0; i <= GX; i++) { top.push(vert(i, GT, false).d); bot.push(vert(i, 0, true).d); }
+      c.save(); c.beginPath(); top.forEach((p, i) => i ? c.lineTo(...p) : c.moveTo(...p)); for (let i = GX; i >= 0; i--) c.lineTo(...bot[i]); c.closePath();
+      c.fillStyle = '#3a0612'; c.fill(); c.clip();
+      const mi = Math.round(face.mx * GX), mb = bot[mi];
+      c.fillStyle = '#d4485e'; c.beginPath(); c.ellipse(mb[0], mb[1], fw * span * 0.28, gap * 0.45, 0, 0, 7); c.fill();
+      c.restore();
+      for (const lower of [false, true]) {
+        const R = lower ? GB : GT, row = [];
+        for (let j = 0; j <= R; j++) { const r = []; for (let i = 0; i <= GX; i++) r.push(vert(i, j, lower)); row.push(r); }
+        for (let j = 0; j < R; j++) for (let i = 0; i < GX; i++) {
+          const a = row[j][i], b = row[j][i + 1], d = row[j + 1][i], e = row[j + 1][i + 1];
+          tri(c, img, [...a.s, ...b.s, ...d.s], [...a.d, ...b.d, ...d.d]);
+          tri(c, img, [...b.s, ...e.s, ...d.s], [...b.d, ...e.d, ...d.d]);
+        }
       }
-      // 下あご
-      c.save(); jaw(gap); c.clip(); c.drawImage(img, fx, fy + gap, fw, fh); c.restore();
     }
     if (showLine && ln.length > 1) {
       c.save(); c.lineWidth = 5; c.lineCap = c.lineJoin = 'round'; c.strokeStyle = '#ffcf5a'; c.shadowColor = '#000'; c.shadowBlur = 6;
