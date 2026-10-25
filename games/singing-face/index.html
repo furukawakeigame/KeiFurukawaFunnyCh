@@ -155,13 +155,15 @@
     if (actx) { if (actx.state === 'suspended') actx.resume(); if (audioEl && audioEl.paused) audioEl.play().catch(() => {}); return; }
     // iPhone: 消音モードでも鳴らし、画面収録にも音が入るよう「再生」扱いにする
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
-    actx = new (window.AudioContext || window.webkitAudioContext)();
+    const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    // iPhone は音の処理に余裕を持たせて、途切れ（ぶつぶつ）を防ぐ
+    try { actx = new (window.AudioContext || window.webkitAudioContext)(ios ? { latencyHint: 'playback' } : undefined); }
+    catch { actx = new (window.AudioContext || window.webkitAudioContext)(); }
     const s = actx.createBufferSource(); s.buffer = actx.createBuffer(1, 1, 22050);
     const z = actx.createGain(); z.gain.value = 0; s.connect(z); z.connect(actx.destination); s.start();
     const master = actx.createGain(); master.gain.value = soundOn ? 0.9 : 0;
     const comp = actx.createDynamicsCompressor(); master.connect(comp); comp.connect(actx.destination);
     // iPhone の画面収録は Web Audio の音を録らないことがあるので、<audio> から流す（録画に入る経路）
-    const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     if (ios && actx.createMediaStreamDestination) {
       try {
         const dest = actx.createMediaStreamDestination(); comp.connect(dest);
@@ -173,9 +175,12 @@
       } catch {}
     }
     // ステージの響き（作った残響）
-    const rv = actx.createConvolver(), len = actx.sampleRate * 1.6, ir = actx.createBuffer(2, len, actx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
-    rv.buffer = ir; const wet = actx.createGain(); wet.gain.value = 0.22; rv.connect(wet); wet.connect(master);
+    const rv = actx.createGain();   // 重い残響（畳み込み）はやめ、軽いこだま2つで響かせる
+    [[0.083, 0.38], [0.127, 0.32]].forEach(([dt, fb]) => {
+      const dl = actx.createDelay(1), lp = actx.createBiquadFilter(), fg = actx.createGain(), wet = actx.createGain();
+      dl.delayTime.value = dt; lp.type = 'lowpass'; lp.frequency.value = 2200; fg.gain.value = fb; wet.gain.value = 0.18;
+      rv.connect(dl); dl.connect(lp); lp.connect(fg); fg.connect(dl); lp.connect(wet); wet.connect(master);
+    });
     const osc = actx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 262;
     const vib = actx.createOscillator(); vib.frequency.value = 5.6; const vibG = actx.createGain(); vibG.gain.value = 0;
     vib.connect(vibG); vibG.connect(osc.detune);
