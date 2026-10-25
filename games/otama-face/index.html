@@ -52,6 +52,7 @@
       box-shadow: 0 4px 0 #a99bbd; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
     }
     .btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #a99bbd; }
+    .btn:disabled { opacity: .4; cursor: default; }
     .btn.main { background: #ffcf5a; box-shadow: 0 4px 0 #b9862a; }
     .btn svg { width: 22px; height: 22px; flex: none; }
     #rec { width: clamp(58px, 9vmin, 76px); height: clamp(58px, 9vmin, 76px); padding: 0; position: relative; }
@@ -169,9 +170,11 @@
 
   // ---------- 顔 ----------
   const catImg = new Image(); catImg.src = 'cat.png';
-  let face = { img: catImg, my: 0.66, mx: 0.5, cat: true };
+  const CAT_LINE = [[0.3, 0.63], [0.4, 0.665], [0.5, 0.68], [0.6, 0.665], [0.7, 0.63]];
+  const withLine = (f, ln) => { f.line = ln; f.mx = ln.reduce((s, p) => s + p[0], 0) / (ln.length || 1); f.my = ln.length ? ln.reduce((s, p) => s + p[1], 0) / ln.length : 0.7; return f; };
+  let face = withLine({ img: catImg, cat: true }, CAT_LINE);
   const saved = store.get('photo', null);
-  if (saved) { const im = new Image(); im.onload = () => { face = { img: im, my: saved.my, mx: saved.mx, cat: false }; resize(); }; im.src = saved.src; }
+  if (saved) { const im = new Image(); im.onload = () => { face = withLine({ img: im, cat: false, src: saved.src }, saved.line || []); resize(); }; im.src = saved.src; }
 
   // ---------- 状態 ----------
   const cv = $('cv'), ctx = cv.getContext('2d');
@@ -245,31 +248,30 @@
   function drawFace(c, l, op, showLine) {
     const { img } = face; if (!img.naturalWidth) return;
     const { fx, fw, fh } = l; const fy = l.fy + bob;
-    const iw = img.naturalWidth, ih = img.naturalHeight, my = face.my, mx = face.mx;
-    const gap = op * fh * 0.22; // 下あごが下がる量
-    const cut = fy + fh * my;
-    // 口の中（顔の後ろ）
-    if (gap > 0.5) {
-      const mw = fw * 0.42, cxm = fx + fw * mx;
-      c.save();
-      c.fillStyle = '#3a0612'; c.beginPath(); c.ellipse(cxm, cut + gap / 2, mw / 2, gap / 2 + fh * 0.02, 0, 0, 7); c.fill();
-      c.fillStyle = '#d4485e'; c.beginPath(); c.ellipse(cxm, cut + gap * 0.85, mw * 0.3, gap * 0.25 + 2, 0, 0, 7); c.fill();
-      c.restore();
+    const ln = face.line, P = ([x, y], dy = 0) => [fx + fw * x, fy + fh * y + dy];
+    if (ln.length < 2) { c.drawImage(img, fx, fy, fw, fh); }
+    else {
+      const gap = op * fh * 0.18; // 下あごが下がる量
+      // 下あご: 描いた線から画像の下端まで
+      const jaw = (dy, keep) => { if (!keep) c.beginPath(); ln.forEach((p, i) => { const [x, y] = P(p, dy); i ? c.lineTo(x, y) : c.moveTo(x, y); }); c.lineTo(...P([ln[ln.length - 1][0], 1.02], dy)); c.lineTo(...P([ln[0][0], 1.02], dy)); c.closePath(); };
+      // 上の顔（あごの部分をくり抜く）
+      c.save(); c.beginPath(); c.rect(fx, fy, fw, fh); jaw(0, true); c.clip('evenodd'); c.drawImage(img, fx, fy, fw, fh); c.restore();
+      // 口の中
+      if (gap > 0.5) {
+        c.save(); c.beginPath();
+        ln.forEach((p, i) => { const [x, y] = P(p); i ? c.lineTo(x, y) : c.moveTo(x, y); });
+        for (let i = ln.length - 1; i >= 0; i--) c.lineTo(...P(ln[i], gap));
+        c.closePath(); c.fillStyle = '#3a0612'; c.fill(); c.clip();
+        const mid = P([face.mx, face.my], gap);
+        c.fillStyle = '#d4485e'; c.beginPath(); c.ellipse(mid[0], mid[1], fw * Math.abs(ln[ln.length - 1][0] - ln[0][0]) * 0.3, gap * 0.4, 0, 0, 7); c.fill();
+        c.restore();
+      }
+      // 下あご
+      c.save(); jaw(gap); c.clip(); c.drawImage(img, fx, fy + gap, fw, fh); c.restore();
     }
-    // 上の顔
-    c.drawImage(img, 0, 0, iw, ih * my, fx, fy, fw, fh * my);
-    // 下あご（少し傾ける）
-    c.save(); c.translate(fx + fw * mx, cut + gap); c.rotate(op * 0.04 * Math.sin(tm * 9));
-    c.drawImage(img, 0, ih * my, iw, ih * (1 - my), -fw * mx, 0, fw, fh * (1 - my));
-    c.restore();
-    if (showLine) {
-      const yy = cut, xx = fx + fw * mx;
-      c.save(); c.setLineDash([10, 8]); c.lineWidth = 4; c.strokeStyle = '#fff'; c.shadowColor = '#000'; c.shadowBlur = 6;
-      c.beginPath(); c.moveTo(fx - 10, yy); c.lineTo(fx + fw + 10, yy); c.stroke(); c.setLineDash([]);
-      c.fillStyle = '#ffcf5a'; c.beginPath(); c.arc(xx, yy, 16, 0, 7); c.fill();
-      c.fillStyle = '#3a1d4a'; c.beginPath(); c.moveTo(xx, yy - 11); c.lineTo(xx - 6, yy - 4); c.lineTo(xx + 6, yy - 4); c.fill();
-      c.beginPath(); c.moveTo(xx, yy + 11); c.lineTo(xx - 6, yy + 4); c.lineTo(xx + 6, yy + 4); c.fill();
-      c.restore();
+    if (showLine && ln.length > 1) {
+      c.save(); c.lineWidth = 5; c.lineCap = c.lineJoin = 'round'; c.strokeStyle = '#ffcf5a'; c.shadowColor = '#000'; c.shadowBlur = 6;
+      c.beginPath(); ln.forEach((p, i) => { const [x, y] = P(p); i ? c.lineTo(x, y) : c.moveTo(x, y); }); c.stroke(); c.restore();
     }
   }
   function drawParts(c, l, sc) {
@@ -355,7 +357,7 @@
   let ptr = null, dragMouth = false;
   cv.addEventListener('pointerdown', e => {
     initAudio(); if (actx?.state === 'suspended') actx.resume();
-    if (mode === 'mouth') { dragMouth = true; setMouth(e); cv.setPointerCapture(e.pointerId); return; }
+    if (mode === 'mouth') { dragMouth = true; withLine(face, []); setMouth(e); cv.setPointerCapture(e.pointerId); return; }
     if (mode !== 'play') return;
     const h = stemHit(e.clientX, e.clientY, L, 1.6);
     if (h.hit) { ptr = e.pointerId; pitchT = h.u; press = true; cv.setPointerCapture(e.pointerId); }
@@ -366,11 +368,18 @@
     if (e.pointerId !== ptr) return;
     const h = stemHit(e.clientX, e.clientY, L, 99); pitchT = h.u;
   });
-  const up = e => { if (dragMouth) { dragMouth = false; return; } if (e.pointerId === ptr) { ptr = null; press = false; } };
+  const up = e => { if (dragMouth) { dragMouth = false; endMouth(); return; } if (e.pointerId === ptr) { ptr = null; press = false; } };
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
   function setMouth(e) {
-    face.my = Math.max(0.2, Math.min(0.92, (e.clientY - L.fy) / L.fh));
-    face.mx = Math.max(0.15, Math.min(0.85, (e.clientX - L.fx) / L.fw));
+    const x = Math.max(0, Math.min(1, (e.clientX - L.fx) / L.fw)), y = Math.max(0.02, Math.min(0.98, (e.clientY - L.fy) / L.fh));
+    const ln = face.line, q = ln[ln.length - 1];
+    if (!q || Math.hypot((x - q[0]) * L.fw, (y - q[1]) * L.fh) > 4) withLine(face, [...ln, [x, y]]);
+  }
+  // 描き終わったら左→右にそろえる。短すぎる線は無効
+  function endMouth() {
+    let ln = face.line; if (ln.length > 1 && ln[0][0] > ln[ln.length - 1][0]) ln = ln.slice().reverse();
+    if (ln.length < 2 || Math.abs(ln[ln.length - 1][0] - ln[0][0]) < 0.05) ln = [];
+    withLine(face, ln); $('ok').disabled = !ln.length;
   }
   const KEYS = 'asdfghjk', SCALE = [0, 2, 4, 5, 7, 9, 11, 12];
   addEventListener('keydown', e => {
@@ -390,14 +399,14 @@
       c.width = Math.round(im.width * s); c.height = Math.round(im.height * s); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
       URL.revokeObjectURL(url);
       const src = c.toDataURL(f.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.85);
-      const im2 = new Image(); im2.onload = () => { face = { img: im2, my: 0.7, mx: 0.5, cat: false, src }; resize(); mode = 'mouth'; $('ok').classList.remove('hide'); $('pick').classList.add('hide'); $('rec').classList.add('hide'); }; im2.src = src;
+      const im2 = new Image(); im2.onload = () => { face = withLine({ img: im2, cat: false, src }, []); resize(); mode = 'mouth'; $('ok').disabled = true; $('ok').classList.remove('hide'); $('pick').classList.add('hide'); $('rec').classList.add('hide'); }; im2.src = src;
     };
     im.onerror = () => { URL.revokeObjectURL(url); showErr(t('err')); };
     im.src = url;
   };
   $('ok').onclick = () => {
     mode = 'play'; $('ok').classList.add('hide'); $('pick').classList.remove('hide'); $('rec').classList.remove('hide');
-    if (face.src) store.set('photo', { src: face.src, my: face.my, mx: face.mx });
+    if (face.src) store.set('photo', { src: face.src, line: face.line });
   };
 
   // ---------- 言語 ----------
