@@ -301,6 +301,7 @@
   function drawScene(c, w, h, l, line) {
     drawBg(c, w, h);
     drawCat(c, w, h);
+    if (c === ctx) drawFrets(c);
     drawFace(c, l, open, line);
     drawParts(c, l, l.fh / 300);
   }
@@ -353,7 +354,23 @@
 
   // ---------- 操作 ----------
   // 画面の高さで音程を決める（上ほど高い）
-  const pitchAt = y => Math.max(0, Math.min(1, 1 - (y - 56) / Math.max(1, H - 56 - (low() ? 80 : 170))));
+  // フレット: 半音ごとの段。押した段の音にぴったり合わせる
+  const NOTES = 26, fretArea = () => ({ top: 56, h: Math.max(1, H - 56 - (low() ? 80 : 170)) });
+  const pitchAt = y => { const a = fretArea(); return Math.round(Math.max(0, Math.min(1, 1 - (y - a.top) / a.h)) * NOTES) / NOTES; };
+  function drawFrets(c) {
+    const a = fretArea(), bh = a.h / NOTES, cur = (press || keyDown !== null) && mode === 'play' ? Math.round(pitchT * NOTES) : -1;
+    for (let n = 0; n <= NOTES; n++) {
+      const y = a.top + (1 - n / NOTES) * a.h, pc = (55 + n) % 12;
+      const sharp = [1, 3, 6, 8, 10].includes(pc); // 黒鍵の音は少し暗く
+      c.fillStyle = n === cur ? 'rgba(255,220,120,.35)' : sharp ? 'rgba(0,0,0,.10)' : 'rgba(255,255,255,.05)';
+      c.fillRect(0, y - bh / 2, W, bh);
+      // 段の境目（フレット）
+      c.fillStyle = 'rgba(255,255,255,.22)'; c.fillRect(0, Math.round(y - bh / 2), W, 1);
+      // ドの段は両端に印
+      if (pc === 0) { c.fillStyle = 'rgba(255,230,170,.75)'; for (const x of [14, W - 14]) { c.beginPath(); c.arc(x, y, Math.min(6, bh * 0.35), 0, 7); c.fill(); } }
+      else if (pc === 7 || pc === 4) { c.fillStyle = 'rgba(255,255,255,.4)'; for (const x of [14, W - 14]) { c.beginPath(); c.arc(x, y, Math.min(3.5, bh * 0.22), 0, 7); c.fill(); } }
+    }
+  }
   let ptrY = 0;
   let ptr = null;
   cv.addEventListener('pointerdown', e => {
@@ -538,11 +555,6 @@
     else if (mode === 'mouth') { drawBg(ctx, W, H); drawFace(ctx, { fx: view.x, fy: view.y, fw: vimg.width * view.k, fh: vimg.height * view.k }, 0, true); }
     else {
       drawScene(ctx, W, H, L, false);
-      if (press && mode === 'play') {
-        const g = ctx.createLinearGradient(0, ptrY - 40, 0, ptrY + 40);
-        g.addColorStop(0, 'rgba(255,220,120,0)'); g.addColorStop(0.5, 'rgba(255,220,120,.28)'); g.addColorStop(1, 'rgba(255,220,120,0)');
-        ctx.fillStyle = g; ctx.fillRect(0, ptrY - 40, W, 80);
-      }
     }
     if (rec) {
       const rl = layout(RS, RS, 30, 30);
