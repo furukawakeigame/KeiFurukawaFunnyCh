@@ -354,9 +354,11 @@
     return { u: uc, d, hit: d < sw * slack && u > -0.15 && u < 1.1 };
   }
   function inFace(x, y) { return x > L.fx && x < L.fx + L.fw && y > L.fy && y < L.fy + L.fh * 1.2; }
-  let ptr = null, dragMouth = false;
+  let ptr = null, dragMouth = false, dragCut = false, lasso = [];
+  const cutPt = e => [(e.clientX - L.fx) / L.fw, (e.clientY - L.fy) / L.fh];
   cv.addEventListener('pointerdown', e => {
     initAudio(); if (actx?.state === 'suspended') actx.resume();
+    if (mode === 'cut') { dragCut = true; lasso = [cutPt(e)]; cv.setPointerCapture(e.pointerId); return; }
     if (mode === 'mouth') { dragMouth = true; withLine(face, []); setMouth(e); cv.setPointerCapture(e.pointerId); return; }
     if (mode !== 'play') return;
     const h = stemHit(e.clientX, e.clientY, L, 1.6);
@@ -365,10 +367,11 @@
   });
   cv.addEventListener('pointermove', e => {
     if (dragMouth) { setMouth(e); return; }
+    if (dragCut) { const p = cutPt(e), q = lasso[lasso.length - 1]; if (Math.hypot((p[0] - q[0]) * L.fw, (p[1] - q[1]) * L.fh) > 4) lasso.push(p); return; }
     if (e.pointerId !== ptr) return;
     const h = stemHit(e.clientX, e.clientY, L, 99); pitchT = h.u;
   });
-  const up = e => { if (dragMouth) { dragMouth = false; endMouth(); return; } if (e.pointerId === ptr) { ptr = null; press = false; } };
+  const up = e => { if (dragCut) { dragCut = false; if (lasso.length < 3) lasso = []; return; } if (dragMouth) { dragMouth = false; endMouth(); return; } if (e.pointerId === ptr) { ptr = null; press = false; } };
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
   function setMouth(e) {
     const x = Math.max(0, Math.min(1, (e.clientX - L.fx) / L.fw)), y = Math.max(0.02, Math.min(0.98, (e.clientY - L.fy) / L.fh));
@@ -399,15 +402,40 @@
       c.width = Math.round(im.width * s); c.height = Math.round(im.height * s); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
       URL.revokeObjectURL(url);
       const src = c.toDataURL(f.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.85);
-      const im2 = new Image(); im2.onload = () => { face = withLine({ img: im2, cat: false, src }, []); resize(); mode = 'mouth'; $('ok').disabled = true; $('ok').classList.remove('hide'); $('pick').classList.add('hide'); $('rec').classList.add('hide'); }; im2.src = src;
+      const im2 = new Image(); im2.onload = () => { face = withLine({ img: im2, cat: false, src }, []); resize(); mode = 'cut'; lasso = []; $('ok').disabled = false; $('ok').classList.remove('hide'); $('pick').classList.add('hide'); $('rec').classList.add('hide'); }; im2.src = src;
     };
     im.onerror = () => { URL.revokeObjectURL(url); showErr(t('err')); };
     im.src = url;
   };
   $('ok').onclick = () => {
+    if (mode === 'cut') { applyCut(); return; }
     mode = 'play'; $('ok').classList.add('hide'); $('pick').classList.remove('hide'); $('rec').classList.remove('hide');
     if (face.src) store.set('photo', { src: face.src, line: face.line });
   };
+
+  // 囲んだ形で切り抜く（外側は透明に）。囲まなければそのまま
+  function applyCut() {
+    const img = face.img, iw = img.naturalWidth, ih = img.naturalHeight;
+    const toMouth = () => { mode = 'mouth'; withLine(face, []); $('ok').disabled = true; };
+    if (lasso.length < 3) { toMouth(); return; }
+    const xs = lasso.map(p => Math.max(0, Math.min(1, p[0])) * iw), ys = lasso.map(p => Math.max(0, Math.min(1, p[1])) * ih);
+    const x0 = Math.floor(Math.min(...xs)), y0 = Math.floor(Math.min(...ys)), w = Math.ceil(Math.max(...xs)) - x0, h = Math.ceil(Math.max(...ys)) - y0;
+    if (w < 8 || h < 8) { toMouth(); return; }
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d');
+    x.beginPath(); xs.forEach((v, i) => i ? x.lineTo(v - x0, ys[i] - y0) : x.moveTo(v - x0, ys[i] - y0)); x.closePath(); x.clip();
+    x.drawImage(img, -x0, -y0);
+    const src = c.toDataURL('image/png'), im = new Image();
+    im.onload = () => { face = withLine({ img: im, cat: false, src }, []); lasso = []; resize(); toMouth(); };
+    im.src = src;
+  }
+  function drawLasso(c) {
+    if (lasso.length < 2) return;
+    const P = p => [L.fx + L.fw * p[0], L.fy + L.fh * p[1]];
+    c.save(); c.beginPath(); c.rect(0, 0, W, H); lasso.forEach((p, i) => i ? c.lineTo(...P(p)) : c.moveTo(...P(p))); c.closePath();
+    if (!dragCut) { c.fillStyle = 'rgba(20,10,40,.6)'; c.fill('evenodd'); }
+    c.beginPath(); lasso.forEach((p, i) => i ? c.lineTo(...P(p)) : c.moveTo(...P(p))); if (!dragCut) c.closePath();
+    c.lineWidth = 4; c.lineJoin = c.lineCap = 'round'; c.setLineDash([10, 7]); c.strokeStyle = '#fff'; c.shadowColor = '#000'; c.shadowBlur = 5; c.stroke(); c.restore();
+  }
 
   // ---------- 言語 ----------
   function applyLang() {
@@ -436,6 +464,7 @@
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawScene(ctx, W, H, L, mode === 'mouth');
+    if (mode === 'cut') drawLasso(ctx);
     if (rec) {
       const rl = layout(RS, RS, 30, 30);
       rctx.setTransform(1, 0, 0, 1, 0, 0); drawScene(rctx, RS, RS, rl, false);
