@@ -489,9 +489,8 @@
     });
     renderer.domElement.addEventListener('pointerdown', e => {
       e.preventDefault();
-      // スタート画面はなく、最初のタップで始まる
-      if (state === 'title') { start(); return; }
       if (state !== 'play') return;
+      armed = true;
       const p = toBoard(e); if (!p) return;
       // 当たり: キャラに当たればそれ、外れても近い穴のキャラを拾う
       let target = null;
@@ -519,7 +518,7 @@
     stage.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 
     // ---------- ゲーム ----------
-    let state = 'title', score = 0, love = 1, shownLove = -1, elapsed = 0, nextSpawn = 0, angry = null, angryT = 0, needSnap = false;
+    let armed = false, state = 'title', score = 0, love = 1, shownLove = -1, elapsed = 0, nextSpawn = 0, angry = null, angryT = 0, needSnap = false;
     // モグラ愛ゲージ: 何もしないと減り、人間を叩くと増える
     const loveEl = document.getElementById('love'), loveBar = loveEl.querySelector('i');
     const drawLove = () => {
@@ -529,13 +528,7 @@
     function clearAll() { for (let i = 0; i < 9; i++) remove(i); if (angry) { angry = null; } }
     function reset() {
       clearAll();
-      score = 0; love = 1; elapsed = 0; nextSpawn = 0.6; angryT = 0;
-    }
-    function titleScene() {
-      clearAll();
-      const c = spawn(4, true, false); c.phase = 'hold';
-      const a = spawn(0, false, false); a.phase = 'hold';
-      const b = spawn(8, false, false); b.phase = 'hold';
+      score = 0; love = 1; armed = false; elapsed = 0; nextSpawn = 0.6; angryT = 0;
     }
     function moleHit(c) {
       burst(HOLES[c.hole].clone().setY(1.4), 16, '#ff4a3a', 4, 0.09, 0.6, 3);
@@ -561,10 +554,13 @@
     const STEP = 1 / 60;
     function step(dt) {
       if (state === 'play') {
-        elapsed += dt;
-        love -= dt * (0.07 + elapsed * 0.0015);
-        if (love <= 0) { love = 0; state = 'over'; angryT = 0; renderControls(); }
-        drawLove();
+        // 最初に叩くまでは、ゲージも難しさも止めておく
+        if (armed) {
+          elapsed += dt;
+          love -= dt * (0.07 + elapsed * 0.0015);
+          if (love <= 0) { love = 0; state = 'over'; angryT = 0; renderControls(); }
+          drawLove();
+        }
         nextSpawn -= dt;
         if (nextSpawn <= 0) { spawnTick(); nextSpawn = Math.max(0.12, 0.45 - elapsed * 0.008) * (0.6 + Math.random() * 0.8); }
       }
@@ -708,7 +704,7 @@
     }
 
     resize();
-    titleScene();
+    start();
     applyLang();
     // 最初の1回が重くならないように、全部の形を一度描いておく
     { const tmp = [spawn(1, true, true), spawn(3, false, true)]; tmp.forEach(c => c.g.position.y = 0); hammer.visible = true; renderer.compile(scene, camera); renderer.render(scene, camera); hammer.visible = false; remove(1); remove(3); }
