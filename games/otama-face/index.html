@@ -214,7 +214,7 @@
     dpr = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
     cv.width = W * dpr; cv.height = H * dpr;
     L = layout(W, H, 56, 80 + 90);
-    if (mode === 'cut' && pimg) placeImage();
+    if ((mode === 'cut' || mode === 'mouth') && vimg) placeImage();
   }
   addEventListener('resize', resize);
 
@@ -359,28 +359,27 @@
     return { u: uc, d, hit: d < sw * slack && u > -0.15 && u < 1.1 };
   }
   function inFace(x, y) { return x > L.fx && x < L.fx + L.fw && y > L.fy && y < L.fy + L.fh * 1.2; }
-  let ptr = null, dragMouth = false;
+  let ptr = null;
   cv.addEventListener('pointerdown', e => {
     initAudio(); if (actx?.state === 'suspended') actx.resume();
-    if (mode === 'cut') { cutDown(e); return; }
-    if (mode === 'mouth') { dragMouth = true; withLine(face, []); setMouth(e); cv.setPointerCapture(e.pointerId); return; }
+    if (mode === 'cut' || mode === 'mouth') { cutDown(e); return; }
     if (mode !== 'play') return;
     const h = stemHit(e.clientX, e.clientY, L, 1.6);
     if (h.hit) { ptr = e.pointerId; pitchT = h.u; press = true; cv.setPointerCapture(e.pointerId); }
     else if (inFace(e.clientX, e.clientY)) { ptr = e.pointerId; press = true; cv.setPointerCapture(e.pointerId); } // 顔をつまむとワウ
   });
   cv.addEventListener('pointermove', e => {
-    if (dragMouth) { setMouth(e); return; }
-    if (mode === 'cut') { cutMove(e); return; }
+    if (mode === 'cut' || mode === 'mouth') { cutMove(e); return; }
     if (e.pointerId !== ptr) return;
     const h = stemHit(e.clientX, e.clientY, L, 99); pitchT = h.u;
   });
-  const up = e => { if (mode === 'cut') { cutUp(e); return; } if (dragMouth) { dragMouth = false; endMouth(); return; } if (e.pointerId === ptr) { ptr = null; press = false; } };
+  const up = e => { if (mode === 'cut' || mode === 'mouth') { cutUp(e); return; } if (e.pointerId === ptr) { ptr = null; press = false; } };
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
   function setMouth(e) {
-    const x = Math.max(0, Math.min(1, (e.clientX - L.fx) / L.fw)), y = Math.max(0.02, Math.min(0.98, (e.clientY - L.fy) / L.fh));
+    const fw = vimg.width * view.k, fh = vimg.height * view.k;
+    const x = Math.max(0, Math.min(1, (e.clientX - view.x) / fw)), y = Math.max(0.02, Math.min(0.98, (e.clientY - view.y) / fh));
     const ln = face.line, q = ln[ln.length - 1];
-    if (!q || Math.hypot((x - q[0]) * L.fw, (y - q[1]) * L.fh) > 4) withLine(face, [...ln, [x, y]]);
+    if (!q || Math.hypot((x - q[0]) * fw, (y - q[1]) * fh) > 3) withLine(face, [...ln, [x, y]]);
   }
   // 描き終わったら左→右にそろえる。短すぎる線は無効
   function endMouth() {
@@ -412,7 +411,7 @@
   };
 
   // ---------- 切り抜き（タピオカメーカーと同じ: 残す所を指で塗る・ピンチ／ホイールで拡大） ----------
-  let pimg = null, mask = null, mctx = null, view = null, brushIdx = 1, erasing = false, undoStack = [], lastPt = null, pinch = null;
+  let vimg = null, pimg = null, mask = null, mctx = null, view = null, brushIdx = 1, erasing = false, undoStack = [], lastPt = null, pinch = null;
   const touches = new Map(), BRUSH = [8, 22, 50];
   function setBar(m) {
     mode = m;
@@ -420,7 +419,7 @@
     for (const k of ['brush', 'erase', 'undo']) $(k).classList.toggle('hide', !cut);
     $('ok').classList.toggle('hide', !(cut || mouth)); $('pick').classList.toggle('hide', cut || mouth); $('rec').classList.toggle('hide', cut || mouth);
     if (cut) { $('erase').classList.remove('on'); updateDone(); }
-    if (mouth) { withLine(face, []); $('ok').disabled = true; }
+    if (mouth) { withLine(face, []); $('ok').disabled = true; vimg = face.img; touches.clear(); pinch = null; lastPt = null; placeImage(); }
   }
   function startCut(im) {
     const k = Math.min(1, 1600 / Math.max(im.width, im.height));
@@ -428,11 +427,11 @@
     pimg.getContext('2d').drawImage(im, 0, 0, pimg.width, pimg.height);
     mask = document.createElement('canvas'); mask.width = pimg.width; mask.height = pimg.height; mctx = mask.getContext('2d');
     undoStack = []; erasing = false; touches.clear(); pinch = null; lastPt = null;
-    placeImage(); setBar('cut');
+    vimg = pimg; placeImage(); setBar('cut');
   }
   function placeImage() {
-    const top = 56, bot = 80 + 90, pad = 12, k = Math.min((W - pad * 2) / pimg.width, (H - top - bot - pad * 2) / pimg.height);
-    view = { k, fit: k, x: (W - pimg.width * k) / 2, y: top + (H - top - bot - pimg.height * k) / 2 };
+    const top = 56, bot = 80 + 90, pad = 12, k = Math.min((W - pad * 2) / vimg.width, (H - top - bot - pad * 2) / vimg.height);
+    view = { k, fit: k, x: (W - vimg.width * k) / 2, y: top + (H - top - bot - vimg.height * k) / 2 };
   }
   function snapFit() { if (view.k <= view.fit * 1.001) placeImage(); }
   const toImg = e => ({ x: (e.clientX - view.x) / view.k, y: (e.clientY - view.y) / view.k });
@@ -466,11 +465,13 @@
   }
   function cutDown(e) {
     cv.setPointerCapture(e.pointerId); touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (touches.size === 1 && !pinch) {
+    if (touches.size === 1 && !pinch && mode === 'mouth') { lastPt = true; withLine(face, []); setMouth(e); }
+    else if (touches.size === 1 && !pinch) {
       undoStack.push(mctx.getImageData(0, 0, mask.width, mask.height)); if (undoStack.length > 20) undoStack.shift();
       lastPt = toImg(e); stroke(lastPt, lastPt);
     } else if (touches.size === 2) {
       // 2本目の指: 塗り始めを取り消して拡大へ
+      if (lastPt && mode === 'mouth') { withLine(face, []); lastPt = null; }
       if (lastPt) { const d = undoStack.pop(); if (d) mctx.putImageData(d, 0, 0); lastPt = null; }
       const [a, b] = [...touches.values()];
       pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: midP(a, b), k0: view.k, x0: view.x, y0: view.y };
@@ -483,14 +484,15 @@
       const [a, b] = [...touches.values()], m = midP(a, b);
       const k = Math.max(view.fit, Math.min(view.fit * 12, pinch.k0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0));
       view.x = m.x - (pinch.m0.x - pinch.x0) / pinch.k0 * k; view.y = m.y - (pinch.m0.y - pinch.y0) / pinch.k0 * k; view.k = k; snapFit();
-    } else if (lastPt) { const p = toImg(e); stroke(lastPt, p); lastPt = p; }
+    } else if (lastPt && mode === 'mouth') setMouth(e);
+    else if (lastPt) { const p = toImg(e); stroke(lastPt, p); lastPt = p; }
   }
   function cutUp(e) {
     touches.delete(e.pointerId); if (touches.size === 0) pinch = null;
-    if (lastPt) { lastPt = null; updateDone(); }
+    if (lastPt) { lastPt = null; if (mode === 'mouth') endMouth(); else updateDone(); }
   }
   cv.addEventListener('wheel', e => {
-    if (mode !== 'cut') return; e.preventDefault();
+    if (mode !== 'cut' && mode !== 'mouth') return; e.preventDefault();
     const k = Math.max(view.fit, Math.min(view.fit * 12, view.k * Math.exp(-e.deltaY * 0.0015)));
     view.x = e.clientX - (e.clientX - view.x) / view.k * k; view.y = e.clientY - (e.clientY - view.y) / view.k * k; view.k = k; snapFit();
   }, { passive: false });
@@ -538,7 +540,9 @@
     for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.age += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += dt * 0.8 * Math.sign(p.vx); if (p.age > p.life) parts.splice(i, 1); }
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (mode === 'cut') drawCut(ctx); else drawScene(ctx, W, H, L, mode === 'mouth');
+    if (mode === 'cut') drawCut(ctx);
+    else if (mode === 'mouth') { drawBg(ctx, W, H); drawFace(ctx, { fx: view.x, fy: view.y, fw: vimg.width * view.k, fh: vimg.height * view.k }, 0, true); }
+    else drawScene(ctx, W, H, L, false);
     if (rec) {
       const rl = layout(RS, RS, 30, 30);
       rctx.setTransform(1, 0, 0, 1, 0, 0); drawScene(rctx, RS, RS, rl, false);
