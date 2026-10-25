@@ -64,6 +64,7 @@
     .pitch svg { flex: none; }
     .pitch input { flex: 1; accent-color: #ffcf5a; }
     #kb { position: relative; width: min(560px, 100%); height: clamp(64px, 13vh, 120px); touch-action: none; }
+    #fx { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
     #kb, #kb *, #cv { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
     .wk, .bk { position: absolute; top: 0; box-sizing: border-box; cursor: pointer; }
     .wk { height: 100%; background: linear-gradient(#fff, #efe6f2); border: 1px solid #6a4a7a; border-radius: 0 0 8px 8px; }
@@ -83,6 +84,7 @@
 </head>
 <body>
   <canvas id="cv"></canvas>
+  <canvas id="fx"></canvas>
   <header>
     <a id="back" href="../../">← トップへ戻る</a>
     <div class="hbtns">
@@ -362,12 +364,12 @@
   })();
 
   // ---------- 画面 ----------
-  const cv = $('cv'), ctx = cv.getContext('2d');
+  const cv = $('cv'), ctx = cv.getContext('2d'), fx = $('fx'), fctx = fx.getContext('2d');
   let W = 0, H = 0, DPR = 1, box = { x: 0, y: 50, w: 100, h: 100 }, mode = 'stage';
   function resize() {
     DPR = Math.min(window.devicePixelRatio || 1, 2);
     W = innerWidth; H = innerHeight;
-    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    cv.width = fx.width = Math.round(W * DPR); cv.height = fx.height = Math.round(H * DPR);
     const top = 50, bot = $('ui').getBoundingClientRect().top - 10;
     box = { x: 0, y: top, w: W, h: Math.max(60, bot - top) };
     if (img && mode === 'paint') placeImage();
@@ -666,6 +668,30 @@
     if (el && !el.classList.contains('on') && Math.abs(dx) > w * 0.75) { anchor = e.clientX; bend(0); pressEl(el); return; }
     bend(Math.max(-120, Math.min(120, dx / w * 160)));
   });
+  // 押しているところの軌跡
+  let trail = [], trailDrawn = false, lastPos = null;
+  const addTrail = e => { lastPos = { x: e.clientX, y: e.clientY }; trail.push({ ...lastPos, t: performance.now() }); };
+  kb.addEventListener('pointerdown', e => { trail = []; addTrail(e); });
+  kb.addEventListener('pointermove', e => { if (e.pointerId === kbPtr) addTrail(e); });
+  function drawTrail(now) {
+    trail = trail.filter(p => now - p.t < 450);
+    if (kbPtr !== null && lastPos && !trail.length) trail.push({ ...lastPos, t: now });
+    if (!trail.length && !trailDrawn) return;
+    fctx.setTransform(DPR, 0, 0, DPR, 0, 0); fctx.clearRect(0, 0, W, H);
+    trailDrawn = trail.length > 0; if (!trailDrawn) return;
+    fctx.lineCap = 'round'; fctx.lineJoin = 'round';
+    for (let i = 1; i < trail.length; i++) {
+      const a = trail[i - 1], b = trail[i], k = 1 - (now - b.t) / 450;
+      fctx.strokeStyle = `rgba(255,90,150,${k * 0.85})`; fctx.lineWidth = 4 + k * 14;
+      fctx.beginPath(); fctx.moveTo(a.x, a.y); fctx.lineTo(b.x, b.y); fctx.stroke();
+    }
+    if (kbPtr !== null) {
+      const p = trail[trail.length - 1];
+      const gr = fctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 26);
+      gr.addColorStop(0, 'rgba(255,255,255,.95)'); gr.addColorStop(0.4, 'rgba(255,90,150,.7)'); gr.addColorStop(1, 'rgba(255,90,150,0)');
+      fctx.fillStyle = gr; fctx.beginPath(); fctx.arc(p.x, p.y, 26, 0, Math.PI * 2); fctx.fill();
+    }
+  }
   const kbUp = e => { if (e.pointerId === kbPtr) { kbPtr = null; keyUp(); } };
   kb.addEventListener('pointerup', kbUp); kb.addEventListener('pointercancel', kbUp);
 
@@ -744,7 +770,7 @@
       const p = parts[i]; p.life += dt; p.x += (p.vx + Math.sin(p.life * 4) * 12) * dt; p.y += p.vy * dt;
       if (p.life > p.max) parts.splice(i, 1);
     }
-    render();
+    render(); drawTrail(now);
     requestAnimationFrame(loop);
   }
   addEventListener('resize', () => { resize(); });
