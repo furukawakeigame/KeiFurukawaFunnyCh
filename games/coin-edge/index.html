@@ -242,14 +242,15 @@ const wallTex = canvasTex(256, 256, (g, w, h) => {
 }, [16, 6]);
 
 // table: top edge at x = EDGE, top surface at y = 0
-const EDGE = 0.5, TH = 0.035, TABLE_Y = 0.75;
+const EDGE = 0.5, START_X = EDGE - 0.8, // the coin starts in the middle of the table
+  TH = 0.035, TABLE_Y = 0.75;
 const wood = new THREE.MeshStandardMaterial({ map: tableTex, roughness: 0.55 });
 const shade = o => { o.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } }); return o; };
 const box = (w, h, d, mat, x, y, z, parent = scene) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); parent.add(m); return shade(m); };
-box(1.6, TH, 0.7, wood, EDGE - 0.8, -TH / 2, -0.15);
+box(1.6, TH, 0.7, wood, EDGE - 0.8, -TH / 2, 0);
 const legMat = new THREE.MeshStandardMaterial({ color: 0x6b4226, roughness: 0.6 });
-for (const x of [EDGE - 0.06, EDGE - 1.54]) for (const z of [0.15, -0.45]) box(0.05, TABLE_Y - TH, 0.05, legMat, x, -TABLE_Y / 2 - TH / 2, z);
-box(1.5, 0.06, 0.02, legMat, EDGE - 0.8, -TH - 0.03, 0.18);
+for (const x of [EDGE - 0.06, EDGE - 1.54]) for (const z of [0.3, -0.3]) box(0.05, TABLE_Y - TH, 0.05, legMat, x, -TABLE_Y / 2 - TH / 2, z);
+box(1.5, 0.06, 0.02, legMat, EDGE - 0.8, -TH - 0.03, 0.33);
 // floor and wall
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.7 }));
 floor.rotation.x = -Math.PI / 2; floor.position.y = -TABLE_Y; floor.receiveShadow = true; scene.add(floor);
@@ -267,24 +268,6 @@ const win = new THREE.Group(); win.position.set(0.15, 0.55, -1.38); scene.add(wi
 win.add(new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.8), new THREE.MeshBasicMaterial({ map: skyTex, fog: false })));
 const frameMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
 for (const [w, h, x, y] of [[1.08, 0.05, 0, 0.42], [1.08, 0.05, 0, -0.42], [0.05, 0.88, -0.52, 0], [0.05, 0.88, 0.52, 0], [0.03, 0.8, 0, 0], [1.0, 0.03, 0, 0]]) box(w, h, 0.03, frameMat, x, y, 0.01, win);
-// the cat in a photo frame at the back of the table, watching
-const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
-const photo = new THREE.Group(); photo.position.set(0.02, 0, -0.38); photo.rotation.y = -0.15; scene.add(photo);
-const tilt = new THREE.Group(); photo.add(tilt); tilt.rotation.x = -0.12;
-box(0.17, 0.2, 0.014, new THREE.MeshStandardMaterial({ color: 0x3b2314, roughness: 0.4 }), 0, 0.1, 0, tilt);
-const mat2 = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.17), new THREE.MeshStandardMaterial({ color: 0xfff6e8, roughness: 0.9 }));
-mat2.position.set(0, 0.1, 0.0075); tilt.add(mat2);
-const catFace = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.13), new THREE.MeshStandardMaterial({ map: catTex, transparent: true, roughness: 0.8 }));
-catFace.position.set(0, 0.1, 0.008); tilt.add(catFace);
-// a mug and a pencil so the table isn't bare
-const mug = new THREE.Group(); mug.position.set(-0.32, 0, -0.32); scene.add(mug);
-const mugMat = new THREE.MeshStandardMaterial({ color: 0x4dabf7, roughness: 0.3 });
-{ const c = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.1, 32, 1, true), mugMat); c.position.y = 0.05; mug.add(c);
-  const b = new THREE.Mesh(new THREE.CircleGeometry(0.04, 32), mugMat); b.rotation.x = -Math.PI / 2; b.position.y = 0.001; mug.add(b);
-  const h = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.008, 12, 24, Math.PI), mugMat); h.rotation.z = -Math.PI / 2; h.position.set(0.045, 0.05, 0); mug.add(h);
-  mugMat.side = THREE.DoubleSide; shade(mug); }
-{ const p = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.17, 6), new THREE.MeshStandardMaterial({ color: 0xfcc419, roughness: 0.5 }));
-  p.rotation.z = Math.PI / 2; p.rotation.y = 0.5; p.position.set(-0.1, 0.004, -0.25); scene.add(shade(p)); }
 // a person kneeling past the edge, sitting on their heels and leaning in, face just under the tabletop.
 // the body is a ragdoll: joints are points held together by sticks. it stays posed until the coin hits,
 // then the joints fly free under gravity (Verlet) and the meshes follow them
@@ -351,7 +334,7 @@ function ragStep(dt) {
       }
       if (j.p.z < -1.38 + j.r) j.p.z = -1.38 + j.r; // the back wall
       // the table top: push anything inside it back out over the edge
-      if (j.p.x < EDGE + j.r && j.p.y > -TH - j.r && j.p.y < j.r && j.p.z > -0.5 && j.p.z < 0.2) j.p.x = EDGE + j.r;
+      if (j.p.x < EDGE + j.r && j.p.y > -TH - j.r && j.p.y < j.r && j.p.z > -0.35 && j.p.z < 0.35) j.p.x = EDGE + j.r;
     }
   }
 }
@@ -461,7 +444,7 @@ const goldFace = new THREE.MeshStandardMaterial({ map: faceTex, metalness: 0.35,
 const coin = shade(new THREE.Mesh(new THREE.CylinderGeometry(R, R, CT, 48), [gold, goldFace, goldFace]));
 const coinPivot = new THREE.Group(); coinPivot.add(coin); scene.add(coinPivot);
 // slingshot: two wooden posts behind the coin with a rubber band between them
-const POST_X = -R - 0.004, POST_Z = R + 0.03, BAND_Y = 0.012;
+const POST_X = START_X - R - 0.004, POST_Z = R + 0.03, BAND_Y = 0.012;
 const postMat = new THREE.MeshStandardMaterial({ color: 0x7a4a26, roughness: 0.6 });
 for (const sz of [-1, 1]) {
   const post = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.013, 0.05, 14), postMat);
@@ -510,8 +493,8 @@ function tickSparks(dt) {
 
 // ---------- game ----------
 // the coin slides along +x, slowing by friction; the slingshot picks how hard
-const PULL = 0.1; // how far back the slingshot stretches at full power
-const DT = 1 / 120, DEC = 1.5, DMAX = 0.75, VMAX = Math.sqrt(2 * DEC * (DMAX + PULL)), START_X = 0, FLOOR = -TABLE_Y + CT / 2;
+const PULL = 0.25; // how far back the slingshot stretches at full power
+const DT = 1 / 120, DEC = 1.5, DMAX = EDGE - START_X + 0.25, VMAX = Math.sqrt(2 * DEC * (DMAX + PULL)), FLOOR = -TABLE_Y + CT / 2;
 let state = 'ready', power = 0, chargeT = 0, best = store.get('best', null), result = null, endT = 0;
 const c = { x: START_X, y: CT / 2, v: 0, vy: 0, rz: 0, wz: 0, spin: 0, wob: 0, wobT: 0, bounces: 0 }, cp = { ...c };
 let dec = DEC;
@@ -520,7 +503,7 @@ function reset() {
   Object.assign(cp, c);
   state = 'ready'; power = 0; chargeT = 0; result = null; endT = 0;
   gapLine.visible = edgeMark.visible = false;
-  tilt.rotation.x = -0.12; photo.position.y = 0; ragdoll = false; pose(); mouthOpen(0); crack = null; catShake = 0; dropT = 0;
+  ragdoll = false; pose(); mouthOpen(0); crack = null; catShake = 0; dropT = 0;
   fxCtx.clearRect(0, 0, fx.width, fx.height); fxOn = false; redK = 0;
 }
 // slingshot: drag away from the edge to stretch the band, let go to shoot. the pull is measured on screen
@@ -534,7 +517,7 @@ function backDir() {
 function press(e) {
   if (state !== 'ready') return;
   state = 'charge'; chargeT = 0; power = 0;
-  drag = e ? { x: e.clientX, y: e.clientY, dir: backDir(), full: Math.max(110, Math.min(stage.clientWidth, stage.clientHeight) * 0.4) } : null;
+  drag = e ? { x: e.clientX, y: e.clientY, dir: backDir(), full: Math.max(180, Math.min(stage.clientWidth, stage.clientHeight) * 0.6) } : null;
   keyHold = !e;
 }
 function aim(e) {
@@ -602,7 +585,6 @@ function step(dt) {
   }
   if (state === 'dead') {
     dropT += dt; catShake = Math.max(0, catShake - dt);
-    tilt.rotation.x = Math.max(-Math.PI / 2 + 0.02, tilt.rotation.x - dt * Math.min(6, dropT * 8)); // the cat faints backward
     if (dropT > 1.6 && endT === 0) { endT = 1; finish(true); }
   }
 }
@@ -668,7 +650,7 @@ function paintFx() {
 
 // ---------- layout ----------
 // the tabletop from the start to just past the edge must fit above the bottom 80px
-const TOP = 52, BOTTOM = 130, FOCUS = new THREE.Vector3(0.32, -0.02, 0), SPAN_W = 1.0, SPAN_H = 0.5;
+const TOP = 52, BOTTOM = 130, FOCUS = new THREE.Vector3(0.05, -0.02, 0), SPAN_W = 1.35, SPAN_H = 0.5;
 const camDir = new THREE.Vector3(-0.15, 1.0, 0.8).normalize(); // from high up in front
 let camDist = 1, viewH = 1, follow = 0, killF = 0, slackUp = 0;
 function resize() {
