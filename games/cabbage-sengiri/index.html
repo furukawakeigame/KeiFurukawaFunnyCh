@@ -256,9 +256,6 @@ bg.position.z = 0.043;
 catFrame.add(fr, bg, pic); catFrame.position.set(-0.6, 1.55, -3.1); catFrame.rotation.z = -0.04; fr.castShadow = true; scene.add(catFrame);
 
 // 小物: トマトと皿
-const plate = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 0.8, 0.08, 40), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 }));
-let PILE_X = -2.75, PILE_Z = 0.15;
-plate.position.set(PILE_X, 0.04, PILE_Z); plate.castShadow = plate.receiveShadow = true; scene.add(plate);
 const tomatoMat = new THREE.MeshStandardMaterial({ color: 0xd8321e, roughness: 0.25 });
 for (const [x, z, s] of [[2.35, -1.4, 0.32], [2.75, -1.05, 0.28]]) {
   const tm = new THREE.Mesh(new THREE.SphereGeometry(s, 24, 16), tomatoMat); tm.scale.y = 0.85; tm.position.set(x, s * 0.85, z); tm.castShadow = true; scene.add(tm);
@@ -351,8 +348,8 @@ let knifeAnim = null;
 
 // ---------- 千切りの山 ----------
 const MAXS = 900;
-const strandGeo = new THREE.BoxGeometry(1, 1, 1);
-const strandMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
+const strandGeo = new THREE.CylinderGeometry(1, 1, 1, 32).rotateX(Math.PI / 2);
+const strandMat = [new THREE.MeshStandardMaterial({ color: 0x9fcf6f, roughness: 0.6 }), new THREE.MeshStandardMaterial({ map: capTex, roughness: 0.7 }), new THREE.MeshStandardMaterial({ map: capTex, roughness: 0.7 })];
 const strands = new THREE.InstancedMesh(strandGeo, strandMat, MAXS);
 strands.castShadow = true; strands.receiveShadow = true; strands.count = 0;
 strands.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -376,11 +373,12 @@ function spawnBits(x, z) {
 
 // ---------- 状態 ----------
 const strandList = [];
-let state, cuts, startTime, endTime, result = null, pileH;
+let state, cuts, startTime, endTime, result = null;
+const landed = [];
 function reset() {
   state = 'play';
   cuts = [];               // {p: Vector2, n: Vector2}
-  startTime = 0; endTime = 0; result = null; pileH = 0; strandList.length = 0;
+  startTime = 0; endTime = 0; result = null; landed.length = 0; strandList.length = 0;
   cutPlane.normal.set(1, 0, 0); cutPlane.constant = 100;
   strands.count = 0; strands.instanceMatrix.needsUpdate = true;
   flying.length = 0;
@@ -469,22 +467,24 @@ function addStrand(wUnits, span, mid, d, n) {
   const idx = strands.count;
   if (idx >= MAXS) return;
   strands.count++;
-  // 色: 外側は緑、内側は白っぽく
-  const k = Math.min(1, Math.abs((mid.x - CABBAGE.x) * n.x + (mid.y - CABBAGE.z) * n.y) / R);
-  const col = new THREE.Color().setHSL(0.24, 0.55, 0.62 + 0.18 * (1 - k));
-  strands.setColorAt(idx, col);
+  const v = 0.92 + Math.random() * 0.08;
+  strands.setColorAt(idx, new THREE.Color(v, v, v * 0.97));
   if (strands.instanceColor) strands.instanceColor.needsUpdate = true;
-  // 落ちる先（皿の上の山）
-  const ang = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * 0.65 * Math.max(0.3, 1 - pileH * 1.2);
-  pileH = Math.min(0.55, pileH + 0.0022 + wUnits * 0.06);
-  const to = new THREE.Vector3(PILE_X + Math.cos(ang) * rr, 0.09 + pileH * (1 - rr / 0.75) + Math.random() * 0.02, PILE_Z + Math.sin(ang) * rr);
-  const thick = Math.max(0.006, Math.min(0.12, wUnits));
-  flying.push({
-    idx, t: 0,
-    from: new THREE.Vector3(mid.x, CY, mid.y), to,
-    s: new THREE.Vector3(Math.min(span, 1.1) * (0.25 + Math.random() * 0.2), Math.max(0.006, thick * 0.35), thick),
-    rot0: Math.atan2(-d.y, d.x), rot1: Math.random() * Math.PI * 2, tilt: (Math.random() - 0.5) * 0.4,
-  });
+  // 切れた一枚が、切り口から外側へそのまま倒れる
+  const r = Math.max(0.05, span / 2), hy = r * 0.9;
+  const thick = Math.max(0.006, Math.min(0.15, wUnits));
+  const n3 = new THREE.Vector3(n.x, 0, n.y), d3 = new THREE.Vector3(d.x, 0, d.y);
+  const up = new THREE.Vector3(0, 1, 0);
+  if (new THREE.Vector3().crossVectors(d3, up).dot(n3) < 0) d3.negate();
+  const basis = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(d3, up, n3));
+  const pivot = new THREE.Vector3(mid.x - n.x * thick / 2, BOARD_TOP, mid.y - n.y * thick / 2);
+  // 倒れた先に積もっている高さ
+  const lx = pivot.x - n.x * hy, lz = pivot.z - n.y * hy;
+  let top = 0;
+  for (const l of landed) if (Math.hypot(l.x - lx, l.z - lz) < (l.r + r) * 0.55) top = Math.max(top, l.top);
+  top = Math.min(top, 0.5);
+  landed.push({ x: lx, z: lz, r, top: top + thick });
+  flying.push({ idx, t: 0, pivot, n3, basis, hy, top, s: new THREE.Vector3(r, hy, thick), spin: (Math.random() - 0.5) * 0.25 });
 }
 
 function finish() {
@@ -522,7 +522,7 @@ function makeShareFile() {
   const c = document.createElement('canvas'); c.width = c.height = 1080;
   const g = c.getContext('2d');
   // 皿の山が入る位置を切り抜く
-  const p = new THREE.Vector3(PILE_X * 0.5 + CABBAGE.x * 0.5, 0.2, 0).project(camera);
+  const p = new THREE.Vector3(0, 0.3, 0).project(camera);
   const cx = (p.x + 1) / 2 * src.width, cy = (1 - p.y) / 2 * src.height;
   const side = Math.min(src.width, src.height * 0.9);
   const sx = Math.max(0, Math.min(src.width - side, cx - side / 2)), sy = Math.max(0, Math.min(src.height - side, cy - side / 2));
@@ -594,18 +594,15 @@ function resize() {
   const aspect = W / uh;
   // 見せたい範囲: 横 x∈[-3.8, 1.9]（幅 5.7）、奥行き約 3.4
   const portrait = W / uh < 1;
-  if (portrait) { PILE_X = CABBAGE.x - 0.35; PILE_Z = 2.35; } else { PILE_X = -2.75; PILE_Z = 0.15; }
-  plate.position.set(PILE_X, 0.04, PILE_Z);
-  const needW = portrait ? 3.6 : 5.2, needH = portrait ? 5.0 : 3.4;
+  const needW = 3.9, needH = portrait ? 3.6 : 3.0;
   const vf = THREE.MathUtils.degToRad(camera.fov);
   const dH = needH / 2 / Math.tan(vf / 2);
   const dW = needW / 2 / Math.tan(vf / 2) / aspect;
   const dist = Math.max(dH, dW, 4.2);
-  const cx = portrait ? 0.35 : -0.95;
+  const cx = 0;
   const pitch = 0.82; // 見下ろし角
   camera.position.set(cx, Math.sin(pitch) * dist, Math.cos(pitch) * dist + 0.1);
-  camera.lookAt(cx, 0.2, portrait ? 0.9 : -0.4);
-  if (portrait) camera.position.z += 0.9;
+  camera.lookAt(cx, 0.2, -0.4);
   scene.fog.near = dist + 3; scene.fog.far = dist + 16;
   camera.aspect = aspect;
   camera.setViewOffset(W, uh, 0, -top, W, H);
@@ -631,14 +628,16 @@ function frame(now) {
     knife.position.y = BOARD_TOP + down * 1.4;
     if (t > 0.35) { knife.visible = false; knifeAnim = null; }
   }
-  // 千切りが皿へ飛ぶ
+  // 切れた一枚が倒れる
   for (let i = flying.length - 1; i >= 0; i--) {
     const f = flying[i];
-    f.t += dt / 0.55;
-    const t = Math.min(1, f.t), e = t * t * (3 - 2 * t);
-    vpos.lerpVectors(f.from, f.to, e); vpos.y += Math.sin(t * Math.PI) * 0.6;
-    e3.set(f.tilt * e, f.rot0 + (f.rot1 - f.rot0) * e, Math.sin(t * Math.PI) * 0.8);
-    q.setFromEuler(e3);
+    f.t += dt / 0.4;
+    const t = Math.min(1, f.t), e = t * t;
+    const th = e * (Math.PI / 2 - 0.04);
+    vpos.copy(f.pivot).addScaledVector(f.n3, -f.hy * Math.sin(th));
+    vpos.y += f.hy * Math.cos(th) + (f.top + f.s.z / 2) * Math.sin(th);
+    e3.set(-th, 0, f.spin * e);
+    q.setFromEuler(e3).premultiply(f.basis);
     m4.compose(vpos, q, f.s);
     strands.setMatrixAt(f.idx, m4);
     if (t >= 1) flying.splice(i, 1);
