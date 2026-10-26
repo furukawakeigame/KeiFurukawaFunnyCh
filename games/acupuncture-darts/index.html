@@ -358,15 +358,30 @@
       return o;
     }
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    // 体は部位ごとのグループに分けて作る（ラグドールの時に部位ごとに動かすため）
+    const SEGS = ['torso', 'pelvis', 'head', 'uaL', 'faL', 'uaR', 'faR', 'legL', 'legR'];
+    let segs = {}, rest = {};
     function makePatient() {
       while (breathe.children.length) { const c = breathe.children[0]; breathe.remove(c); }
+      ragdoll = null;
+      segs = {};
+      for (const k of SEGS) { const g = new THREE.Group(); g.matrixAutoUpdate = false; g.userData.seg = k; breathe.add(g); segs[k] = g; }
       const skin = mat(pick(SKIN), 0.55);
       const hairM = mat(pick(HAIR), 0.8);
       const towelTex = canvasTex(128, 128, (c, w, h) => { c.fillStyle = pick(TOWEL); c.fillRect(0, 0, w, h); c.fillStyle = 'rgba(0,0,0,.08)'; for (let y = 0; y < h; y += 16) c.fillRect(0, y, w, 6); for (let i = 0; i < 1500; i++) { c.fillStyle = `rgba(255,255,255,${Math.random() * 0.25})`; c.fillRect(Math.random() * w, Math.random() * h, 1, 2); } });
       towelTex.wrapS = towelTex.wrapT = THREE.RepeatWrapping; towelTex.repeat.set(2, 3);
       const towel = new THREE.MeshStandardMaterial({ map: towelTex, roughness: 1 });
       const Y = BED_Y + 0.005, build = rnd(0.92, 1.1); // 体格
-      const before = breathe.children.length;
+      // 関節の位置（ラグドールの点）
+      rest = {
+        N: V(0, Y + 0.1, -0.88), H: V(0, Y + 0.11, -1.1), P: V(0, Y + 0.1, 0.0),
+        SL: V(-0.23 * build, Y + 0.08, -0.79), SR: V(0.23 * build, Y + 0.08, -0.79),
+        HL: V(-0.15 * build, Y + 0.09, 0.02), HR: V(0.15 * build, Y + 0.09, 0.02),
+        EL: V(-0.37, Y + 0.05, -1.03), ER: V(0.37, Y + 0.05, -1.03),
+        WL: V(-0.1, Y + 0.05, -1.24), WR: V(0.1, Y + 0.05, -1.24),
+        KL: V(-0.1, Y + 0.06, 0.55), KR: V(0.1, Y + 0.06, 0.55),
+        AL: V(-0.095, Y + 0.05, 0.93), AR: V(0.095, Y + 0.05, 0.93),
+      };
       // 胴: 首の付け根 → 肩 → わき → くびれ → 腰
       const trunk = new THREE.Mesh(bodyGeo(-0.9, 0.08,
         t => build * curve([[0, 0.07], [0.1, 0.2], [0.2, 0.245], [0.36, 0.215], [0.68, 0.165], [1, 0.19]])(t),
@@ -378,12 +393,12 @@
           for (const s of [-1, 1]) b += 0.02 * gauss(x - s * 0.095, 0.055) * gauss(z + 0.66, 0.09); // 肩甲骨
           return b;
         }), skin);
-      trunk.position.y = Y + 0.07; breathe.add(trunk);
+      trunk.position.y = Y + 0.07; segs.torso.add(trunk);
       // 肩の丸み
-      for (const s of [-1, 1]) part(SPH, skin, s * 0.215 * build, Y + 0.085, -0.79, 0.075, 0.07, 0.085, breathe);
+      for (const s of [-1, 1]) part(SPH, skin, s * 0.215 * build, Y + 0.085, -0.79, 0.075, 0.07, 0.085, segs.torso);
       // 首と頭（顔は枕の穴の中）
-      limb(V(0, Y + 0.1, -0.86), V(0, Y + 0.1, -0.98), 0.06, 0.052, skin, breathe);
-      headG = new THREE.Group(); headG.position.set(0, Y + 0.11, -1.08); breathe.add(headG);
+      limb(V(0, Y + 0.1, -0.86), V(0, Y + 0.1, -0.98), 0.06, 0.052, skin, segs.head);
+      headG = new THREE.Group(); headG.position.set(0, Y + 0.11, -1.08); segs.head.add(headG);
       part(SPH, skin, 0, 0, 0, 0.095, 0.105, 0.12, headG);
       part(SPH, skin, 0, -0.03, -0.06, 0.07, 0.07, 0.07, headG); // あご（下向き）
       for (const s of [-1, 1]) { const e = part(SPH, skin, s * 0.097, -0.005, 0.0, 0.016, 0.03, 0.022, headG); e.rotation.y = s * 0.3; }
@@ -392,12 +407,13 @@
       if (style === 'bun') part(SPH, hairM, 0, 0.1, -0.03, 0.045, 0.04, 0.045, headG);
       // 腕: 肩から外へ出して肘を曲げ、枕の前で手を重ねる
       for (const s of [-1, 1]) {
-        const sh = V(s * 0.23 * build, Y + 0.08, -0.79), el = V(s * 0.37, Y + 0.05, -1.03), hd = V(s * 0.1, Y + 0.05, -1.24);
-        limb(sh, el, 0.058, 0.045, skin, breathe);
-        part(SPH, skin, s * 0.29, Y + 0.075, -0.9, 0.06, 0.05, 0.075, breathe).rotation.y = s * 0.6; // 力こぶ側のふくらみ
-        limb(el, hd, 0.044, 0.034, skin, breathe);
-        const hand = part(SPH, skin, hd.x - s * 0.04, Y + 0.035, -1.27, 0.06, 0.022, 0.045, breathe); hand.rotation.y = s * 0.5;
-        part(SPH, skin, hd.x - s * 0.02, Y + 0.035, -1.22, 0.025, 0.017, 0.012, breathe).rotation.y = s * 1.1; // 親指
+        const L = s < 0 ? 'L' : 'R', ua = segs['ua' + L], fa = segs['fa' + L];
+        const sh = rest['S' + L], el = rest['E' + L], hd = rest['W' + L];
+        limb(sh, el, 0.058, 0.045, skin, ua);
+        part(SPH, skin, s * 0.29, Y + 0.075, -0.9, 0.06, 0.05, 0.075, ua).rotation.y = s * 0.6; // 力こぶ側のふくらみ
+        limb(el, hd, 0.044, 0.034, skin, fa);
+        const hand = part(SPH, skin, hd.x - s * 0.04, Y + 0.035, -1.27, 0.06, 0.022, 0.045, fa); hand.rotation.y = s * 0.5;
+        part(SPH, skin, hd.x - s * 0.02, Y + 0.035, -1.22, 0.025, 0.017, 0.012, fa).rotation.y = s * 1.1; // 親指
       }
       // 腰から太ももはタオル（体に沿ってふくらむ）
       const tw = new THREE.Mesh(bodyGeo(-0.06, 0.62,
@@ -405,18 +421,106 @@
         curve([[0, 0.1], [0.22, 0.13], [0.45, 0.1], [1, 0.075]]),
         () => 0.075,
         (x, t) => -0.02 * gauss(x, 0.03) * curve([[0, 0.2], [0.3, 1], [1, 0.6]])(t)), towel);
-      tw.position.y = Y + 0.075; tw.scale.set(1.04, 1.04, 1); breathe.add(tw);
+      tw.position.y = Y + 0.075; tw.scale.set(1.04, 1.04, 1); segs.pelvis.add(tw);
       // ふくらはぎ・足首・足の裏
       for (const s of [-1, 1]) {
-        const kn = V(s * 0.1, Y + 0.06, 0.55), an = V(s * 0.095, Y + 0.05, 0.93);
-        limb(kn, an, 0.058, 0.032, skin, breathe);
-        part(SPH, skin, s * 0.1, Y + 0.075, 0.68, 0.058, 0.05, 0.1, breathe); // ふくらはぎ
-        const foot = part(SPH, skin, s * 0.1, Y + 0.035, 0.98, 0.038, 0.035, 0.065, breathe); foot.rotation.x = 1.0;
-        part(SPH, skin, s * 0.1, Y + 0.075, 0.955, 0.033, 0.03, 0.03, breathe); // かかと
+        const L = s < 0 ? 'L' : 'R', g = segs['leg' + L];
+        limb(rest['K' + L], rest['A' + L], 0.058, 0.032, skin, g);
+        part(SPH, skin, s * 0.1, Y + 0.075, 0.68, 0.058, 0.05, 0.1, g); // ふくらはぎ
+        const foot = part(SPH, skin, s * 0.1, Y + 0.035, 0.98, 0.038, 0.035, 0.065, g); foot.rotation.x = 1.0;
+        part(SPH, skin, s * 0.1, Y + 0.075, 0.955, 0.033, 0.03, 0.03, g); // かかと
       }
       shade(breathe);
-      patMeshes = breathe.children.slice(before).flatMap(o => o.isMesh ? [o] : o.children.filter(m => m.isMesh));
+      patMeshes = [];
+      breathe.traverse(o => { if (o.isMesh) patMeshes.push(o); });
       return { f0: pick([110, 125, 140, 200, 220, 240]) * rnd(0.92, 1.08), torso: trunk };
+    }
+
+    // ---------- ラグドール ----------
+    // 関節を点にして、点と点の距離を保つ（Verlet）。部位の向きは点の並びから決める。
+    // 部位: [原点, 軸の先, 横向きの元, 横向きの先]
+    const FRAMES = {
+      torso: ['N', 'P', 'SL', 'SR'], pelvis: ['P', 'KM', 'HL', 'HR'], head: ['N', 'H', 'SL', 'SR'],
+      uaL: ['SL', 'EL', 'SL', 'SR'], faL: ['EL', 'WL', 'SL', 'SR'], uaR: ['SR', 'ER', 'SL', 'SR'], faR: ['ER', 'WR', 'SL', 'SR'],
+      legL: ['KL', 'AL', 'HL', 'HR'], legR: ['KR', 'AR', 'HL', 'HR'],
+    };
+    const RIGID = [['N', 'SL', 'SR', 'P', 'HL', 'HR']]; // 胴は形を保つ
+    const BONES = [['N', 'H'], ['H', 'SL'], ['H', 'SR'], ['SL', 'EL'], ['EL', 'WL'], ['SR', 'ER'], ['ER', 'WR'], ['HL', 'KL'], ['HR', 'KR'], ['KL', 'AL'], ['KR', 'AR'], ['KL', 'KR']];
+    const LOOSE = [ ['WL', 'SL'], ['WR', 'SR'], ['AL', 'HL'], ['AR', 'HR'], ['H', 'P']]; // 近づきすぎないだけ
+    let ragdoll = null;
+    const basis = (o, a, s1, s2, m) => {
+      const y = tmpA.subVectors(a, o).normalize(), x = tmpB.subVectors(s2, s1);
+      x.addScaledVector(y, -x.dot(y)).normalize();
+      const z = tmpC.crossVectors(x, y);
+      return m.makeBasis(x, y, z);
+    };
+    const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3();
+    const kmid = (pts) => pts.KM.copy(pts.KL).add(pts.KR).multiplyScalar(0.5);
+    function startRagdoll(hitPt, dir) {
+      // 呼吸の動きは止め、今の位置から始める
+      breathe.position.set(0, 0, 0); breathe.scale.set(1, 1, 1); breathe.updateMatrixWorld(true);
+      const p = {}, q = {};
+      for (const k in rest) { p[k] = rest[k].clone(); q[k] = rest[k].clone(); }
+      p.KM = new THREE.Vector3(); q.KM = new THREE.Vector3(); kmid(p);
+      const restB = {}, inv = new THREE.Matrix4();
+      const rp = Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, v.clone()])); rp.KM = new THREE.Vector3(); kmid(rp);
+      for (const k of SEGS) { const f = FRAMES[k]; restB[k] = basis(rp[f[0]], rp[f[1]], rp[f[2]], rp[f[3]], new THREE.Matrix4()).transpose(); }
+      const cons = [];
+      const add = (a, b, mode) => cons.push([a, b, rest[a].distanceTo(rest[b]), mode]);
+      for (const g of RIGID) for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) add(g[i], g[j], 0);
+      for (const [a, b] of BONES) add(a, b, 0);
+      for (const [a, b] of LOOSE) add(a, b, 1);
+      // 刺された所から跳ね上がる勢い（速度 = 今 − 前）
+      const side = Math.sign(hitPt.x || (Math.random() - 0.5)), spin = rnd(1.2, 1.8);
+      for (const k in rest) {
+        const d = rest[k].distanceTo(hitPt);
+        const v = new THREE.Vector3(side * rnd(0.2, 0.45), 1.9 + 1.6 * Math.max(0, 0.7 - d), rnd(-0.2, 0.2)); // びくんと跳ねる
+        if (/^[EWKA]/.test(k)) v.add(new THREE.Vector3(rnd(-1.6, 1.6), rnd(0, 1.8), rnd(-0.8, 0.8))); // 手足はばたつく
+        v.x += (rest[k].z - hitPt.z) * spin * 0.5 * side; // 少しねじれる
+        q[k].addScaledVector(v, -STEP);
+      }
+      ragdoll = { p, q, cons, restB, rp, M: new THREE.Matrix4() };
+    }
+    const R_PT = 0.06;
+    function stepRagdoll(dt) {
+      const { p, q, cons } = ragdoll;
+      for (const k in rest) {
+        const a = p[k], b = q[k];
+        const vx = (a.x - b.x) * 0.999, vy = (a.y - b.y) * 0.999, vz = (a.z - b.z) * 0.999;
+        b.copy(a); a.x += vx; a.y += vy - GRAV * dt * dt; a.z += vz;
+      }
+      for (let it = 0; it < 10; it++) {
+        for (const [ka, kb, L, mode] of cons) {
+          const a = p[ka], b = p[kb], d = tmpA.subVectors(b, a), len = d.length() || 1e-6;
+          if (mode === 1 && len > L * 0.7) continue;
+          const diff = (len - (mode === 1 ? L * 0.7 : L)) / len * 0.5;
+          a.addScaledVector(d, diff); b.addScaledVector(d, -diff);
+        }
+        for (const k in rest) {
+          const a = p[k], b = q[k];
+          let hitG = false;
+          // ベッドの上面と床
+          const onBed = Math.abs(a.x) < 0.41 && a.z > -1.35 && a.z < 1.05;
+          if (onBed && a.y < BED_Y + R_PT && b.y >= BED_Y - 0.02) { a.y = BED_Y + R_PT; hitG = true; }
+          else if (onBed && a.y < BED_Y && a.y > 0) { a.x = Math.sign(a.x) * 0.41; } // 横からはベッドに入らない
+          if (a.y < R_PT) { a.y = R_PT; hitG = true; }
+          a.x = THREE.MathUtils.clamp(a.x, -2.3, 2.3); a.z = Math.max(a.z, -1.75);
+          if (hitG) { b.x += (a.x - b.x) * 0.15; b.z += (a.z - b.z) * 0.15; } // こすれて止まる
+        }
+      }
+    }
+    function poseRagdoll() {
+      const { p, restB, rp, M } = ragdoll;
+      kmid(p);
+      for (const k of SEGS) {
+        const f = FRAMES[k], g = segs[k];
+        basis(p[f[0]], p[f[1]], p[f[2]], p[f[3]], M).multiply(restB[k]);
+        // 今の原点 × 回転 × 元の原点を引く
+        g.matrix.copy(M).setPosition(0, 0, 0);
+        const o = rp[f[0]].clone().applyMatrix4(g.matrix);
+        g.matrix.setPosition(p[f[0]].x - o.x, p[f[0]].y - o.y, p[f[0]].z - o.z);
+        g.matrixWorldNeedsUpdate = true;
+      }
     }
 
     // ---------- ツボ ----------
@@ -445,7 +549,7 @@
         const o = new THREE.Object3D(); o.position.copy(h.point); o.lookAt(h.point.clone().add(n));
         tubo = new THREE.Mesh(new DecalGeometry(patient.torso, h.point, o.rotation, new THREE.Vector3(TUBO_R * 3.2, TUBO_R * 3.2, 0.12)), tuboMat);
         tubo.renderOrder = 2;
-        breathe.add(tubo); // breathe は動いていない（原点）ので、そのまま子にできる
+        segs.torso.add(tubo); // まだ動いていない（原点）ので、そのまま胴の子にできる
         tuboLocal.copy(breathe.worldToLocal(h.point.clone()));
         return;
       }
@@ -579,7 +683,7 @@
 
     // ---------- ゲーム ----------
     let state = 'ready', score = 0, outcome = null, endT = 0, flyT = 0, clock = 0, hitPoint = new THREE.Vector3();
-    let squash = 0, jump = 0, jumpV = 0, shake = 0;
+    let squash = 0, jump = 0, jumpV = 0, shake = 0, needleSeg = null;
     const rc = new THREE.Raycaster();
     const dirV = new THREE.Vector3();
     function stick(hit) {
@@ -590,7 +694,7 @@
       needle.position.copy(pos);
       needle.lookAt(pos.clone().add(dirV));
       hitPoint.copy(hit.point);
-      if (onBody) breathe.attach(needle);
+      if (onBody) { let o = hit.object; while (o && !o.userData.seg) o = o.parent; needleSeg = o || breathe; }
       state = 'stuck'; endT = 0;
       if (onBody) {
         breathe.updateMatrixWorld(true);
@@ -599,7 +703,7 @@
         score = d < TUBO_R ? Math.max(1, Math.round(100 * (1 - d / TUBO_R) ** 0.8)) : 0;
         thunk(false);
         if (score > 0) {
-          outcome = 'bliss';
+          outcome = 'bliss'; breathe.attach(needle);
           setTimeout(() => sBliss(patient.f0, score / 100), 120);
           burst(hit.point, 14 + Math.round(score / 6), '#ffd36a', 0.35, 0.012, 1.2, 0.25);
           squash = 0.001;
@@ -607,7 +711,9 @@
           outcome = 'ouch';
           setTimeout(() => sOuch(patient.f0), 40);
           burst(hit.point, 8, '#ff5a4a', 0.6, 0.01, 0.4, 0.4);
-          jumpV = 1.0; shake = 1;
+          // 変な所に刺さると、体がぐにゃっと跳ね上がる（ラグドール）
+          startRagdoll(hit.point, dirV);
+          needleSeg.updateMatrixWorld(true); needleSeg.attach(needle);
         }
       } else {
         score = 0; outcome = 'miss';
@@ -623,8 +729,11 @@
       // 呼吸: ゆっくり上下（ツボも一緒に動く）
       const br = Math.sin(clock * 1.7);
       // ツボに入ると体がふにゃっと沈む（ベッドの面を支点につぶすので、ベッドにはめり込まない）
-      breathe.scale.y = 1 - squash * 0.12;
-      breathe.position.y = br * 0.008 + jump + BED_Y * squash * 0.12;
+      if (ragdoll) { stepRagdoll(dt); }
+      else {
+        breathe.scale.y = 1 - squash * 0.12;
+        breathe.position.y = br * 0.008 + jump + BED_Y * squash * 0.12;
+      }
       breathe.position.x = Math.sin(clock * 50) * 0.01 * shake;
       if (squash > 0) squash = Math.min(1, squash + dt * 1.5);
       if (jumpV || jump) { jumpV -= dt * 9; jump = Math.max(0, jump + jumpV * dt); if (jump === 0 && jumpV < 0) jumpV = 0; }
@@ -648,7 +757,7 @@
         if (pos.y < -0.5 || flyT > 4 || Math.abs(pos.x) > 6 || pos.z < -6) { state = 'stuck'; outcome = 'miss'; score = 0; endT = 0; }
       } else if (state === 'stuck') {
         endT += dt;
-        if (endT > (outcome === 'bliss' ? 1.6 : 1.1)) finish();
+        if (endT > (outcome === 'bliss' ? 1.6 : outcome === 'ouch' ? 2.6 : 1.1)) finish();
       }
     }
 
@@ -686,7 +795,7 @@
     let snap = null, shareCache = null, needSnap = false;
     function takeSnap() {
       const src = renderer.domElement;
-      const f = (outcome === 'miss' ? breathe.localToWorld(tuboWorld.copy(tuboLocal)) : hitPoint).clone().project(camera);
+      const f = (outcome === 'miss' ? breathe.localToWorld(tuboWorld.copy(tuboLocal)) : needle.getWorldPosition(new THREE.Vector3())).project(camera);
       const fx2 = (f.x + 1) / 2 * src.width, fy = (1 - f.y) / 2 * src.height;
       const side = Math.min(src.width, src.height) * 0.8;
       const sx = THREE.MathUtils.clamp(fx2 - side / 2, 0, src.width - side), sy = THREE.MathUtils.clamp(fy - side * 0.6, 0, src.height - side);
@@ -754,6 +863,7 @@
         needle.position.lerpVectors(prev, pos, alpha);
         needle.lookAt(tmpV.copy(needle.position).add(vel));
       }
+      if (ragdoll) poseRagdoll();
       renderer.render(scene, camera);
       if (needSnap) { needSnap = false; takeSnap(); prepareShare(); }
     }
