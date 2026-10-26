@@ -481,33 +481,57 @@
       }
       ragdoll = { p, q, cons, restB, rp, M: new THREE.Matrix4() };
     }
-    const R_PT = 0.06;
+    // 点ごとの太さ（当たり判定の半径）
+    const RAD = { N: 0.07, P: 0.08, SL: 0.07, SR: 0.07, HL: 0.08, HR: 0.08, H: 0.1, EL: 0.045, ER: 0.045, WL: 0.04, WR: 0.04, KL: 0.055, KR: 0.055, AL: 0.035, AR: 0.035 };
+    // ベッド（マット＋枠）の箱。下はすき間なので入れる
+    const BED = { x: 0.42, y0: BED_Y - 0.22, y1: BED_Y, z0: -1.4, z1: 1.08 };
+    // 箱にめり込んでいたら、一番浅い向きへ押し出す量を返す（なければ null）
+    const out = new THREE.Vector3();
+    function bedPush(x, y, z, r) {
+      const dx = BED.x + r - Math.abs(x), dyT = BED.y1 + r - y, dyB = y - (BED.y0 - r), dz0 = z - (BED.z0 - r), dz1 = BED.z1 + r - z;
+      if (dx <= 0 || dyT <= 0 || dyB <= 0 || dz0 <= 0 || dz1 <= 0) return null;
+      const m = Math.min(dx, dyT, dyB, dz0, dz1);
+      out.set(0, 0, 0);
+      if (m === dyT) out.y = dyT; else if (m === dx) out.x = Math.sign(x || 1) * dx; else if (m === dyB) out.y = -dyB; else if (m === dz0) out.z = -dz0; else out.z = dz1;
+      return out;
+    }
+    let SEGLINES = null; // 骨（線）にも当たり判定を付けて、手足がベッドの角を貫かないようにする
     function stepRagdoll(dt) {
       const { p, q, cons } = ragdoll;
+      SEGLINES ??= [...BONES, ['N', 'P'], ['SL', 'HL'], ['SR', 'HR'], ['SL', 'SR'], ['HL', 'HR']];
       for (const k in rest) {
         const a = p[k], b = q[k];
         const vx = (a.x - b.x) * 0.999, vy = (a.y - b.y) * 0.999, vz = (a.z - b.z) * 0.999;
         b.copy(a); a.x += vx; a.y += vy - GRAV * dt * dt; a.z += vz;
       }
-      for (let it = 0; it < 10; it++) {
+      const touch = new Set();
+      for (let it = 0; it < 12; it++) {
         for (const [ka, kb, L, mode] of cons) {
           const a = p[ka], b = p[kb], d = tmpA.subVectors(b, a), len = d.length() || 1e-6;
           if (mode === 1 && len > L * 0.7) continue;
           const diff = (len - (mode === 1 ? L * 0.7 : L)) / len * 0.5;
           a.addScaledVector(d, diff); b.addScaledVector(d, -diff);
         }
+        // 骨の途中がベッドに入っていたら、両端を押し出す
+        for (const [ka, kb] of SEGLINES) {
+          const a = p[ka], b = p[kb], r = Math.min(RAD[ka], RAD[kb]);
+          for (const t of [0.25, 0.5, 0.75]) {
+            const o = bedPush(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, r);
+            if (!o) continue;
+            const wa = 1 - t, wb = t, k = 1 / (wa * wa + wb * wb);
+            a.addScaledVector(o, wa * k); b.addScaledVector(o, wb * k);
+            touch.add(ka); touch.add(kb);
+          }
+        }
         for (const k in rest) {
-          const a = p[k], b = q[k];
-          let hitG = false;
-          // ベッドの上面と床
-          const onBed = Math.abs(a.x) < 0.41 && a.z > -1.35 && a.z < 1.05;
-          if (onBed && a.y < BED_Y + R_PT && b.y >= BED_Y - 0.02) { a.y = BED_Y + R_PT; hitG = true; }
-          else if (onBed && a.y < BED_Y && a.y > 0) { a.x = Math.sign(a.x) * 0.41; } // 横からはベッドに入らない
-          if (a.y < R_PT) { a.y = R_PT; hitG = true; }
+          const a = p[k], r = RAD[k];
+          const o = bedPush(a.x, a.y, a.z, r);
+          if (o) { a.add(o); touch.add(k); }
+          if (a.y < r) { a.y = r; touch.add(k); } // 床
           a.x = THREE.MathUtils.clamp(a.x, -2.3, 2.3); a.z = Math.max(a.z, -1.75);
-          if (hitG) { b.x += (a.x - b.x) * 0.15; b.z += (a.z - b.z) * 0.15; } // こすれて止まる
         }
       }
+      for (const k of touch) { const a = p[k], b = q[k]; b.x += (a.x - b.x) * 0.15; b.z += (a.z - b.z) * 0.15; } // こすれて止まる
     }
     function poseRagdoll() {
       const { p, restB, rp, M } = ragdoll;
