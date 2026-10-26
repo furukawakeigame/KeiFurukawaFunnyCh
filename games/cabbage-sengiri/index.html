@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>キャベツ千切り</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="キャベツ千切り">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/cabbage-sengiri/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/cabbage-sengiri/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { -webkit-user-select: none; user-select: none; margin: 0; height: 100%; overflow: hidden; background: #e9dcc6; font-family: system-ui, "Noto Sans JP", sans-serif; }
+    canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+    #ui { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+    header { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px; padding: 10px 12px; pointer-events: auto; z-index: 3; }
+    header a { color: #5a3a1e; text-decoration: none; font-weight: 700; font-size: clamp(13px, 1.6vw, 17px); background: rgba(255,250,240,.75); padding: 6px 10px; border-radius: 999px; }
+    header .sp { flex: 1; }
+    header button, header select { pointer-events: auto; border: 0; background: rgba(255,250,240,.85); border-radius: 999px; height: 34px; padding: 0 10px; font-size: 14px; color: #5a3a1e; }
+    header button { width: 40px; padding: 0; display: grid; place-items: center; }
+    #panel { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(88vw, 380px); background: rgba(255,251,242,.95); border-radius: 22px; padding: clamp(16px, 3vw, 26px); text-align: center; color: #3d2a14; box-shadow: 0 12px 40px rgba(60,30,0,.3); pointer-events: auto; display: none; z-index: 4; }
+    #panel.show { display: block; animation: pop .35s ease-out; }
+    @keyframes pop { from { transform: translate(-50%, -40%); opacity: 0; } }
+    #score { font-size: clamp(40px, 8vw, 64px); font-weight: 900; color: #3f8f2f; line-height: 1.1; }
+    .stats { display: flex; justify-content: center; gap: 14px; margin: 10px 0 16px; font-size: clamp(14px, 2.2vw, 18px); flex-wrap: wrap; }
+    .stats b { font-size: 1.3em; }
+    .btns { display: flex; gap: 10px; justify-content: center; }
+    .btns > * { flex: 1; border: 0; border-radius: 999px; padding: 12px 10px; font-weight: 800; font-size: clamp(15px, 2.4vw, 18px); cursor: pointer; text-decoration: none; display: block; }
+    #again { background: #5aa53e; color: #fff; }
+    #post { background: #111; color: #fff; }
+    #err { position: fixed; top: 40%; width: 100%; text-align: center; color: #5a3a1e; display: none; }
+    @media (min-aspect-ratio: 1/1) { #panel { left: 66%; } }
+    @media (max-aspect-ratio: 1/1) { #panel { top: 30%; } }
+    @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+      #panel { left: auto; right: 16px; transform: translateY(-50%); width: min(44vw, 340px); }
+      @keyframes pop { from { opacity: 0; } }
+    }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <header>
+      <a href="../../" id="back">← トップへ戻る</a>
+      <span class="sp"></span>
+      <button id="snd" aria-label="sound"></button>
+      <select id="lang">
+        <option value="ja">日本語</option>
+        <option value="ko">한국어</option>
+        <option value="en">English</option>
+        <option value="th">ไทย</option>
+      </select>
+    </header>
+    <div id="panel">
+      <div id="score"></div>
+      <div class="stats">
+        <span><span id="lW"></span> <b id="vW"></b></span>
+        <span><span id="lT"></span> <b id="vT"></b></span>
+        <span><span id="lN"></span> <b id="vN"></b></span>
+      </div>
+      <div class="btns">
+        <button id="again"></button>
+        <a id="post" href="#"></a>
+      </div>
+    </div>
+    <div id="err"></div>
+  </div>
+  <canvas id="c"></canvas>
+  <canvas id="ov" style="pointer-events:none;z-index:2"></canvas>
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+  <script>
+    setTimeout(() => { if (!window.__ok) { const e = document.getElementById('err'); e.style.display = 'block'; e.textContent = '読み込みに失敗しました / Failed to load'; } }, 8000);
+  </script>
+  <script type="module">
+import * as THREE from 'three';
+window.__ok = true;
+
+// ---------- 言語 ----------
+const T = {
+  ja: { back: '← トップへ戻る', title: 'キャベツ千切り', width: '平均の幅', time: 'タイム', count: '本数', again: 'もう一度', post: 'Xに投稿', unitPt: '点', unitMm: 'mm', unitS: '秒', unitN: '本',
+        share: (s, w, t, n) => `キャベツを${n}本に千切りした！ 平均${w}mm・${t}秒で${s}点` },
+  ko: { back: '← 맨 위로', title: '양배추 채썰기', width: '평균 두께', time: '시간', count: '가닥 수', again: '다시 하기', post: 'X에 게시', unitPt: '점', unitMm: 'mm', unitS: '초', unitN: '가닥',
+        share: (s, w, t, n) => `양배추를 ${n}가닥으로 채썰었다! 평균 ${w}mm · ${t}초로 ${s}점` },
+  en: { back: '← Back to top', title: 'Cabbage Shredder', width: 'Avg width', time: 'Time', count: 'Strands', again: 'Again', post: 'Post on X', unitPt: 'pts', unitMm: 'mm', unitS: 's', unitN: '',
+        share: (s, w, t, n) => `I shredded a cabbage into ${n} strands! Avg ${w}mm in ${t}s: ${s} pts` },
+  th: { back: '← กลับหน้าแรก', title: 'ซอยกะหล่ำปลี', width: 'ความกว้างเฉลี่ย', time: 'เวลา', count: 'จำนวนเส้น', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', unitPt: 'คะแนน', unitMm: 'มม.', unitS: 'วินาที', unitN: 'เส้น',
+        share: (s, w, t, n) => `ซอยกะหล่ำปลีได้ ${n} เส้น! กว้างเฉลี่ย ${w} มม. ใน ${t} วินาที ได้ ${s} คะแนน` },
+};
+const URL_GAME = 'https://keifurukawafunnych.com/games/cabbage-sengiri/';
+const TAG = '#キャベツ千切りゲーム';
+let lang = (() => {
+  try { const s = localStorage.getItem('cabbage-lang'); if (s && T[s]) return s; } catch (e) {}
+  for (const l of navigator.languages || [navigator.language || '']) { const k = (l || '').slice(0, 2).toLowerCase(); if (T[k]) return k; }
+  return 'en';
+})();
+const $ = id => document.getElementById(id);
+const langSel = $('lang');
+langSel.value = lang;
+langSel.onchange = () => { lang = langSel.value; try { localStorage.setItem('cabbage-lang', lang); } catch (e) {} applyLang(); if (result) { fillResult(); makeShareFile(); } };
+function applyLang() {
+  const L = T[lang];
+  document.documentElement.lang = lang;
+  document.title = L.title;
+  $('back').textContent = L.back;
+  $('lW').textContent = L.width; $('lT').textContent = L.time; $('lN').textContent = L.count;
+  $('again').textContent = L.again; $('post').textContent = L.post;
+}
+applyLang();
+
+// ---------- 音 ----------
+let actx = null, muted = false;
+try { muted = localStorage.getItem('cabbage-mute') === '1'; } catch (e) {}
+const sndBtn = $('snd');
+function drawSnd() {
+  sndBtn.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#5a3a1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#5a3a1e"/>${muted ? '<path d="M17 9l5 6M22 9l-5 6"/>' : '<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>'}</svg>`;
+}
+drawSnd();
+sndBtn.onclick = () => { muted = !muted; try { localStorage.setItem('cabbage-mute', muted ? '1' : '0'); } catch (e) {} drawSnd(); };
+let noiseBuf = null;
+function initAudio() {
+  if (actx) return;
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    noiseBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const g = actx.createGain(); g.gain.value = 0; const o = actx.createOscillator(); o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + 0.05);
+  } catch (e) { actx = null; }
+}
+function noiseHit(t, dur, freqs, gain, q = 3) {
+  const src = actx.createBufferSource(); src.buffer = noiseBuf; src.playbackRate.value = 0.8 + Math.random() * 0.4;
+  const env = actx.createGain();
+  env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(gain, t + 0.002); env.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  for (const f of freqs) { const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * (0.9 + Math.random() * 0.2); bp.Q.value = q; src.connect(bp); bp.connect(env); }
+  env.connect(actx.destination);
+  src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.02);
+}
+// ザクッ（葉が何枚も切れるパリパリ）＋ トン（まな板）
+function chopSound(strength) {
+  if (!actx || muted) return;
+  const t = actx.currentTime;
+  const layers = 4 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < layers; i++) noiseHit(t + i * 0.009 + Math.random() * 0.004, 0.035, [2600, 4800, 7000], 0.45 * strength, 2.5);
+  const tt = t + layers * 0.009 + 0.01;
+  noiseHit(tt, 0.08, [700, 1500], 0.8 * strength, 6);
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(190, tt); o.frequency.exponentialRampToValueAtTime(90, tt + 0.12);
+  g.gain.setValueAtTime(0.5 * strength, tt); g.gain.exponentialRampToValueAtTime(0.001, tt + 0.15);
+  o.connect(g); g.connect(actx.destination); o.start(tt); o.stop(tt + 0.17);
+}
+function swishSound() {
+  if (!actx || muted) return;
+  noiseHit(actx.currentTime, 0.12, [3000], 0.15, 1);
+}
+function doneSound() {
+  if (!actx || muted) return;
+  const t = actx.currentTime;
+  [523, 659, 784, 1047].forEach((f, i) => {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'triangle'; o.frequency.value = f;
+    g.gain.setValueAtTime(0, t + i * 0.09); g.gain.linearRampToValueAtTime(0.18, t + i * 0.09 + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.09 + 0.4);
+    o.connect(g); g.connect(actx.destination); o.start(t + i * 0.09); o.stop(t + i * 0.09 + 0.45);
+  });
+}
+
+// ---------- three.js ----------
+const canvas = $('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.localClippingEnabled = true;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xe9dcc6, 9, 20);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 60);
+
+function canvasTex(w, h, draw, repeat) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat[0], repeat[1]); }
+  return t;
+}
+// 背景（台所の壁）
+scene.background = canvasTex(4, 256, (g, w, h) => {
+  const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#f6efe2'); gr.addColorStop(0.6, '#eadcc3'); gr.addColorStop(1, '#d9c7a6');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+
+scene.add(new THREE.HemisphereLight(0xcfe6ff, 0x8a6a45, 1.1));
+const sun = new THREE.DirectionalLight(0xffe2b8, 2.4);
+sun.position.set(-3, 7, 4);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4, near: 1, far: 20 });
+sun.shadow.bias = -0.0008;
+scene.add(sun);
+
+// 壁のタイル
+const tileTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#b9ad98'; g.fillRect(0, 0, w, h);
+  for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+    const v = 238 - Math.random() * 10;
+    g.fillStyle = `rgb(${v},${v - 4},${v - 14})`; g.fillRect(x * 64 + 2, y * 64 + 2, 60, 60);
+  }
+}, [8, 3]);
+const wall = new THREE.Mesh(new THREE.PlaneGeometry(24, 9), new THREE.MeshStandardMaterial({ map: tileTex, roughness: 0.35 }));
+wall.position.set(0, 4.3, -3.2); wall.receiveShadow = true; scene.add(wall);
+
+// 調理台
+const counterTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#cfd3d4'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 4000; i++) { const v = 170 + Math.random() * 70; g.fillStyle = `rgba(${v},${v},${v + 5},.5)`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+}, [4, 5]);
+const counter = new THREE.Mesh(new THREE.BoxGeometry(24, 0.4, 16), new THREE.MeshStandardMaterial({ map: counterTex, roughness: 0.25, metalness: 0.3 }));
+counter.position.set(0, -0.2, 4.8); counter.receiveShadow = true; scene.add(counter);
+
+// まな板（木目）
+const woodTex = canvasTex(512, 256, (g, w, h) => {
+  g.fillStyle = '#e7c48e'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 70; i++) {
+    g.strokeStyle = `rgba(${150 + Math.random() * 40},${100 + Math.random() * 30},50,${0.15 + Math.random() * 0.2})`;
+    g.lineWidth = 1 + Math.random() * 2;
+    const y0 = Math.random() * h; g.beginPath(); g.moveTo(0, y0);
+    for (let x = 0; x <= w; x += 32) g.lineTo(x, y0 + Math.sin(x * 0.02 + i) * 4 + Math.random() * 2);
+    g.stroke();
+  }
+});
+const BOARD_W = 3.4, BOARD_D = 2.3;
+const board = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W, 0.14, BOARD_D), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.75 }));
+board.position.set(0, 0.07, 0); board.castShadow = board.receiveShadow = true; scene.add(board);
+const BOARD_TOP = 0.14;
+
+// 猫の額（いつもの猫）
+const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
+const catFrame = new THREE.Group();
+const fr = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 0.08), new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.6 }));
+const pic = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.3), new THREE.MeshStandardMaterial({ color: 0xffffff, map: catTex, roughness: 0.9, transparent: true }));
+pic.position.z = 0.045;
+const bg = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.3), new THREE.MeshStandardMaterial({ color: 0xfff6e0, roughness: 0.9 }));
+bg.position.z = 0.043;
+catFrame.add(fr, bg, pic); catFrame.position.set(-0.6, 1.55, -3.1); catFrame.rotation.z = -0.04; fr.castShadow = true; scene.add(catFrame);
+
+// 小物: トマトと皿
+const plate = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 0.8, 0.08, 40), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 }));
+let PILE_X = -2.75, PILE_Z = 0.15;
+plate.position.set(PILE_X, 0.04, PILE_Z); plate.castShadow = plate.receiveShadow = true; scene.add(plate);
+const tomatoMat = new THREE.MeshStandardMaterial({ color: 0xd8321e, roughness: 0.25 });
+for (const [x, z, s] of [[2.35, -1.4, 0.32], [2.75, -1.05, 0.28]]) {
+  const tm = new THREE.Mesh(new THREE.SphereGeometry(s, 24, 16), tomatoMat); tm.scale.y = 0.85; tm.position.set(x, s * 0.85, z); tm.castShadow = true; scene.add(tm);
+  const st = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.06, 5), new THREE.MeshStandardMaterial({ color: 0x3d7a2a })); st.position.set(x, s * 1.7, z); scene.add(st);
+}
+
+// ---------- キャベツ ----------
+// 1 unit = 100mm
+const R = 0.78;              // 半径 78mm
+const CY = BOARD_TOP + R * 0.86;
+const CABBAGE = new THREE.Vector3(0.35, CY, 0);
+const cutPlane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 100);
+const leafTex = canvasTex(512, 256, (g, w, h) => {
+  g.fillStyle = '#9fcf6f'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 2600; i++) { g.fillStyle = `rgba(${120 + Math.random() * 60},${180 + Math.random() * 40},${90 + Math.random() * 40},.35)`; g.fillRect(Math.random() * w, Math.random() * h, 3, 3); }
+  g.strokeStyle = 'rgba(235,250,210,.85)';
+  for (let i = 0; i < 14; i++) {
+    const x0 = i * w / 14; g.lineWidth = 3; g.beginPath(); g.moveTo(x0, h); g.quadraticCurveTo(x0 + 10, h * 0.5, x0 - 6, 0); g.stroke();
+    g.lineWidth = 1.2;
+    for (let j = 1; j < 8; j++) { const y = h * j / 8; g.beginPath(); g.moveTo(x0 + 4, y); g.quadraticCurveTo(x0 + 20, y - 8, x0 + 32, y - 22); g.stroke(); g.beginPath(); g.moveTo(x0 + 4, y); g.quadraticCurveTo(x0 - 12, y - 8, x0 - 24, y - 22); g.stroke(); }
+  }
+});
+const innerTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#f1f5d4'; g.fillRect(0, 0, w, h);
+  g.strokeStyle = 'rgba(190,215,140,.7)';
+  for (let i = 0; i < 40; i++) { g.lineWidth = 1 + Math.random() * 2; g.beginPath(); const y = Math.random() * h; g.moveTo(0, y); g.bezierCurveTo(w * 0.3, y + 20, w * 0.6, y - 20, w, y + Math.random() * 10); g.stroke(); }
+});
+const cabbage = new THREE.Group();
+const shells = [];
+function lumpy(r, seed) {
+  const geo = new THREE.SphereGeometry(r, 48, 32);
+  const p = geo.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const a = Math.atan2(v.z, v.x), b = v.y / r;
+    const k = 1 + 0.035 * Math.sin(a * 5 + seed) * (1 - b * b) + 0.02 * Math.sin(a * 11 + b * 6 + seed * 2);
+    v.multiplyScalar(k); v.y *= 0.9;
+    p.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+const layerCols = [0x8cc65e, 0xbfe08a, 0xdcedaa, 0xeef5c8];
+[1, 0.8, 0.6, 0.38].forEach((s, i) => {
+  const geo = lumpy(R * s, i * 1.7);
+  const front = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: i === 0 ? 0xffffff : layerCols[i], map: i === 0 ? leafTex : null, roughness: i === 0 ? 0.55 : 0.7, clippingPlanes: [cutPlane], clipShadows: true }));
+  const back = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, map: innerTex, roughness: 0.8, side: THREE.BackSide, clippingPlanes: [cutPlane], clipShadows: true, emissive: 0x2a3015 }));
+  front.castShadow = true; front.receiveShadow = i === 0;
+  cabbage.add(front, back); shells.push(front, back);
+});
+cabbage.position.copy(CABBAGE);
+scene.add(cabbage);
+// 芯（下の白い所）
+const core = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 0.08, 20), new THREE.MeshStandardMaterial({ color: 0xe9efc4, roughness: 0.6, clippingPlanes: [cutPlane] }));
+core.position.set(0, -R * 0.86 + 0.03, 0); cabbage.add(core);
+
+// 切り口（断面）
+const capTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#9fcf6f'; g.beginPath(); g.arc(128, 128, 128, 0, 7); g.fill();
+  for (let r = 124; r > 6; r -= 5 + Math.random() * 6) {
+    g.fillStyle = r > 110 ? '#b8de8a' : `rgb(${236 - r * 0.25},${244 - r * 0.1},${200 - r * 0.6})`;
+    g.beginPath();
+    for (let a = 0; a <= 64; a++) { const t = a / 64 * Math.PI * 2, rr = r * (1 + 0.05 * Math.sin(t * 5 + r)); g.lineTo(128 + Math.cos(t) * rr, 128 + Math.sin(t) * rr); }
+    g.fill();
+    g.strokeStyle = 'rgba(150,190,100,.6)'; g.lineWidth = 1.2; g.stroke();
+  }
+  g.fillStyle = '#e6eeb8'; g.beginPath(); g.ellipse(128, 200, 18, 40, 0, 0, 7); g.fill();
+});
+const cap = new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshStandardMaterial({ map: capTex, roughness: 0.7, side: THREE.DoubleSide }));
+cap.visible = false; cap.receiveShadow = true; scene.add(cap);
+function placeCap(n, pt) {
+  const s = n.x * (CABBAGE.x - pt.x) + n.y * (CABBAGE.z - pt.y); // 中心から切り口までの距離（残る側が正）
+  if (Math.abs(s) >= R * 0.995) { cap.visible = false; return; }
+  const r = Math.sqrt(R * R - s * s) * 1.0;
+  cap.visible = true;
+  cap.position.set(CABBAGE.x - n.x * s, CY, CABBAGE.z - n.y * s);
+  cap.lookAt(cap.position.x - n.x, CY, cap.position.z - n.y);
+  cap.scale.set(r, r * 0.9, 1);
+}
+
+// ---------- 包丁 ----------
+const knife = new THREE.Group();
+const blade = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.5, 0.012), new THREE.MeshStandardMaterial({ color: 0xdfe4ea, metalness: 0.95, roughness: 0.18 }));
+blade.position.set(0, 0.25, 0);
+const handle = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.75, 6, 12), new THREE.MeshStandardMaterial({ color: 0x3b2414, roughness: 0.5 }));
+handle.rotation.z = Math.PI / 2; handle.position.set(1.6, 0.42, 0);
+knife.add(blade, handle); blade.castShadow = handle.castShadow = true;
+knife.visible = false; scene.add(knife);
+let knifeAnim = null;
+
+// ---------- 千切りの山 ----------
+const MAXS = 900;
+const strandGeo = new THREE.BoxGeometry(1, 1, 1);
+const strandMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
+const strands = new THREE.InstancedMesh(strandGeo, strandMat, MAXS);
+strands.castShadow = true; strands.receiveShadow = true; strands.count = 0;
+strands.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+scene.add(strands);
+const flying = [];
+const pieceMat = new THREE.MeshStandardMaterial({ color: 0xcfe79a, roughness: 0.6 });
+const pieces = [];
+
+// 粒
+const bitGeo = new THREE.BoxGeometry(0.025, 0.006, 0.025);
+const bitMat = new THREE.MeshStandardMaterial({ color: 0xc8e693, roughness: 0.6 });
+const bits = [];
+function spawnBits(x, z) {
+  for (let i = 0; i < 8; i++) {
+    const m = new THREE.Mesh(bitGeo, bitMat);
+    m.position.set(x + (Math.random() - 0.5) * 0.3, CY, z + (Math.random() - 0.5) * 0.6);
+    m.userData = { v: new THREE.Vector3((Math.random() - 0.5) * 1.2, 1 + Math.random() * 1.2, (Math.random() - 0.5) * 1.2), life: 0.7 };
+    scene.add(m); bits.push(m);
+  }
+}
+
+// ---------- 状態 ----------
+const strandList = [];
+let state, cuts, startTime, endTime, result = null, pileH;
+function reset() {
+  state = 'play';
+  cuts = [];               // {p: Vector2, n: Vector2}
+  startTime = 0; endTime = 0; result = null; pileH = 0; strandList.length = 0;
+  cutPlane.normal.set(1, 0, 0); cutPlane.constant = 100;
+  strands.count = 0; strands.instanceMatrix.needsUpdate = true;
+  flying.length = 0;
+  for (const p of pieces) scene.remove(p); pieces.length = 0;
+  cabbage.visible = true; cap.visible = false;
+  $('panel').classList.remove('show');
+}
+reset();
+
+// 線分と円（キャベツの断面、xz）の交わり
+function chord(p, d) {
+  // p: 線上の点, d: 単位方向 (xz)
+  const cx = CABBAGE.x - p.x, cz = CABBAGE.z - p.y;
+  const tc = cx * d.x + cz * d.y;
+  const dist2 = cx * cx + cz * cz - tc * tc;
+  if (dist2 >= R * R) return null;
+  const h = Math.sqrt(R * R - dist2);
+  return [tc - h, tc + h];
+}
+
+function tryCut(a, b) {
+  const d = new THREE.Vector2(b.x - a.x, b.y - a.y);
+  const len = d.length();
+  if (len < 0.25) return false;
+  d.divideScalar(len);
+  const ch = chord(a, d);
+  if (!ch) return false;
+  // 線がキャベツを横切っていること（はみ出しは少し許す）
+  const span = ch[1] - ch[0];
+  const covA = Math.max(0, Math.min(len, ch[1]) - Math.max(0, ch[0]));
+  if (covA < span * 0.8) return false;
+  let n = new THREE.Vector2(-d.y, d.x);
+  const prev = cuts[cuts.length - 1];
+  const cIn = new THREE.Vector2(CABBAGE.x - a.x, CABBAGE.z - a.y);
+  if (prev) { if (n.dot(prev.n) < 0) n.negate(); }
+  else { if (n.dot(cIn) < 0) n.negate(); } // 大きい方を残す
+  // 残っている奥行き
+  const remain = n.dot(cIn) + R;
+  if (remain <= 0.004) return false;
+  let width = 0, ok = 0, total = 0;
+  if (prev) {
+    // 新しい切り口の、残っている部分の上で、前の切り口からの距離
+    for (let i = 0; i <= 12; i++) {
+      const t = ch[0] + span * i / 12;
+      const sx = a.x + d.x * t, sz = a.y + d.y * t;
+      const prevSide = prev.n.x * (sx - prev.p.x) + prev.n.y * (sz - prev.p.y);
+      if (prevSide > 0) { width += prevSide; ok++; }
+      total++;
+    }
+    if (ok < total * 0.5) return false; // ほとんど前の切り口の後ろ
+    width /= ok;
+  }
+  cuts.push({ p: a.clone(), n });
+  cutPlane.normal.set(n.x, 0, n.y);
+  cutPlane.constant = -(n.x * a.x + n.y * a.y);
+  placeCap(n, a);
+  const now = performance.now();
+  if (!startTime) startTime = now;
+  const mid = new THREE.Vector2(a.x + d.x * (ch[0] + ch[1]) / 2, a.y + d.y * (ch[0] + ch[1]) / 2);
+  knifeAnim = { t: 0, x: mid.x, z: mid.y, ang: Math.atan2(-d.y, d.x) };
+  chopSound(prev ? Math.min(1, 0.5 + width * 8) : 1);
+  spawnBits(mid.x, mid.y);
+  const remainAfter = remain;
+  if (prev) addStrand(width, span, mid, d, n);
+  else addPiece(mid, d, n, span);
+  // 残りがほんの少しなら、最後の1本として終わる
+  const endW = Math.max(0.002, width || 0.003);
+  if (remainAfter < Math.max(0.012, endW * 1.2)) {
+    if (remainAfter > 0.001) addStrand(remainAfter * 0.6, span * 0.3, new THREE.Vector2(mid.x + n.x * remainAfter * 0.5, mid.y + n.y * remainAfter * 0.5), d, n);
+    finish();
+  }
+  return true;
+}
+
+function addPiece(mid, d, n) {
+  // 端の切れ端（点数なし）。少し倒れる。
+  const m = new THREE.Mesh(lumpy(R, 0), new THREE.MeshStandardMaterial({ map: leafTex, roughness: 0.55, clippingPlanes: [new THREE.Plane(new THREE.Vector3(-n.x, 0, -n.y), -cutPlane.constant)] }));
+  m.position.copy(CABBAGE); m.castShadow = true;
+  m.userData = { n: n.clone(), t: 0, c0: -cutPlane.constant };
+  scene.add(m); pieces.push(m);
+}
+
+function addStrand(wUnits, span, mid, d, n) {
+  const wmm = wUnits * 100;
+  strandList.push(wmm);
+  const idx = strands.count;
+  if (idx >= MAXS) return;
+  strands.count++;
+  // 色: 外側は緑、内側は白っぽく
+  const k = Math.min(1, Math.abs((mid.x - CABBAGE.x) * n.x + (mid.y - CABBAGE.z) * n.y) / R);
+  const col = new THREE.Color().setHSL(0.24, 0.55, 0.62 + 0.18 * (1 - k));
+  strands.setColorAt(idx, col);
+  if (strands.instanceColor) strands.instanceColor.needsUpdate = true;
+  // 落ちる先（皿の上の山）
+  const ang = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * 0.65 * Math.max(0.3, 1 - pileH * 1.2);
+  pileH = Math.min(0.55, pileH + 0.0022 + wUnits * 0.06);
+  const to = new THREE.Vector3(PILE_X + Math.cos(ang) * rr, 0.09 + pileH * (1 - rr / 0.75) + Math.random() * 0.02, PILE_Z + Math.sin(ang) * rr);
+  const thick = Math.max(0.006, Math.min(0.12, wUnits));
+  flying.push({
+    idx, t: 0,
+    from: new THREE.Vector3(mid.x, CY, mid.y), to,
+    s: new THREE.Vector3(Math.min(span, 1.1) * (0.25 + Math.random() * 0.2), Math.max(0.006, thick * 0.35), thick),
+    rot0: Math.atan2(-d.y, d.x), rot1: Math.random() * Math.PI * 2, tilt: (Math.random() - 0.5) * 0.4,
+  });
+}
+
+function finish() {
+  state = 'done';
+  endTime = performance.now();
+  const n = strandList.length;
+  const avg = n ? strandList.reduce((a, b) => a + b, 0) / n : 0;
+  const secs = (endTime - startTime) / 1000;
+  const sum = strandList.reduce((a, w) => a + 10 / Math.max(0.5, w) * (w > 8 ? 0.3 : 1), 0);
+  const score = Math.round(sum * 60 / Math.max(5, secs));
+  result = { score, avg, secs, n };
+  setTimeout(() => { cabbage.visible = false; cap.visible = false; doneSound(); }, 250);
+  setTimeout(() => { fillResult(); $('panel').classList.add('show'); setTimeout(makeShareFile, 50); }, 1100);
+}
+
+function fmt(x, d) { return x.toFixed(d); }
+function fillResult() {
+  const L = T[lang], r = result;
+  $('score').textContent = `${r.score}${L.unitPt}`;
+  $('vW').textContent = `${fmt(r.avg, 1)}${L.unitMm}`;
+  $('vT').textContent = `${fmt(r.secs, 1)}${L.unitS}`;
+  $('vN').textContent = `${r.n}${L.unitN}`;
+  const text = `${L.share(r.score, fmt(r.avg, 1), fmt(r.secs, 1), r.n)} ${TAG}`;
+  const post = $('post');
+  post.href = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(URL_GAME)}`;
+  if (!matchMedia('(pointer: coarse)').matches) { post.target = '_blank'; post.rel = 'noopener'; } else post.removeAttribute('target');
+}
+
+// 共有画像
+let shareFile = null;
+function makeShareFile() {
+  if (!result) return;
+  render();
+  const src = renderer.domElement;
+  const c = document.createElement('canvas'); c.width = c.height = 1080;
+  const g = c.getContext('2d');
+  // 皿の山が入る位置を切り抜く
+  const p = new THREE.Vector3(PILE_X * 0.5 + CABBAGE.x * 0.5, 0.2, 0).project(camera);
+  const cx = (p.x + 1) / 2 * src.width, cy = (1 - p.y) / 2 * src.height;
+  const side = Math.min(src.width, src.height * 0.9);
+  const sx = Math.max(0, Math.min(src.width - side, cx - side / 2)), sy = Math.max(0, Math.min(src.height - side, cy - side / 2));
+  g.drawImage(src, sx, sy, side, side, 0, 0, 1080, 1080);
+  const L = T[lang];
+  const gr = g.createLinearGradient(0, 0, 0, 340); gr.addColorStop(0, 'rgba(255,250,240,.92)'); gr.addColorStop(1, 'rgba(255,250,240,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 1080, 340);
+  g.textAlign = 'center'; g.fillStyle = '#3f8f2f'; g.font = '900 150px system-ui, sans-serif';
+  g.fillText(`${result.score}${L.unitPt}`, 540, 175);
+  g.fillStyle = '#3d2a14'; g.font = '700 54px system-ui, sans-serif';
+  g.fillText(`${fmt(result.avg, 1)}${L.unitMm} / ${fmt(result.secs, 1)}${L.unitS} / ${result.n}${L.unitN}`, 540, 260);
+  g.font = '700 40px system-ui, sans-serif'; g.fillStyle = 'rgba(61,42,20,.75)'; g.textAlign = 'right';
+  g.fillText(L.title, 1050, 1050);
+  c.toBlob(b => { if (b) shareFile = new File([b], 'cabbage.png', { type: 'image/png' }); }, 'image/png');
+}
+$('post').addEventListener('click', e => {
+  if (!result) return;
+  const L = T[lang];
+  const text = `${L.share(result.score, fmt(result.avg, 1), fmt(result.secs, 1), result.n)} ${TAG}`;
+  if (matchMedia('(pointer: coarse)').matches && navigator.share && shareFile && navigator.canShare && navigator.canShare({ files: [shareFile] })) {
+    e.preventDefault();
+    navigator.share({ files: [shareFile], text: `${text} ${URL_GAME}` }).catch(() => {});
+  } else if (shareFile && !matchMedia('(pointer: coarse)').matches) {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(shareFile); a.download = 'cabbage.png'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+});
+$('again').onclick = () => reset();
+
+// ---------- 入力 ----------
+const ov = $('ov'), og = ov.getContext('2d');
+const ray = new THREE.Raycaster();
+const hitPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -CY);
+function toWorld(cx, cy) {
+  const r = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2((cx - r.left) / r.width * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const v = new THREE.Vector3();
+  if (!ray.ray.intersectPlane(hitPlane, v)) return null;
+  return new THREE.Vector2(v.x, v.z);
+}
+let drag = null;
+canvas.addEventListener('pointerdown', e => {
+  initAudio(); if (actx && actx.state === 'suspended') actx.resume();
+  if (state !== 'play') return;
+  canvas.setPointerCapture(e.pointerId);
+  drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY };
+});
+canvas.addEventListener('pointermove', e => { if (drag && drag.id === e.pointerId) { drag.x = e.clientX; drag.y = e.clientY; } });
+function endDrag(e) {
+  if (!drag || drag.id !== e.pointerId) return;
+  const a = toWorld(drag.sx, drag.sy), b = toWorld(e.clientX, e.clientY);
+  drag = null;
+  if (state === 'play' && a && b && !tryCut(a, b)) swishSound();
+}
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', e => { drag = null; });
+document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+
+// ---------- 画面サイズ ----------
+let W = 0, H = 0;
+function resize() {
+  W = innerWidth; H = innerHeight;
+  renderer.setSize(W, H, false);
+  const dpr = Math.min(devicePixelRatio, 2);
+  ov.width = W * dpr; ov.height = H * dpr; og.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const top = 54, bottom = 80;
+  const uh = Math.max(200, H - top - bottom);
+  const aspect = W / uh;
+  // 見せたい範囲: 横 x∈[-3.8, 1.9]（幅 5.7）、奥行き約 3.4
+  const portrait = W / uh < 1;
+  if (portrait) { PILE_X = CABBAGE.x - 0.35; PILE_Z = 2.35; } else { PILE_X = -2.75; PILE_Z = 0.15; }
+  plate.position.set(PILE_X, 0.04, PILE_Z);
+  const needW = portrait ? 3.6 : 5.2, needH = portrait ? 5.0 : 3.4;
+  const vf = THREE.MathUtils.degToRad(camera.fov);
+  const dH = needH / 2 / Math.tan(vf / 2);
+  const dW = needW / 2 / Math.tan(vf / 2) / aspect;
+  const dist = Math.max(dH, dW, 4.2);
+  const cx = portrait ? 0.35 : -0.95;
+  const pitch = 0.82; // 見下ろし角
+  camera.position.set(cx, Math.sin(pitch) * dist, Math.cos(pitch) * dist + 0.1);
+  camera.lookAt(cx, 0.2, portrait ? 0.9 : -0.4);
+  if (portrait) camera.position.z += 0.9;
+  scene.fog.near = dist + 3; scene.fog.far = dist + 16;
+  camera.aspect = aspect;
+  camera.setViewOffset(W, uh, 0, -top, W, H);
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+resize();
+
+// ---------- ループ ----------
+function render() { renderer.render(scene, camera); }
+const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e3 = new THREE.Euler(), vpos = new THREE.Vector3();
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  // 包丁
+  if (knifeAnim) {
+    knifeAnim.t += dt;
+    const t = knifeAnim.t;
+    knife.visible = true;
+    knife.position.set(knifeAnim.x, 0, knifeAnim.z);
+    knife.rotation.set(0, knifeAnim.ang, 0);
+    const down = t < 0.07 ? 1 - t / 0.07 : Math.min(1, (t - 0.12) / 0.2);
+    knife.position.y = BOARD_TOP + down * 1.4;
+    if (t > 0.35) { knife.visible = false; knifeAnim = null; }
+  }
+  // 千切りが皿へ飛ぶ
+  for (let i = flying.length - 1; i >= 0; i--) {
+    const f = flying[i];
+    f.t += dt / 0.55;
+    const t = Math.min(1, f.t), e = t * t * (3 - 2 * t);
+    vpos.lerpVectors(f.from, f.to, e); vpos.y += Math.sin(t * Math.PI) * 0.6;
+    e3.set(f.tilt * e, f.rot0 + (f.rot1 - f.rot0) * e, Math.sin(t * Math.PI) * 0.8);
+    q.setFromEuler(e3);
+    m4.compose(vpos, q, f.s);
+    strands.setMatrixAt(f.idx, m4);
+    if (t >= 1) flying.splice(i, 1);
+  }
+  strands.instanceMatrix.needsUpdate = true;
+  // 端の切れ端が倒れて消える
+  for (let i = pieces.length - 1; i >= 0; i--) {
+    const p = pieces[i]; p.userData.t += dt;
+    const t = p.userData.t, n = p.userData.n;
+    p.position.set(CABBAGE.x - n.x * t * 0.6, CY - Math.min(0.3, t * t * 0.8), CABBAGE.z - n.y * t * 0.6);
+    p.material.clippingPlanes[0].constant = p.userData.c0 + n.x * (p.position.x - CABBAGE.x) + n.y * (p.position.z - CABBAGE.z);
+    p.rotation.set(n.y * t * 0.6, 0, -n.x * t * 0.6);
+    if (t > 0.9) { scene.remove(p); pieces.splice(i, 1); }
+  }
+  // 粒
+  for (let i = bits.length - 1; i >= 0; i--) {
+    const b = bits[i], u = b.userData;
+    u.life -= dt; u.v.y -= 6 * dt; b.position.addScaledVector(u.v, dt); b.rotation.x += dt * 8;
+    if (b.position.y < BOARD_TOP) { b.position.y = BOARD_TOP; u.v.set(0, 0, 0); }
+    if (u.life <= 0) { scene.remove(b); bits.splice(i, 1); }
+  }
+  render();
+  // 引いている線
+  og.clearRect(0, 0, W, H);
+  if (drag) {
+    og.lineCap = 'round';
+    og.strokeStyle = 'rgba(255,255,255,.85)'; og.lineWidth = 5;
+    og.beginPath(); og.moveTo(drag.sx, drag.sy); og.lineTo(drag.x, drag.y); og.stroke();
+    og.strokeStyle = 'rgba(90,60,30,.55)'; og.lineWidth = 1.5; og.stroke();
+  }
+  requestAnimationFrame(frame);
+}
+render();
+requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
