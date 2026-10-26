@@ -152,7 +152,9 @@ function ring(f0, vol, dur, at = 0) {
   });
   burst(6000, 1.5, 0.02, vol * 0.8, at);
 }
-function flickSound(p) { burst(1800, 2, 0.04, 0.5 + p * 0.4); burst(400, 3, 0.06, 0.4); ring(2400, 0.05, 0.25); }
+function stretchSound(p) { ring(500 + p * 900, 0.02, 0.06); burst(300 + p * 500, 6, 0.05, 0.12); }
+// the band snapping forward
+function flickSound(p) { burst(180, 2, 0.12, 0.6 + p * 0.3); burst(1800, 2, 0.04, 0.5 + p * 0.4); burst(400, 3, 0.06, 0.4); ring(2400, 0.05, 0.25); }
 // the coin rubbing on wood: filtered noise that follows the speed
 let slide = null;
 function slideStart() {
@@ -358,6 +360,31 @@ const gold = new THREE.MeshStandardMaterial({ color: 0xffd36a, metalness: 0.85, 
 const goldFace = new THREE.MeshStandardMaterial({ map: faceTex, metalness: 0.35, roughness: 0.35, envMapIntensity: 1.2 });
 const coin = shade(new THREE.Mesh(new THREE.CylinderGeometry(R, R, CT, 48), [gold, goldFace, goldFace]));
 const coinPivot = new THREE.Group(); coinPivot.add(coin); scene.add(coinPivot);
+// slingshot: two wooden posts behind the coin with a rubber band between them
+const POST_X = -R - 0.004, POST_Z = R + 0.022, BAND_Y = 0.008;
+const postMat = new THREE.MeshStandardMaterial({ color: 0x7a4a26, roughness: 0.6 });
+for (const sz of [-1, 1]) {
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.008, 0.03, 12), postMat);
+  post.position.set(POST_X, 0.015, sz * POST_Z); scene.add(shade(post));
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.008, 12, 8), postMat); knob.position.set(POST_X, 0.03, sz * POST_Z); scene.add(shade(knob));
+}
+const bandMat = new THREE.MeshStandardMaterial({ color: 0xe03131, roughness: 0.5 });
+const bandGeo = new THREE.CylinderGeometry(0.0025, 0.0025, 1, 8);
+const bands = [new THREE.Mesh(bandGeo, bandMat), new THREE.Mesh(bandGeo, bandMat)]; bands.forEach(b => scene.add(shade(b)));
+const pocket = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.008, 0.03), bandMat); scene.add(shade(pocket));
+const UP = new THREE.Vector3(0, 1, 0), bA = new THREE.Vector3(), bB = new THREE.Vector3();
+function updateBand(x) {
+  // the band holds the coin's back while loaded; once it's shot, it snaps back straight between the posts
+  const loaded = state === 'ready' || state === 'charge';
+  const px = loaded ? Math.min(POST_X, x - R - 0.003) : POST_X;
+  pocket.position.set(px, BAND_Y, 0);
+  bands.forEach((b, i) => {
+    bA.set(POST_X, BAND_Y, (i ? 1 : -1) * POST_Z); bB.set(px, BAND_Y, (i ? 1 : -1) * 0.015);
+    b.position.copy(bA).lerp(bB, 0.5); b.scale.y = bA.distanceTo(bB);
+    b.quaternion.setFromUnitVectors(UP, bB.clone().sub(bA).normalize());
+  });
+}
+
 // a red ruler line from the coin's front to the edge, after it stops
 const gapLine = new THREE.Mesh(new THREE.BoxGeometry(1, 0.0015, 0.004), new THREE.MeshBasicMaterial({ color: 0xff2a2a }));
 gapLine.visible = false; scene.add(gapLine);
@@ -383,7 +410,8 @@ function tickSparks(dt) {
 
 // ---------- game ----------
 // the coin slides along +x, slowing by friction; the gauge picks how hard
-const DT = 1 / 120, DEC = 1.5, DMAX = 0.75, VMAX = Math.sqrt(2 * DEC * DMAX), PERIOD = 1.3, START_X = 0, FLOOR = -TABLE_Y + CT / 2;
+const PULL = 0.1; // how far back the slingshot stretches at full power
+const DT = 1 / 120, DEC = 1.5, DMAX = 0.75, VMAX = Math.sqrt(2 * DEC * (DMAX + PULL)), START_X = 0, FLOOR = -TABLE_Y + CT / 2;
 let state = 'ready', power = 0, chargeT = 0, best = store.get('best', null), result = null, endT = 0;
 const c = { x: START_X, y: CT / 2, v: 0, vy: 0, rz: 0, wz: 0, spin: 0, wob: 0, wobT: 0, bounces: 0 }, cp = { ...c };
 let dec = DEC;
@@ -398,15 +426,38 @@ function reset() {
 }
 let lastGauge = -1;
 function gaugeSet(p) { const v = Math.round(p * 1000); if (v !== lastGauge) { lastGauge = v; $('gauge').firstElementChild.style.width = (p * 100).toFixed(1) + '%'; } }
-function press() { if (state !== 'ready') return; state = 'charge'; chargeT = 0; }
+// slingshot: drag away from the edge to stretch the band, let go to shoot. the pull is measured on screen
+// along the table's "back" direction, so it feels the same at any camera angle or screen size
+let drag = null, keyHold = false;
+function backDir() {
+  const a = toScreen(START_X, 0, 0), b = toScreen(START_X - 0.1, 0, 0), W = stage.clientWidth, H = stage.clientHeight;
+  const dx = (b.x - a.x) * W, dy = (b.y - a.y) * H, l = Math.hypot(dx, dy) || 1;
+  return [dx / l, dy / l];
+}
+function press(e) {
+  if (state !== 'ready') return;
+  state = 'charge'; chargeT = 0; power = 0;
+  drag = e ? { x: e.clientX, y: e.clientY, dir: backDir(), full: Math.max(110, Math.min(stage.clientWidth, stage.clientHeight) * 0.4) } : null;
+  keyHold = !e;
+}
+function aim(e) {
+  if (state !== 'charge' || !drag) return;
+  const along = (e.clientX - drag.x) * drag.dir[0] + (e.clientY - drag.y) * drag.dir[1];
+  const p = Math.max(0, Math.min(1, along / drag.full));
+  if (Math.floor(p * 12) !== Math.floor(power * 12) && p > power) stretchSound(p); // the band creaks as it stretches
+  power = p;
+}
 function release() {
   if (state !== 'charge') return;
-  state = 'slide';
+  drag = null; keyHold = false;
+  if (power < 0.02) { state = 'ready'; power = 0; gaugeSet(0); return; } // barely pulled: nothing happens
+  state = 'slide'; c.x = START_X - power * PULL;
   c.v = power * VMAX; dec = DEC * (1 + (Math.random() - 0.5) * 0.03); // the table isn't perfectly even
   flickSound(power); slideStart();
   puff(c.x - R, 0.002, 0, 5, 0xffffff, 0.08);
 }
-stage.addEventListener('pointerdown', e => { e.preventDefault(); stage.setPointerCapture?.(e.pointerId); press(); });
+stage.addEventListener('pointerdown', e => { e.preventDefault(); stage.setPointerCapture?.(e.pointerId); press(e); });
+stage.addEventListener('pointermove', aim);
 stage.addEventListener('pointerup', release);
 stage.addEventListener('pointercancel', release);
 addEventListener('keydown', e => { if (e.code === 'Space' || e.code === 'Enter') { if (e.target.tagName === 'BUTTON' || e.target.tagName === 'A' || e.target.tagName === 'SELECT') return; e.preventDefault(); if (!e.repeat) press(); } });
@@ -418,8 +469,8 @@ function step(dt) {
   Object.assign(cp, c);
   if (state === 'charge') {
     chargeT += dt;
-    const ph = (chargeT / PERIOD) % 1; power = ph < 0.5 ? ph * 2 : 2 - ph * 2; // up and down
-    power = power * power * (3 - 2 * power) * 0.999 + 0.001;
+    if (keyHold) power = Math.min(1, chargeT / 1.6); // keyboard: the longer you hold, the further back
+    c.x = START_X - power * PULL;
   }
   if (state === 'slide') {
     c.v = Math.max(0, c.v - dec * dt); c.x += c.v * dt;
@@ -523,7 +574,7 @@ function paintFx() {
 
 // ---------- layout ----------
 // the tabletop from the start to just past the edge must fit above the bottom 80px + gauge
-const TOP = 52, BOTTOM = 130, FOCUS = new THREE.Vector3(0.36, -0.02, 0), SPAN_W = 0.9, SPAN_H = 0.5;
+const TOP = 52, BOTTOM = 130, FOCUS = new THREE.Vector3(0.32, -0.02, 0), SPAN_W = 1.0, SPAN_H = 0.5;
 const camDir = new THREE.Vector3(-0.15, 1.0, 0.8).normalize(); // from high up in front
 let camDist = 1, viewH = 1, follow = 0, killF = 0, slackUp = 0;
 function resize() {
@@ -630,7 +681,7 @@ function draw(k) {
   // pivot around the coin's back edge while it tips over the table edge, else around its centre
   coinPivot.position.set(x, y, 0); coinPivot.rotation.set(0, 0, rz);
   coin.rotation.set(Math.sin(c.wobT * (10 + c.wobT * 30)) * c.wob, c.spin, 0);
-  if (state === 'charge') coin.position.x = -power * 0.003; else coin.position.x = 0; // the coin leans back as the finger loads it
+  updateBand(x);
   renderer.render(scene, camera);
 }
 let last = performance.now(), simT = last, lastFx = -1;
