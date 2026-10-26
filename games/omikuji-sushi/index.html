@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>おみくじ寿司</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="おみくじ寿司">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/omikuji-sushi/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/omikuji-sushi/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #3a2416; color: #fff8ec; overflow: hidden;
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif;
+      -webkit-user-select: none; user-select: none;
+    }
+    #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: pointer; }
+    header { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px; padding: 10px 12px; z-index: 2; }
+    header a { color: #fff8ec; font-size: 14px; text-decoration: none; margin-right: auto; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+    header button, header select {
+      background: rgba(255,248,236,.92); border: 1px solid #c79a5a; border-radius: 8px;
+      height: 34px; min-width: 40px; padding: 0 10px; font-size: 13px; color: #4a2a14; cursor: pointer;
+    }
+    header svg { width: 18px; height: 18px; display: block; }
+    #controls {
+      position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(80px + env(safe-area-inset-bottom));
+      display: flex; gap: 8px; width: min(560px, calc(100% - 24px)); z-index: 2;
+    }
+    #controls.side { left: auto; right: 12px; transform: none; top: 50%; bottom: auto; margin-top: -68px; flex-direction: column; width: 200px; }
+    #controls button, #controls a {
+      flex: 1; height: clamp(52px, 8vh, 64px); border: none; border-radius: 14px; font-size: clamp(17px, 2.6vh, 22px); font-weight: 800;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none;
+      touch-action: manipulation; font-family: inherit;
+    }
+    #controls.side button, #controls.side a { flex: 0 0 60px; }
+    .go { background: #d9302a; color: #fff; box-shadow: 0 4px 0 #8f1a14; }
+    .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 38% !important; font-size: 17px !important; }
+    #controls.side .post { flex: 0 0 60px !important; }
+    #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
+    #controls.hide { display: none; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="controls" class="hide"></div>
+
+  <script>
+  (() => {
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/omikuji-sushi/';
+
+    // ---------- 保存・言語 ----------
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('omikuji-sushi:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('omikuji-sushi:' + k, JSON.stringify(v)); } catch {} },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
+    // 運勢は 大吉 → 大凶 の順
+    const I18N = {
+      ja: { title: 'おみくじ寿司', back: '← トップへ戻る', again: 'もう一回', post: 'Xに投稿', paper: 'おみくじ',
+            fortunes: ['大吉', '中吉', '小吉', '吉', '末吉', '凶', '大凶'],
+            share: f => `寿司から${f}が出た #おみくじ寿司ゲーム` },
+      ko: { title: '오미쿠지 초밥', back: '← 처음으로', again: '한 번 더', post: 'X에 게시', paper: '운세',
+            fortunes: ['대길', '중길', '소길', '길', '말길', '흉', '대흉'],
+            share: f => `초밥에서 ${f}이(가) 나왔다 #おみくじ寿司ゲーム` },
+      en: { title: 'Fortune Sushi', back: '← Back to top', again: 'Again', post: 'Post on X', paper: 'FORTUNE',
+            fortunes: ['Great Blessing', 'Middle Blessing', 'Small Blessing', 'Blessing', 'Future Blessing', 'Curse', 'Great Curse'],
+            share: f => `My sushi said: ${f} #おみくじ寿司ゲーム` },
+      th: { title: 'ซูชิเสี่ยงทาย', back: '← กลับหน้าแรก', again: 'อีกครั้ง', post: 'โพสต์ลง X', paper: 'ใบเซียมซี',
+            fortunes: ['โชคดีมาก', 'โชคดีปานกลาง', 'โชคดีเล็กน้อย', 'โชคดี', 'โชคดีภายหลัง', 'โชคร้าย', 'โชคร้ายมาก'],
+            share: f => `ซูชิทำนายว่า ${f} #おみくじ寿司ゲーム` },
+    };
+    let lang = store.get('lang', null) || autoLang();
+    if (!I18N[lang]) lang = 'en';
+    const t = k => I18N[lang][k];
+    const langSel = document.getElementById('lang');
+    langSel.value = lang;
+    langSel.addEventListener('change', () => { lang = langSel.value; store.set('lang', lang); applyLang(); });
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      renderControls();
+      if (state === 'result') { snap = null; prepareShare(); }
+    }
+
+    // ---------- 音 ----------
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const drawSoundBtn = () => {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${soundOn ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>'}</svg>`;
+    };
+    drawSoundBtn();
+    soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); });
+    let ac = null, noiseBuf = null, master = null;
+    function initAudio() {
+      if (ac) return;
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        master = ac.createGain(); master.gain.value = 0.8; master.connect(ac.destination);
+        noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+        const d = noiseBuf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
+        o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.05);
+      } catch { ac = null; }
+    }
+    addEventListener('pointerdown', initAudio, { capture: true });
+    addEventListener('keydown', initAudio, { capture: true });
+    const canPlay = () => soundOn && ac && ac.state === 'running';
+    function noise(dur, at) {
+      const s = ac.createBufferSource(); s.buffer = noiseBuf;
+      s.start(at, Math.random() * 0.5, dur + 0.05); return s;
+    }
+    // 共鳴を通した短いノイズ（打撃・陶器の音のもと）
+    function knock(at, freqs, q, vol, dur) {
+      const src = noise(dur, at), g = ac.createGain();
+      g.gain.setValueAtTime(vol, at); g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+      for (const f of freqs) { const b = ac.createBiquadFilter(); b.type = 'bandpass'; b.frequency.value = f; b.Q.value = q; src.connect(b).connect(g); }
+      g.connect(master);
+    }
+    function tone(at, f, dur, vol, type = 'sine', f2 = f) {
+      const o = ac.createOscillator(), g = ac.createGain(); o.type = type;
+      o.frequency.setValueAtTime(f, at); o.frequency.exponentialRampToValueAtTime(f2, at + dur);
+      g.gain.setValueAtTime(0.0001, at); g.gain.linearRampToValueAtTime(vol, at + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+      o.connect(g).connect(master); o.start(at); o.stop(at + dur + 0.05);
+    }
+    // レーンのつなぎ目のカタッ
+    function sLane() { if (!canPlay()) return; const n = ac.currentTime; knock(n, [900, 2100], 6, 0.035, 0.05); }
+    // 皿を取る「カチャ」
+    function sPick() {
+      if (!canPlay()) return; const n = ac.currentTime;
+      knock(n, [2600, 4300, 6100], 12, 0.5, 0.12); knock(n + 0.06, [2900, 5200], 14, 0.25, 0.1);
+      tone(n, 1870, 0.35, 0.05); tone(n, 3020, 0.25, 0.03);
+    }
+    // 紙を開く「パサッ」
+    function sPaper() {
+      if (!canPlay()) return; const n = ac.currentTime;
+      const src = noise(0.4, n), f = ac.createBiquadFilter(), g = ac.createGain();
+      f.type = 'bandpass'; f.Q.value = 0.8; f.frequency.setValueAtTime(1500, n); f.frequency.exponentialRampToValueAtTime(5000, n + 0.18); f.frequency.exponentialRampToValueAtTime(2500, n + 0.35);
+      g.gain.setValueAtTime(0.0001, n); g.gain.linearRampToValueAtTime(0.35, n + 0.05); g.gain.setValueAtTime(0.3, n + 0.15); g.gain.exponentialRampToValueAtTime(0.0001, n + 0.38);
+      src.connect(f).connect(g).connect(master);
+    }
+    // 寿司を口に運ぶ「パクッ」
+    function sEat() { if (!canPlay()) return; const n = ac.currentTime; knock(n, [500, 1300], 5, 0.35, 0.08); tone(n, 220, 0.12, 0.12, 'sine', 120); }
+    // 発表: 太鼓＋鈴（よい）／低い太鼓＋下がるうなり（わるい）
+    function sReveal(rank) {
+      if (!canPlay()) return; const n = ac.currentTime;
+      tone(n, 110, 0.6, 0.6, 'sine', 55); knock(n, [180, 400], 3, 0.5, 0.25);
+      if (rank <= 2) {
+        const notes = rank === 0 ? [1568, 2093, 2637, 3136] : [1568, 2093, 2637];
+        notes.forEach((f, i) => { tone(n + 0.12 + i * 0.09, f, 1.2, 0.07); tone(n + 0.12 + i * 0.09, f * 2.76, 0.5, 0.02); });
+        knock(n + 0.1, [6000, 8000], 8, 0.08, 0.6);
+      } else if (rank >= 5) {
+        tone(n + 0.15, 90, 0.5, 0.5, 'sine', 45);
+        const o = ac.createOscillator(), lp = ac.createBiquadFilter(), g = ac.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(rank === 6 ? 220 : 260, n + 0.2); o.frequency.exponentialRampToValueAtTime(70, n + 1.3);
+        lp.type = 'lowpass'; lp.frequency.value = 700;
+        g.gain.setValueAtTime(0.0001, n + 0.2); g.gain.linearRampToValueAtTime(0.12, n + 0.3); g.gain.exponentialRampToValueAtTime(0.0001, n + 1.4);
+        o.connect(lp).connect(g).connect(master); o.start(n + 0.2); o.stop(n + 1.5);
+      } else {
+        tone(n + 0.12, 1318, 0.8, 0.06); tone(n + 0.22, 1760, 0.8, 0.05);
+      }
+    }
+    // 猫の板前の声: のこぎり波＋息を、母音の共鳴に通す
+    const VOW = { a: [800, 1150, 2900], i: [350, 2000, 2800], u: [325, 700, 2530], e: [400, 1600, 2700], o: [450, 800, 2830] };
+    function voice(vowels, dur, f0, rise, fall, vol = 0.35) {
+      if (!canPlay()) return; const n = ac.currentTime + 0.02;
+      const o = ac.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0, n); o.frequency.linearRampToValueAtTime(f0 * rise, n + dur * 0.3); o.frequency.exponentialRampToValueAtTime(f0 * fall, n + dur);
+      const vib = ac.createOscillator(), vg = ac.createGain(); vib.frequency.value = 6 + Math.random() * 2; vg.gain.value = f0 * 0.03; vib.connect(vg).connect(o.frequency);
+      const src = ac.createGain(); o.connect(src);
+      const br = noise(dur, n), bg = ac.createGain(); bg.gain.value = 0.15; br.connect(bg).connect(src);
+      const out = ac.createGain();
+      out.gain.setValueAtTime(0.0001, n); out.gain.linearRampToValueAtTime(vol, n + 0.03); out.gain.setValueAtTime(vol, n + dur * 0.7); out.gain.exponentialRampToValueAtTime(0.0001, n + dur);
+      [0, 1, 2].forEach(k => {
+        const b = ac.createBiquadFilter(); b.type = 'bandpass'; b.Q.value = 8 + k * 2;
+        vowels.forEach((v, j) => b.frequency[j ? 'linearRampToValueAtTime' : 'setValueAtTime'](VOW[v][k], n + dur * j / Math.max(1, vowels.length - 1) * 0.9));
+        const g = ac.createGain(); g.gain.value = [1, 0.6, 0.25][k];
+        src.connect(b).connect(g).connect(out);
+      });
+      out.connect(master);
+      o.start(n); vib.start(n); o.stop(n + dur + 0.05); vib.stop(n + dur + 0.05);
+    }
+    const pickOf = a => a[Math.floor(Math.random() * a.length)];
+    const vHei = () => voice(pickOf([['e', 'i'], ['e', 'e', 'i'], ['a', 'i']]), 0.22 + Math.random() * 0.08, 330 + Math.random() * 60, 1.15, 0.9);
+    const vHappy = () => voice(pickOf([['i', 'a', 'a'], ['i', 'a', 'o'], ['i', 'e', 'a']]), 0.6 + Math.random() * 0.25, 420 + Math.random() * 80, 1.5, 1.1, 0.4);
+    const vSoso = () => voice(pickOf([['o', 'o'], ['u', 'o']]), 0.3 + Math.random() * 0.1, 300, 1.1, 0.95, 0.3);
+    const vSad = () => voice(pickOf([['u', 'a', 'u'], ['o', 'a', 'u'], ['u', 'u', 'o']]), 0.8 + Math.random() * 0.3, 260 + Math.random() * 40, 1.05, 0.55, 0.38);
+
+    // ---------- 素材 ----------
+    const catImg = new Image(); catImg.src = 'cat.png';
+    // 木目のテクスチャ
+    function woodTex(w, h, base, dark, seed) {
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const g = c.getContext('2d');
+      g.fillStyle = base; g.fillRect(0, 0, w, h);
+      let r = seed; const rnd = () => (r = (r * 16807) % 2147483647) / 2147483647;
+      for (let i = 0; i < 70; i++) {
+        const y = rnd() * h, a = 0.05 + rnd() * 0.12;
+        g.strokeStyle = `rgba(${dark},${a})`; g.lineWidth = 0.6 + rnd() * 2.2;
+        g.beginPath();
+        for (let x = 0; x <= w; x += 16) g.lineTo(x, y + Math.sin(x * 0.01 + i) * 4 + Math.sin(x * 0.037 + i * 3) * 1.5);
+        g.stroke();
+      }
+      for (let i = 0; i < 4; i++) {
+        const x = rnd() * w, y = rnd() * h;
+        g.strokeStyle = `rgba(${dark},.18)`; g.lineWidth = 1.2;
+        for (let k = 1; k < 5; k++) { g.beginPath(); g.ellipse(x, y, k * 7, k * 2.5, 0, 0, Math.PI * 2); g.stroke(); }
+      }
+      return c;
+    }
+    const counterTex = woodTex(512, 256, '#d9a86c', '90,50,20', 7);
+    const wallTex = woodTex(512, 512, '#8a5a34', '40,20,8', 31);
+    let counterPat = null, wallPat = null;
+
+    // ---------- ネタ ----------
+    // 運勢の出やすさ [大吉, 中吉, 小吉, 吉, 末吉, 凶, 大凶]
+    const NETA = [
+      { id: 'otoro',  w: [5, 3, 2, 2, 1, 1, 0.5] },
+      { id: 'ikura',  w: [3, 3, 2, 2, 1, 1, 0.5] },
+      { id: 'ebi',    w: [2, 3, 3, 2, 2, 1, 0.5] },
+      { id: 'maguro', w: [2, 2, 3, 3, 2, 1, 1] },
+      { id: 'salmon', w: [1.5, 2, 3, 3, 2, 1.5, 1] },
+      { id: 'tamago', w: [1, 2, 2, 3, 3, 2, 1] },
+      { id: 'kappa',  w: [1, 1, 2, 2, 3, 3, 1.5] },
+      { id: 'gari',   w: [0.5, 1, 1, 2, 2, 3, 3] },
+    ];
+    const PLATES = [
+      { rim: '#f4f1ea', band: '#2f5fae' }, { rim: '#f4f1ea', band: '#c8342c' }, { rim: '#2a2622', band: '#c9a23c' },
+      { rim: '#e9c25a', band: '#a8781c' }, { rim: '#f4f1ea', band: '#3c8a4e' }, { rim: '#7b3b9a', band: '#f0e2ff' },
+    ];
+    const newPlate = () => ({ neta: pickOf(NETA), plate: pickOf(PLATES), wob: Math.random() * 6 });
+    function drawRice(g, w) {
+      const gr = g.createLinearGradient(0, -w * 0.25, 0, w * 0.2);
+      gr.addColorStop(0, '#ffffff'); gr.addColorStop(1, '#ddd6c8');
+      g.fillStyle = gr; g.beginPath(); g.ellipse(0, 0, w * 0.5, w * 0.22, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = 'rgba(180,170,150,.5)';
+      for (let i = 0; i < 14; i++) { const a = i * 2.4, r = (i % 4) / 4; g.beginPath(); g.ellipse(Math.cos(a) * w * 0.4 * r + (i % 3 - 1) * w * 0.12, Math.sin(a) * w * 0.12 * r + w * 0.05, w * 0.04, w * 0.02, a, 0, Math.PI * 2); g.fill(); }
+    }
+    function slab(g, w, c1, c2, h = 0.2) {
+      const gr = g.createLinearGradient(0, -w * 0.3, 0, w * 0.1);
+      gr.addColorStop(0, c1); gr.addColorStop(1, c2);
+      g.fillStyle = gr;
+      g.beginPath();
+      g.moveTo(-w * 0.58, -w * 0.02);
+      g.bezierCurveTo(-w * 0.5, -w * (0.12 + h), w * 0.45, -w * (0.16 + h), w * 0.6, -w * 0.06);
+      g.bezierCurveTo(w * 0.55, w * 0.08, -w * 0.45, w * 0.1, -w * 0.58, -w * 0.02);
+      g.fill();
+    }
+    function shine(g, w) {
+      g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = w * 0.03; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(-w * 0.3, -w * 0.22); g.quadraticCurveTo(0, -w * 0.3, w * 0.25, -w * 0.24); g.stroke();
+    }
+    // ネタを描く（原点がお皿の中心、w は寿司の幅）
+    function drawSushi(g, id, w) {
+      g.save();
+      g.fillStyle = 'rgba(0,0,0,.18)'; g.beginPath(); g.ellipse(w * 0.04, w * 0.12, w * 0.55, w * 0.14, 0, 0, Math.PI * 2); g.fill();
+      if (id === 'gari') {
+        for (let i = 0; i < 6; i++) {
+          g.save(); g.translate((i - 2.5) * w * 0.12, -w * 0.02 - Math.sin(i * 1.3) * w * 0.05); g.rotate((i - 2.5) * 0.25);
+          const gr = g.createRadialGradient(0, -w * 0.05, 1, 0, 0, w * 0.22);
+          gr.addColorStop(0, '#ffe3e3'); gr.addColorStop(1, '#f1a6b0');
+          g.fillStyle = gr; g.beginPath(); g.ellipse(0, 0, w * 0.2, w * 0.12, 0, 0, Math.PI * 2); g.fill();
+          g.strokeStyle = 'rgba(210,110,130,.6)'; g.lineWidth = 1; g.stroke();
+          g.restore();
+        }
+        g.restore(); return;
+      }
+      if (id === 'ikura' || id === 'kappa') {
+        // 軍艦・細巻き: 海苔の筒
+        const isK = id === 'kappa';
+        const pieces = isK ? [-0.24, 0.24] : [0];
+        for (const px of pieces) {
+          g.save(); g.translate(px * w, 0);
+          const rw = isK ? w * 0.22 : w * 0.42, hh = isK ? w * 0.26 : w * 0.3;
+          const ng = g.createLinearGradient(-rw, 0, rw, 0);
+          ng.addColorStop(0, '#0f1a12'); ng.addColorStop(0.5, '#2c3a2a'); ng.addColorStop(1, '#0c140e');
+          g.fillStyle = ng;
+          g.beginPath(); g.ellipse(0, 0, rw, rw * 0.4, 0, 0, Math.PI); g.lineTo(-rw, -hh); g.ellipse(0, -hh, rw, rw * 0.4, 0, Math.PI, 0, true); g.closePath(); g.fill();
+          g.fillStyle = '#f6f3ea'; g.beginPath(); g.ellipse(0, -hh, rw * 0.9, rw * 0.36, 0, 0, Math.PI * 2); g.fill();
+          if (isK) {
+            g.fillStyle = '#5fae4a'; g.beginPath(); g.ellipse(0, -hh, rw * 0.4, rw * 0.18, 0, 0, Math.PI * 2); g.fill();
+            g.fillStyle = '#c7e8a0'; g.beginPath(); g.ellipse(0, -hh, rw * 0.22, rw * 0.1, 0, 0, Math.PI * 2); g.fill();
+          } else {
+            for (let i = 0; i < 22; i++) {
+              const a = i * 2.39996, r = Math.sqrt(i / 22) * rw * 0.8;
+              const x = Math.cos(a) * r, y = -hh - w * 0.03 + Math.sin(a) * r * 0.38;
+              const bg = g.createRadialGradient(x - w * 0.015, y - w * 0.015, 0.5, x, y, w * 0.06);
+              bg.addColorStop(0, '#ffd2a0'); bg.addColorStop(0.35, '#ff6a1a'); bg.addColorStop(1, '#a5250a');
+              g.fillStyle = bg; g.beginPath(); g.arc(x, y, w * 0.06, 0, Math.PI * 2); g.fill();
+            }
+          }
+          g.fillStyle = 'rgba(255,255,255,.15)'; g.fillRect(-rw * 0.6, -hh + rw * 0.3, rw * 0.15, hh - rw * 0.2);
+          g.restore();
+        }
+        g.restore(); return;
+      }
+      drawRice(g, w);
+      g.translate(0, -w * 0.08);
+      if (id === 'otoro') {
+        slab(g, w, '#ffb3b8', '#e98a92');
+        g.strokeStyle = 'rgba(255,240,240,.85)'; g.lineWidth = w * 0.025;
+        for (let i = -2; i <= 2; i++) { g.beginPath(); g.moveTo(i * w * 0.2 - w * 0.1, -w * 0.28); g.quadraticCurveTo(i * w * 0.2 + w * 0.05, -w * 0.12, i * w * 0.2 - w * 0.02, w * 0.04); g.stroke(); }
+      } else if (id === 'maguro') {
+        slab(g, w, '#e0304a', '#a3122a');
+      } else if (id === 'salmon') {
+        slab(g, w, '#ff9a5a', '#e8703a');
+        g.strokeStyle = 'rgba(255,240,225,.85)'; g.lineWidth = w * 0.022;
+        for (let i = -3; i <= 3; i++) { g.beginPath(); g.moveTo(i * w * 0.15 + w * 0.08, -w * 0.3); g.lineTo(i * w * 0.15 - w * 0.06, w * 0.05); g.stroke(); }
+      } else if (id === 'tamago') {
+        slab(g, w, '#ffe36a', '#f2b733', 0.28);
+        g.fillStyle = '#1b2a1c'; g.fillRect(-w * 0.09, -w * 0.4, w * 0.18, w * 0.48);
+      } else if (id === 'ebi') {
+        slab(g, w, '#fff1e6', '#ffd6be');
+        g.strokeStyle = '#ff6a3a'; g.lineWidth = w * 0.045;
+        for (let i = -3; i <= 3; i++) { g.beginPath(); g.moveTo(i * w * 0.14, -w * 0.3); g.quadraticCurveTo(i * w * 0.14 + w * 0.04, -w * 0.12, i * w * 0.14, w * 0.04); g.stroke(); }
+        g.fillStyle = '#ff5a2a';
+        g.beginPath(); g.moveTo(w * 0.55, -w * 0.08); g.lineTo(w * 0.78, -w * 0.24); g.lineTo(w * 0.72, -w * 0.04); g.lineTo(w * 0.8, w * 0.08); g.closePath(); g.fill();
+      }
+      g.save(); g.globalCompositeOperation = 'source-over'; shine(g, w); g.restore();
+      g.restore();
+    }
+    // お皿（原点が中心、r は半径）
+    function drawPlate(g, p, r) {
+      g.fillStyle = 'rgba(0,0,0,.28)'; g.beginPath(); g.ellipse(r * 0.08, r * 0.22, r * 1.02, r * 0.4, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = shade(p.plate.rim, -40); g.beginPath(); g.ellipse(0, r * 0.08, r, r * 0.38, 0, 0, Math.PI * 2); g.fill();
+      const gr = g.createLinearGradient(0, -r * 0.4, 0, r * 0.4);
+      gr.addColorStop(0, shade(p.plate.rim, 25)); gr.addColorStop(1, shade(p.plate.rim, -15));
+      g.fillStyle = gr; g.beginPath(); g.ellipse(0, 0, r, r * 0.38, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = p.plate.band; g.lineWidth = r * 0.08; g.beginPath(); g.ellipse(0, 0, r * 0.86, r * 0.32, 0, 0, Math.PI * 2); g.stroke();
+      g.fillStyle = shade(p.plate.rim, -8); g.beginPath(); g.ellipse(0, r * 0.02, r * 0.62, r * 0.22, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = r * 0.04; g.beginPath(); g.ellipse(0, 0, r * 0.95, r * 0.35, 0, Math.PI * 1.1, Math.PI * 1.45); g.stroke();
+    }
+    function shade(hex, amt) {
+      const n = parseInt(hex.slice(1), 16);
+      const c = s => Math.max(0, Math.min(255, ((n >> s) & 255) + amt));
+      return `rgb(${c(16)},${c(8)},${c(0)})`;
+    }
+
+    // ---------- 配置 ----------
+    const cv = document.getElementById('game'), ctx = cv.getContext('2d');
+    const controls = document.getElementById('controls');
+    let W = 0, H = 0, DPR = 1, L = null;
+    // 画面の大きさから、絵の中心と倍率を決める（上のヘッダーと下の80px＋ボタンを避ける）
+    function layoutFor(w, h, forShot) {
+      if (forShot) return { s: w / 760, cx: w / 2, cy: h * 0.53, w, h, side: false };
+      const side = h < 520 && w / h > 4 / 3;
+      const top = 52, bottom = h - 80 - (side ? 0 : 76), right = side ? w - 224 : w;
+      const s = Math.min(right / 740, (bottom - top) / 680, 1.7);
+      return { s, cx: right / 2, cy: (top + bottom) / 2, w, h, side };
+    }
+    function resize() {
+      DPR = Math.min(devicePixelRatio || 1, 2);
+      W = innerWidth; H = innerHeight;
+      cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+      L = layoutFor(W, H, false);
+      controls.classList.toggle('side', L.side);
+      buildLane();
+    }
+    addEventListener('resize', resize);
+
+    // ---------- レーン ----------
+    const SPACING = 190, LANE_Y = 70;
+    let plates = [], laneOff = 0, laneV = 0, laneClick = 0;
+    function laneSpan() { const half = (L.cx > L.w / 2 ? L.cx : L.w - L.cx) / L.s + 200; return { left: -L.cx / L.s - 200, right: (L.w - L.cx) / L.s + 200, half }; }
+    function buildLane() {
+      const { left, right } = laneSpan();
+      const n = Math.ceil((right - left) / SPACING) + 1;
+      while (plates.length < n) plates.push({ ...newPlate(), x: 0, px: 0 });
+      plates.length = n;
+      plates.forEach((p, i) => { p.x = p.px = left + i * SPACING + (laneOff % SPACING); });
+    }
+
+    // ---------- 状態 ----------
+    let state = 'play', clock = 0, phaseT = 0, picked = null, rank = 0, parts = [], catJump = 0, catMood = 0, snap = null;
+    let pickFrom = { x: 0, y: 0 };
+    function drawFortune() {
+      const w = picked.neta.w, sum = w.reduce((a, b) => a + b, 0);
+      let r = Math.random() * sum;
+      for (let i = 0; i < w.length; i++) { r -= w[i]; if (r <= 0) return i; }
+      return w.length - 1;
+    }
+    function toDesign(px, py) { return { x: (px - L.cx) / L.s, y: (py - L.cy) / L.s }; }
+    cv.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (state !== 'play') return;
+      const d = toDesign(e.clientX, e.clientY);
+      let best = null, bd = 1e9;
+      for (const p of plates) {
+        if (p.empty) continue;
+        const dx = (d.x - p.x) / 95, dy = (d.y - (LANE_Y - 25)) / 75;
+        const dist = dx * dx + dy * dy;
+        if (dist < 1 && dist < bd) { bd = dist; best = p; }
+      }
+      if (!best) return;
+      picked = { neta: best.neta, plate: best.plate };
+      pickFrom = { x: best.x, y: LANE_Y };
+      best.empty = true;
+      rank = drawFortune();
+      state = 'pick'; phaseT = 0; snap = null;
+      sPick(); vHei(); catJump = 0.25;
+    });
+    addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+
+    function reset() {
+      state = 'play'; picked = null; parts = []; catMood = 0; snap = null; shareCache = null;
+      renderControls();
+    }
+
+    // ---------- 更新（固定の時間刻み） ----------
+    const DT = 1 / 60;
+    function step() {
+      clock += DT;
+      laneV = 70 * (1 + 0.45 * Math.sin(clock * 0.6) + 0.2 * Math.sin(clock * 1.7 + 1));
+      const { left, right } = laneSpan();
+      const span = plates.length * SPACING;
+      laneOff += laneV * DT;
+      for (const p of plates) {
+        p.px = p.x; p.x += laneV * DT;
+        if (p.x > right) { p.x -= span; p.px = p.x; Object.assign(p, newPlate()); p.empty = false; }
+      }
+      laneClick += laneV * DT;
+      if (laneClick > SPACING / 2) { laneClick = 0; sLane(); }
+      if (catJump > 0) catJump = Math.max(0, catJump - DT);
+      if (state === 'pick') {
+        const prev = phaseT; phaseT += DT;
+        if (prev < 0.55 && phaseT >= 0.55) sEat();
+        if (prev < 0.95 && phaseT >= 0.95) sPaper();
+        if (prev < 1.6 && phaseT >= 1.6) reveal();
+      } else if (state === 'result') {
+        phaseT += DT;
+        if (!snap && phaseT > 2.4) prepareShare();
+      }
+      for (const q of parts) {
+        q.vy += q.g * DT; q.x += q.vx * DT; q.y += q.vy * DT; q.rot += q.vr * DT; q.life -= DT;
+        if (q.drag) { q.vx *= 1 - 1.5 * DT; q.vy = Math.min(q.vy, 160); }
+      }
+      parts = parts.filter(q => q.life > 0);
+    }
+    function reveal() {
+      state = 'result'; phaseT = 1.6;
+      sReveal(rank);
+      catMood = rank <= 2 ? 1 : rank >= 5 ? -1 : 0;
+      if (catMood > 0) { vHappy(); catJump = 0.6; } else if (catMood < 0) vSad(); else vSoso();
+      const cx = 60, cy = -90;
+      if (rank <= 2) {
+        const n = rank === 0 ? 120 : rank === 1 ? 70 : 40;
+        const cols = ['#ffd84a', '#ffb000', '#fff4b0', '#ff5a5a', '#ffffff'];
+        for (let i = 0; i < n; i++) parts.push({ kind: 'conf', x: cx + (Math.random() - 0.5) * 80, y: cy - 60, vx: (Math.random() - 0.5) * 700, vy: -300 - Math.random() * 500, g: 520, drag: true, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 14, life: 2.5 + Math.random() * 1.5, col: pickOf(cols), sz: 6 + Math.random() * 7 });
+      } else if (rank >= 5) {
+        const n = rank === 6 ? 40 : 22;
+        for (let i = 0; i < n; i++) { const a = Math.random() * Math.PI * 2, v = 200 + Math.random() * 420; parts.push({ kind: 'wasabi', x: cx, y: cy + 20, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 200, g: 900, rot: 0, vr: 0, life: 1.2 + Math.random() * 0.8, sz: 6 + Math.random() * 12 }); }
+      } else {
+        for (let i = 0; i < 18; i++) parts.push({ kind: 'petal', x: cx + (Math.random() - 0.5) * 400, y: cy - 260 - Math.random() * 100, vx: (Math.random() - 0.5) * 60, vy: 40 + Math.random() * 60, g: 10, drag: true, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 4, life: 3 + Math.random() * 2, sz: 8 + Math.random() * 5 });
+      }
+      renderControls();
+    }
+
+    // ---------- 描画 ----------
+    const ease = x => x <= 0 ? 0 : x >= 1 ? 1 : 1 - Math.pow(1 - x, 3);
+    const easeBack = x => { if (x <= 0) return 0; if (x >= 1) return 1; const c = 1.7; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+    const CAT_X = -240, CAT_Y = -150;
+    function render(g, Lo, alpha, shot) {
+      const { s, cx, cy, w, h } = Lo;
+      g.save();
+      // 奥の壁（木目＋暖かい灯り）
+      if (!wallPat) { wallPat = g.createPattern(wallTex, 'repeat'); counterPat = g.createPattern(counterTex, 'repeat'); }
+      g.fillStyle = wallPat; g.fillRect(0, 0, w, h);
+      const lg = g.createRadialGradient(cx, cy - 300 * s, 20 * s, cx, cy - 200 * s, Math.max(w, h) * 0.8);
+      lg.addColorStop(0, 'rgba(255,214,150,.45)'); lg.addColorStop(1, 'rgba(30,12,4,.55)');
+      g.fillStyle = lg; g.fillRect(0, 0, w, h);
+      g.translate(cx, cy); g.scale(s, s);
+      const vl = -cx / s, vr = (w - cx) / s, vt = -cy / s, vb = (h - cy) / s;
+      // のれん
+      const nTop = Math.max(vt, -420), nBot = -300;
+      if (nBot > vt) {
+        const pw = 150;
+        for (let x = Math.floor(vl / pw) * pw; x < vr; x += pw) {
+          const sway = Math.sin(clock * 1.3 + x * 0.02) * 4;
+          g.fillStyle = '#1f2d55';
+          g.beginPath(); g.moveTo(x + 4, nTop); g.lineTo(x + pw - 4, nTop); g.lineTo(x + pw - 4 + sway, nBot); g.lineTo(x + 4 + sway, nBot); g.fill();
+          g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = 3;
+          for (let k = 0; k < 3; k++) { const yy = nBot - 20 - k * 14; g.beginPath(); for (let xx = 8; xx < pw - 8; xx += 4) g.lineTo(x + xx + sway * 0.8, yy + Math.sin(xx * 0.15 + k) * 4); g.stroke(); }
+        }
+        g.fillStyle = '#5a3418'; g.fillRect(vl, nTop - 14, vr - vl, 16);
+      }
+      // 猫の板前（カウンターの奥）
+      drawCat(g, alpha);
+      // 奥のカウンター台
+      const backY = -10;
+      g.fillStyle = counterPat; g.save(); g.translate(0, backY); g.fillRect(vl, 0, vr - vl, 40); g.restore();
+      g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(vl, backY + 30, vr - vl, 10);
+      // レーン
+      const ly = LANE_Y;
+      const bgr = g.createLinearGradient(0, ly - 70, 0, ly + 40);
+      bgr.addColorStop(0, '#e9ecef'); bgr.addColorStop(0.5, '#9aa3ab'); bgr.addColorStop(1, '#5d656d');
+      g.fillStyle = bgr; g.fillRect(vl, ly - 72, vr - vl, 112);
+      g.fillStyle = '#cfd5da'; g.fillRect(vl, ly - 56, vr - vl, 80);
+      const off = (laneOff + laneV * DT * (alpha - 1)) % 60;
+      g.strokeStyle = 'rgba(80,88,96,.55)'; g.lineWidth = 2;
+      for (let x = Math.floor(vl / 60) * 60 + off - 60; x < vr; x += 60) { g.beginPath(); g.moveTo(x, ly - 56); g.quadraticCurveTo(x + 10, ly - 16, x, ly + 24); g.stroke(); }
+      g.fillStyle = 'rgba(255,255,255,.7)'; g.fillRect(vl, ly - 72, vr - vl, 5);
+      g.fillStyle = '#4a5158'; g.fillRect(vl, ly + 24, vr - vl, 16);
+      // お皿
+      for (const p of plates) {
+        if (p.empty) continue;
+        const x = p.px + (p.x - p.px) * alpha;
+        if (x < vl - 120 || x > vr + 120) continue;
+        g.save(); g.translate(x, ly - 18 + Math.sin(clock * 9 + p.wob) * 0.6);
+        drawPlate(g, p, 78); g.translate(0, -6); drawSushi(g, p.neta.id, 104);
+        g.restore();
+      }
+      // 手前のカウンター（下端まで）
+      const fy = ly + 40;
+      g.save(); g.translate(0, fy); g.fillStyle = counterPat; g.fillRect(vl, 0, vr - vl, vb - fy + 2); g.restore();
+      const cg = g.createLinearGradient(0, fy, 0, fy + 60); cg.addColorStop(0, 'rgba(0,0,0,.35)'); cg.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = cg; g.fillRect(vl, fy, vr - vl, 60);
+      g.fillStyle = 'rgba(255,240,210,.35)'; g.fillRect(vl, fy, vr - vl, 3);
+      // 湯のみ・しょうゆ皿
+      drawCup(g, -300, 250);
+      drawSoy(g, 300, 245);
+      // 取った皿・おみくじ
+      if (picked) drawPicked(g);
+      // 粒
+      for (const q of parts) {
+        g.save(); g.translate(q.x, q.y); g.rotate(q.rot);
+        g.globalAlpha = Math.min(1, q.life * 2);
+        if (q.kind === 'conf') { g.fillStyle = q.col; g.fillRect(-q.sz / 2, -q.sz * 0.3, q.sz, q.sz * 0.6); }
+        else if (q.kind === 'petal') { g.fillStyle = '#ffc6d6'; g.beginPath(); g.ellipse(0, 0, q.sz, q.sz * 0.55, 0, 0, Math.PI * 2); g.fill(); }
+        else { const wg = g.createRadialGradient(-q.sz * 0.3, -q.sz * 0.3, 1, 0, 0, q.sz); wg.addColorStop(0, '#d8f08a'); wg.addColorStop(1, '#6f9a2a'); g.fillStyle = wg; g.beginPath(); g.arc(0, 0, q.sz, 0, Math.PI * 2); g.fill(); }
+        g.restore();
+      }
+      g.restore();
+      // 凶のときは周りを少し暗く
+      if (state === 'result' && rank >= 5) {
+        const k = Math.min(1, (phaseT - 1.6) * 2) * (rank === 6 ? 0.55 : 0.35);
+        const vg = g.createRadialGradient(cx, cy, Math.min(w, h) * 0.25, cx, cy, Math.max(w, h) * 0.75);
+        vg.addColorStop(0, 'rgba(20,30,40,0)'); vg.addColorStop(1, `rgba(20,30,40,${k})`);
+        g.fillStyle = vg; g.fillRect(0, 0, w, h);
+      }
+    }
+    function drawCat(g) {
+      const bounce = Math.sin(clock * 2.2) * 3;
+      let jy = 0, tilt = Math.sin(clock * 1.1) * 0.03, sink = 0;
+      if (catJump > 0) jy = -Math.sin(catJump / 0.6 * Math.PI) * (catMood > 0 ? 60 : 25);
+      if (state === 'result' && catMood > 0) { jy += -Math.abs(Math.sin(clock * 8)) * 14; tilt = Math.sin(clock * 8) * 0.12; }
+      if (state === 'result' && catMood < 0) { sink = Math.min(1, (phaseT - 1.6) * 1.5) * 40; tilt = -0.18 + Math.sin(clock * 30) * 0.015; }
+      g.save(); g.translate(CAT_X, CAT_Y + bounce + jy + sink);
+      // 白い板前服
+      const bg = g.createLinearGradient(0, 40, 0, 180);
+      bg.addColorStop(0, '#ffffff'); bg.addColorStop(1, '#cfd3d8');
+      g.fillStyle = bg;
+      g.beginPath(); g.moveTo(-130, 200); g.bezierCurveTo(-130, 90, -90, 60, 0, 60); g.bezierCurveTo(90, 60, 130, 90, 130, 200); g.fill();
+      g.strokeStyle = '#2a3a6a'; g.lineWidth = 8;
+      g.beginPath(); g.moveTo(-40, 64); g.lineTo(25, 200); g.stroke();
+      g.beginPath(); g.moveTo(40, 64); g.lineTo(8, 130); g.stroke();
+      // 手（喜ぶと上がる）
+      const arm = state === 'result' && catMood > 0 ? -1 : state === 'result' && catMood < 0 ? 0.6 : 0;
+      g.fillStyle = '#f2f2f2';
+      for (const sd of [-1, 1]) {
+        g.save(); g.translate(sd * 110, 110); g.rotate(sd * (0.4 + arm * 1.4));
+        g.beginPath(); g.ellipse(0, -50 * (arm < 0 ? 1 : 0.2), 22, 60, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#9b8064'; g.beginPath(); g.arc(0, arm < 0 ? -105 : 45, 20, 0, Math.PI * 2); g.fill(); g.fillStyle = '#f2f2f2';
+        g.restore();
+      }
+      // 顔
+      g.rotate(tilt);
+      if (catImg.complete && catImg.naturalWidth) {
+        g.save(); g.shadowColor = 'rgba(0,0,0,.3)'; g.shadowBlur = 16; g.shadowOffsetY = 6;
+        g.drawImage(catImg, -168 * 0.75, -175 * 0.75 - 10, 320 * 0.75, 320 * 0.75); g.restore();
+      }
+      // ねじり鉢巻き
+      g.save(); g.translate(0, -78);
+      g.fillStyle = '#f8f8f8'; g.strokeStyle = '#2a3a6a'; g.lineWidth = 3;
+      const band = new Path2D('M-100 8 Q0 -18 104 6 L100 26 Q0 2 -98 28 Z');
+      g.fill(band);
+      g.save(); g.clip(band);
+      for (let x = -110; x < 110; x += 18) { g.beginPath(); g.moveTo(x, 30); g.lineTo(x + 18, -16); g.stroke(); }
+      g.restore();
+      g.fillStyle = '#f8f8f8'; g.beginPath(); g.ellipse(100, 16, 16, 10, 0.5, 0, Math.PI * 2); g.fill(); g.stroke();
+      g.restore();
+      // 汗（凶）／きらきら（吉）
+      if (state === 'result' && catMood < 0) {
+        g.fillStyle = 'rgba(150,210,255,.9)';
+        const yy = -40 + ((clock * 40) % 40);
+        g.beginPath(); g.moveTo(92, yy - 20); g.quadraticCurveTo(106, yy, 92, yy + 6); g.quadraticCurveTo(78, yy, 92, yy - 20); g.fill();
+        g.strokeStyle = 'rgba(70,90,140,.6)'; g.lineWidth = 3;
+        for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(-60 + i * 22, -100); g.lineTo(-60 + i * 22, -70); g.stroke(); }
+      }
+      if (state === 'result' && catMood > 0) {
+        for (let i = 0; i < 3; i++) { const a = clock * 3 + i * 2.1; star(g, Math.cos(a) * 150, -60 + Math.sin(a) * 70, 10 + 4 * Math.sin(clock * 6 + i), '#ffe066'); }
+      }
+      g.restore();
+    }
+    function star(g, x, y, r, c) {
+      g.fillStyle = c; g.beginPath();
+      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, rr = i % 2 ? r * 0.35 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+      g.fill();
+    }
+    function drawCup(g, x, y) {
+      g.save(); g.translate(x, y);
+      g.fillStyle = 'rgba(0,0,0,.3)'; g.beginPath(); g.ellipse(8, 52, 54, 14, 0, 0, Math.PI * 2); g.fill();
+      const cg = g.createLinearGradient(-45, 0, 45, 0);
+      cg.addColorStop(0, '#4a5a3a'); cg.addColorStop(0.4, '#8a9a6a'); cg.addColorStop(1, '#3a4630');
+      g.fillStyle = cg; g.beginPath(); g.moveTo(-44, -40); g.lineTo(44, -40); g.lineTo(38, 44); g.quadraticCurveTo(0, 56, -38, 44); g.closePath(); g.fill();
+      g.fillStyle = '#2a3020'; g.beginPath(); g.ellipse(0, -40, 44, 11, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#8a9a3a'; g.beginPath(); g.ellipse(0, -38, 38, 8, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(-30, -30, 8, 66);
+      g.strokeStyle = 'rgba(255,255,255,.25)'; g.lineWidth = 5; g.lineCap = 'round';
+      for (let i = 0; i < 2; i++) { const p = (clock * 0.4 + i * 0.5) % 1; g.globalAlpha = Math.sin(p * Math.PI) * 0.8; g.beginPath(); g.moveTo(-10 + i * 18, -50 - p * 60); g.bezierCurveTo(-25 + i * 18, -70 - p * 60, 5 + i * 18, -90 - p * 60, -10 + i * 18, -110 - p * 60); g.stroke(); }
+      g.restore();
+    }
+    function drawSoy(g, x, y) {
+      g.save(); g.translate(x, y);
+      g.fillStyle = 'rgba(0,0,0,.28)'; g.beginPath(); g.ellipse(6, 14, 62, 18, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#e8e2d6'; g.beginPath(); g.ellipse(0, 4, 60, 20, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#f7f3ea'; g.beginPath(); g.ellipse(0, 0, 60, 20, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#3a1608'; g.beginPath(); g.ellipse(0, 2, 44, 13, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.35)'; g.beginPath(); g.ellipse(-14, -2, 14, 3, 0, 0, Math.PI * 2); g.fill();
+      g.restore();
+    }
+    // 取った皿 → 寿司を食べる → 皿の下からおみくじが出て開く
+    const PAPER_X = 60, PAPER_Y = -90, PAPER_W = 230, PAPER_H = 400;
+    function drawPicked(g) {
+      const T = phaseT;
+      const k = ease(T / 0.45);
+      const px = pickFrom.x + (60 - pickFrom.x) * k, py = pickFrom.y - 18 + (230 - pickFrom.y + 18) * k - Math.sin(k * Math.PI) * 80;
+      const sc = 1 + 0.35 * k;
+      g.save(); g.translate(px, py); g.scale(sc, sc);
+      drawPlate(g, picked, 78);
+      // おみくじの巻き紙（皿の上、寿司の下）
+      if (T > 0.55 && T < 0.95) {
+        g.fillStyle = '#fbf6ea'; g.save(); g.rotate(-0.2);
+        g.fillRect(-40, -12, 80, 18); g.fillStyle = '#c8342c'; g.fillRect(-6, -12, 12, 18); g.restore();
+      }
+      // 寿司は上に飛んで食べられる
+      if (T < 0.55) { g.translate(0, -6); drawSushi(g, picked.neta.id, 104); }
+      g.restore();
+      if (T >= 0.55 && T < 1.0) {
+        // 食べたあとの小さなかけら
+        const e = (T - 0.55) / 0.45;
+        g.save(); g.globalAlpha = 1 - e; g.fillStyle = '#fff';
+        for (let i = 0; i < 6; i++) { g.beginPath(); g.arc(60 + Math.cos(i) * 60 * e, 200 - 80 * e + Math.sin(i * 2) * 20 * e + 120 * e * e, 4, 0, Math.PI * 2); g.fill(); }
+        g.restore();
+      }
+      // 小さなネタの見本を皿の横に置く（何を取ったか分かるように）
+      if (T >= 0.55) {
+        const e = easeBack((T - 0.55) / 0.4);
+        g.save(); g.translate(PAPER_X + 190, 210); g.scale(e * 0.7, e * 0.7);
+        g.fillStyle = '#3a2412'; g.beginPath(); g.roundRect(-80, -10, 160, 36, 8); g.fill();
+        g.fillStyle = '#6a4424'; g.beginPath(); g.roundRect(-80, -16, 160, 30, 8); g.fill();
+        g.translate(0, -16); drawSushi(g, picked.neta.id, 104);
+        g.restore();
+      }
+      if (T >= 0.95) {
+        const open = ease((T - 0.95) / 0.55);
+        const ph = 30 + (PAPER_H - 30) * open;
+        const yTop = 200 - (200 - (PAPER_Y - PAPER_H / 2)) * ease((T - 0.95) / 0.35);
+        drawPaper(g, PAPER_X, yTop, ph, open);
+      }
+    }
+    function drawPaper(g, x, yTop, ph, open) {
+      const w = PAPER_W;
+      g.save(); g.translate(x, yTop);
+      g.rotate(Math.sin(clock * 1.5) * 0.015);
+      g.fillStyle = 'rgba(0,0,0,.3)'; g.fillRect(-w / 2 + 10, 12, w, ph);
+      const pg = g.createLinearGradient(-w / 2, 0, w / 2, 0);
+      pg.addColorStop(0, '#f2ead6'); pg.addColorStop(0.5, '#fffaf0'); pg.addColorStop(1, '#efe5cf');
+      g.fillStyle = pg; g.fillRect(-w / 2, 0, w, ph);
+      // 折り目
+      g.fillStyle = 'rgba(120,90,50,.08)';
+      for (let i = 1; i < 4; i++) g.fillRect(-w / 2, ph * i / 4 - 2, w, 4);
+      g.strokeStyle = '#c8342c'; g.lineWidth = 4; g.strokeRect(-w / 2 + 12, 12, w - 24, Math.max(0, ph - 24));
+      g.lineWidth = 1.5; g.strokeRect(-w / 2 + 19, 19, w - 38, Math.max(0, ph - 38));
+      if (open > 0.98) {
+        const a = Math.min(1, (phaseT - 1.6) * 4);
+        g.globalAlpha = Math.max(0, a);
+        g.fillStyle = '#c8342c'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        fitText(g, t('paper'), 0, 52, 26, w - 70, 700);
+        g.fillRect(-w / 2 + 30, 76, w - 60, 2);
+        const f = t('fortunes')[rank];
+        const big = Math.max(1, 1.6 - (phaseT - 1.6) * 3);
+        g.save(); g.translate(0, (ph + 80) / 2); g.scale(big, big);
+        g.fillStyle = rank >= 5 ? '#2a2a3a' : '#c8342c';
+        if (lang === 'ja' || lang === 'ko') {
+          const chars = [...f], sz = Math.min(120, 280 / chars.length);
+          chars.forEach((c, i) => fitText(g, c, 0, (i - (chars.length - 1) / 2) * sz * 1.05, sz, w - 40, 900));
+        } else {
+          const words = f.split(' '), lines = words.length > 1 ? words : [f];
+          lines.forEach((ln, i) => fitText(g, ln, 0, (i - (lines.length - 1) / 2) * 62, 56, w - 50, 900));
+        }
+        g.restore();
+        g.globalAlpha = 1;
+      }
+      g.restore();
+    }
+    function fitText(g, str, x, y, px, max, wt) {
+      const font = p => `${wt} ${p}px system-ui, -apple-system, "Hiragino Mincho ProN", "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", serif`;
+      g.font = font(px); const mw = g.measureText(str).width;
+      if (mw > max) g.font = font(px * max / mw);
+      g.fillText(str, x, y);
+    }
+
+    // ---------- ボタン ----------
+    function renderControls() {
+      controls.innerHTML = '';
+      controls.classList.toggle('hide', state !== 'result');
+      if (state !== 'result') return;
+      const b = document.createElement('button');
+      b.className = 'go'; b.textContent = t('again');
+      b.addEventListener('click', reset);
+      const a = document.createElement('a');
+      a.className = 'post'; a.textContent = t('post');
+      const text = t('share')(t('fortunes')[rank]);
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SHARE_URL)}`;
+      const coarse = matchMedia('(pointer: coarse)').matches;
+      if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
+      // スマホは画像ごと共有シートへ。PCは画像を保存してから投稿画面を開く
+      a.addEventListener('click', e => {
+        if (coarse && navigator.share) {
+          e.preventDefault();
+          const file = shareFile();
+          const data = file && navigator.canShare?.({ files: [file] }) ? { files: [file], text: `${text}\n${SHARE_URL}` } : { text: `${text}\n${SHARE_URL}` };
+          navigator.share(data).catch(() => {});
+          return;
+        }
+        const img = resultImage();
+        if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'omikuji-sushi.png'; d.click(); }
+      });
+      controls.append(b, a);
+    }
+
+    // ---------- 結果画像 ----------
+    let shareCache = null;
+    function resultImage() {
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      const savedPat = [wallPat, counterPat]; wallPat = null;
+      render(g, layoutFor(1080, 1080, true), 1, true);
+      wallPat = savedPat[0]; counterPat = savedPat[1];
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.lineJoin = 'round';
+      const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
+      let px = 54; g.font = font(px);
+      const tt = t('title'), mw = g.measureText(tt).width; if (mw > 900) { px *= 900 / mw; g.font = font(px); }
+      g.lineWidth = px * 0.18; g.strokeStyle = '#3a1a08'; g.fillStyle = '#fff';
+      g.strokeText(tt, 540, 1040); g.fillText(tt, 540, 1040);
+      return c;
+    }
+    // 共有用ファイルは先に作っておく（クリック時に待つと Safari で共有が止まるため）
+    function prepareShare() {
+      if (state !== 'result') return;
+      snap = true;
+      const key = lang + rank;
+      if (shareCache?.key === key) return;
+      shareCache = { key, file: null };
+      try { resultImage().toBlob(b => { if (b && shareCache?.key === key) shareCache.file = new File([b], 'omikuji-sushi.png', { type: 'image/png' }); }, 'image/png'); } catch {}
+    }
+    const shareFile = () => shareCache?.key === lang + rank ? shareCache.file : null;
+
+    // ---------- ループ ----------
+    let last = 0, acc = 0;
+    function loop(now) {
+      acc += Math.min(0.05, (now - last) / 1000); last = now;
+      while (acc >= DT) { step(); acc -= DT; }
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      render(ctx, L, acc / DT, false);
+      requestAnimationFrame(loop);
+    }
+    resize();
+    applyLang();
+    step(); render(ctx, L, 1, false);
+    requestAnimationFrame(t0 => { last = t0; requestAnimationFrame(loop); });
+  })();
+  </script>
+</body>
+</html>
