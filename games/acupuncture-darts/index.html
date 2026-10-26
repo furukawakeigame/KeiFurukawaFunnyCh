@@ -49,9 +49,9 @@
       #result { top: 0; bottom: var(--reserve, 160px); width: 30%; justify-content: center; }
     }
     /* 穴あき枕の下から見た顔の小窓 */
-    #face { position: absolute; right: 12px; top: 56px; width: clamp(84px, 20vmin, 170px); aspect-ratio: 1; border-radius: 50%; overflow: hidden; border: 4px solid #fff; box-shadow: 0 4px 12px rgba(0,0,0,.25); background: #3a2a1a; pointer-events: none; }
+    #face { position: absolute; right: 12px; top: 56px; width: clamp(110px, 28vmin, 230px); aspect-ratio: 1; border-radius: 10px; overflow: hidden; border: 4px solid #fff; box-shadow: 0 4px 12px rgba(0,0,0,.25); background: #3a2a1a; pointer-events: none; }
     #face canvas { width: 100%; height: 100%; display: block; }
-    @media (max-aspect-ratio: 3/4) { #result { top: calc(64px + clamp(84px, 20vmin, 170px)); } }
+    @media (max-aspect-ratio: 3/4) { #result { top: calc(64px + clamp(110px, 28vmin, 230px)); } }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
     /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
     #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; }
@@ -369,34 +369,95 @@
     // 体は部位ごとのグループに分けて作る（ラグドールの時に部位ごとに動かすため）
     const SEGS = ['torso', 'pelvis', 'head', 'uaL', 'faL', 'uaR', 'faR', 'legL', 'legR'];
     let segs = {}, rest = {}, face = null;
-    // 顔（下向き）: 頭の中の座標で −y が顔の正面、−z がおでこ側
-    const FACE_DARK = new THREE.MeshStandardMaterial({ color: '#2a1612', roughness: 0.5 });
-    const FACE_WHITE = mat('#fbfaf6', 0.3), MOUTH = mat('#7a2a2a', 0.6), BLUSH = new THREE.MeshStandardMaterial({ color: '#ff7a8a', roughness: 0.8, transparent: true, opacity: 0.55 });
-    function makeFace(skin) {
-      const f = { open: [], closed: [], squeeze: [], brows: [], blush: [] };
-      for (const s of [-1, 1]) {
-        const eye = new THREE.Group(); eye.position.set(s * 0.034, -0.09, -0.03); headG.add(eye);
-        part(SPH, FACE_WHITE, 0, 0, 0, 0.019, 0.009, 0.012, eye);
-        part(SPH, FACE_DARK, 0, -0.007, 0.001, 0.0095, 0.004, 0.0095, eye);
-        f.open.push(eye);
-        const cl = part(BOX, FACE_DARK, s * 0.034, -0.098, -0.028, 0.028, 0.004, 0.005, headG); f.closed.push(cl);
-        for (const r of [-0.45, 0.45]) { const q = part(BOX, FACE_DARK, s * 0.034, -0.098, -0.028 + r * 0.012, 0.026, 0.004, 0.005, headG); q.rotation.y = -r * s; f.squeeze.push(q); }
-        const b = part(BOX, FACE_DARK, s * 0.034, -0.088, -0.056, 0.03, 0.004, 0.006, headG); f.brows.push(b);
-        f.blush.push(part(SPH, BLUSH, s * 0.056, -0.084, 0.008, 0.018, 0.004, 0.012, headG));
+    // 顔（下向き）: 顔の向きの座標（x 横・y 上・z 前、単位 m）で作り、頭の中で下向きに回す
+    const FW = 0.08, FH = 0.11, FD = 0.095; // 顔の半幅・半分の高さ・前への奥行き
+    const ss = (a, b, v) => { const t = THREE.MathUtils.clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+    // 表情の量: open 口を開く / wide 横に開く / oh すぼめる / squint 目を細めて頬を上げる / brow まゆを寄せて下げる（−で上げる）
+    const EXPR = { calm: { open: 0, wide: 0, oh: 0, squint: 0, brow: 0 }, bliss: { open: 0.4, wide: 0, oh: 0.4, squint: 0.25, brow: -0.6 }, ouch: { open: 1, wide: 1, oh: 0, squint: 1, brow: 1 }, miss: { open: 0.35, wide: 0, oh: 1, squint: 0, brow: -1 } };
+    const MORPHS = ['bliss', 'ouch', 'miss'];
+    let headGeo = null;
+    function facePoint(x, y, z, e, out) {
+      const taper = 1 - 0.13 * ss(-0.35, -0.95, y) - 0.1 * ss(-0.75, -1, y) - 0.05 * ss(0.5, 1, y); // あごに向かって細く
+      let py = y * FH;
+      if (y < -0.4) py -= e.open * 0.1 * FH * ss(-0.42, -0.62, y); // あごが下がる
+      let pz = z > 0 ? z * FD : z * 0.1;
+      const F = ss(0.2, 0.7, z), ax = Math.abs(x), g = gauss;
+      let d = 0;
+      d += 0.09 * g(y - 0.3 + 0.05 * e.brow, 0.07) * g(x, 0.5); // まゆの骨
+      d -= 0.13 * g(ax - 0.34, 0.15) * g(y - 0.13, 0.1); // 目のくぼみ
+      d += g(x, 0.065) * ss(0.26, 0.12, y) * ss(-0.32, -0.2, y) * (0.07 + 0.2 * (0.22 - y)); // 鼻すじ
+      d += 0.2 * g(x, 0.085) * g(y + 0.2, 0.08); // 鼻先
+      d += 0.09 * g(ax - 0.11, 0.05) * g(y + 0.25, 0.05); // 小鼻
+      d -= 0.06 * g(ax - 0.055, 0.025) * g(y + 0.3, 0.02); // 鼻の穴
+      d += 0.03 * g(ax - 0.5, 0.12) * g(y + 0.55, 0.12); // あごのえら
+      d += (0.05 + 0.04 * e.squint) * g(ax - 0.45, 0.16) * g(y + 0.05 - 0.07 * e.squint, 0.16); // 頬
+      d -= 0.025 * g(ax - 0.22 - 0.03 * e.wide, 0.03) * g(y + 0.33, 0.12) * (1 + e.squint); // ほうれい線
+      d -= 0.015 * g(x, 0.03) * g(y + 0.36, 0.04); // 人中
+      const mw = 0.19 + 0.06 * e.wide - 0.08 * e.oh, yM = -0.46 - e.open * 0.05;
+      const up = 0.09 * g(x, mw) * g(y + 0.42, 0.035), lo = 0.1 * g(x, mw * 0.9) * g(y - (yM - 0.05 - e.open * 0.09), 0.04);
+      d += up + lo;
+      d -= 0.03 * g(x, mw) * g(y - yM, 0.015); // 唇の合わせ目
+      d -= 0.55 * e.open * g(x, mw * 0.85) * g(y - (yM - 0.04 * e.open), 0.015 + 0.06 * e.open); // 開いた口の中へ
+      d += 0.07 * g(x, 0.2) * g(y + 0.8 + e.open * 0.1, 0.1); // あご先
+      pz += F * d * FD;
+      out.set(x * FW * taper, py, pz);
+      return { lip: Math.min(1, (up + lo) / 0.05), cheek: g(ax - 0.42, 0.15) * g(y + 0.08, 0.15) };
+    }
+    function buildHeadGeo() {
+      const g = new THREE.SphereGeometry(1, 96, 72), pa = g.attributes.position, n = pa.count;
+      const col = new Float32Array(n * 3), morph = MORPHS.map(() => new Float32Array(n * 3)), v = new THREE.Vector3(), u = new THREE.Vector3();
+      for (let i = 0; i < n; i++) {
+        u.fromBufferAttribute(pa, i);
+        const c = facePoint(u.x, u.y, u.z, EXPR.calm, v);
+        pa.setXYZ(i, v.x, v.y, v.z);
+        // 唇は赤く、頬は少し赤み
+        col[i * 3] = 1 - 0.1 * c.lip; col[i * 3 + 1] = 1 - 0.5 * c.lip - 0.07 * c.cheek; col[i * 3 + 2] = 1 - 0.4 * c.lip - 0.07 * c.cheek;
+        MORPHS.forEach((k, m) => { facePoint(u.x, u.y, u.z, EXPR[k], v); morph[m].set([v.x, v.y, v.z], i * 3); });
       }
-      part(SPH, skin, 0, -0.108, 0.002, 0.013, 0.013, 0.019, headG); // 鼻
-      f.mouth = part(SPH, MOUTH, 0, -0.097, 0.04, 0.02, 0.006, 0.006, headG);
-      setFace(f, 'calm');
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      g.morphAttributes.position = morph.map(a => new THREE.BufferAttribute(a, 3));
+      g.computeVertexNormals();
+      return g;
+    }
+    const FACE_BASIS = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(V(-1, 0, 0), V(0, 0, -1), V(0, -1, 0)));
+    const EYE_WHITE = mat('#f4f1ea', 0.25), PUPIL = new THREE.MeshStandardMaterial({ color: '#0a0606', roughness: 0.1 }), MOUTH_IN = mat('#3a0e10', 0.9), TEETH = mat('#f2eee4', 0.4);
+    const IRIS = ['#4a2a16', '#2e1a0e', '#5a3a1a', '#3a5a7a', '#4a6a3a'];
+    const LASH = new THREE.CapsuleGeometry(0.09, 1.3, 4, 8);
+    const HEMI = new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+    function makeFace(skinColor, hairM) {
+      headGeo ??= buildHeadGeo();
+      const root = new THREE.Group(); root.quaternion.copy(FACE_BASIS); headG.add(root);
+      const skinV = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.55, vertexColors: true });
+      const skin = mat(skinColor, 0.55);
+      const head = new THREE.Mesh(headGeo, skinV); root.add(head);
+      const f = { head, lids: [], brows: [], cur: { ...EXPR.calm }, w: [0, 0, 0], lid: 0 };
+      const iris = mat(pick(IRIS), 0.3);
+      for (const s of [-1, 1]) {
+        const eye = new THREE.Group(); eye.position.set(s * 0.34 * FW, 0.13 * FH, 0.0715); root.add(eye);
+        part(SPH, EYE_WHITE, 0, 0, 0, 0.012, 0.012, 0.012, eye);
+        part(SPH, iris, 0, 0, 0.0102, 0.0062, 0.0062, 0.0026, eye);
+        part(SPH, PUPIL, 0, 0, 0.0119, 0.0028, 0.0028, 0.001, eye);
+        const lid = part(HEMI, skin, 0, 0, 0, 0.0131, 0.0131, 0.0131, eye); f.lids.push(lid);
+        const lash = part(LASH, PUPIL, 0, 0, 0.97, 1, 1, 1, lid); lash.rotation.z = Math.PI / 2; // まつ毛の線（まぶたのふち）
+        const low = part(HEMI, skin, 0, 0, 0, 0.0127, 0.0127, 0.0127, eye); low.rotation.x = Math.PI + 0.35;
+        const br = part(new THREE.CapsuleGeometry(0.0024, 0.02, 4, 8), hairM, s * 0.027, 0.034, 0.088, 1, 1, 0.6, root); br.rotation.z = Math.PI / 2 + s * 0.12; f.brows.push(br);
+      }
+      for (const s of [-1, 1]) { const e = part(SPH, skin, s * FW * 0.98, 0.0, -0.005, 0.012, 0.03, 0.02, root); e.rotation.y = s * 0.3; } // 耳
+      f.cav = part(SPH, MOUTH_IN, 0, -0.05, 0.062, 0.02, 0.012, 0.012, root);
+      f.teeth = part(BOX, TEETH, 0, -0.0445, 0.074, 0.022, 0.004, 0.004, root);
       return f;
     }
-    function setFace(f, kind) {
-      if (!f || f.kind === kind) return; f.kind = kind;
-      const vis = (arr, v) => arr.forEach(o => o.visible = v);
-      vis(f.open, kind === 'calm' || kind === 'miss'); vis(f.closed, kind === 'bliss'); vis(f.squeeze, kind === 'ouch'); vis(f.blush, kind === 'bliss');
-      // 口: ふつう / はぁ〜（丸く開く）/ 悲鳴（大きく開く）/ え？（小さい丸）
-      const m = { calm: [0.022, 0.006, 0.005], bliss: [0.02, 0.008, 0.016], ouch: [0.028, 0.01, 0.022], miss: [0.01, 0.006, 0.01] }[kind];
-      f.mouth.scale.set(...m);
-      f.brows.forEach((b, i) => { const s = i ? 1 : -1; b.rotation.y = kind === 'ouch' ? s * 0.5 : kind === 'bliss' ? -s * 0.25 : 0; b.position.z = kind === 'miss' ? -0.062 : -0.056; });
+    // 表情を目標へなめらかに近づける
+    function animFace(f, kind, dt, blink) {
+      const k = 1 - Math.exp(-dt * 12);
+      MORPHS.forEach((m, i) => { f.w[i] += ((m === kind ? 1 : 0) - f.w[i]) * k; f.head.morphTargetInfluences[i] = f.w[i]; });
+      const e = EXPR[kind] || EXPR.calm;
+      for (const key in e) f.cur[key] += (e[key] - f.cur[key]) * k;
+      const lidT = kind === 'bliss' || kind === 'ouch' || blink ? 1 : kind === 'miss' ? -0.3 : 0;
+      f.lid += (lidT - f.lid) * (blink ? 1 : k);
+      f.lids.forEach(l => l.rotation.x = -0.35 + f.lid * 1.85);
+      f.brows.forEach((b, i) => { const s = i ? 1 : -1; b.position.y = 0.034 - f.cur.brow * 0.004; b.rotation.z = Math.PI / 2 + s * (0.12 - f.cur.brow * 0.25); });
+      f.cav.position.y = (-0.46 - f.cur.open * 0.08) * FH; f.cav.scale.set(0.02 + 0.006 * f.cur.wide - 0.007 * f.cur.oh, 0.006 + 0.012 * f.cur.open, 0.012);
     }
     function makePatient() {
       while (breathe.children.length) { const c = breathe.children[0]; breathe.remove(c); }
@@ -436,14 +497,12 @@
       // 首と頭（顔は枕の穴の中）
       limb(V(0, Y + 0.1, -0.86), V(0, Y + 0.1, -0.98), 0.06, 0.052, skin, segs.head);
       headG = new THREE.Group(); headG.position.set(0, Y + 0.11, -1.08); segs.head.add(headG);
-      part(SPH, skin, 0, 0, 0, 0.095, 0.105, 0.12, headG);
-      part(SPH, skin, 0, -0.035, 0.05, 0.065, 0.065, 0.065, headG); // あご（下向き、首の側）
-      face = makeFace(skin);
-      segs.head.traverse(o => o.layers.enable(1)); // 顔の小窓で頭だけ写す時用
-      for (const s of [-1, 1]) { const e = part(SPH, skin, s * 0.097, -0.005, 0.0, 0.016, 0.03, 0.022, headG); e.rotation.y = s * 0.3; }
+      face = makeFace(skin.color, hairM);
       const style = pick(['short', 'short', 'bun', 'bald', 'crop']);
-      if (style !== 'bald') part(SPH, hairM, 0, 0.022, 0.012, 0.102, style === 'crop' ? 0.095 : 0.1, 0.125, headG);
-      if (style === 'bun') part(SPH, hairM, 0, 0.1, -0.03, 0.045, 0.04, 0.045, headG);
+      // 髪は後頭部と頭のてっぺん（頭の中の座標で +y が後ろ、−z が頭頂）
+      if (style !== 'bald') part(SPH, hairM, 0, 0.012, -0.022, 0.086, style === 'crop' ? 0.096 : 0.1, 0.108, headG);
+      if (style === 'bun') part(SPH, hairM, 0, 0.085, -0.07, 0.035, 0.032, 0.035, headG);
+      segs.head.traverse(o => o.layers.enable(1)); // 顔の小窓で頭だけ写す時用
       // 腕: 肩から外へ出して肘を曲げ、枕の前で手を重ねる
       for (const s of [-1, 1]) {
         const L = s < 0 ? 'L' : 'R', ua = segs['ua' + L], fa = segs['fa' + L];
@@ -803,12 +862,7 @@
       shake = Math.max(0, shake - dt * 2.5);
       const pulse = 1 + Math.sin(clock * 5) * 0.12;
       tuboMat.opacity = 0.8 + (pulse - 1) * 1.6;
-      if (headG) headG.rotation.z = outcome === 'bliss' ? Math.min(0.35, endT * 0.5) : 0;
-      if (face) {
-        setFace(face, outcome || 'calm');
-        // ふだんはときどき瞬きする
-        if (!outcome) { const blink = (clock % 3.2) < 0.12; face.open.forEach(o => o.visible = !blink); face.closed.forEach(o => o.visible = blink); }
-      }
+      if (face) animFace(face, outcome || 'calm', dt, !outcome && (clock % 3.2) < 0.12); // ふだんはときどき瞬き
 
       if (state === 'fly') {
         flyT += dt;
@@ -878,9 +932,9 @@
       const g = c.getContext('2d');
       g.drawImage(snap, 0, 0);
       if (faceSnap) { // 顔の小窓も右上に
-        const r = 150, cx = 1080 - r - 40, cy = r + 150;
-        g.save(); g.beginPath(); g.arc(cx, cy, r, 0, 7); g.clip(); g.drawImage(faceSnap, cx - r, cy - r, r * 2, r * 2); g.restore();
-        g.lineWidth = 12; g.strokeStyle = '#fff'; g.beginPath(); g.arc(cx, cy, r, 0, 7); g.stroke();
+        const r = 170, cx = 1080 - r - 40, cy = r + 150;
+        g.drawImage(faceSnap, cx - r, cy - r, r * 2, r * 2);
+        g.lineWidth = 12; g.strokeStyle = '#fff'; g.strokeRect(cx - r, cy - r, r * 2, r * 2);
       }
       g.textAlign = 'center'; g.fillStyle = '#fff'; g.lineJoin = 'round';
       const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
@@ -928,8 +982,9 @@
 
     // ---------- 顔の小窓（穴あき枕の下から） ----------
     const faceEl = document.getElementById('face'), faceCv = faceEl.querySelector('canvas'), faceCtx = faceCv.getContext('2d');
-    const faceCam = new THREE.PerspectiveCamera(50, 1, 0.01, 5);
-    const faceLight = new THREE.PointLight('#fff1e0', 0.25, 1.5); faceLight.layers.enable(1); scene.children.forEach(o => o.isLight && o.layers.enable(1)); faceCam.add(faceLight); scene.add(faceCam);
+    const faceCam = new THREE.PerspectiveCamera(58, 1, 0.01, 5);
+    const faceLight = new THREE.PointLight('#fff1e0', 0.5, 1.5); faceLight.position.set(0.12, 0.1, 0); faceLight.layers.enable(1); // 斜めから当てて陰影を付ける
+    scene.children.forEach(o => o.isLight && o.layers.enable(1)); faceCam.add(faceLight); scene.add(faceCam);
     const fDir = new THREE.Vector3(), fUp = new THREE.Vector3(), fPos = new THREE.Vector3();
     function renderFace() {
       if (!headG) return;
@@ -939,7 +994,7 @@
       headG.updateWorldMatrix(true, false);
       headG.getWorldPosition(fPos);
       fDir.set(0, -1, 0).transformDirection(headG.matrixWorld); fUp.set(0, 0, -1).transformDirection(headG.matrixWorld);
-      faceCam.position.copy(fPos).addScaledVector(fDir, 0.3);
+      faceCam.position.copy(fPos).addScaledVector(fDir, 0.36);
       // 崩れた後は顔がベッドや床に埋まって見えなくなるので、頭だけを写す
       faceCam.layers.set(ragdoll ? 1 : 0); if (!ragdoll) faceCam.layers.enable(1);
       faceCam.up.copy(fUp); faceCam.lookAt(fPos.x + fDir.x * 0.09, fPos.y + fDir.y * 0.09, fPos.z + fDir.z * 0.09);
