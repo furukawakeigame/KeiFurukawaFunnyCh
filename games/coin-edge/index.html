@@ -296,18 +296,25 @@ sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.bias = -0.
 Object.assign(sun.shadow.camera, { left: -1.2, right: 1.2, top: 1.2, bottom: -1.2, near: 0.1, far: 5 });
 
 // coin: gold disc with rings on its face
-const R = 0.028, CT = 0.004;
-const faceTex = canvasTex(256, 256, (g, w) => {
+const R = 0.035, CT = 0.005, SPIN0 = -Math.PI / 2; // SPIN0 turns the cat upright toward the camera
+// the coin's face is the usual cat, stamped in a gold rim
+const paintFace = (g, w, img) => {
   const c = w / 2, gr = g.createRadialGradient(c * 0.8, c * 0.8, 10, c, c, c);
   gr.addColorStop(0, '#ffe9a0'); gr.addColorStop(1, '#c8902a'); g.fillStyle = gr; g.fillRect(0, 0, w, w);
-  g.strokeStyle = 'rgba(110,70,10,.6)'; g.lineWidth = 6; g.beginPath(); g.arc(c, c, c - 14, 0, 7); g.stroke();
-  g.lineWidth = 2; for (let a = 0; a < 64; a++) { const r = c - 6; g.beginPath(); g.moveTo(c + Math.cos(a / 64 * 7) * r, c + Math.sin(a / 64 * 7) * r); g.lineTo(c + Math.cos(a / 64 * 7) * (r - 6), c + Math.sin(a / 64 * 7) * (r - 6)); g.stroke(); }
-  g.fillStyle = 'rgba(110,70,10,.45)'; // a little leaf
-  g.beginPath(); g.ellipse(c, c, 60, 26, -0.6, 0, 7); g.fill();
-  g.strokeStyle = 'rgba(255,240,190,.6)'; g.lineWidth = 3; g.beginPath(); g.moveTo(c - 45, c + 32); g.lineTo(c + 45, c - 32); g.stroke();
-});
+  if (img) {
+    g.save(); g.beginPath(); g.arc(c, c, c - 20, 0, 7); g.clip();
+    g.fillStyle = '#fff3d0'; g.fillRect(0, 0, w, w);
+    g.drawImage(img, c - (c - 24), c - (c - 24) * 0.95, (c - 24) * 2, (c - 24) * 2);
+    g.globalCompositeOperation = 'multiply'; g.fillStyle = 'rgba(255,214,120,.35)'; g.fillRect(0, 0, w, w);
+    g.restore();
+  }
+  g.strokeStyle = 'rgba(110,70,10,.7)'; g.lineWidth = 8; g.beginPath(); g.arc(c, c, c - 18, 0, 7); g.stroke();
+  g.lineWidth = 2; for (let a = 0; a < 64; a++) { const r = c - 4; g.beginPath(); g.moveTo(c + Math.cos(a / 64 * 7) * r, c + Math.sin(a / 64 * 7) * r); g.lineTo(c + Math.cos(a / 64 * 7) * (r - 8), c + Math.sin(a / 64 * 7) * (r - 8)); g.stroke(); }
+};
+const faceTex = canvasTex(512, 512, (g, w) => paintFace(g, w, null));
+{ const img = new Image(); img.onload = () => { paintFace(faceTex.image.getContext('2d'), 512, img); faceTex.needsUpdate = true; }; img.src = 'cat.png'; }
 const gold = new THREE.MeshStandardMaterial({ color: 0xffd36a, metalness: 0.85, roughness: 0.25, envMapIntensity: 2.2 });
-const goldFace = new THREE.MeshStandardMaterial({ map: faceTex, metalness: 0.8, roughness: 0.3, envMapIntensity: 2.2 });
+const goldFace = new THREE.MeshStandardMaterial({ map: faceTex, metalness: 0.35, roughness: 0.35, envMapIntensity: 1.2 });
 const coin = shade(new THREE.Mesh(new THREE.CylinderGeometry(R, R, CT, 48), [gold, goldFace, goldFace]));
 const coinPivot = new THREE.Group(); coinPivot.add(coin); scene.add(coinPivot);
 // a red ruler line from the coin's front to the edge, after it stops
@@ -340,7 +347,7 @@ let state = 'ready', power = 0, chargeT = 0, best = store.get('best', null), res
 const c = { x: START_X, y: CT / 2, v: 0, vy: 0, rz: 0, wz: 0, spin: 0, wob: 0, wobT: 0, bounces: 0 }, cp = { ...c };
 let dec = DEC;
 function reset() {
-  Object.assign(c, { x: START_X, y: CT / 2, v: 0, vy: 0, rz: 0, wz: 0, spin: Math.random() * 7, wob: 0, wobT: 0, bounces: 0 });
+  Object.assign(c, { x: START_X, y: CT / 2, v: 0, vy: 0, rz: 0, wz: 0, spin: SPIN0, wob: 0, wobT: 0, bounces: 0 });
   Object.assign(cp, c);
   state = 'ready'; power = 0; chargeT = 0; result = null; endT = 0;
   gapLine.visible = edgeMark.visible = false;
@@ -374,7 +381,7 @@ function step(dt) {
     power = power * power * (3 - 2 * power) * 0.999 + 0.001;
   }
   if (state === 'slide') {
-    c.v = Math.max(0, c.v - dec * dt); c.x += c.v * dt; c.spin += c.v * dt * 6;
+    c.v = Math.max(0, c.v - dec * dt); c.x += c.v * dt;
     slideSet(c.v);
     if (c.x > EDGE) { state = 'fall'; slideStop(); c.wz = -c.v * 25 - 3; c.vy = 0; burst(3500, 3, 0.03, 0.2); }
     else if (c.v === 0) { state = 'settle'; slideStop(); rattle(); c.wob = 0.08; c.wobT = 0; sigh(); }
@@ -452,8 +459,8 @@ function paintFx() {
 
 // ---------- layout ----------
 // the tabletop from the start to just past the edge must fit above the bottom 80px + gauge
-const TOP = 52, BOTTOM = 130, FOCUS = new THREE.Vector3(0.27, 0.0, 0), SPAN_W = 0.7, SPAN_H = 0.3;
-const camDir = new THREE.Vector3(0, 0.28, 1).normalize();
+const TOP = 52, BOTTOM = 130, FOCUS = new THREE.Vector3(0.27, 0.0, 0), SPAN_W = 0.7, SPAN_H = 0.5;
+const camDir = new THREE.Vector3(-0.15, 1.0, 0.8).normalize(); // from high up in front
 let camDist = 1, viewH = 1, follow = 0, slackUp = 0;
 function resize() {
   const W = stage.clientWidth, H = stage.clientHeight;
