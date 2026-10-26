@@ -75,13 +75,14 @@
   </div>
   <div id="controls"></div>
 
-  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
   <script>
     // CDN が読めないときの一言
     setTimeout(() => { if (!window.HARI_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 8000);
   </script>
   <script type="module">
     import * as THREE from 'three';
+    import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
     window.HARI_READY = true;
 
     const SHARE_URL = 'https://keifurukawafunnych.com/games/acupuncture-darts/';
@@ -320,72 +321,130 @@
     const pat = new THREE.Group(); scene.add(pat);
     const breathe = new THREE.Group(); pat.add(breathe); // 呼吸で上下する部分
     let patMeshes = [], patient = null, headG = null;
+    // 表を滑らかにつなぐ（[t, 値] の並び）
+    const curve = tbl => t => {
+      let i = 0; while (i < tbl.length - 2 && t > tbl[i + 1][0]) i++;
+      const [t0, a] = tbl[i], [t1, b] = tbl[i + 1], k = THREE.MathUtils.clamp((t - t0) / (t1 - t0), 0, 1);
+      return a + (b - a) * (1 - Math.cos(k * Math.PI)) / 2;
+    };
+    // 寝かせた胴の形: z に沿って断面（上は背中のふくらみ、下は平ら）をつなぐ
+    function bodyGeo(z0, z1, W, Ht, Hb, bump) {
+      const N = 64, M = 48, p = [], idx = [];
+      for (let i = 0; i <= N; i++) {
+        const t = i / N, z = z0 + (z1 - z0) * t, w = W(t), ht = Ht(t), hb = Hb(t);
+        for (let j = 0; j <= M; j++) {
+          const a = -Math.PI + 2 * Math.PI * j / M, c = Math.cos(a), x = w * Math.sin(a);
+          let y = c > 0 ? ht * Math.pow(c, 0.8) : hb * c;
+          if (c > 0) y += bump(x, t) * c;
+          p.push(x, y, z);
+        }
+      }
+      for (let i = 0; i < N; i++) for (let j = 0; j < M; j++) { const a = i * (M + 1) + j, b = a + M + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); g.setIndex(idx); g.computeVertexNormals();
+      return g;
+    }
+    const gauss = (x, w) => Math.exp(-((x / w) ** 2));
+    // 2点の間に先細りの手足を置く
+    const up = new THREE.Vector3(0, 1, 0);
+    function limb(a, b, r0, r1, m, parent) {
+      const d = new THREE.Vector3().subVectors(b, a), L = d.length();
+      const o = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, L, 18), m);
+      o.position.copy(a).addScaledVector(d, 0.5); o.quaternion.setFromUnitVectors(up, d.normalize());
+      parent.add(o);
+      part(SPH, m, a.x, a.y, a.z, r0, r0, r0, parent); part(SPH, m, b.x, b.y, b.z, r1, r1, r1, parent);
+      return o;
+    }
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
     function makePatient() {
-      while (breathe.children.length) breathe.remove(breathe.children[0]);
+      while (breathe.children.length) { const c = breathe.children[0]; breathe.remove(c); }
       const skin = mat(pick(SKIN), 0.55);
       const hairM = mat(pick(HAIR), 0.8);
       const towelTex = canvasTex(128, 128, (c, w, h) => { c.fillStyle = pick(TOWEL); c.fillRect(0, 0, w, h); c.fillStyle = 'rgba(0,0,0,.08)'; for (let y = 0; y < h; y += 16) c.fillRect(0, y, w, 6); for (let i = 0; i < 1500; i++) { c.fillStyle = `rgba(255,255,255,${Math.random() * 0.25})`; c.fillRect(Math.random() * w, Math.random() * h, 1, 2); } });
       towelTex.wrapS = towelTex.wrapT = THREE.RepeatWrapping; towelTex.repeat.set(2, 3);
       const towel = new THREE.MeshStandardMaterial({ map: towelTex, roughness: 1 });
-      const Y = BED_Y + 0.01;
-      const back = []; // 背中として扱う部分
-      // 胴体: 肩の丸いカプセルを寝かせる
-      const torso = part(new THREE.CapsuleGeometry(0.17, 0.5, 10, 28), skin, 0, Y + 0.12, -0.45, 1.45, 1, 0.72, breathe); torso.rotation.x = Math.PI / 2; back.push(torso);
-      // 肩甲骨と背骨のくぼみ
-      for (const s of [-1, 1]) { const b = part(SPH, skin, s * 0.1, Y + 0.155, -0.66, 0.085, 0.05, 0.1, breathe); b.rotation.y = s * 0.3; back.push(b); }
-      for (const s of [-1, 1]) back.push(part(SPH, skin, s * 0.2, Y + 0.13, -0.78, 0.09, 0.08, 0.1, breathe)); // 肩
+      const Y = BED_Y + 0.005, build = rnd(0.92, 1.1); // 体格
+      const before = breathe.children.length;
+      // 胴: 首の付け根 → 肩 → わき → くびれ → 腰
+      const trunk = new THREE.Mesh(bodyGeo(-0.9, 0.08,
+        t => build * curve([[0, 0.07], [0.1, 0.2], [0.2, 0.245], [0.36, 0.215], [0.68, 0.165], [1, 0.19]])(t),
+        curve([[0, 0.05], [0.12, 0.095], [0.3, 0.115], [0.55, 0.095], [0.75, 0.075], [1, 0.1]]),
+        curve([[0, 0.05], [0.15, 0.075], [1, 0.07]]),
+        (x, t) => {
+          const z = -0.9 + 0.98 * t;
+          let b = -0.012 * gauss(x, 0.022) * curve([[0, 0], [0.2, 1], [0.9, 1], [1, 0.3]])(t); // 背骨のくぼみ
+          for (const s of [-1, 1]) b += 0.02 * gauss(x - s * 0.095, 0.055) * gauss(z + 0.66, 0.09); // 肩甲骨
+          return b;
+        }), skin);
+      trunk.position.y = Y + 0.07; breathe.add(trunk);
+      // 肩の丸み
+      for (const s of [-1, 1]) part(SPH, skin, s * 0.215 * build, Y + 0.085, -0.79, 0.075, 0.07, 0.085, breathe);
       // 首と頭（顔は枕の穴の中）
-      part(CYL, skin, 0, Y + 0.12, -0.92, 0.065, 0.12, 0.065, breathe).rotation.x = Math.PI / 2;
-      headG = new THREE.Group(); headG.position.set(0, Y + 0.13, -1.06); breathe.add(headG);
-      back.push(part(SPH, skin, 0, 0, 0, 0.11, 0.12, 0.13, headG));
-      const style = pick(['short', 'short', 'bun', 'bald']);
-      if (style !== 'bald') back.push(part(SPH, hairM, 0, 0.025, 0.012, 0.118, 0.11, 0.13, headG));
-      if (style === 'bun') back.push(part(SPH, hairM, 0, 0.11, -0.04, 0.055, 0.05, 0.055, headG));
-      for (const s of [-1, 1]) part(SPH, skin, s * 0.11, -0.01, 0, 0.025, 0.035, 0.02, headG);
-      // 腕: 枕を抱えるように前へ
+      limb(V(0, Y + 0.1, -0.86), V(0, Y + 0.1, -0.98), 0.06, 0.052, skin, breathe);
+      headG = new THREE.Group(); headG.position.set(0, Y + 0.11, -1.08); breathe.add(headG);
+      part(SPH, skin, 0, 0, 0, 0.095, 0.105, 0.12, headG);
+      part(SPH, skin, 0, -0.03, -0.06, 0.07, 0.07, 0.07, headG); // あご（下向き）
+      for (const s of [-1, 1]) { const e = part(SPH, skin, s * 0.097, -0.005, 0.0, 0.016, 0.03, 0.022, headG); e.rotation.y = s * 0.3; }
+      const style = pick(['short', 'short', 'bun', 'bald', 'crop']);
+      if (style !== 'bald') part(SPH, hairM, 0, 0.022, 0.012, 0.102, style === 'crop' ? 0.095 : 0.1, 0.125, headG);
+      if (style === 'bun') part(SPH, hairM, 0, 0.1, -0.03, 0.045, 0.04, 0.045, headG);
+      // 腕: 肩から外へ出して肘を曲げ、枕の前で手を重ねる
       for (const s of [-1, 1]) {
-        const up = part(new THREE.CapsuleGeometry(0.05, 0.2, 6, 14), skin, s * 0.27, Y + 0.08, -0.88, 1, 1, 1, breathe); up.rotation.set(Math.PI / 2, 0, 0); up.rotation.z = s * 0.0; up.position.set(s * 0.29, Y + 0.07, -0.95);
-        const fo = part(new THREE.CapsuleGeometry(0.042, 0.18, 6, 14), skin, s * 0.2, Y + 0.05, -1.17, 1, 1, 1, breathe); fo.rotation.set(Math.PI / 2, 0, s * 0.9);
-        part(SPH, skin, s * 0.1, Y + 0.05, -1.24, 0.05, 0.03, 0.06, breathe);
-        back.push(up, fo);
+        const sh = V(s * 0.23 * build, Y + 0.08, -0.79), el = V(s * 0.37, Y + 0.05, -1.03), hd = V(s * 0.1, Y + 0.05, -1.24);
+        limb(sh, el, 0.058, 0.045, skin, breathe);
+        part(SPH, skin, s * 0.29, Y + 0.075, -0.9, 0.06, 0.05, 0.075, breathe).rotation.y = s * 0.6; // 力こぶ側のふくらみ
+        limb(el, hd, 0.044, 0.034, skin, breathe);
+        const hand = part(SPH, skin, hd.x - s * 0.04, Y + 0.035, -1.27, 0.06, 0.022, 0.045, breathe); hand.rotation.y = s * 0.5;
+        part(SPH, skin, hd.x - s * 0.02, Y + 0.035, -1.22, 0.025, 0.017, 0.012, breathe).rotation.y = s * 1.1; // 親指
       }
-      // 腰から下はタオル
-      const tw = part(new THREE.CapsuleGeometry(0.18, 0.75, 8, 24), towel, 0, Y + 0.09, 0.35, 1.5, 1, 0.62, breathe); tw.rotation.x = Math.PI / 2; back.push(tw);
-      const hem = part(new THREE.CylinderGeometry(1, 1, 1, 28, 1, true), towel, 0, Y + 0.1, -0.03, 0.275, 0.05, 0.12, breathe); hem.rotation.x = Math.PI / 2;
-      // 足の裏
-      for (const s of [-1, 1]) { const f = part(SPH, skin, s * 0.09, Y + 0.08, 0.98, 0.05, 0.06, 0.04, breathe); back.push(f); }
+      // 腰から太ももはタオル（体に沿ってふくらむ）
+      const tw = new THREE.Mesh(bodyGeo(-0.06, 0.62,
+        t => build * curve([[0, 0.205], [0.25, 0.22], [0.6, 0.2], [1, 0.17]])(t),
+        curve([[0, 0.1], [0.22, 0.13], [0.45, 0.1], [1, 0.075]]),
+        () => 0.075,
+        (x, t) => -0.02 * gauss(x, 0.03) * curve([[0, 0.2], [0.3, 1], [1, 0.6]])(t)), towel);
+      tw.position.y = Y + 0.075; tw.scale.set(1.04, 1.04, 1); breathe.add(tw);
+      // ふくらはぎ・足首・足の裏
+      for (const s of [-1, 1]) {
+        const kn = V(s * 0.1, Y + 0.06, 0.55), an = V(s * 0.095, Y + 0.05, 0.93);
+        limb(kn, an, 0.058, 0.032, skin, breathe);
+        part(SPH, skin, s * 0.1, Y + 0.075, 0.68, 0.058, 0.05, 0.1, breathe); // ふくらはぎ
+        const foot = part(SPH, skin, s * 0.1, Y + 0.035, 0.98, 0.038, 0.035, 0.065, breathe); foot.rotation.x = 1.0;
+        part(SPH, skin, s * 0.1, Y + 0.075, 0.955, 0.033, 0.03, 0.03, breathe); // かかと
+      }
       shade(breathe);
-      patMeshes = back.concat(hem);
-      return { f0: pick([110, 125, 140, 200, 220, 240]) * rnd(0.92, 1.08), torso };
+      patMeshes = breathe.children.slice(before).flatMap(o => o.isMesh ? [o] : o.children.filter(m => m.isMesh));
+      return { f0: pick([110, 125, 140, 200, 220, 240]) * rnd(0.92, 1.08), torso: trunk };
     }
 
     // ---------- ツボ ----------
+    // 背中の形に沿って貼る（デカール）
     const TUBO_R = 0.075; // この中に刺されば点数
-    const tubo = new THREE.Group();
-    {
-      const glowTex = canvasTex(128, 128, (c, w, h) => { const g = c.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(255,230,140,1)'); g.addColorStop(0.5, 'rgba(255,170,60,.55)'); g.addColorStop(1, 'rgba(255,140,40,0)'); c.fillStyle = g; c.fillRect(0, 0, w, h); });
-      const glow = new THREE.Mesh(new THREE.PlaneGeometry(TUBO_R * 3.2, TUBO_R * 3.2), new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-      tubo.add(glow); tubo.userData.glow = glow;
-      const ringM = new THREE.MeshBasicMaterial({ color: '#ff8a3a', transparent: true, opacity: 0.85, depthWrite: false });
-      for (const [r0, r1] of [[TUBO_R * 0.93, TUBO_R], [TUBO_R * 0.6, TUBO_R * 0.66], [0, TUBO_R * 0.2]]) { const m = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 40), ringM); m.position.z = 0.0005; tubo.add(m); }
-      tubo.renderOrder = 2;
-    }
+    const tuboTex = canvasTex(256, 256, (c, w, h) => {
+      const g = c.createRadialGradient(128, 128, 0, 128, 128, 128); g.addColorStop(0, 'rgba(255,230,140,1)'); g.addColorStop(0.45, 'rgba(255,170,60,.5)'); g.addColorStop(1, 'rgba(255,140,40,0)');
+      c.fillStyle = g; c.fillRect(0, 0, w, h);
+      const R = 128 / 1.6; // テクスチャの半径に対するツボの半径
+      c.strokeStyle = '#ff7a2a'; c.lineWidth = 6; for (const r of [R * 0.965, R * 0.63]) { c.beginPath(); c.arc(128, 128, r, 0, 7); c.stroke(); }
+      c.fillStyle = '#ff7a2a'; c.beginPath(); c.arc(128, 128, R * 0.2, 0, 7); c.fill();
+    });
+    const tuboMat = new THREE.MeshBasicMaterial({ map: tuboTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, toneMapped: false });
+    let tubo = new THREE.Object3D();
     const tuboLocal = new THREE.Vector3(), tuboWorld = new THREE.Vector3();
     function placeTubo() {
-      // 背中のどこかを上から探る
+      // 背中のどこかを上から探る（呼吸の動きは止めた状態で作る）
       const rc = new THREE.Raycaster();
       breathe.updateMatrixWorld(true);
-      for (let k = 0; k < 20; k++) {
-        const x = rnd(-0.13, 0.13), z = rnd(-0.72, -0.15);
+      for (let k = 0; k < 30; k++) {
+        const x = rnd(-0.13, 0.13), z = rnd(-0.72, -0.12);
         rc.set(new THREE.Vector3(x, 2, z), new THREE.Vector3(0, -1, 0));
         const h = rc.intersectObject(patient.torso, false)[0];
         if (!h) continue;
         const n = h.face.normal.clone().transformDirection(h.object.matrixWorld);
-        tuboLocal.copy(breathe.worldToLocal(h.point.clone().addScaledVector(n, 0.003)));
-        tubo.position.copy(tuboLocal);
-        tubo.lookAt(breathe.localToWorld(tuboLocal.clone().add(n)));
-        tubo.quaternion.premultiply(new THREE.Quaternion()); // breathe は回転しないので世界の向きのままでよい
-        breathe.add(tubo);
+        const o = new THREE.Object3D(); o.position.copy(h.point); o.lookAt(h.point.clone().add(n));
+        tubo = new THREE.Mesh(new DecalGeometry(patient.torso, h.point, o.rotation, new THREE.Vector3(TUBO_R * 3.2, TUBO_R * 3.2, 0.12)), tuboMat);
+        tubo.renderOrder = 2;
+        breathe.add(tubo); // breathe は動いていない（原点）ので、そのまま子にできる
+        tuboLocal.copy(breathe.worldToLocal(h.point.clone()));
         return;
       }
     }
@@ -532,7 +591,7 @@
       state = 'stuck'; endT = 0;
       if (onBody) {
         breathe.updateMatrixWorld(true);
-        tubo.getWorldPosition(tuboWorld);
+        tuboWorld.copy(breathe.localToWorld(tuboLocal.clone()));
         const d = hit.point.distanceTo(tuboWorld);
         score = d < TUBO_R ? Math.max(1, Math.round(100 * (1 - d / TUBO_R) ** 0.8)) : 0;
         thunk(false);
@@ -567,7 +626,7 @@
       if (jumpV || jump) { jumpV -= dt * 9; jump = Math.max(0, jump + jumpV * dt); if (jump === 0 && jumpV < 0) jumpV = 0; }
       shake = Math.max(0, shake - dt * 2.5);
       const pulse = 1 + Math.sin(clock * 5) * 0.12;
-      tubo.userData.glow.scale.setScalar(pulse);
+      tuboMat.opacity = 0.8 + (pulse - 1) * 1.6;
       if (headG) headG.rotation.z = outcome === 'bliss' ? Math.min(0.35, endT * 0.5) : 0;
 
       if (state === 'fly') {
@@ -623,7 +682,7 @@
     let snap = null, shareCache = null, needSnap = false;
     function takeSnap() {
       const src = renderer.domElement;
-      const f = (outcome === 'miss' ? tuboWorld.copy(tubo.getWorldPosition(new THREE.Vector3())) : hitPoint).clone().project(camera);
+      const f = (outcome === 'miss' ? breathe.localToWorld(tuboWorld.copy(tuboLocal)) : hitPoint).clone().project(camera);
       const fx2 = (f.x + 1) / 2 * src.width, fy = (1 - f.y) / 2 * src.height;
       const side = Math.min(src.width, src.height) * 0.8;
       const sx = THREE.MathUtils.clamp(fx2 - side / 2, 0, src.width - side), sy = THREE.MathUtils.clamp(fy - side * 0.6, 0, src.height - side);
@@ -703,7 +762,7 @@
     }
 
     // テスト用（自動確認から呼べるように）
-    window.__hari = { throwNeedle, THREE, camera, renderer, scene, needle, tubo, get state() { return state; }, get score() { return score; }, get outcome() { return outcome; } };
+    window.__hari = { throwNeedle, THREE, camera, renderer, scene, needle, get tubo() { return breathe.localToWorld(tuboLocal.clone()); }, get state() { return state; }, get score() { return score; }, get outcome() { return outcome; } };
     resize();
     start();
     applyLang();
