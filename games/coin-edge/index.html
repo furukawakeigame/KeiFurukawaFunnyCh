@@ -290,46 +290,151 @@ const mugMat = new THREE.MeshStandardMaterial({ color: 0x4dabf7, roughness: 0.3 
   mugMat.side = THREE.DoubleSide; shade(mug); }
 { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.17, 6), new THREE.MeshStandardMaterial({ color: 0xfcc419, roughness: 0.5 }));
   p.rotation.z = Math.PI / 2; p.rotation.y = 0.5; p.position.set(-0.1, 0.004, -0.25); scene.add(shade(p)); }
-// a person crouching past the edge, peeking over it with their face just under the tabletop
-const HEAD = new THREE.Vector3(EDGE + 0.15, -0.11, 0), HEAD_R = 0.085;
-const skin = new THREE.MeshStandardMaterial({ color: 0xf1c7a0, roughness: 0.6 });
-const hairMat = new THREE.MeshStandardMaterial({ color: 0x2b1d14, roughness: 0.8 });
-const shirt = new THREE.MeshStandardMaterial({ color: 0x4c6ef5, roughness: 0.75 });
-const white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
-const black = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2 });
-const SPH = new THREE.SphereGeometry(1, 24, 16);
+// a person kneeling past the edge, sitting on their heels and leaning in, face just under the tabletop.
+// the body is a ragdoll: joints are points held together by sticks. it stays posed until the coin hits,
+// then the joints fly free under gravity (Verlet) and the meshes follow them
+const F = -TABLE_Y;
+const skin = new THREE.MeshStandardMaterial({ color: 0xe8b894, roughness: 0.55 });
+const hairMat = new THREE.MeshStandardMaterial({ color: 0x1e140e, roughness: 0.85 });
+const shirt = new THREE.MeshStandardMaterial({ color: 0xdfe4ea, roughness: 0.85 });
+const jeans = new THREE.MeshStandardMaterial({ color: 0x2f4a6d, roughness: 0.9 });
+const shoeMat = new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.5 });
+const white = new THREE.MeshStandardMaterial({ color: 0xf8f8f4, roughness: 0.15 });
+const iris = new THREE.MeshStandardMaterial({ color: 0x3a2412, roughness: 0.2 });
+const black = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.1 });
+const lipMat = new THREE.MeshStandardMaterial({ color: 0xb86a62, roughness: 0.45 });
+const SPH = new THREE.SphereGeometry(1, 28, 18);
 const part = (geo, mat, x, y, z, sx, sy, sz, parent) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); parent.add(m); return m; };
-// the whole body pivots on the feet, so dying tips it over backward
-const human = new THREE.Group(); human.position.set(EDGE + 0.36, -TABLE_Y, 0); scene.add(human);
-const body = new THREE.Group(); human.add(body);
-{ const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.25, 8, 20), shirt);
-  torso.position.set(-0.12, 0.38, 0); torso.rotation.z = 0.55; torso.scale.set(1, 1, 0.8); body.add(torso);
-  for (const sz of [-1, 1]) { // legs folded under
-    const th = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.28, 6, 12), new THREE.MeshStandardMaterial({ color: 0x343a40, roughness: 0.8 }));
-    th.position.set(-0.1, 0.12, sz * 0.09); th.rotation.z = 1.2; body.add(th);
+// joints (x from the edge, y from the floor), mirrored on z for the left/right ones
+const J = {};
+const POSE = {
+  head: [0.15, 0.66, 0], neck: [0.2, 0.555, 0], chest: [0.31, 0.44, 0], pelvis: [0.42, 0.22, 0],
+  shL: [0.27, 0.525, -0.18], shR: [0.27, 0.525, 0.18], elL: [0.26, 0.27, -0.22], elR: [0.26, 0.27, 0.22],
+  haL: [0.09, 0.15, -0.14], haR: [0.09, 0.15, 0.14], hiL: [0.42, 0.22, -0.095], hiR: [0.42, 0.22, 0.095],
+  knL: [0.02, 0.07, -0.11], knR: [0.02, 0.07, 0.11], anL: [0.44, 0.05, -0.1], anR: [0.44, 0.05, 0.1],
+  toL: [0.58, 0.03, -0.11], toR: [0.58, 0.03, 0.11],
+};
+const NAMES = Object.keys(POSE);
+for (const n of NAMES) J[n] = { p: new THREE.Vector3(), o: new THREE.Vector3(), r: 0.04 };
+J.head.r = 0.1; J.chest.r = 0.12; J.pelvis.r = 0.1;
+const HEAD = new THREE.Vector3(EDGE + POSE.head[0], F + POSE.head[1], 0), HEAD_R = 0.1;
+function pose() {
+  for (const n of NAMES) { const [x, y, z] = POSE[n]; J[n].p.set(EDGE + x, F + y, z); J[n].o.copy(J[n].p); }
+}
+pose();
+// sticks: the bones, plus cross braces so the chest and hips stay one rigid piece
+const STICKS = [
+  ['head', 'neck'], ['neck', 'chest'], ['chest', 'pelvis'], ['neck', 'shL'], ['neck', 'shR'], ['shL', 'shR'],
+  ['shL', 'elL'], ['elL', 'haL'], ['shR', 'elR'], ['elR', 'haR'], ['pelvis', 'hiL'], ['pelvis', 'hiR'], ['hiL', 'hiR'],
+  ['hiL', 'knL'], ['knL', 'anL'], ['hiR', 'knR'], ['knR', 'anR'], ['anL', 'toL'], ['anR', 'toR'],
+  ['shL', 'chest'], ['shR', 'chest'], ['shL', 'hiL'], ['shR', 'hiR'], ['shL', 'hiR'], ['shR', 'hiL'], ['head', 'chest'],
+  ['head', 'shL'], ['head', 'shR'], ['neck', 'pelvis'], ['chest', 'hiL'], ['chest', 'hiR'],
+].map(([a, b]) => [J[a], J[b], J[a].p.distanceTo(J[b].p)]);
+// soft limits so knees and elbows don't pass through the body: keep hands and feet from the chest/pelvis
+const MINS = [['haL', 'chest', 0.12], ['haR', 'chest', 0.12], ['anL', 'pelvis', 0.12], ['anR', 'pelvis', 0.12], ['knL', 'chest', 0.2], ['knR', 'chest', 0.2], ['elL', 'pelvis', 0.08], ['elR', 'pelvis', 0.08]].map(([a, b, d]) => [J[a], J[b], d]);
+let ragdoll = false;
+const tmp = new THREE.Vector3();
+function ragStep(dt) {
+  for (const n of NAMES) {
+    const j = J[n]; tmp.copy(j.p).sub(j.o).multiplyScalar(0.995);
+    j.o.copy(j.p); j.p.add(tmp); j.p.y -= 9.8 * dt * dt;
   }
-  // arms reach up from the shoulders and the hands grip the edge on both sides of the coin's path
-  for (const sz of [-1, 1]) {
-    const sh = new THREE.Vector3(0.22 - 0.36, TABLE_Y - 0.24, sz * 0.12), hd = new THREE.Vector3(EDGE - 0.004 - human.position.x, TABLE_Y + 0.008, sz * 0.22);
-    const len = sh.distanceTo(hd), arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.028, len, 6, 12), shirt);
-    arm.position.copy(sh).lerp(hd, 0.5); arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), hd.clone().sub(sh).normalize()); body.add(arm);
-    part(SPH, skin, hd.x, hd.y, hd.z, 0.022, 0.012, 0.028, body);
+  for (let it = 0; it < 12; it++) {
+    for (const [a, b, len] of STICKS) {
+      tmp.copy(b.p).sub(a.p); const d = tmp.length() || 1e-6, k = (d - len) / d * 0.5;
+      a.p.addScaledVector(tmp, k); b.p.addScaledVector(tmp, -k);
+    }
+    for (const [a, b, mn] of MINS) {
+      tmp.copy(b.p).sub(a.p); const d = tmp.length() || 1e-6; if (d >= mn) continue;
+      const k = (d - mn) / d * 0.5; a.p.addScaledVector(tmp, k); b.p.addScaledVector(tmp, -k);
+    }
+    for (const n of NAMES) {
+      const j = J[n];
+      if (j.p.y < F + j.r) { // floor, with friction
+        j.p.y = F + j.r; const vx = j.p.x - j.o.x, vz = j.p.z - j.o.z; j.o.x = j.p.x - vx * 0.85; j.o.z = j.p.z - vz * 0.85;
+        if (j.o.y < j.p.y - 0.02 && n === 'head' && !thud) { thud = true; burst(150, 1.5, 0.25, 0.9); burst(90, 2, 0.35, 0.7); catShake = 0.4; }
+      }
+      if (j.p.z < -1.38 + j.r) j.p.z = -1.38 + j.r; // the back wall
+      // the table top: push anything inside it back out over the edge
+      if (j.p.x < EDGE + j.r && j.p.y > -TH - j.r && j.p.y < j.r && j.p.z > -0.5 && j.p.z < 0.2) j.p.x = EDGE + j.r;
+    }
   }
 }
-const head = new THREE.Group(); head.position.set(HEAD.x - human.position.x, HEAD.y - human.position.y, 0); body.add(head);
-part(new THREE.CylinderGeometry(0.035, 0.04, 0.1, 12), skin, 0.03, -0.09, 0, 1, 1, 1, head).rotation.z = 0.5;
-part(SPH, skin, 0, 0, 0, HEAD_R * 0.95, HEAD_R * 1.05, HEAD_R * 0.9, head);
-part(SPH, hairMat, 0.02, 0.025, 0, HEAD_R * 0.98, HEAD_R * 0.95, HEAD_R * 0.95, head); // hair over the back and top
-for (const sz of [-1, 1]) {
-  part(SPH, skin, 0.01, -0.005, sz * HEAD_R * 0.88, 0.016, 0.026, 0.012, head); // ears
-  part(SPH, white, -HEAD_R * 0.82, 0.012, sz * 0.03, 0.012, 0.017, 0.014, head);  // eyes looking at the coin
-  part(SPH, black, -HEAD_R * 0.9, 0.012, sz * 0.03, 0.006, 0.009, 0.008, head);
-  part(SPH, white, -HEAD_R * 0.94, 0.017, sz * 0.03 + 0.003, 0.0022, 0.0022, 0.0022, head);
-  part(SPH, hairMat, -HEAD_R * 0.86, 0.04, sz * 0.032, 0.004, 0.003, 0.016, head); // brows
+function fling() {
+  ragdoll = true;
+  const kick = (n, vx, vy, vz) => { J[n].o.copy(J[n].p).sub(tmp.set(vx, vy, vz).multiplyScalar(DT)); };
+  const s = 1 + Math.random() * 0.3, side = (Math.random() - 0.3) * 1.2;
+  kick('head', 5.5 * s, 3.2 * s, side); kick('neck', 4.2 * s, 2.6 * s, side * 0.8); kick('chest', 3.2 * s, 2.2 * s, side * 0.6);
+  for (const n of ['shL', 'shR']) kick(n, 3.4 * s, 2.3 * s, side * 0.6);
+  for (const n of ['elL', 'elR', 'haL', 'haR']) kick(n, 2.4 * s, 2.6 * s, side * 0.4 + (Math.random() - 0.5) * 2);
+  kick('pelvis', 1.8 * s, 1.9 * s, side * 0.3); for (const n of ['hiL', 'hiR']) kick(n, 1.8 * s, 1.9 * s, side * 0.3);
+  for (const n of ['knL', 'knR', 'anL', 'anR', 'toL', 'toR']) kick(n, 0.6 * s, 1.4 * s, (Math.random() - 0.5));
 }
-part(SPH, skin, -HEAD_R * 0.95, -0.012, 0, 0.012, 0.016, 0.011, head); // nose
-const mouth = part(SPH, new THREE.MeshStandardMaterial({ color: 0x8a2b2b, roughness: 0.5 }), -HEAD_R * 0.86, -0.045, 0, 0.006, 0.004, 0.018, head);
+// meshes: each limb is a capsule stretched between two joints
+const human = new THREE.Group(); scene.add(human);
+const limbs = [];
+const limb = (a, b, r, mat, ext = 0) => {
+  const len = J[a].p.distanceTo(J[b].p) + ext, m = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(0.001, len - r * 2 + r * 0.6), 6, 14), mat);
+  human.add(m); limbs.push({ m, a: J[a], b: J[b] }); return m;
+};
+limb('shL', 'elL', 0.045, shirt); limb('shR', 'elR', 0.045, shirt);
+limb('elL', 'haL', 0.037, shirt); limb('elR', 'haR', 0.037, shirt);
+limb('hiL', 'knL', 0.068, jeans); limb('hiR', 'knR', 0.068, jeans);
+limb('knL', 'anL', 0.052, jeans); limb('knR', 'anR', 0.052, jeans);
+limb('neck', 'head', 0.045, skin);
+// hands and shoes as small shapes at the joint ends
+const hands = ['haL', 'haR'].map(n => { const g = new THREE.Group(); human.add(g); part(SPH, skin, 0, -0.035, 0, 0.032, 0.05, 0.018, g); part(SPH, skin, 0.012, -0.03, 0.02, 0.01, 0.028, 0.01, g); return { g, j: J[n], e: J[n === 'haL' ? 'elL' : 'elR'] }; });
+const shoes = [['anL', 'toL'], ['anR', 'toR']].map(([a, b]) => { const g = new THREE.Group(); human.add(g); part(SPH, shoeMat, 0, 0.06, 0, 0.045, 0.09, 0.04, g); return { g, j: J[a], e: J[b] }; });
+// chest and hips: shaped blobs oriented by their joints
+const torso = new THREE.Group(); human.add(torso);
+part(SPH, shirt, 0, 0.12, 0, 0.1, 0.16, 0.17, torso); // ribcage
+part(SPH, shirt, 0, -0.02, 0, 0.09, 0.15, 0.145, torso); // belly
+for (const s of [-1, 1]) part(SPH, shirt, 0, 0.19, s * 0.15, 0.05, 0.05, 0.055, torso); // shoulders
+const hips = new THREE.Group(); human.add(hips);
+part(SPH, jeans, 0, 0.02, 0, 0.1, 0.1, 0.17, hips);
+// the head, face toward local -x
+const headOuter = new THREE.Group(); human.add(headOuter);
+const head = new THREE.Group(); headOuter.add(head); head.rotation.z = -0.45; // chin up, looking at the coin
+part(SPH, skin, 0, 0.005, 0, 0.088, 0.108, 0.078, head); // skull
+part(SPH, skin, -0.03, -0.05, 0, 0.06, 0.05, 0.058, head); // jaw
+part(SPH, skin, -0.075, -0.075, 0, 0.022, 0.018, 0.026, head); // chin
+part(SPH, hairMat, 0.012, 0.035, 0, 0.088, 0.092, 0.084, head); // hair over the top and back
+part(SPH, hairMat, -0.05, 0.075, 0, 0.04, 0.03, 0.07, head); // fringe
+for (const s of [-1, 1]) {
+  part(SPH, skin, 0.008, -0.005, s * 0.078, 0.017, 0.03, 0.01, head); // ears
+  part(SPH, hairMat, 0.02, 0.02, s * 0.08, 0.04, 0.05, 0.012, head); // sideburns
+  part(SPH, white, -0.072, 0.012, s * 0.03, 0.01, 0.009, 0.014, head); // eyes looking at the coin
+  part(SPH, iris, -0.079, 0.012, s * 0.03, 0.006, 0.0075, 0.0075, head);
+  part(SPH, black, -0.083, 0.012, s * 0.03, 0.003, 0.0038, 0.0038, head);
+  part(SPH, white, -0.085, 0.015, s * 0.03 - 0.002, 0.0013, 0.0013, 0.0013, head);
+  part(SPH, skin, -0.07, 0.02, s * 0.03, 0.011, 0.004, 0.016, head); // upper lids
+  part(SPH, hairMat, -0.078, 0.034, s * 0.032, 0.006, 0.004, 0.019, head).rotation.x = s * 0.15; // brows
+  part(SPH, skin, -0.062, -0.022, s * 0.04, 0.02, 0.02, 0.02, head); // cheeks
+}
+part(SPH, skin, -0.088, -0.006, 0, 0.012, 0.024, 0.01, head).rotation.z = -0.25; // nose
+part(SPH, skin, -0.094, -0.022, 0, 0.012, 0.009, 0.013, head);
+const lipU = part(SPH, lipMat, -0.082, -0.044, 0, 0.007, 0.004, 0.02, head);
+const lipD = part(SPH, lipMat, -0.08, -0.052, 0, 0.007, 0.0045, 0.018, head);
+const mouthIn = part(SPH, new THREE.MeshStandardMaterial({ color: 0x3a0d0d, roughness: 0.7 }), -0.077, -0.048, 0, 0.005, 0.0001, 0.015, head);
 shade(human);
+const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3(), mtx = new THREE.Matrix4();
+// orient a group: local y along "up", local z along "side" (made perpendicular)
+function orient(g, up, side) {
+  vB.copy(up).normalize(); vC.copy(side).addScaledVector(vB, -side.dot(vB)).normalize(); vA.crossVectors(vB, vC);
+  mtx.makeBasis(vA, vB, vC); g.quaternion.setFromRotationMatrix(mtx);
+}
+const side = new THREE.Vector3(), up = new THREE.Vector3();
+function drawHuman() {
+  for (const { m, a, b } of limbs) { m.position.copy(a.p).lerp(b.p, 0.5); m.quaternion.setFromUnitVectors(UP_, up.copy(b.p).sub(a.p).normalize()); }
+  side.copy(J.shR.p).sub(J.shL.p);
+  torso.position.copy(J.chest.p); orient(torso, up.copy(J.neck.p).sub(J.pelvis.p), side);
+  hips.position.copy(J.pelvis.p); orient(hips, up.copy(J.chest.p).sub(J.pelvis.p), side.copy(J.hiR.p).sub(J.hiL.p));
+  headOuter.position.copy(J.head.p); orient(headOuter, up.copy(J.head.p).sub(J.neck.p), side.copy(J.shR.p).sub(J.shL.p));
+  for (const h of hands) { h.g.position.copy(h.j.p); orient(h.g, up.copy(h.e.p).sub(h.j.p), side.set(0, 0, 1)); }
+  for (const s of shoes) { s.g.position.copy(s.j.p); orient(s.g, up.copy(s.e.p).sub(s.j.p), side.set(0, 0, 1)); }
+}
+const UP_ = new THREE.Vector3(0, 1, 0);
+function mouthOpen(k) { lipD.position.y = -0.052 - k * 0.012; mouthIn.scale.y = 0.0001 + k * 0.009; }
 
 // lights: sky + warm sun from the window side
 scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x7a5236, 0.9));
@@ -420,7 +525,7 @@ function reset() {
   Object.assign(cp, c);
   state = 'ready'; power = 0; chargeT = 0; result = null; endT = 0;
   gapLine.visible = edgeMark.visible = false;
-  tilt.rotation.x = -0.12; photo.position.y = 0; human.rotation.z = 0; head.rotation.z = 0; mouth.scale.y = 0.004; crack = null; catShake = 0; dropT = 0;
+  tilt.rotation.x = -0.12; photo.position.y = 0; ragdoll = false; pose(); mouthOpen(0); crack = null; catShake = 0; dropT = 0;
   fxCtx.clearRect(0, 0, fx.width, fx.height); fxOn = false; redK = 0;
   $('gauge').hidden = false; gaugeSet(0);
 }
@@ -451,7 +556,7 @@ function release() {
   if (state !== 'charge') return;
   drag = null; keyHold = false;
   if (power < 0.02) { state = 'ready'; power = 0; gaugeSet(0); return; } // barely pulled: nothing happens
-  state = 'slide'; c.x = START_X - power * PULL;
+  state = 'slide'; c.x = START_X - power * PULL; $('gauge').hidden = true;
   c.v = power * VMAX; dec = DEC * (1 + (Math.random() - 0.5) * 0.03); // the table isn't perfectly even
   flickSound(power); slideStart();
   puff(c.x - R, 0.002, 0, 5, 0xffffff, 0.08);
@@ -496,15 +601,12 @@ function step(dt) {
       } else { c.vy = 0; c.v *= Math.exp(-dt * 6); c.wz = 0; const flat = Math.round(c.rz / Math.PI) * Math.PI; c.rz += (flat - c.rz) * Math.min(1, dt * 12); }
     }
   }
+  if (ragdoll) ragStep(dt);
   if (state === 'kill') {
     dropT += dt;
-    // the head snaps back, then the whole person keels over backward
-    head.rotation.z = Math.max(-0.7, head.rotation.z - dt * 6);
-    if (dropT > 0.5) human.rotation.z = Math.max(-1.45, human.rotation.z - dt * Math.min(5, (dropT - 0.5) * 7));
-    mouth.scale.y = 0.004 + Math.min(0.012, dropT * 0.05);
-    if (human.rotation.z <= -1.45 && !thud) { thud = true; burst(150, 1.5, 0.25, 0.9); burst(90, 2, 0.35, 0.7); catShake = 0.4; }
+    mouthOpen(Math.min(1, dropT * 4));
     catShake = Math.max(0, catShake - dt);
-    if (dropT > 2.4 && endT === 0) { endT = 1; finish('kill'); }
+    if (dropT > 3 && endT === 0) { endT = 1; finish('kill'); }
   }
   if (state === 'dead') {
     dropT += dt; catShake = Math.max(0, catShake - dt);
@@ -520,7 +622,7 @@ function hit() {
   burst(900, 1.2, 0.08, 0.9); burst(250, 2, 0.12, 0.8); // smack on the face
   c.v = -Math.abs(c.v) * 0.4 - 0.1; c.vy = 0.6; c.wz = 14;
   puff(c.x, c.y, 0, 10, 0xffffff, 0.3);
-  setTimeout(gue, 90);
+  fling(); setTimeout(gue, 60);
   fxOn = true; crack = null;
 }
 function die() {
@@ -600,10 +702,10 @@ function placeCamera(dt) {
   const want = state === 'dead' || (state === 'fall' && c.y < -0.25) || (state === 'done' && result?.dead && !result.kill) ? 1 : 0;
   follow += (want - follow) * Math.min(1, dt * 3);
   // after a hit, pull back to show the person lying on the floor
-  const wantK = state === 'kill' && dropT > 0.4 || (state === 'done' && result?.kill) ? 1 : 0;
-  killF += (wantK - killF) * Math.min(1, dt * 2);
+  const wantK = state === 'kill' && dropT > 0.1 || (state === 'done' && result?.kill) ? 1 : 0;
+  killF += (wantK - killF) * Math.min(1, dt * 4);
   camTarget.copy(FOCUS); camTarget.y += slackUp; camTarget.x += follow * (Math.min(c.x, 1.2) - FOCUS.x) * 0.6; camTarget.y += follow * (-TABLE_Y * 0.7);
-  camTarget.x += killF * 0.55; camTarget.y -= killF * 0.5;
+  camTarget.x += killF * (Math.min((J.pelvis.p.x + J.head.p.x) / 2, EDGE + 2) - camTarget.x); camTarget.y += killF * (F + 0.2 - camTarget.y) * 0.6; camTarget.z += killF * J.pelvis.p.z * 0.6;
   const dist = camDist * (1 + follow * 0.25 + killF * 0.9);
   camera.position.copy(camTarget).addScaledVector(camDir, dist);
   scene.fog.near = dist + 0.8; scene.fog.far = dist + 4; // haze only far behind what we look at
@@ -642,7 +744,7 @@ $('share').addEventListener('click', e => {
 let snap = null, shareCache = null, needSnap = false;
 function takeSnap() {
   const W = cv.width, H = cv.height, side = Math.min(W, H);
-  const p = result.kill ? toScreen(EDGE + 0.45, -TABLE_Y + 0.1, 0) : toScreen(result.dead ? c.x : EDGE - 0.03, result.dead ? -TABLE_Y + 0.15 : 0, 0);
+  const p = result.kill ? toScreen(J.pelvis.p.x, J.pelvis.p.y, J.pelvis.p.z) : toScreen(result.dead ? c.x : EDGE - 0.03, result.dead ? -TABLE_Y + 0.15 : 0, 0);
   const sx = Math.max(0, Math.min(W - side, p.x * W - side / 2)), sy = Math.max(0, Math.min(H - side, p.y * H - side * 0.6));
   snap = document.createElement('canvas'); snap.width = snap.height = 1080;
   const g = snap.getContext('2d');
@@ -681,7 +783,7 @@ function draw(k) {
   // pivot around the coin's back edge while it tips over the table edge, else around its centre
   coinPivot.position.set(x, y, 0); coinPivot.rotation.set(0, 0, rz);
   coin.rotation.set(Math.sin(c.wobT * (10 + c.wobT * 30)) * c.wob, c.spin, 0);
-  updateBand(x);
+  updateBand(x); drawHuman();
   renderer.render(scene, camera);
 }
 let last = performance.now(), simT = last, lastFx = -1;
