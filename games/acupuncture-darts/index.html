@@ -48,6 +48,10 @@
     @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
       #result { top: 0; bottom: var(--reserve, 160px); width: 30%; justify-content: center; }
     }
+    /* 穴あき枕の下から見た顔の小窓 */
+    #face { position: absolute; right: 12px; top: 56px; width: clamp(84px, 20vmin, 170px); aspect-ratio: 1; border-radius: 50%; overflow: hidden; border: 4px solid #fff; box-shadow: 0 4px 12px rgba(0,0,0,.25); background: #3a2a1a; pointer-events: none; }
+    #face canvas { width: 100%; height: 100%; display: block; }
+    @media (max-aspect-ratio: 3/4) { #result { top: calc(64px + clamp(84px, 20vmin, 170px)); } }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
     /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
     #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; }
@@ -70,6 +74,7 @@
   </header>
   <div id="stage">
     <div id="hint"><svg viewBox="0 0 60 90"><path d="M30 6 L22 18 M30 6 L38 18 M30 6 V30" stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none" opacity=".9"/><path d="M24 78 C16 70 12 62 14 56 C16 52 21 53 24 58 L24 38 C24 33 31 33 31 38 L31 50 C31 46 38 46 38 50 L38 53 C38 49 45 49 45 53 L45 66 C45 74 40 80 34 82 Z" fill="#fff" stroke="#6b3d1c" stroke-width="3" stroke-linejoin="round"/></svg></div>
+    <div id="face"><canvas></canvas></div>
     <div id="result"><b></b><div><i></i></div></div>
     <div id="msg"></div>
   </div>
@@ -297,22 +302,25 @@
     }
 
     // 施術ベッド
-    const BED_Y = 0.62;
+    const BED_Y = 0.62, HOLE_Z = -1.08;
     {
       const bed = new THREE.Group(); scene.add(bed);
       const leather = canvasTex(128, 128, (c, w, h) => { c.fillStyle = '#3a8f86'; c.fillRect(0, 0, w, h); for (let i = 0; i < 1200; i++) { c.fillStyle = `rgba(${Math.random() < .5 ? '0,30,30' : '255,255,255'},${Math.random() * 0.07})`; c.beginPath(); c.arc(Math.random() * w, Math.random() * h, 1 + Math.random() * 1.5, 0, 7); c.fill(); } });
       leather.wrapS = leather.wrapT = THREE.RepeatWrapping; leather.repeat.set(2, 4);
       const lm = new THREE.MeshStandardMaterial({ map: leather, roughness: 0.45 });
-      const pad = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.8, 6, 16), lm);
-      pad.rotation.z = Math.PI / 2; pad.scale.set(1, 1, 1); // 角の丸いマットを、カプセルを伸ばして作る
-      const mattress = part(BOX, lm, 0, BED_Y - 0.06, -0.15, 0.82, 0.14, 2.3, bed); colliders.push(mattress);
+      // マット: 顔の所に穴があいている（下から顔が見える）
+      const ms = new THREE.Shape();
+      ms.moveTo(-0.41, 1.3); ms.lineTo(0.41, 1.3); ms.lineTo(0.41, -1.0); ms.lineTo(-0.41, -1.0); ms.lineTo(-0.41, 1.3); // y = −z
+      const mh = new THREE.Path(); mh.absellipse(0, HOLE_Z * -1, 0.08, 0.1, 0, Math.PI * 2, true); ms.holes.push(mh);
+      const mg = new THREE.ExtrudeGeometry(ms, { depth: 0.14, bevelEnabled: false, curveSegments: 32 }); mg.rotateX(-Math.PI / 2); mg.translate(0, BED_Y - 0.13, 0);
+      const mattress = new THREE.Mesh(mg, lm); bed.add(mattress); colliders.push(mattress);
       for (const z of [-1.3, 1.0]) { const e = part(new THREE.CapsuleGeometry(0.07, 0.68, 6, 16), lm, 0, BED_Y - 0.06, z, 1, 1, 1, bed); e.rotation.z = Math.PI / 2; colliders.push(e); }
       const frameM = mat('#b8bec4', 0.35, { metalness: 0.5 });
-      part(BOX, frameM, 0, BED_Y - 0.17, -0.15, 0.74, 0.06, 2.2, bed);
+      part(BOX, frameM, 0, BED_Y - 0.17, -0.02, 0.74, 0.06, 1.94, bed); part(BOX, frameM, 0, BED_Y - 0.17, -1.22, 0.74, 0.06, 0.06, bed); // 顔の下はあける
       for (const x of [-0.32, 0.32]) for (const z of [-1.1, 0.8]) part(CYL, frameM, x, (BED_Y - 0.17) / 2, z, 0.03, BED_Y - 0.17, 0.03, bed);
       // 顔を入れる枕（穴あき）
-      const pil = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.06, 12, 24), mat('#f6f2ea', 0.85));
-      pil.rotation.x = Math.PI / 2; pil.scale.set(1.2, 1, 1); pil.position.set(0, BED_Y + 0.03, -1.05); bed.add(pil); colliders.push(pil);
+      const pil = new THREE.Mesh(new THREE.TorusGeometry(0.145, 0.05, 14, 32), mat('#f6f2ea', 0.85));
+      pil.rotation.x = Math.PI / 2; pil.scale.set(1.05, 1.15, 1); pil.position.set(0, BED_Y + 0.03, HOLE_Z); bed.add(pil); colliders.push(pil);
       shade(bed);
     }
 
@@ -360,7 +368,36 @@
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
     // 体は部位ごとのグループに分けて作る（ラグドールの時に部位ごとに動かすため）
     const SEGS = ['torso', 'pelvis', 'head', 'uaL', 'faL', 'uaR', 'faR', 'legL', 'legR'];
-    let segs = {}, rest = {};
+    let segs = {}, rest = {}, face = null;
+    // 顔（下向き）: 頭の中の座標で −y が顔の正面、−z がおでこ側
+    const FACE_DARK = new THREE.MeshStandardMaterial({ color: '#2a1612', roughness: 0.5 });
+    const FACE_WHITE = mat('#fbfaf6', 0.3), MOUTH = mat('#7a2a2a', 0.6), BLUSH = new THREE.MeshStandardMaterial({ color: '#ff7a8a', roughness: 0.8, transparent: true, opacity: 0.55 });
+    function makeFace(skin) {
+      const f = { open: [], closed: [], squeeze: [], brows: [], blush: [] };
+      for (const s of [-1, 1]) {
+        const eye = new THREE.Group(); eye.position.set(s * 0.034, -0.09, -0.03); headG.add(eye);
+        part(SPH, FACE_WHITE, 0, 0, 0, 0.019, 0.009, 0.012, eye);
+        part(SPH, FACE_DARK, 0, -0.007, 0.001, 0.0095, 0.004, 0.0095, eye);
+        f.open.push(eye);
+        const cl = part(BOX, FACE_DARK, s * 0.034, -0.098, -0.028, 0.028, 0.004, 0.005, headG); f.closed.push(cl);
+        for (const r of [-0.45, 0.45]) { const q = part(BOX, FACE_DARK, s * 0.034, -0.098, -0.028 + r * 0.012, 0.026, 0.004, 0.005, headG); q.rotation.y = -r * s; f.squeeze.push(q); }
+        const b = part(BOX, FACE_DARK, s * 0.034, -0.088, -0.056, 0.03, 0.004, 0.006, headG); f.brows.push(b);
+        f.blush.push(part(SPH, BLUSH, s * 0.056, -0.084, 0.008, 0.018, 0.004, 0.012, headG));
+      }
+      part(SPH, skin, 0, -0.108, 0.002, 0.013, 0.013, 0.019, headG); // 鼻
+      f.mouth = part(SPH, MOUTH, 0, -0.097, 0.04, 0.02, 0.006, 0.006, headG);
+      setFace(f, 'calm');
+      return f;
+    }
+    function setFace(f, kind) {
+      if (!f || f.kind === kind) return; f.kind = kind;
+      const vis = (arr, v) => arr.forEach(o => o.visible = v);
+      vis(f.open, kind === 'calm' || kind === 'miss'); vis(f.closed, kind === 'bliss'); vis(f.squeeze, kind === 'ouch'); vis(f.blush, kind === 'bliss');
+      // 口: ふつう / はぁ〜（丸く開く）/ 悲鳴（大きく開く）/ え？（小さい丸）
+      const m = { calm: [0.022, 0.006, 0.005], bliss: [0.02, 0.008, 0.016], ouch: [0.028, 0.01, 0.022], miss: [0.01, 0.006, 0.01] }[kind];
+      f.mouth.scale.set(...m);
+      f.brows.forEach((b, i) => { const s = i ? 1 : -1; b.rotation.y = kind === 'ouch' ? s * 0.5 : kind === 'bliss' ? -s * 0.25 : 0; b.position.z = kind === 'miss' ? -0.062 : -0.056; });
+    }
     function makePatient() {
       while (breathe.children.length) { const c = breathe.children[0]; breathe.remove(c); }
       ragdoll = null;
@@ -400,7 +437,9 @@
       limb(V(0, Y + 0.1, -0.86), V(0, Y + 0.1, -0.98), 0.06, 0.052, skin, segs.head);
       headG = new THREE.Group(); headG.position.set(0, Y + 0.11, -1.08); segs.head.add(headG);
       part(SPH, skin, 0, 0, 0, 0.095, 0.105, 0.12, headG);
-      part(SPH, skin, 0, -0.03, -0.06, 0.07, 0.07, 0.07, headG); // あご（下向き）
+      part(SPH, skin, 0, -0.035, 0.05, 0.065, 0.065, 0.065, headG); // あご（下向き、首の側）
+      face = makeFace(skin);
+      segs.head.traverse(o => o.layers.enable(1)); // 顔の小窓で頭だけ写す時用
       for (const s of [-1, 1]) { const e = part(SPH, skin, s * 0.097, -0.005, 0.0, 0.016, 0.03, 0.022, headG); e.rotation.y = s * 0.3; }
       const style = pick(['short', 'short', 'bun', 'bald', 'crop']);
       if (style !== 'bald') part(SPH, hairM, 0, 0.022, 0.012, 0.102, style === 'crop' ? 0.095 : 0.1, 0.125, headG);
@@ -765,6 +804,11 @@
       const pulse = 1 + Math.sin(clock * 5) * 0.12;
       tuboMat.opacity = 0.8 + (pulse - 1) * 1.6;
       if (headG) headG.rotation.z = outcome === 'bliss' ? Math.min(0.35, endT * 0.5) : 0;
+      if (face) {
+        setFace(face, outcome || 'calm');
+        // ふだんはときどき瞬きする
+        if (!outcome) { const blink = (clock % 3.2) < 0.12; face.open.forEach(o => o.visible = !blink); face.closed.forEach(o => o.visible = blink); }
+      }
 
       if (state === 'fly') {
         flyT += dt;
@@ -816,13 +860,14 @@
       controls.append(a);
     }
     // 結果画像: 刺さった所を真ん中に切り抜き、点数を重ねる
-    let snap = null, shareCache = null, needSnap = false;
+    let snap = null, faceSnap = null, shareCache = null, needSnap = false;
     function takeSnap() {
       const src = renderer.domElement;
       const f = (outcome === 'miss' ? breathe.localToWorld(tuboWorld.copy(tuboLocal)) : needle.getWorldPosition(new THREE.Vector3())).project(camera);
       const fx2 = (f.x + 1) / 2 * src.width, fy = (1 - f.y) / 2 * src.height;
       const side = Math.min(src.width, src.height) * 0.8;
       const sx = THREE.MathUtils.clamp(fx2 - side / 2, 0, src.width - side), sy = THREE.MathUtils.clamp(fy - side * 0.6, 0, src.height - side);
+      faceSnap = document.createElement('canvas'); faceSnap.width = faceSnap.height = faceCv.width; faceSnap.getContext('2d').drawImage(faceCv, 0, 0);
       snap = document.createElement('canvas'); snap.width = snap.height = 1080;
       snap.getContext('2d').drawImage(src, sx, sy, side, side, 0, 0, 1080, 1080);
       shareCache = null;
@@ -832,6 +877,11 @@
       const c = document.createElement('canvas'); c.width = c.height = 1080;
       const g = c.getContext('2d');
       g.drawImage(snap, 0, 0);
+      if (faceSnap) { // 顔の小窓も右上に
+        const r = 150, cx = 1080 - r - 40, cy = r + 150;
+        g.save(); g.beginPath(); g.arc(cx, cy, r, 0, 7); g.clip(); g.drawImage(faceSnap, cx - r, cy - r, r * 2, r * 2); g.restore();
+        g.lineWidth = 12; g.strokeStyle = '#fff'; g.beginPath(); g.arc(cx, cy, r, 0, 7); g.stroke();
+      }
       g.textAlign = 'center'; g.fillStyle = '#fff'; g.lineJoin = 'round';
       const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
       const text = (str, y, px, max) => {
@@ -876,6 +926,34 @@
       renderControls(); resize();
     }
 
+    // ---------- 顔の小窓（穴あき枕の下から） ----------
+    const faceEl = document.getElementById('face'), faceCv = faceEl.querySelector('canvas'), faceCtx = faceCv.getContext('2d');
+    const faceCam = new THREE.PerspectiveCamera(50, 1, 0.01, 5);
+    const faceLight = new THREE.PointLight('#fff1e0', 0.25, 1.5); faceLight.layers.enable(1); scene.children.forEach(o => o.isLight && o.layers.enable(1)); faceCam.add(faceLight); scene.add(faceCam);
+    const fDir = new THREE.Vector3(), fUp = new THREE.Vector3(), fPos = new THREE.Vector3();
+    function renderFace() {
+      if (!headG) return;
+      const S = faceEl.clientWidth; if (!S) return;
+      const dpr = renderer.getPixelRatio(), px = Math.round(S * dpr);
+      if (faceCv.width !== px) { faceCv.width = faceCv.height = px; }
+      headG.updateWorldMatrix(true, false);
+      headG.getWorldPosition(fPos);
+      fDir.set(0, -1, 0).transformDirection(headG.matrixWorld); fUp.set(0, 0, -1).transformDirection(headG.matrixWorld);
+      faceCam.position.copy(fPos).addScaledVector(fDir, 0.3);
+      // 崩れた後は顔がベッドや床に埋まって見えなくなるので、頭だけを写す
+      faceCam.layers.set(ragdoll ? 1 : 0); if (!ragdoll) faceCam.layers.enable(1);
+      faceCam.up.copy(fUp); faceCam.lookAt(fPos.x + fDir.x * 0.09, fPos.y + fDir.y * 0.09, fPos.z + fDir.z * 0.09);
+      faceCam.updateMatrixWorld();
+      // 大きい画面の左下に描いて、すぐ小窓へ写す（そのあと本番の絵で上書きする）
+      renderer.setViewport(0, 0, S, S); renderer.setScissor(0, 0, S, S); renderer.setScissorTest(true);
+      renderer.render(scene, faceCam);
+      const H = renderer.domElement.height;
+      faceCtx.drawImage(renderer.domElement, 0, H - px, px, px, 0, 0, px, px);
+      renderer.setScissorTest(false);
+      const sz = renderer.getSize(tmpSize); renderer.setViewport(0, 0, sz.x, sz.y);
+    }
+    const tmpSize = new THREE.Vector2();
+
     // ---------- ループ ----------
     let last = performance.now(), acc = 0;
     function render(alpha) {
@@ -888,6 +966,7 @@
         needle.lookAt(tmpV.copy(needle.position).add(vel));
       }
       if (ragdoll) poseRagdoll();
+      renderFace();
       renderer.render(scene, camera);
       if (needSnap) { needSnap = false; takeSnap(); prepareShare(); }
     }
