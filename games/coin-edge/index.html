@@ -90,13 +90,13 @@ const URL_ = 'https://keifurukawafunnych.com/games/coin-edge/';
 const TAG = '#机スレスレゲーム';
 const L = {
   ja: { title: '机スレスレ', back: '← トップへ戻る', again: 'もう一度', share: 'Xでポスト', best: '自己ベスト', dead: '死亡',
-        mm: d => `${d}mm`, post: d => `机スレスレで 端まで ${d}mm\n${TAG}`, postDead: () => `机スレスレで コインを落として死んだ\n${TAG}` },
+        mm: d => `${d}mm`, post: d => `机スレスレで 端まで ${d}mm\n${TAG}`, postDead: () => `机スレスレで コインを落として死んだ\n${TAG}`, postKill: () => `机スレスレで 人の顔にコインを当てた\n${TAG}` },
   ko: { title: '책상 아슬아슬', back: '← 처음으로', again: '다시 하기', share: 'X에 게시', best: '최고 기록', dead: '사망',
-        mm: d => `${d}mm`, post: d => `책상 아슬아슬에서 끝까지 ${d}mm\n${TAG}`, postDead: () => `책상 아슬아슬에서 동전을 떨어뜨려 죽었다\n${TAG}` },
+        mm: d => `${d}mm`, post: d => `책상 아슬아슬에서 끝까지 ${d}mm\n${TAG}`, postDead: () => `책상 아슬아슬에서 동전을 떨어뜨려 죽었다\n${TAG}`, postKill: () => `책상 아슬아슬에서 사람 얼굴에 동전을 맞혔다\n${TAG}` },
   en: { title: 'Table Edge', back: '← Top', again: 'Retry', share: 'Post on X', best: 'Best', dead: 'DEAD',
-        mm: d => `${d}mm`, post: d => `${d}mm from the edge in Table Edge\n${TAG}`, postDead: () => `I dropped the coin and died in Table Edge\n${TAG}` },
+        mm: d => `${d}mm`, post: d => `${d}mm from the edge in Table Edge\n${TAG}`, postDead: () => `I dropped the coin and died in Table Edge\n${TAG}`, postKill: () => `I hit someone in the face with the coin in Table Edge\n${TAG}` },
   th: { title: 'เหรียญริมโต๊ะ', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X', best: 'สถิติสูงสุด', dead: 'ตาย',
-        mm: d => `${d} มม.`, post: d => `ห่างขอบโต๊ะ ${d} มม. ในเกมเหรียญริมโต๊ะ\n${TAG}`, postDead: () => `ทำเหรียญตกโต๊ะแล้วตาย ในเกมเหรียญริมโต๊ะ\n${TAG}` },
+        mm: d => `${d} มม.`, post: d => `ห่างขอบโต๊ะ ${d} มม. ในเกมเหรียญริมโต๊ะ\n${TAG}`, postDead: () => `ทำเหรียญตกโต๊ะแล้วตาย ในเกมเหรียญริมโต๊ะ\n${TAG}`, postKill: () => `ดีดเหรียญโดนหน้าคน ในเกมเหรียญริมโต๊ะ\n${TAG}` },
 };
 const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
 let lang = store.get('lang', autoLang());
@@ -288,6 +288,47 @@ const mugMat = new THREE.MeshStandardMaterial({ color: 0x4dabf7, roughness: 0.3 
   mugMat.side = THREE.DoubleSide; shade(mug); }
 { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.17, 6), new THREE.MeshStandardMaterial({ color: 0xfcc419, roughness: 0.5 }));
   p.rotation.z = Math.PI / 2; p.rotation.y = 0.5; p.position.set(-0.1, 0.004, -0.25); scene.add(shade(p)); }
+// a person crouching past the edge, peeking over it with their face just under the tabletop
+const HEAD = new THREE.Vector3(EDGE + 0.15, -0.11, 0), HEAD_R = 0.085;
+const skin = new THREE.MeshStandardMaterial({ color: 0xf1c7a0, roughness: 0.6 });
+const hairMat = new THREE.MeshStandardMaterial({ color: 0x2b1d14, roughness: 0.8 });
+const shirt = new THREE.MeshStandardMaterial({ color: 0x4c6ef5, roughness: 0.75 });
+const white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
+const black = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2 });
+const SPH = new THREE.SphereGeometry(1, 24, 16);
+const part = (geo, mat, x, y, z, sx, sy, sz, parent) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); parent.add(m); return m; };
+// the whole body pivots on the feet, so dying tips it over backward
+const human = new THREE.Group(); human.position.set(EDGE + 0.36, -TABLE_Y, 0); scene.add(human);
+const body = new THREE.Group(); human.add(body);
+{ const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.25, 8, 20), shirt);
+  torso.position.set(-0.12, 0.38, 0); torso.rotation.z = 0.55; torso.scale.set(1, 1, 0.8); body.add(torso);
+  for (const sz of [-1, 1]) { // legs folded under
+    const th = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.28, 6, 12), new THREE.MeshStandardMaterial({ color: 0x343a40, roughness: 0.8 }));
+    th.position.set(-0.1, 0.12, sz * 0.09); th.rotation.z = 1.2; body.add(th);
+  }
+  // arms reach up from the shoulders and the hands grip the edge on both sides of the coin's path
+  for (const sz of [-1, 1]) {
+    const sh = new THREE.Vector3(0.22 - 0.36, TABLE_Y - 0.24, sz * 0.12), hd = new THREE.Vector3(EDGE - 0.004 - human.position.x, TABLE_Y + 0.008, sz * 0.22);
+    const len = sh.distanceTo(hd), arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.028, len, 6, 12), shirt);
+    arm.position.copy(sh).lerp(hd, 0.5); arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), hd.clone().sub(sh).normalize()); body.add(arm);
+    part(SPH, skin, hd.x, hd.y, hd.z, 0.022, 0.012, 0.028, body);
+  }
+}
+const head = new THREE.Group(); head.position.set(HEAD.x - human.position.x, HEAD.y - human.position.y, 0); body.add(head);
+part(new THREE.CylinderGeometry(0.035, 0.04, 0.1, 12), skin, 0.03, -0.09, 0, 1, 1, 1, head).rotation.z = 0.5;
+part(SPH, skin, 0, 0, 0, HEAD_R * 0.95, HEAD_R * 1.05, HEAD_R * 0.9, head);
+part(SPH, hairMat, 0.02, 0.025, 0, HEAD_R * 0.98, HEAD_R * 0.95, HEAD_R * 0.95, head); // hair over the back and top
+for (const sz of [-1, 1]) {
+  part(SPH, skin, 0.01, -0.005, sz * HEAD_R * 0.88, 0.016, 0.026, 0.012, head); // ears
+  part(SPH, white, -HEAD_R * 0.82, 0.012, sz * 0.03, 0.012, 0.017, 0.014, head);  // eyes looking at the coin
+  part(SPH, black, -HEAD_R * 0.9, 0.012, sz * 0.03, 0.006, 0.009, 0.008, head);
+  part(SPH, white, -HEAD_R * 0.94, 0.017, sz * 0.03 + 0.003, 0.0022, 0.0022, 0.0022, head);
+  part(SPH, hairMat, -HEAD_R * 0.86, 0.04, sz * 0.032, 0.004, 0.003, 0.016, head); // brows
+}
+part(SPH, skin, -HEAD_R * 0.95, -0.012, 0, 0.012, 0.016, 0.011, head); // nose
+const mouth = part(SPH, new THREE.MeshStandardMaterial({ color: 0x8a2b2b, roughness: 0.5 }), -HEAD_R * 0.86, -0.045, 0, 0.006, 0.004, 0.018, head);
+shade(human);
+
 // lights: sky + warm sun from the window side
 scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x7a5236, 0.9));
 const sun = new THREE.DirectionalLight(0xffe2b8, 2.2);
@@ -342,7 +383,7 @@ function tickSparks(dt) {
 
 // ---------- game ----------
 // the coin slides along +x, slowing by friction; the gauge picks how hard
-const DT = 1 / 120, DEC = 0.6, DMAX = 0.64, VMAX = Math.sqrt(2 * DEC * DMAX), PERIOD = 1.3, START_X = 0, FLOOR = -TABLE_Y + CT / 2;
+const DT = 1 / 120, DEC = 1.5, DMAX = 0.75, VMAX = Math.sqrt(2 * DEC * DMAX), PERIOD = 1.3, START_X = 0, FLOOR = -TABLE_Y + CT / 2;
 let state = 'ready', power = 0, chargeT = 0, best = store.get('best', null), result = null, endT = 0;
 const c = { x: START_X, y: CT / 2, v: 0, vy: 0, rz: 0, wz: 0, spin: 0, wob: 0, wobT: 0, bounces: 0 }, cp = { ...c };
 let dec = DEC;
@@ -351,7 +392,7 @@ function reset() {
   Object.assign(cp, c);
   state = 'ready'; power = 0; chargeT = 0; result = null; endT = 0;
   gapLine.visible = edgeMark.visible = false;
-  tilt.rotation.x = -0.12; photo.position.y = 0; catShake = 0; dropT = 0;
+  tilt.rotation.x = -0.12; photo.position.y = 0; human.rotation.z = 0; head.rotation.z = 0; mouth.scale.y = 0.004; crack = null; catShake = 0; dropT = 0;
   fxCtx.clearRect(0, 0, fx.width, fx.height); fxOn = false; redK = 0;
   $('gauge').hidden = false; gaugeSet(0);
 }
@@ -388,10 +429,11 @@ function step(dt) {
   } else if (state === 'settle') {
     c.wobT += dt; c.wob *= Math.exp(-dt * 4);
     if (c.wobT > 0.9) { c.wob = 0; finish(false); }
-  } else if (state === 'fall' || state === 'dead') {
+  } else if (state === 'fall' || state === 'dead' || state === 'kill') {
     c.vy -= 9.8 * dt; c.x += c.v * dt; c.y += c.vy * dt; c.rz += c.wz * dt;
     // tipping over the edge: still touching the corner, so it pivots before it drops free
     if (c.y > 0 && c.x - EDGE < R) c.vy = Math.min(c.vy, 0);
+    if (state === 'fall' && c.y < 0.01 && Math.hypot(c.x - HEAD.x, c.y - HEAD.y) < HEAD_R + R * 0.6) hit();
     if (c.y <= FLOOR) {
       c.y = FLOOR;
       if (Math.abs(c.vy) > 0.4) {
@@ -399,14 +441,36 @@ function step(dt) {
         puff(c.x, FLOOR, 0, 8, 0xffe08a, 0.25);
         c.vy = -c.vy * 0.32; c.v *= 0.55; c.wz *= -0.5; c.bounces++;
         if (state === 'fall') die();
+        else if (state === 'kill' && c.bounces === 1) ring(3000, 0.08, 0.5);
       } else { c.vy = 0; c.v *= Math.exp(-dt * 6); c.wz = 0; const flat = Math.round(c.rz / Math.PI) * Math.PI; c.rz += (flat - c.rz) * Math.min(1, dt * 12); }
     }
+  }
+  if (state === 'kill') {
+    dropT += dt;
+    // the head snaps back, then the whole person keels over backward
+    head.rotation.z = Math.max(-0.7, head.rotation.z - dt * 6);
+    if (dropT > 0.5) human.rotation.z = Math.max(-1.45, human.rotation.z - dt * Math.min(5, (dropT - 0.5) * 7));
+    mouth.scale.y = 0.004 + Math.min(0.012, dropT * 0.05);
+    if (human.rotation.z <= -1.45 && !thud) { thud = true; burst(150, 1.5, 0.25, 0.9); burst(90, 2, 0.35, 0.7); catShake = 0.4; }
+    catShake = Math.max(0, catShake - dt);
+    if (dropT > 2.4 && endT === 0) { endT = 1; finish('kill'); }
   }
   if (state === 'dead') {
     dropT += dt; catShake = Math.max(0, catShake - dt);
     tilt.rotation.x = Math.max(-Math.PI / 2 + 0.02, tilt.rotation.x - dt * Math.min(6, dropT * 8)); // the cat faints backward
     if (dropT > 1.6 && endT === 0) { endT = 1; finish(true); }
   }
+}
+let thud = false;
+// "guehhh": a low, long, strangled voice
+const gue = () => { voice(120 + Math.random() * 25, ['g', 'u', 'e', 'e', 'e'], 1.6, 0.6, 0.09, 0.35); voice(240 + Math.random() * 30, ['u', 'e', 'e'], 1.5, 0.12, 0.12, 0.5); };
+function hit() {
+  state = 'kill'; dropT = 0; thud = false; catShake = 0.5;
+  burst(900, 1.2, 0.08, 0.9); burst(250, 2, 0.12, 0.8); // smack on the face
+  c.v = -Math.abs(c.v) * 0.4 - 0.1; c.vy = 0.6; c.wz = 14;
+  puff(c.x, c.y, 0, 10, 0xffffff, 0.3);
+  setTimeout(gue, 90);
+  fxOn = true; crack = null;
 }
 function die() {
   state = 'dead'; dropT = 0; catShake = 0.8;
@@ -422,7 +486,7 @@ function finish(dead) {
     gapLine.scale.x = Math.max(0.0005, EDGE - from); gapLine.position.set((from + EDGE) / 2, 0.0012, 0.03); gapLine.visible = gap > 0.05;
     edgeMark.position.set(EDGE, 0.004, 0.03); edgeMark.visible = true;
     ring(1800, 0.06, 0.4); ring(2700, 0.05, 0.5, 0.12);
-  } else result = { dead: true };
+  } else result = { dead: true, kill: dead === 'kill' };
   state = 'done'; $('gauge').hidden = true;
   needSnap = true;
 }
@@ -459,9 +523,9 @@ function paintFx() {
 
 // ---------- layout ----------
 // the tabletop from the start to just past the edge must fit above the bottom 80px + gauge
-const TOP = 52, BOTTOM = 130, FOCUS = new THREE.Vector3(0.27, 0.0, 0), SPAN_W = 0.7, SPAN_H = 0.5;
+const TOP = 52, BOTTOM = 130, FOCUS = new THREE.Vector3(0.36, -0.02, 0), SPAN_W = 0.9, SPAN_H = 0.5;
 const camDir = new THREE.Vector3(-0.15, 1.0, 0.8).normalize(); // from high up in front
-let camDist = 1, viewH = 1, follow = 0, slackUp = 0;
+let camDist = 1, viewH = 1, follow = 0, killF = 0, slackUp = 0;
 function resize() {
   const W = stage.clientWidth, H = stage.clientHeight;
   renderer.setSize(W, H, false);
@@ -482,10 +546,16 @@ addEventListener('resize', resize);
 const camTarget = new THREE.Vector3(), tmpV = new THREE.Vector3();
 function placeCamera(dt) {
   // after falling, look down to the floor where the coin lies
-  const want = state === 'dead' || state === 'fall' || (state === 'done' && result?.dead) ? 1 : 0;
+  const want = state === 'dead' || (state === 'fall' && c.y < -0.25) || (state === 'done' && result?.dead && !result.kill) ? 1 : 0;
   follow += (want - follow) * Math.min(1, dt * 3);
+  // after a hit, pull back to show the person lying on the floor
+  const wantK = state === 'kill' && dropT > 0.4 || (state === 'done' && result?.kill) ? 1 : 0;
+  killF += (wantK - killF) * Math.min(1, dt * 2);
   camTarget.copy(FOCUS); camTarget.y += slackUp; camTarget.x += follow * (Math.min(c.x, 1.2) - FOCUS.x) * 0.6; camTarget.y += follow * (-TABLE_Y * 0.7);
-  camera.position.copy(camTarget).addScaledVector(camDir, camDist * (1 + follow * 0.25));
+  camTarget.x += killF * 0.55; camTarget.y -= killF * 0.5;
+  const dist = camDist * (1 + follow * 0.25 + killF * 0.9);
+  camera.position.copy(camTarget).addScaledVector(camDir, dist);
+  scene.fog.near = dist + 0.8; scene.fog.far = dist + 4; // haze only far behind what we look at
   if (catShake > 0) camera.position.x += Math.sin(performance.now() / 18) * catShake * 0.01;
   camera.lookAt(camTarget);
 }
@@ -505,7 +575,7 @@ function showResult() {
   if (coarse) { a.removeAttribute('target'); a.removeAttribute('rel'); } else { a.target = '_blank'; a.rel = 'noopener'; }
   prepareShare();
 }
-const postText = () => result.dead ? L[lang].postDead() : L[lang].post(fmt(result.mm));
+const postText = () => result.kill ? L[lang].postKill() : result.dead ? L[lang].postDead() : L[lang].post(fmt(result.mm));
 $('share').addEventListener('click', e => {
   const text = `${postText()}\n${URL_}`;
   if (coarse && navigator.share) {
@@ -521,7 +591,7 @@ $('share').addEventListener('click', e => {
 let snap = null, shareCache = null, needSnap = false;
 function takeSnap() {
   const W = cv.width, H = cv.height, side = Math.min(W, H);
-  const p = toScreen(result.dead ? c.x : EDGE - 0.03, result.dead ? -TABLE_Y + 0.15 : 0, 0);
+  const p = result.kill ? toScreen(EDGE + 0.45, -TABLE_Y + 0.1, 0) : toScreen(result.dead ? c.x : EDGE - 0.03, result.dead ? -TABLE_Y + 0.15 : 0, 0);
   const sx = Math.max(0, Math.min(W - side, p.x * W - side / 2)), sy = Math.max(0, Math.min(H - side, p.y * H - side * 0.6));
   snap = document.createElement('canvas'); snap.width = snap.height = 1080;
   const g = snap.getContext('2d');
