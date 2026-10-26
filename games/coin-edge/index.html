@@ -652,7 +652,7 @@ function paintFx() {
 // the tabletop from the start to just past the edge must fit above the bottom 80px
 const TOP = 52, BOTTOM = 130, FOCUS = new THREE.Vector3(0.05, -0.02, 0), SPAN_W = 1.35, SPAN_H = 0.5;
 const camDir = new THREE.Vector3(-0.15, 1.0, 0.8).normalize(); // from high up in front
-let camDist = 1, viewH = 1, follow = 0, killF = 0, slackUp = 0;
+let camDist = 1, viewH = 1, follow = 0, killF = 0, tv = 0.3, camX = FOCUS.x, camD = 1;
 function resize() {
   const W = stage.clientWidth, H = stage.clientHeight;
   renderer.setSize(W, H, false);
@@ -660,11 +660,9 @@ function resize() {
   viewH = Math.max(120, H - TOP - BOTTOM);
   camera.aspect = W / viewH;
   camera.setViewOffset(W, viewH, 0, -TOP, W, H);
-  const vf = THREE.MathUtils.degToRad(camera.fov), tv = Math.tan(vf / 2);
-  // whichever is tighter: the width of the play area or its height; capped so it doesn't get huge
+  tv = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+  // the whole table and the person: used as the widest shot
   camDist = Math.min(4, Math.max(SPAN_H / (2 * tv), SPAN_W / (2 * tv * camera.aspect)));
-  // tall screens: the spare height goes to the wall above, not to the floor below
-  slackUp = Math.max(0, 2 * tv * camDist - SPAN_H) * 0.3;
   camera.updateProjectionMatrix();
   if (crack) drawCrack();
   paintFx();
@@ -678,9 +676,16 @@ function placeCamera(dt) {
   // after a hit, pull back to show the person lying on the floor
   const wantK = state === 'kill' && dropT > 0.1 || (state === 'done' && result?.kill) ? 1 : 0;
   killF += (wantK - killF) * Math.min(1, dt * 4);
-  camTarget.copy(FOCUS); camTarget.y += slackUp; camTarget.x += follow * (Math.min(c.x, 1.2) - FOCUS.x) * 0.6; camTarget.y += follow * (-TABLE_Y * 0.7);
+  // frame just the coin and the face: the closer the coin gets, the tighter the shot
+  const l = Math.min(c.x, EDGE) - R - 0.12, r = HEAD.x + 0.16, sw = r - l, sh = Math.max(0.32, sw * 0.45);
+  const d = Math.min(camDist, Math.max(sh / (2 * tv), sw / (2 * tv * camera.aspect)));
+  const k = Math.min(1, dt * 3); camX += ((l + r) / 2 - camX) * k; camD += (d - camD) * k;
+  // tall screens: the spare height goes to the wall above, not to the floor below
+  const slackUp = Math.max(0, 2 * tv * camD - sh) * 0.3;
+  camTarget.set(camX, FOCUS.y + slackUp, 0); camTarget.x += follow * (Math.min(c.x, 1.2) - camX) * 0.6; camTarget.y += follow * (-TABLE_Y * 0.7);
   camTarget.x += killF * (Math.min((J.pelvis.p.x + J.head.p.x) / 2, EDGE + 2) - camTarget.x); camTarget.y += killF * (F + 0.2 - camTarget.y) * 0.6; camTarget.z += killF * J.pelvis.p.z * 0.6;
-  const dist = camDist * (1 + follow * 0.25 + killF * 0.9);
+  // a hit pulls back wider than the whole table
+  const dist = camD * (1 + follow * 0.25) * (1 - killF) + camDist * 1.4 * killF;
   camera.position.copy(camTarget).addScaledVector(camDir, dist);
   scene.fog.near = dist + 0.8; scene.fog.far = dist + 4; // haze only far behind what we look at
   if (catShake > 0) camera.position.x += Math.sin(performance.now() / 18) * catShake * 0.01;
