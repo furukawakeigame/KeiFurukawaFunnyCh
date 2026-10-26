@@ -671,24 +671,26 @@ function resize() {
   paintFx();
 }
 addEventListener('resize', resize);
-const camTarget = new THREE.Vector3(), tmpV = new THREE.Vector3();
+const bodyC = new THREE.Vector3(), camTarget = new THREE.Vector3(), tmpV = new THREE.Vector3();
 function placeCamera(dt) {
   // after falling, look down to the floor where the coin lies
   const want = state === 'dead' || (state === 'fall' && c.y < -0.25) || (state === 'done' && result?.dead && !result.kill) ? 1 : 0;
   follow += (want - follow) * Math.min(1, dt * 3);
   // after a hit, pull back to show the person lying on the floor
   const wantK = state === 'kill' && dropT > 0.1 || (state === 'done' && result?.kill) ? 1 : 0;
-  killF += (wantK - killF) * Math.min(1, dt * 4);
+  killF += (wantK - killF) * Math.min(1, dt * 6);
   // frame just the coin and the face: the closer the coin gets, the tighter the shot
   const l = Math.min(c.x, EDGE) - R - 0.12, r = HEAD.x + 0.16, sw = r - l, sh = Math.max(0.32, sw * 0.45);
   const d = Math.min(camDist, Math.max(sh / (2 * tv), sw / (2 * tv * camera.aspect)));
   const k = Math.min(1, dt * 3); camX += ((l + r) / 2 - camX) * k; camD += (d - camD) * k;
   // tall screens: the spare height goes to the wall above, not to the floor below
   const slackUp = Math.max(0, 2 * tv * camD - sh) * 0.3;
-  camTarget.set(camX, FOCUS.y + slackUp, 0); camTarget.x += follow * (Math.min(c.x, 1.2) - camX) * 0.6; camTarget.y += follow * (-TABLE_Y * 0.7);
-  camTarget.x += killF * (Math.min((J.pelvis.p.x + J.head.p.x) / 2, EDGE + 2) - camTarget.x); camTarget.y += killF * (F + 0.2 - camTarget.y) * 0.6; camTarget.z += killF * J.pelvis.p.z * 0.6;
+  camTarget.set(camX, FOCUS.y + slackUp, 0); camTarget.x += follow * (Math.min(c.x, 1.2) - camX); camTarget.y += follow * (-TABLE_Y * 0.7);
+  // follow the flying body closely: aim at the middle of the chest and hips
+  bodyC.copy(J.chest.p).add(J.pelvis.p).multiplyScalar(0.5);
+  camTarget.lerp(bodyC, killF);
   // a hit pulls back wider than the whole table
-  const dist = camD * (1 + follow * 0.25) * (1 - killF) + camDist * 1.4 * killF;
+  const dist = camD * (1 + follow * 0.25) * (1 - killF) + Math.max(1.5, camDist * 0.8) * killF;
   camera.position.copy(camTarget).addScaledVector(camDir, dist);
   scene.fog.near = dist + 0.8; scene.fog.far = dist + 4; // haze only far behind what we look at
   if (catShake > 0) camera.position.x += Math.sin(performance.now() / 18) * catShake * 0.01;
@@ -771,14 +773,9 @@ function draw(k) {
   updateBand(x); drawHuman();
   renderer.render(scene, camera);
 }
-// hit stop: on the hit the world freezes, then plays in slow motion and eases back to normal speed
-const FREEZE = 0.45, SLOW_END = 3.6;
-function timeScale() {
-  if (hitT < 0) return 1;
-  if (hitT < FREEZE) return 0;
-  const k = Math.min(1, (hitT - FREEZE) / (SLOW_END - FREEZE));
-  return 0.1 + 0.9 * k * k * (3 - 2 * k); // eases out of slow motion steadily, no sudden jump to full speed
-}
+// hit stop: on the hit the world freezes for a moment, then carries on at full speed
+const FREEZE = 0.45;
+const timeScale = () => hitT >= 0 && hitT < FREEZE ? 0 : 1;
 let last = performance.now(), acc = 0, lastFx = -1;
 function loop(now) {
   const fdt = Math.min(0.05, (now - last) / 1000); last = now;
