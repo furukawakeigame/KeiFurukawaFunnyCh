@@ -84,7 +84,7 @@
   </div>
   <div id="controls"></div>
 
-  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/", "planck": "https://cdn.jsdelivr.net/npm/planck@1.5.0/dist/planck.mjs" } }</script>
   <script>
     // CDN が読めないときの一言
     setTimeout(() => { if (!window.CURL_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 8000);
@@ -92,6 +92,7 @@
   <script type="module">
     import * as THREE from 'three';
     import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+    import * as planck from 'planck';
     window.CURL_READY = true;
 
     const SHARE_URL = 'https://keifurukawafunnych.com/games/face-curling/';
@@ -438,11 +439,18 @@
       return g;
     };
     const ellipse = (rx, ry) => { const s = new THREE.Shape(); s.absellipse(0, 0, rx, ry, 0, Math.PI * 2); return s; };
+    // パーツの形（見た目と当たり判定の両方に使う）: [形, ふちの丸み, 当たり判定を縦に切り分ける数]
+    const SHAPES = {
+      eye: [ellipse(0.31, 0.2), 0.03, 1],
+      brow: [(() => { const s = new THREE.Shape(); s.moveTo(-0.4, -0.06); s.quadraticCurveTo(0, 0.24, 0.4, -0.06); s.lineTo(0.37, -0.15); s.quadraticCurveTo(0, 0.1, -0.37, -0.15); s.closePath(); return s; })(), 0.03, 6],
+      nose: [(() => { const s = new THREE.Shape(); s.moveTo(0, 0.28); s.bezierCurveTo(0.08, 0.2, 0.26, -0.05, 0.22, -0.16); s.bezierCurveTo(0.18, -0.24, -0.18, -0.24, -0.22, -0.16); s.bezierCurveTo(-0.26, -0.05, -0.08, 0.2, 0, 0.28); return s; })(), 0.07, 1],
+      mouth: [(() => { const s = new THREE.Shape(); s.moveTo(-0.42, 0); s.bezierCurveTo(-0.25, 0.16, -0.08, 0.12, 0, 0.08); s.bezierCurveTo(0.08, 0.12, 0.25, 0.16, 0.42, 0); s.bezierCurveTo(0.25, -0.2, -0.25, -0.2, -0.42, 0); return s; })(), 0.04, 4],
+    };
     const GEO = {
-      eye: ext(ellipse(0.31, 0.2), 0.08, 0.03),
-      brow: ext((() => { const s = new THREE.Shape(); s.moveTo(-0.4, -0.06); s.quadraticCurveTo(0, 0.24, 0.4, -0.06); s.lineTo(0.37, -0.15); s.quadraticCurveTo(0, 0.1, -0.37, -0.15); s.closePath(); return s; })(), 0.07, 0.03),
-      nose: ext((() => { const s = new THREE.Shape(); s.moveTo(0, 0.28); s.bezierCurveTo(0.08, 0.2, 0.26, -0.05, 0.22, -0.16); s.bezierCurveTo(0.18, -0.24, -0.18, -0.24, -0.22, -0.16); s.bezierCurveTo(-0.26, -0.05, -0.08, 0.2, 0, 0.28); return s; })(), 0.1, 0.07),
-      mouth: ext((() => { const s = new THREE.Shape(); s.moveTo(-0.42, 0); s.bezierCurveTo(-0.25, 0.16, -0.08, 0.12, 0, 0.08); s.bezierCurveTo(0.08, 0.12, 0.25, 0.16, 0.42, 0); s.bezierCurveTo(0.25, -0.2, -0.25, -0.2, -0.42, 0); return s; })(), 0.08, 0.04),
+      eye: ext(SHAPES.eye[0], 0.08, 0.03),
+      brow: ext(SHAPES.brow[0], 0.07, 0.03),
+      nose: ext(SHAPES.nose[0], 0.1, 0.07),
+      mouth: ext(SHAPES.mouth[0], 0.08, 0.04),
       pupil: new THREE.CylinderGeometry(0.12, 0.12, 0.03, 24),
       shine: new THREE.CylinderGeometry(0.035, 0.035, 0.01, 12),
       nostril: new THREE.SphereGeometry(0.05, 10, 8),
@@ -468,8 +476,68 @@
       scene.add(g);
       return g;
     }
+    // ---------- 当たり判定: パーツの輪郭どおりの多角形 ----------
+    // へこんだ形（まゆ・くちびる）は縦に切り分け、凸な多角形をいくつか組み合わせる
+    function hull(pts) {
+      pts = pts.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+      const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+      const lo = [], up = [];
+      for (const p of pts) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 1e-9) lo.pop(); lo.push(p); }
+      for (const p of pts.slice().reverse()) { while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], p) <= 1e-9) up.pop(); up.push(p); }
+      return lo.slice(0, -1).concat(up.slice(0, -1));
+    }
+    function colliderPolys([shape, bevel, slabs]) {
+      const raw = shape.getPoints(24); if (raw[0].distanceTo(raw[raw.length - 1]) < 1e-6) raw.pop();
+      // ふちの丸みの分だけ外へ広げる
+      let area = 0; raw.forEach((p, i) => { const q = raw[(i + 1) % raw.length]; area += p.x * q.y - q.x * p.y; });
+      const sg = area > 0 ? 1 : -1;
+      const pts = raw.map((p, i) => {
+        const a = raw[(i + raw.length - 1) % raw.length], b = raw[(i + 1) % raw.length];
+        const n = new THREE.Vector2(b.y - a.y, -(b.x - a.x)).normalize().multiplyScalar(sg * bevel);
+        return p.clone().add(n);
+      });
+      let x0 = Infinity, x1 = -Infinity; for (const p of pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); }
+      const polys = [];
+      for (let k = 0; k < slabs; k++) {
+        const a = x0 + (x1 - x0) * k / slabs - 1e-4, b = x0 + (x1 - x0) * (k + 1) / slabs + 1e-4;
+        const sel = pts.filter(p => p.x >= a && p.x <= b);
+        pts.forEach((p, i) => { const q = pts[(i + 1) % pts.length];
+          for (const xc of [a, b]) if ((p.x - xc) * (q.x - xc) < 0) { const tt = (xc - p.x) / (q.x - p.x); sel.push(new THREE.Vector2(xc, p.y + (q.y - p.y) * tt)); } });
+        let h = hull(sel);
+        while (h.length > 12) h = h.filter((_, i) => i % 2 === 0 || i === h.length - 1);
+        if (h.length >= 3) polys.push(h.map(p => planck.Vec2(p.x, -p.y))); // 形の y は奥（-z）向き
+      }
+      return polys;
+    }
+    const COLLIDERS = Object.fromEntries(Object.keys(SHAPES).map(k => [k, colliderPolys(SHAPES[k])]));
+    const world = new planck.World({ gravity: planck.Vec2(0, 0) });
+    {
+      const wall = world.createBody();
+      const fd = { friction: 0.1, restitution: 0.5 };
+      wall.createFixture(new planck.Edge(planck.Vec2(-W, FRONT), planck.Vec2(-W, BACK - 4)), fd);
+      wall.createFixture(new planck.Edge(planck.Vec2(W, FRONT), planck.Vec2(W, BACK - 4)), fd);
+      wall.createFixture(new planck.Edge(planck.Vec2(-W, FRONT), planck.Vec2(W, FRONT)), fd);
+    }
     // 投げる前のパーツは、リンクの右の床に並べておく
-    const stones = PARTS.map((p, i) => ({ ...p, i, mesh: makePart(p.kind), x: 0, z: 0, px: 0, pz: 0, vx: 0, vz: 0, rot: 0, prot: 0, w: 0, y: 0, vy: 0, st: 'wait' }));
+    const stones = PARTS.map((p, i) => {
+      const body = world.createBody({ type: 'dynamic', bullet: true, active: false });
+      for (const v of COLLIDERS[p.kind]) body.createFixture(new planck.Polygon(v), { density: 2, friction: 0.15, restitution: 0.75 });
+      const s = { ...p, i, body, mesh: makePart(p.kind), x: 0, z: 0, px: 0, pz: 0, vx: 0, vz: 0, rot: 0, prot: 0, w: 0, y: 0, vy: 0, st: 'wait' };
+      body.setUserData(s);
+      return s;
+    });
+    // ぶつかった時の音と氷のかけら
+    const wm = { normal: planck.Vec2(0, 0), points: [planck.Vec2(0, 0), planck.Vec2(0, 0)], separations: [0, 0], pointCount: 0 };
+    world.on('post-solve', (c, imp) => {
+      const n = Math.max(0, ...imp.normalImpulses);
+      const a = c.getFixtureA().getBody(), b = c.getFixtureB().getBody();
+      const m = Math.min(...[a, b].filter(x => x.isDynamic()).map(x => x.getMass()));
+      const v = n / m;
+      if (v < 0.15) return;
+      c.getWorldManifold(wm);
+      const pt = wm.pointCount ? wm.points[0] : a.getPosition();
+      hit(v, pt.x, pt.y);
+    });
     const waitPos = i => [W + 0.9, 0.6 - i * 0.75];
 
     // ---------- 掃除する人（IKで手足を付ける） ----------
@@ -611,41 +679,28 @@
         s.px = s.x; s.pz = s.z; s.prot = s.rot;
         if (s.st === 'lost') { s.x += s.vx * dt; s.z += s.vz * dt; s.vy -= 9.8 * dt; s.y += s.vy * dt; s.rot += s.w * dt; continue; }
         if (s.st !== 'go') continue;
-        const sp = Math.hypot(s.vx, s.vz);
-        if (sp > 0) {
-          const a = A0 * (s.i === cur && state === 'slide' ? 1 - 0.5 * sweepPow : 1);
-          const ns = Math.max(0, sp - a * dt);
-          s.vx *= ns / sp; s.vz *= ns / sp;
-          if (ns < 0.02) s.vx = s.vz = 0;
+        // 氷の摩擦: 速さに関係なく一定の減速（スイープ中は小さく）
+        const b = s.body, v = b.getLinearVelocity(), sp = v.length();
+        const a = A0 * (s.i === cur && state === 'slide' ? 1 - 0.5 * sweepPow : 1);
+        const ns = Math.max(0, sp - a * dt);
+        if (ns < 0.02) { if (sp) b.setLinearVelocity(planck.Vec2(0, 0)); b.setAngularVelocity(0); }
+        else {
+          b.setLinearVelocity(planck.Vec2(v.x * ns / sp, v.y * ns / sp));
+          const w = b.getAngularVelocity();
+          b.setAngularVelocity(Math.sign(w) * Math.max(0, Math.abs(w) - 1.2 * dt));
         }
-        s.x += s.vx * dt; s.z += s.vz * dt;
-        s.rot += s.w * dt; s.w *= Math.exp(-1.5 * dt);
-        if (Math.abs(s.x) + s.r > W) { s.x = Math.sign(s.x) * (W - s.r); s.vx *= -0.55; s.w += s.vz * 0.6 * Math.sign(s.x); hit(Math.abs(s.vx), s); }
-        if (s.z + s.r > FRONT) { s.z = FRONT - s.r; s.vz *= -0.5; }
-        if (s.z < BACK) { s.st = 'lost'; s.vy = 0; s.w += (Math.random() - 0.5) * 6; }
       }
-      // ストーン同士の衝突（同じ重さ）
-      for (let i = 0; i < stones.length; i++) for (let j = i + 1; j < stones.length; j++) {
-        const a = stones[i], b = stones[j];
-        if (a.st !== 'go' || b.st !== 'go') continue;
-        const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz), md = a.r + b.r;
-        if (d >= md || d < 1e-6) continue;
-        const nx = dx / d, nz = dz / d, ov = (md - d) / 2;
-        a.x -= nx * ov; a.z -= nz * ov; b.x += nx * ov; b.z += nz * ov;
-        const rv = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
-        if (rv < 0) {
-          const j2 = -(1 + 0.85) * rv / 2;
-          a.vx -= j2 * nx; a.vz -= j2 * nz; b.vx += j2 * nx; b.vz += j2 * nz;
-          const tv = (b.vx - a.vx) * -nz + (b.vz - a.vz) * nx;
-          a.w += tv * 1.5; b.w -= tv * 1.5;
-          hit(-rv, a, b);
-        }
+      world.step(dt, 8, 3);
+      for (const s of stones) {
+        if (s.st !== 'go') continue;
+        const b = s.body, p = b.getPosition(), v = b.getLinearVelocity();
+        s.x = p.x; s.z = p.y; s.rot = b.getAngle(); s.vx = v.x; s.vz = v.y; s.w = b.getAngularVelocity();
+        if (Math.hypot(s.vx, s.vz) < 0.02) s.vx = s.vz = 0;
+        if (s.z < BACK) { s.st = 'lost'; s.vy = 0; s.w += (Math.random() - 0.5) * 4; b.setActive(false); }
       }
     }
     let lastHit = 0;
-    function hit(v, a, b) {
-      if (v < 0.15) return;
-      const x = b ? (a.x + b.x) / 2 : a.x, z = b ? (a.z + b.z) / 2 : a.z;
+    function hit(v, x, z) {
       burst(x, 0.08, z, Math.min(30, 6 + v * 6), 0.6 + v * 0.3, 1.5);
       if (clock - lastHit > 0.06) { lastHit = clock; knock(Math.min(1, 0.25 + v / 4)); }
     }
@@ -655,6 +710,7 @@
       const s = stones[cur], v = Math.sqrt(2 * A0 * aimDist());
       s.vx = Math.sin(aim.ang) * v; s.vz = -Math.cos(aim.ang) * v;
       s.w = (Math.random() - 0.5) * 0.6;
+      s.body.setLinearVelocity(planck.Vec2(s.vx, s.vz)); s.body.setAngularVelocity(s.w); s.body.setAwake(true);
       state = 'slide'; shotOnce = true; sweepPow = 0; brushOff = 0;
       arrow.visible = false;
       burst(s.x, 0.05, s.z + 0.2, 12, 0.6, 1);
@@ -664,6 +720,7 @@
     function readyNext() {
       const s = stones[cur];
       s.st = 'go'; s.x = s.px = 0; s.z = s.pz = 0; s.vx = s.vz = 0; s.rot = s.prot = 0; s.w = 0;
+      s.body.setTransform(planck.Vec2(0, 0), 0); s.body.setLinearVelocity(planck.Vec2(0, 0)); s.body.setAngularVelocity(0); s.body.setActive(true);
       state = 'ready'; aim.p = 0; aim.ang = 0;
       updateLeft(); updateHints();
     }
@@ -905,7 +962,7 @@
       resultEl.querySelector('i').style.transform = `scaleX(${score / 100})`;
     }
     function start() {
-      stones.forEach((s, i) => { const [x, z] = waitPos(i); s.st = 'wait'; s.x = s.px = x; s.z = s.pz = z; s.y = 0; s.vx = s.vz = s.vy = 0; s.rot = s.prot = 0; s.w = 0; s.mesh.visible = true; });
+      stones.forEach((s, i) => { const [x, z] = waitPos(i); s.st = 'wait'; s.x = s.px = x; s.z = s.pz = z; s.y = 0; s.vx = s.vz = s.vy = 0; s.rot = s.prot = 0; s.w = 0; s.mesh.visible = true; s.body.setActive(false); });
       cur = 0; score = 0; voiced = false; snap = null; shareCache = null;
       resultEl.style.display = 'none';
       resultEl.querySelector('i').style.transform = 'scaleX(0)';
