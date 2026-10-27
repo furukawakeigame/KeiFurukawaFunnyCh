@@ -49,6 +49,23 @@
     #controls svg { height: 62%; width: auto; display: block; }
     .tool { background: #fff; color: #1d6f9c; box-shadow: 0 4px 0 #7fb2cc; }
     .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; }
+    #post { flex: 1.3; }
+    /* 画像の切り取り画面 */
+    #crop { position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center; background: rgba(10, 30, 45, .72); padding: 12px 12px calc(80px + env(safe-area-inset-bottom)); }
+    #crop.open { display: flex; }
+    #crop .box { background: #fff; border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 12px; align-items: center; box-shadow: 0 10px 40px rgba(0,0,0,.3); max-width: 100%; }
+    #cropCv { width: min(78vw, calc(100vh - 330px), 420px); height: min(78vw, calc(100vh - 330px), 420px); min-width: 160px; min-height: 160px; border-radius: 12px; background: #23313a; touch-action: none; cursor: grab; display: block; }
+    #crop .side { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+    #zoom { width: 100%; accent-color: #1d6f9c; }
+    #crop .row { display: flex; gap: 8px; width: 100%; flex-wrap: wrap; }
+    #crop .row button { flex: 1; min-width: 72px; height: 48px; border: none; border-radius: 12px; font-size: 15px; font-weight: 800; cursor: pointer; background: #e8f2f7; color: #1d6f9c; }
+    #crop .row #cropOk { background: #1d6f9c; color: #fff; }
+    @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+      #crop { padding-bottom: 12px; }
+      #crop .box { flex-direction: row; }
+      #cropCv { width: min(calc(100vh - 60px), 50vw); height: min(calc(100vh - 60px), 50vw); }
+      #crop .side { width: 220px; justify-content: center; }
+    }
     /* 背の低い横長画面では、ボタンを右に縦に並べて水槽を大きく見せる */
     @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
       #controls { left: auto; right: 0; width: 132px; flex-direction: column; padding: 0 12px; }
@@ -67,8 +84,20 @@
   <div id="controls">
     <button id="shake" class="tool"><svg viewBox="0 0 40 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16h16V4"/><path d="M12 13c2-1.6 4-1.6 5.3 0s3.4 1.6 5.4 0 4-1.6 5.3 0" /><path d="M7 9l-4 3 4 3M33 9l4 3-4 3"/></svg></button>
     <button id="splash" class="tool"><svg viewBox="0 0 40 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 1.5c-2.6 3.4-4.2 5.4-4.2 7.4a4.2 4.2 0 0 0 8.4 0c0-2-1.6-4-4.2-7.4z" fill="currentColor"/><path d="M6 20c3-2 5-2 7 0s4.6 2 7 0 4.6-2 7 0 4.6 2 7 0"/><path d="M11 15l-2-3M29 15l2-3"/></svg></button>
+    <button id="image" class="tool"><svg viewBox="0 0 40 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="22" height="20" rx="3"/><circle cx="16" cy="9" r="2.4" fill="currentColor"/><path d="M10 20l7-7 4 4 3-3 6 6"/></svg></button>
     <a id="post" class="post"></a>
   </div>
+  <div id="crop">
+    <div class="box">
+      <canvas id="cropCv"></canvas>
+      <div class="side">
+        <input type="range" id="zoom" min="0" max="1" step="0.001" value="0">
+        <div class="row"><button id="cropPick"></button><button id="cropDel"></button></div>
+        <div class="row"><button id="cropNo"></button><button id="cropOk"></button></div>
+      </div>
+    </div>
+  </div>
+  <input type="file" id="file" accept="image/*" hidden>
 
   <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
   <script>
@@ -88,10 +117,10 @@
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
-      ja: { title: '流体おもちゃ', back: '← トップへ戻る', post: 'Xに投稿', shake: 'ゆらす', splash: 'ざぶん', share: '3Dの水で遊んだ #流体おもちゃゲーム' },
-      ko: { title: '유체 장난감', back: '← 처음으로', post: 'X에 게시', shake: '흔들기', splash: '첨벙', share: '3D 물로 놀았다 #流体おもちゃゲーム' },
-      en: { title: 'Fluid Toy', back: '← Back to top', post: 'Post on X', shake: 'Shake', splash: 'Splash', share: 'Playing with 3D water #流体おもちゃゲーム' },
-      th: { title: 'ของเล่นของไหล', back: '← กลับหน้าแรก', post: 'โพสต์ลง X', shake: 'เขย่า', splash: 'ตูม', share: 'เล่นกับน้ำ 3 มิติ #流体おもちゃゲーム' },
+      ja: { title: '流体おもちゃ', back: '← トップへ戻る', post: 'Xに投稿', shake: 'ゆらす', splash: 'ざぶん', image: '画像', pick: '画像を選ぶ', del: '消す', no: 'やめる', ok: '決定', share: '3Dの水で遊んだ #流体おもちゃゲーム' },
+      ko: { title: '유체 장난감', back: '← 처음으로', post: 'X에 게시', shake: '흔들기', splash: '첨벙', image: '이미지', pick: '이미지 선택', del: '삭제', no: '취소', ok: '결정', share: '3D 물로 놀았다 #流体おもちゃゲーム' },
+      en: { title: 'Fluid Toy', back: '← Back to top', post: 'Post on X', shake: 'Shake', splash: 'Splash', image: 'Image', pick: 'Choose image', del: 'Remove', no: 'Cancel', ok: 'Done', share: 'Playing with 3D water #流体おもちゃゲーム' },
+      th: { title: 'ของเล่นของไหล', back: '← กลับหน้าแรก', post: 'โพสต์ลง X', shake: 'เขย่า', splash: 'ตูม', image: 'รูปภาพ', pick: 'เลือกรูป', del: 'ลบ', no: 'ยกเลิก', ok: 'ตกลง', share: 'เล่นกับน้ำ 3 มิติ #流体おもちゃゲーム' },
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -105,6 +134,8 @@
       document.getElementById('back').textContent = t('back');
       document.getElementById('shake').setAttribute('aria-label', t('shake'));
       document.getElementById('splash').setAttribute('aria-label', t('splash'));
+      document.getElementById('image').setAttribute('aria-label', t('image'));
+      for (const k of ['pick', 'del', 'no', 'ok']) document.getElementById('crop' + k[0].toUpperCase() + k.slice(1)).textContent = t(k);
       postA.textContent = t('post');
       postA.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share'))}&url=${encodeURIComponent(SHARE_URL)}`;
     }
@@ -193,12 +224,12 @@
       o.stop(now + dur); vib.stop(now + dur); ns.stop(now + dur);
     }
     const pick = a => a[Math.floor(Math.random() * a.length)];
-    // 猫の声（「にゃ」「にゃう」「にゃあー」）。毎回少しずつ変える
+    // 声（猫は「にゃ」「にゃう」「にゃあー」、自分の画像は低めの声）。毎回少しずつ変える
     let lastMeow = -9;
-    function meow(kind) {
+    function meow(kind, base = 620) {
       if (!ac) return;
       const now = ac.currentTime; if (now - lastMeow < 0.5) return; lastMeow = now;
-      const f0 = 560 + Math.random() * 140;
+      const f0 = base * (0.9 + Math.random() * 0.22);
       if (kind === 'grab') voice(f0, pick([['i', 'a'], ['i', 'e', 'a']]), 0.22 + Math.random() * 0.08, 0.32, 0.03, 0.1);
       else if (kind === 'dunk') voice(f0 * 0.8, pick([['i', 'a', 'o'], ['e', 'a', 'u']]), 0.7 + Math.random() * 0.2, 0.4, 0.12, 0.25);
       else voice(f0 * 1.1, pick([['i', 'a', 'u'], ['i', 'a', 'a']]), 0.4 + Math.random() * 0.15, 0.38, 0.05, 0.12);
@@ -252,14 +283,19 @@
     const stick = { x: TW - 0.3, z: TD - 0.3, tip: LEVEL + 0.45, tx: TW - 0.3, tz: TD - 0.3, down: false, px: 0, pz: 0, ptip: 0 };
     // 猫の浮き輪: 輪（トーラス）＋頭（球）
     const RM = 0.22, RMIN = 0.08, HEAD_Y = 0.2, HEAD_R = 0.16;
-    const body = { x: 0.6, y: 1.9, z: 0.05, vx: 0, vy: 0, vz: 0, px: 0.6, py: 1.9, pz: 0.05, grab: false, tx: 0, ty: 0, tz: 0, sub: 0 };
+    const makeBody = (x, z, f0) => ({ x, y: 1.9, z, vx: 0, vy: 0, vz: 0, px: x, py: 1.9, pz: z, grab: false, tx: 0, ty: 0, tz: 0, sub: 0, on: true, f0 });
+    // 1つ目はいつもの猫、2つ目は自分の画像を入れた時だけ浮かぶ
+    const bodies = [makeBody(0.6, 0.05, 620), makeBody(-0.6, -0.1, 250)];
+    bodies[1].on = false;
 
     function collide(i) {
       const i3 = i * 3;
       let x = P[i3], y = P[i3 + 1], z = P[i3 + 2];
       // 浮き輪
+      for (const body of bodies) {
+      if (!body.on) continue;
       let lx = x - body.x, ly = y - body.y, lz = z - body.z;
-      if (lx * lx + lz * lz < 0.2 && ly > -0.2 && ly < 0.4) {
+      if (lx * lx + lz * lz < 0.2 && ly > -0.2 && ly < 0.45) {
         const q = Math.hypot(lx, lz), a = q - RM, d = Math.hypot(a, ly);
         if (d < RMIN + PR && d > 1e-6 && q > 1e-6) {
           const k = (RMIN + PR - d) / d;
@@ -268,6 +304,7 @@
         lx = x - body.x; ly = y - body.y - HEAD_Y; lz = z - body.z;
         const dh = Math.hypot(lx, ly, lz);
         if (dh < HEAD_R + PR && dh > 1e-6) { const k = (HEAD_R + PR - dh) / dh; x += lx * k; y += ly * k; z += lz * k; }
+      }
       }
       // マドラー
       if (y > stick.tip - PR) {
@@ -322,7 +359,7 @@
       stick.x = Math.min(tankX + TW - 0.08, Math.max(tankX - TW + 0.08, stick.x)); stick.z = Math.min(TD - 0.08, Math.max(-TD + 0.08, stick.z));
       const tipT = stick.down ? 0.1 : LEVEL + 0.45;
       stick.tip += Math.max(-6 * DT, Math.min(6 * DT, tipT - stick.tip));
-      stepBody();
+      stepBodies();
 
       for (let i = 0; i < N * 3; i += 3) {
         V[i + 1] -= G * DT;
@@ -390,8 +427,21 @@
     }
 
     // 浮き輪: まわりの水面の高さで浮力を決め、まわりの水の流れに乗る
-    function stepBody() {
-      const b = body;
+    function stepBodies() {
+      for (const b of bodies) if (b.on) stepBody(b);
+      // 浮き輪どうしはぶつかって押し合う
+      const [a, b] = bodies;
+      if (a.on && b.on) {
+        const dx = b.x - a.x, dz = b.z - a.z, dy = b.y - a.y, d = Math.hypot(dx, dz), rr = 2 * (RM + RMIN);
+        if (d < rr && d > 1e-6 && Math.abs(dy) < 0.35) {
+          const push = rr - d, wa = a.grab ? 0 : b.grab ? 1 : 0.5, wb = 1 - wa, nx = dx / d, nz = dz / d;
+          a.x -= nx * push * wa; a.z -= nz * push * wa; b.x += nx * push * wb; b.z += nz * push * wb;
+          const vn = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
+          if (vn < 0) { a.vx += nx * vn * wa; a.vz += nz * vn * wa; b.vx -= nx * vn * wb; b.vz -= nz * vn * wb; }
+        }
+      }
+    }
+    function stepBody(b) {
       b.px = b.x; b.py = b.y; b.pz = b.z;
       if (b.grab) {
         const k = Math.min(1, DT * 18);
@@ -515,22 +565,17 @@
       }
     }
 
-    // 水槽: 薄いガラスと金属のふち
+    // 水槽: 縁のないガラス。角はうっすら光る線だけにして、水や猫の邪魔をしない
     const tank = new THREE.Group(); scene.add(tank);
     {
-      const glass = new THREE.MeshStandardMaterial({ color: '#e6f6ff', roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.13, depthWrite: false, side: THREE.DoubleSide });
+      const glass = new THREE.MeshStandardMaterial({ color: '#e6f6ff', roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.08, depthWrite: false, side: THREE.DoubleSide });
       const gt = 0.02;
       part(BOXG, glass, 0, TH / 2, -TD - gt / 2, 2 * TW, TH, gt, tank);
       part(BOXG, glass, 0, TH / 2, TD + gt / 2, 2 * TW, TH, gt, tank);
       part(BOXG, glass, -TW - gt / 2, TH / 2, 0, gt, TH, 2 * TD, tank);
       part(BOXG, glass, TW + gt / 2, TH / 2, 0, gt, TH, 2 * TD, tank);
-      const frame = mat('#c9d4dc', 0.3, 0.7), e = 0.05, W = 2 * TW + 2 * gt, D = 2 * TD + 2 * gt;
-      for (const y of [e / 2, TH]) {
-        for (const z of [-D / 2, D / 2]) part(BOXG, frame, 0, y, z, W + e, e, e, tank);
-        for (const x of [-W / 2, W / 2]) part(BOXG, frame, x, y, 0, e, e, D + e, tank);
-      }
-      for (const x of [-W / 2, W / 2]) for (const z of [-D / 2, D / 2]) part(BOXG, frame, x, TH / 2, z, e, TH, e, tank);
-      tank.traverse(m => { if (m.isMesh && m.material === frame) { m.castShadow = true; m.receiveShadow = true; m.layers.enable(1); } });
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(2 * TW + 2 * gt, TH, 2 * TD + 2 * gt)), new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.35, depthWrite: false }));
+      edges.position.y = TH / 2; tank.add(edges);
     }
 
     // マドラー（木の棒）
@@ -543,22 +588,25 @@
       shade(stickMesh).traverse(m => m.layers.enable(1));
     }
 
-    // いつもの猫: 浮き輪に乗った猫
-    const catG = new THREE.Group(); scene.add(catG);
-    const facing = new THREE.Group(); catG.add(facing);
-    const catPick = [];
-    {
-      const stripes = canvasTex(256, 16, (c, w, h) => { for (let i = 0; i < 8; i++) { c.fillStyle = i % 2 ? '#ffffff' : '#f0503a'; c.fillRect(i * w / 8, 0, w / 8, h); } });
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(RM, RMIN, 18, 48), new THREE.MeshStandardMaterial({ map: stripes, roughness: 0.3 }));
-      ring.rotation.x = Math.PI / 2; catG.add(ring); catPick.push(ring);
-      const fur = mat('#8a6e55', 0.9), white = mat('#f4efe8', 0.8);
-      part(SPHG, fur, 0, 0.08, -0.08, 0.16, 0.17, 0.12, facing);
+    // 浮き輪: 1つ目はいつもの猫が乗り、2つ目には自分で切り取った画像が乗る
+    const stripeTex = (a, b) => canvasTex(256, 16, (c, w, h) => { for (let i = 0; i < 8; i++) { c.fillStyle = i % 2 ? b : a; c.fillRect(i * w / 8, 0, w / 8, h); } });
+    const RINGG = new THREE.TorusGeometry(RM, RMIN, 18, 48), FACEG = new THREE.PlaneGeometry(0.46, 0.46);
+    const faceMat = tex => new THREE.MeshStandardMaterial({ map: tex, emissive: '#ffffff', emissiveMap: tex, emissiveIntensity: 0.45, alphaTest: 0.5, roughness: 0.8, side: THREE.DoubleSide });
+    function makeFloat(tex, c1, c2, cat) {
+      const g = new THREE.Group(), facing = new THREE.Group(); g.add(facing); scene.add(g);
+      const ring = new THREE.Mesh(RINGG, new THREE.MeshStandardMaterial({ map: stripeTex(c1, c2), roughness: 0.3 }));
+      ring.rotation.x = Math.PI / 2; g.add(ring);
+      if (cat) part(SPHG, mat('#8a6e55', 0.9), 0, 0.08, -0.08, 0.16, 0.17, 0.12, facing);
+      const white = mat('#f4efe8', 0.8);
       for (const s of [-1, 1]) part(SPHG, white, s * 0.1, 0.07, 0.17, 0.05, 0.035, 0.06, facing);
-      const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
-      const face = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.46), new THREE.MeshStandardMaterial({ map: catTex, emissive: '#ffffff', emissiveMap: catTex, emissiveIntensity: 0.45, alphaTest: 0.5, roughness: 0.8, side: THREE.DoubleSide }));
-      face.position.set(0, 0.3, 0.08); face.rotation.x = -0.4; facing.add(face); // 上から見るカメラに少し向ける catPick.push(face);
-      shade(catG).traverse(m => m.layers.enable(1));
+      const face = new THREE.Mesh(FACEG, faceMat(tex));
+      face.position.set(0, 0.3, 0.08); face.rotation.x = -0.4; facing.add(face); // 上から見るカメラに少し向ける
+      shade(g).traverse(m => m.layers.enable(1));
+      return { g, facing, face, pick: [ring, face] };
     }
+    const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
+    const floats = [makeFloat(catTex, '#f0503a', '#ffffff', true), makeFloat(catTex, '#2f8fe0', '#ffffff', false)];
+    floats[1].g.visible = false;
 
     // ---------- 水の描画（粒の奥行きをなめらかにして水面を作る） ----------
     const geo = new THREE.BufferGeometry();
@@ -712,20 +760,28 @@
       ray.setFromCamera(ndc, camera);
     }
     function aimStick() { if (ray.ray.intersectPlane(waterPlane, tmp)) { stick.tx = tmp.x; stick.tz = tmp.z; } }
-    function aimCat() { if (ray.ray.intersectPlane(grabPlane, tmp)) { body.tx = tmp.x; body.ty = Math.max(RMIN, Math.min(2.6, tmp.y)); body.tz = tmp.z; } }
+    function aimCat(body) { if (ray.ray.intersectPlane(grabPlane, tmp)) { body.tx = tmp.x; body.ty = Math.max(RMIN, Math.min(2.6, tmp.y)); body.tz = tmp.z; } }
     cv.addEventListener('pointerdown', e => {
       e.preventDefault();
       if (ptr) return;
       cv.setPointerCapture(e.pointerId);
       setRay(e);
-      const c = new THREE.Vector3(body.x, body.y + 0.1, body.z);
-      if (ray.intersectObjects(catPick, false).length || ray.ray.distanceToPoint(c) < 0.36) {
-        ptr = { id: e.pointerId, cat: true };
-        grabPlane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(tmp).negate(), c);
-        body.grab = true; aimCat(); body.ty = Math.max(body.ty, body.y);
-        meow('grab');
+      // 浮き輪をつかむ（当たった物か、近くを押した物）
+      let best = null, bd = 0.36;
+      bodies.forEach((b, k) => {
+        if (!b.on) return;
+        const hit = ray.intersectObjects(floats[k].pick, false)[0];
+        const d = hit ? hit.distance * 0.01 : ray.ray.distanceToPoint(new THREE.Vector3(b.x, b.y + 0.1, b.z));
+        if (d < bd) { bd = d; best = b; }
+      });
+      if (best) {
+        const body = best;
+        ptr = { id: e.pointerId, body };
+        grabPlane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(tmp).negate(), new THREE.Vector3(body.x, body.y + 0.1, body.z));
+        body.grab = true; aimCat(body); body.ty = Math.max(body.ty, body.y);
+        meow('grab', body.f0);
       } else {
-        ptr = { id: e.pointerId, cat: false };
+        ptr = { id: e.pointerId, body: null };
         aimStick(); stick.down = true;
         // 遠くを押したら棒はそこへ持ち上げて移す
         if (Math.hypot(stick.tx - stick.x, stick.tz - stick.z) > 0.6 && stick.tip > LEVEL) { stick.x = stick.px = Math.min(tankX + TW - 0.08, Math.max(tankX - TW + 0.08, stick.tx)); stick.z = stick.pz = Math.min(TD - 0.08, Math.max(-TD + 0.08, stick.tz)); }
@@ -733,12 +789,13 @@
     });
     cv.addEventListener('pointermove', e => {
       setRay(e);
-      if (ptr && e.pointerId === ptr.id) { if (ptr.cat) aimCat(); else aimStick(); }
+      if (ptr && e.pointerId === ptr.id) { if (ptr.body) aimCat(ptr.body); else aimStick(); }
       else if (!ptr && e.pointerType === 'mouse') aimStick();
     });
     const up = e => {
       if (!ptr || e.pointerId !== ptr.id) return;
-      if (ptr.cat) { body.grab = false; if (Math.hypot(body.vx, body.vy, body.vz) > 3) meow('throw'); }
+      const body = ptr.body;
+      if (body) { body.grab = false; if (Math.hypot(body.vx, body.vy, body.vz) > 3) meow('throw', body.f0); }
       else stick.down = false;
       ptr = null;
     };
@@ -746,6 +803,108 @@
     stage.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
     document.getElementById('shake').addEventListener('click', () => { shakeT = 0; tone('sine', 90, 55, 0.2, 0.25); });
     document.getElementById('splash').addEventListener('click', dropBlob);
+
+    // ---------- 自分の画像（丸く切り取って2つ目の浮き輪に乗せる） ----------
+    const cropEl = document.getElementById('crop'), cropCv = document.getElementById('cropCv'), cg = cropCv.getContext('2d');
+    const zoomEl = document.getElementById('zoom'), fileEl = document.getElementById('file'), delBtn = document.getElementById('cropDel');
+    const crop = { img: null, z: 0, ox: 0, oy: 0 }; // z: 0〜1 の拡大、ox/oy: 円の中心からの画像のずれ（円の半径を1とする）
+    const userCanvas = document.createElement('canvas'); userCanvas.width = userCanvas.height = 256;
+    const userTex = new THREE.CanvasTexture(userCanvas); userTex.colorSpace = THREE.SRGBColorSpace;
+    floats[1].face.material = faceMat(userTex);
+    // 画像の置き方: 拡大0で、画像の短い辺が円にぴったり入る
+    const cropScale = () => { const im = crop.img; return 2 / Math.min(im.width, im.height) * Math.pow(6, crop.z); };
+    function drawCrop() {
+      const r = cropCv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio, 2);
+      const W = Math.round(r.width * dpr); if (cropCv.width !== W) cropCv.width = cropCv.height = W;
+      const R = W * 0.42, c = W / 2;
+      cg.fillStyle = '#23313a'; cg.fillRect(0, 0, W, W);
+      if (crop.img) {
+        const k = cropScale() * R;
+        cg.drawImage(crop.img, c + crop.ox * R - crop.img.width * k / 2, c + crop.oy * R - crop.img.height * k / 2, crop.img.width * k, crop.img.height * k);
+      }
+      // 円の外は暗く
+      cg.fillStyle = 'rgba(10,25,35,.62)'; cg.beginPath(); cg.rect(0, 0, W, W); cg.arc(c, c, R, 0, Math.PI * 2, true); cg.fill();
+      cg.strokeStyle = '#fff'; cg.lineWidth = Math.max(2, W / 200); cg.beginPath(); cg.arc(c, c, R, 0, Math.PI * 2); cg.stroke();
+    }
+    function cropTo(canvas) {
+      const S2 = canvas.width, g = canvas.getContext('2d'), R = S2 / 2, k = cropScale() * R;
+      g.clearRect(0, 0, S2, S2);
+      g.save(); g.beginPath(); g.arc(R, R, R - 1, 0, Math.PI * 2); g.clip();
+      g.drawImage(crop.img, R + crop.ox * R - crop.img.width * k / 2, R + crop.oy * R - crop.img.height * k / 2, crop.img.width * k, crop.img.height * k);
+      g.restore();
+    }
+    function setUser(url, drop) {
+      const im = new Image();
+      im.onload = () => {
+        const g = userCanvas.getContext('2d'); g.clearRect(0, 0, 256, 256); g.drawImage(im, 0, 0, 256, 256);
+        userTex.needsUpdate = true;
+        const b = bodies[1];
+        if (drop || !b.on) { Object.assign(b, { x: tankX - 0.5, y: 2.2, z: 0, vx: 0, vy: 0, vz: 0, grab: false }); b.px = b.x; b.py = b.y; b.pz = b.z; }
+        b.on = true;
+        if (drop) meow('throw', b.f0);
+      };
+      im.src = url;
+    }
+    { const saved = store.get('face', null); if (saved) setUser(saved, false); }
+    function openCrop() {
+      if (!crop.img && bodies[1].on) { crop.img = userCanvas; crop.z = 0; crop.ox = crop.oy = 0; } // 今の画像を切り直せる
+      delBtn.style.display = bodies[1].on ? '' : 'none';
+      zoomEl.value = crop.z;
+      cropEl.classList.add('open'); drawCrop();
+    }
+    const closeCrop = () => { cropEl.classList.remove('open'); };
+    document.getElementById('image').addEventListener('click', () => { if (!crop.img && !bodies[1].on) fileEl.click(); openCrop(); });
+    document.getElementById('cropPick').addEventListener('click', () => fileEl.click());
+    document.getElementById('cropNo').addEventListener('click', closeCrop);
+    delBtn.addEventListener('click', () => { bodies[1].on = false; store.set('face', null); crop.img = null; closeCrop(); });
+    document.getElementById('cropOk').addEventListener('click', () => {
+      if (crop.img) {
+        const c = document.createElement('canvas'); c.width = c.height = 256; cropTo(c);
+        const url = c.toDataURL('image/png');
+        store.set('face', url); setUser(url, true);
+        // 次に開いたときは、切り取った画像をそのまま切り直せるように
+        const im = new Image(); im.onload = () => { crop.img = im; crop.z = 0; crop.ox = crop.oy = 0; }; im.src = url;
+      }
+      closeCrop();
+    });
+    fileEl.addEventListener('change', () => {
+      const f = fileEl.files[0]; fileEl.value = ''; if (!f) return;
+      const u = URL.createObjectURL(f), im = new Image();
+      im.onload = () => {
+        // 大きすぎる画像は縮めておく
+        const k = Math.min(1, 1024 / Math.max(im.width, im.height)), c = document.createElement('canvas');
+        c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(u);
+        crop.img = c; crop.z = 0; crop.ox = crop.oy = 0; zoomEl.value = 0;
+        if (!cropEl.classList.contains('open')) openCrop(); else drawCrop();
+      };
+      im.onerror = () => URL.revokeObjectURL(u);
+      im.src = u;
+    });
+    // ドラッグで動かし、2本指・ホイール・つまみで拡大
+    const cps = new Map();
+    let pinch = 0;
+    const cropPt = e => { const r = cropCv.getBoundingClientRect(); return [(e.clientX - r.left) / (r.width * 0.42), (e.clientY - r.top) / (r.width * 0.42)]; };
+    function zoomTo(z) {
+      if (!crop.img) return;
+      const old = cropScale(); crop.z = Math.max(0, Math.min(1, z)); const k = cropScale() / old;
+      crop.ox *= k; crop.oy *= k; zoomEl.value = crop.z; drawCrop();
+    }
+    cropCv.addEventListener('pointerdown', e => { cropCv.setPointerCapture(e.pointerId); cps.set(e.pointerId, cropPt(e)); if (cps.size === 2) { const [a, b] = [...cps.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); } });
+    cropCv.addEventListener('pointermove', e => {
+      if (!cps.has(e.pointerId) || !crop.img) return;
+      const p = cropPt(e), q = cps.get(e.pointerId);
+      if (cps.size === 1) { crop.ox += p[0] - q[0]; crop.oy += p[1] - q[1]; cps.set(e.pointerId, p); drawCrop(); return; }
+      cps.set(e.pointerId, p);
+      const [a, b] = [...cps.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      if (pinch > 0) zoomTo(crop.z + Math.log(d / pinch) / Math.log(6));
+      pinch = d;
+    });
+    const cropUp = e => { cps.delete(e.pointerId); pinch = 0; };
+    cropCv.addEventListener('pointerup', cropUp); cropCv.addEventListener('pointercancel', cropUp);
+    cropCv.addEventListener('wheel', e => { e.preventDefault(); zoomTo(crop.z - e.deltaY * 0.001); }, { passive: false });
+    zoomEl.addEventListener('input', () => zoomTo(+zoomEl.value));
+    addEventListener('resize', () => { if (cropEl.classList.contains('open')) drawCrop(); });
 
     // ---------- 共有 ----------
     // 押した瞬間の水槽を正方形に切り抜き、タイトルを小さく重ねる
@@ -790,10 +949,14 @@
       posAttr.needsUpdate = true; spdAttr.needsUpdate = true;
       tank.position.x = tankX;
       stickMesh.position.set(stick.px + (stick.x - stick.px) * alpha, stick.ptip + (stick.tip - stick.ptip) * alpha, stick.pz + (stick.z - stick.pz) * alpha);
-      catG.position.set(body.px + (body.x - body.px) * alpha, body.py + (body.y - body.py) * alpha, body.pz + (body.z - body.pz) * alpha);
-      // 猫は傾きながら、顔をいつもこちらに向ける
-      catG.rotation.set(THREE.MathUtils.clamp(body.vz * 0.12, -0.4, 0.4), 0, THREE.MathUtils.clamp(-body.vx * 0.12, -0.4, 0.4));
-      facing.rotation.y = Math.atan2(camera.position.x - catG.position.x, camera.position.z - catG.position.z);
+      bodies.forEach((body, k) => {
+        const { g, facing } = floats[k];
+        g.visible = body.on; if (!body.on) return;
+        g.position.set(body.px + (body.x - body.px) * alpha, body.py + (body.y - body.py) * alpha, body.pz + (body.z - body.pz) * alpha);
+        // 傾きながら、顔をいつもこちらに向ける
+        g.rotation.set(THREE.MathUtils.clamp(body.vz * 0.12, -0.4, 0.4), 0, THREE.MathUtils.clamp(-body.vx * 0.12, -0.4, 0.4));
+        facing.rotation.y = Math.atan2(camera.position.x - g.position.x, camera.position.z - g.position.z);
+      });
 
       renderer.setRenderTarget(sceneRT); renderer.render(scene, camera);
       const bg = scene.background; scene.background = null; camera.layers.set(1);
@@ -825,7 +988,7 @@
       if (soundOn && Math.random() < Math.min(0.5, (agitation - 0.15) * 0.6)) bubble(0.02 + Math.min(0.08, agitation * 0.04));
       if (impact > 0.05 && now - lastSplash > 0.15) { lastSplash = now; splashSound(Math.min(1, impact * 2.5)); }
       // 浮き輪を深く沈めると怒る
-      if (body.grab && body.y < LEVEL - 0.25 && now - lastDunk > 1.2) { lastDunk = now; meow('dunk'); for (let k = 0; k < 6; k++) bubble(0.07, Math.random() * 0.4); }
+      for (const body of bodies) if (body.on && body.grab && body.y < LEVEL - 0.25 && now - lastDunk > 1.2) { lastDunk = now; meow('dunk', body.f0); for (let k = 0; k < 6; k++) bubble(0.07, Math.random() * 0.4); }
     }
 
     let last = performance.now(), acc = 0;
