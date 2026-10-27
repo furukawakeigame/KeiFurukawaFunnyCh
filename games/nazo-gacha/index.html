@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>謎ガチャ</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="謎ガチャ">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/nazo-gacha/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/nazo-gacha/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #9fd3ef; color: #2f2414;
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans SC", "Noto Sans Devanagari", "Noto Sans Bengali", "Noto Sans Arabic", sans-serif;
+      display: flex; flex-direction: column; overflow: hidden;
+      -webkit-user-select: none; user-select: none;
+    }
+    header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; position: relative; z-index: 3; }
+    header a { color: #2f2414; font-size: 14px; text-decoration: none; margin-right: auto; }
+    header button, header select {
+      background: #fff; border: 1px solid #c2a77e; border-radius: 8px;
+      height: 34px; min-width: 40px; padding: 0 10px; font-size: 13px; color: #2f2414; cursor: pointer;
+    }
+    header svg { width: 18px; height: 18px; display: block; }
+    #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    /* 集めた割合のゲージ */
+    #dex { position: absolute; left: 12px; right: 12px; top: 4px; max-width: 520px; margin: 0 auto; display: flex; align-items: center; gap: 8px; pointer-events: none; }
+    #dex svg { width: clamp(22px, 4vmin, 32px); height: auto; flex: none; }
+    #dex div { flex: 1; height: clamp(12px, 2.2vmin, 18px); border-radius: 10px; background: rgba(255,255,255,.7); border: 2px solid #5b3a1a; overflow: hidden; }
+    #dex i { display: block; height: 100%; width: 0; min-width: 4px; background: linear-gradient(90deg, #ff7a3d, #ffd23d); }
+    #dex span { background: rgba(255,255,255,.8); border-radius: 8px; padding: 1px 6px; font-size: clamp(12px, 2.2vmin, 16px); font-weight: 800; color: #5b3a1a; font-variant-numeric: tabular-nums; }
+    /* アイテム名 */
+    #name { position: absolute; left: 0; right: 0; top: clamp(30px, 7vmin, 56px); display: none; flex-direction: column; align-items: center; pointer-events: none; padding: 0 16px; text-align: center; }
+    #name small { font-size: clamp(14px, 2.8vmin, 22px); font-weight: 800; color: #fff; letter-spacing: .08em; text-shadow: 0 2px 0 #5b3a1a; font-variant-numeric: tabular-nums; }
+    #name b { font-size: clamp(24px, 6.4vmin, 56px); font-weight: 900; color: #fff; line-height: 1.2; max-width: 900px; text-shadow: 0 3px 0 #5b3a1a, 0 0 18px rgba(0,0,0,.35); }
+    @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+      #name { top: 0; bottom: var(--reserve, 160px); right: auto; width: 40%; justify-content: center; }
+    }
+    #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+    /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
+    #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; z-index: 2; }
+    #controls button, #controls a {
+      flex: 1; height: clamp(56px, 8vmin, 72px); border: none; border-radius: 14px; font-size: clamp(18px, 3vmin, 24px); font-weight: 800;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none;
+      touch-action: manipulation;
+    }
+    #controls svg { width: 30px; height: 30px; }
+    .go { background: #e0603a; color: #fff; box-shadow: 0 4px 0 #8f3518; }
+    .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 30% !important; font-size: clamp(15px, 2.6vmin, 20px) !important; }
+    .shelf { background: #fff; color: #5b3a1a; box-shadow: 0 4px 0 #c2a77e; flex: 0 0 64px !important; }
+    #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
+    /* 棚（集めたアイテム） */
+    #shelfView { position: fixed; inset: 0; z-index: 5; background: rgba(60,36,18,.92); display: none; flex-direction: column; }
+    #shelfView .top { display: flex; justify-content: flex-end; padding: 10px 12px; }
+    #shelfView .top button { width: 44px; height: 44px; border-radius: 12px; border: none; background: #fff; cursor: pointer; }
+    #shelfView .top svg { width: 22px; height: 22px; }
+    #grid { flex: 1; overflow-y: auto; padding: 0 12px calc(96px + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(84px, 14vmin, 128px), 1fr)); gap: 10px; align-content: start; }
+    #grid figure { margin: 0; background: linear-gradient(#fff8e8, #f1dcb4); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
+    #grid img, #grid .ph { width: 100%; aspect-ratio: 1; display: block; }
+    #grid figcaption { font-size: 12px; font-weight: 800; color: #5b3a1a; padding: 2px 4px 6px; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language">
+      <option value="ja">日本語</option><option value="en">English</option><option value="zh">中文</option><option value="hi">हिन्दी</option><option value="es">Español</option>
+      <option value="fr">Français</option><option value="ar">العربية</option><option value="bn">বাংলা</option><option value="pt">Português</option><option value="ru">Русский</option>
+    </select>
+  </header>
+  <div id="stage">
+    <div id="dex"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 18 0z" fill="#ff7a3d" stroke="#5b3a1a" stroke-width="1.6"/><path d="M3 12a9 9 0 0 0 18 0z" fill="#fff" stroke="#5b3a1a" stroke-width="1.6"/></svg><div><i></i></div><span></span></div>
+    <div id="name"><small></small><b dir="auto"></b></div>
+    <div id="msg"></div>
+  </div>
+  <div id="controls"></div>
+  <div id="shelfView"><div class="top"><button id="shelfClose" aria-label="close"><svg viewBox="0 0 24 24" stroke="#5b3a1a" stroke-width="3" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg></button></div><div id="grid"></div></div>
+
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
+  <script>
+    // CDN が読めないときの一言
+    setTimeout(() => { if (!window.GACHA_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 8000);
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+    window.GACHA_READY = true;
+    window.gachaState = () => state; // 動作確認用
+
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/nazo-gacha/';
+    const TOTAL = 10000;      // 全種類
+    const ITEM_COUNT = 300;   // いま items/ に入っている数（書き足したら増やす）
+    const CHUNK = 100;        // 1ファイルあたりの数
+
+    // ---------- 言語 ----------
+    const LANGS = ['ja', 'en', 'zh', 'hi', 'es', 'fr', 'ar', 'bn', 'pt', 'ru'];
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('nazo-gacha:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('nazo-gacha:' + k, JSON.stringify(v)); } catch {} },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (LANGS.includes(c)) return c; } return 'en'; };
+    const TAG = '#謎ガチャゲーム';
+    const DICT = {
+      ja: { title: '謎ガチャ', back: '← トップへ戻る', again: 'もう一回', post: 'Xに投稿', share: (n, no) => `謎ガチャで「${n}」が出た（No.${no}） ${TAG}` },
+      en: { title: 'Mystery Gacha', back: '← Back to top', again: 'Spin again', post: 'Post on X', share: (n, no) => `I got "${n}" (No.${no}) from the Mystery Gacha ${TAG}` },
+      zh: { title: '谜之扭蛋', back: '← 返回首页', again: '再来一次', post: '发到X', share: (n, no) => `我在谜之扭蛋里抽到了「${n}」（No.${no}） ${TAG}` },
+      hi: { title: 'रहस्य गाचा', back: '← मुखपृष्ठ पर लौटें', again: 'फिर से घुमाएँ', post: 'X पर पोस्ट करें', share: (n, no) => `रहस्य गाचा से मुझे "${n}" मिला (No.${no}) ${TAG}` },
+      es: { title: 'Gacha misteriosa', back: '← Volver al inicio', again: 'Otra vez', post: 'Publicar en X', share: (n, no) => `Me salió «${n}» (No.${no}) en la Gacha misteriosa ${TAG}` },
+      fr: { title: 'Gacha mystère', back: '← Retour à l’accueil', again: 'Encore', post: 'Publier sur X', share: (n, no) => `J’ai eu « ${n} » (No.${no}) au Gacha mystère ${TAG}` },
+      ar: { title: 'غاتشا الغموض', back: '← العودة إلى الرئيسية', again: 'مرة أخرى', post: 'انشر على X', share: (n, no) => `حصلت على «${n}» (No.${no}) من غاتشا الغموض ${TAG}` },
+      bn: { title: 'রহস্য গাচা', back: '← প্রথম পাতায় ফিরুন', again: 'আবার ঘোরান', post: 'X-এ পোস্ট করুন', share: (n, no) => `রহস্য গাচা থেকে পেলাম "${n}" (No.${no}) ${TAG}` },
+      pt: { title: 'Gacha misteriosa', back: '← Voltar ao início', again: 'De novo', post: 'Postar no X', share: (n, no) => `Tirei “${n}” (No.${no}) na Gacha misteriosa ${TAG}` },
+      ru: { title: 'Загадочная гача', back: '← На главную', again: 'Ещё раз', post: 'Опубликовать в X', share: (n, no) => `Мне выпало «${n}» (No.${no}) в Загадочной гаче ${TAG}` },
+    };
+    let lang = store.get('lang', null) || autoLang();
+    if (!LANGS.includes(lang)) lang = 'en';
+    const t = k => DICT[lang][k];
+    const langSel = document.getElementById('lang');
+    langSel.value = lang;
+    langSel.addEventListener('change', () => { lang = langSel.value; store.set('lang', lang); applyLang(); });
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      renderControls();
+      if (state === 'reveal') { showName(); prepareShare(); }
+    }
+
+    // ---------- 音 ----------
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const drawSoundBtn = () => {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${soundOn ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>'}</svg>`;
+    };
+    drawSoundBtn();
+    soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); });
+    let ac = null, noiseBuf = null;
+    function initAudio() {
+      if (ac) return;
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
+        o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.05);
+        noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+        const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      } catch { ac = null; }
+    }
+    addEventListener('pointerdown', initAudio, { capture: true });
+    addEventListener('keydown', initAudio, { capture: true });
+    // 短いノイズを共鳴に通した打撃音（freqs: 共鳴の高さ）
+    function knock(freqs, dur, vol, delay = 0) {
+      if (!soundOn || !ac) return;
+      const now = ac.currentTime + delay;
+      const src = ac.createBufferSource(); src.buffer = noiseBuf;
+      const env = ac.createGain(); env.gain.setValueAtTime(vol, now); env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      env.connect(ac.destination);
+      for (const f of freqs) { const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = 12; src.connect(bp).connect(env); }
+      src.start(now, Math.random() * 0.5); src.stop(now + dur + 0.02);
+    }
+    function tone(type, f0, f1, dur, vol, delay = 0) {
+      if (!soundOn || !ac) return;
+      const now = ac.currentTime + delay;
+      const o = ac.createOscillator(); o.type = type;
+      o.frequency.setValueAtTime(f0, now); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), now + dur);
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(vol, now + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      o.connect(g).connect(ac.destination); o.start(now); o.stop(now + dur + 0.02);
+    }
+    const sRatchet = () => { knock([2400 + Math.random() * 400, 4200], 0.04, 0.5); tone('square', 180, 120, 0.03, 0.03); };
+    const sDrop = () => { knock([700, 1500, 2600], 0.09, 0.9); tone('sine', 140, 70, 0.14, 0.25); knock([900, 1900], 0.06, 0.4, 0.13); knock([1000, 2100], 0.04, 0.2, 0.22); };
+    const sOpen = () => { knock([1800, 3200], 0.05, 0.9); tone('sine', 520, 1300, 0.08, 0.15); };
+    const sFly = () => { tone('sine', 300, 900, 0.35, 0.08); };
+    const sChime = () => { [784, 988, 1175, 1568].forEach((f, i) => { tone('sine', f, f, 0.6, 0.09, i * 0.07); tone('triangle', f * 2, f * 2, 0.3, 0.02, i * 0.07); }); };
+    // 声: のこぎり波＋息をフォルマントに通す（アイテムごとに高さ・母音を変える）
+    const VOWELS = { a: [800, 1200, 2500], i: [300, 2300, 3000], u: [350, 1250, 2300], e: [450, 1900, 2600], o: [450, 850, 2400] };
+    function voice(rand, pitch, vowels, dur, vol = 0.18, delay = 0) {
+      if (!soundOn || !ac) return;
+      const now = ac.currentTime + delay;
+      const out = ac.createGain(); out.gain.setValueAtTime(0.0001, now);
+      out.gain.exponentialRampToValueAtTime(vol, now + 0.03); out.gain.setValueAtTime(vol, now + dur * 0.7); out.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      out.connect(ac.destination);
+      const o = ac.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(pitch * 1.3, now); o.frequency.exponentialRampToValueAtTime(pitch, now + dur * 0.3); o.frequency.exponentialRampToValueAtTime(pitch * (0.6 + rand() * 0.8), now + dur);
+      const vib = ac.createOscillator(), vg = ac.createGain(); vib.frequency.value = 5 + rand() * 4; vg.gain.value = pitch * 0.04; vib.connect(vg).connect(o.frequency);
+      const n = ac.createBufferSource(); n.buffer = noiseBuf; const ng = ac.createGain(); ng.gain.value = 0.08; n.connect(ng);
+      const mix = ac.createGain(); o.connect(mix); ng.connect(mix);
+      const fs = [0, 1, 2].map(i => { const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 6 + i * 3; mix.connect(bp).connect(out); return bp; });
+      vowels.forEach((v, k) => { const tt = now + dur * k / vowels.length; VOWELS[v].forEach((f, i) => fs[i].frequency.linearRampToValueAtTime(f, tt + 0.05)); });
+      o.start(now); vib.start(now); n.start(now); o.stop(now + dur + 0.05); vib.stop(now + dur + 0.05); n.stop(now + dur + 0.05);
+    }
+    const mulberry = s => () => { s |= 0; s = s + 0x6D2B79F5 | 0; let x = Math.imul(s ^ s >>> 15, 1 | s); x = x + Math.imul(x ^ x >>> 7, 61 | x) ^ x; return ((x ^ x >>> 14) >>> 0) / 4294967296; };
+    function itemVoice(id) {
+      const r = mulberry(id * 7919 + 13), keys = Object.keys(VOWELS);
+      const pitch = 90 + r() * 600, n = 1 + Math.floor(r() * 3);
+      let d = 0;
+      for (let k = 0; k < n; k++) {
+        const vs = Array.from({ length: 1 + Math.floor(r() * 3) }, () => keys[Math.floor(r() * keys.length)]);
+        const dur = 0.15 + r() * 0.45; voice(r, pitch * (0.8 + r() * 0.5), vs, dur, 0.16, d); d += dur + 0.05;
+      }
+    }
+
+    // ---------- 3D ----------
+    const stage = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    stage.prepend(renderer.domElement);
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 80);
+    // 金属やガラスに映り込む周りの景色
+    scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+
+    const canvasTex = (w, h, draw, repeat) => {
+      const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+      const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 4;
+      if (repeat) { tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(...repeat); }
+      return tx;
+    };
+    // 空のグラデーション
+    scene.background = canvasTex(4, 256, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#4fa3e0'); gr.addColorStop(0.6, '#a9dcf5'); gr.addColorStop(1, '#f6e7c8'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+    scene.fog = new THREE.Fog('#e9dcc0', 14, 34);
+    scene.add(new THREE.HemisphereLight('#bfe4ff', '#8a6a44', 0.7));
+    const sun = new THREE.DirectionalLight('#ffe2b8', 2.4);
+    sun.position.set(3.5, 7, 5); sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024); sun.shadow.camera.left = -6; sun.shadow.camera.right = 6; sun.shadow.camera.top = 7; sun.shadow.camera.bottom = -3; sun.shadow.bias = -0.0005; sun.shadow.radius = 4;
+    scene.add(sun);
+    const shade = o => { o.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } }); return o; };
+
+    // 地面: タイル
+    const tileTex = canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#cdbb9a'; g.fillRect(0, 0, w, h);
+      for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+        const l = 70 + Math.random() * 10; g.fillStyle = `hsl(36,24%,${l}%)`; g.fillRect(x * 64 + 2, y * 64 + 2, 60, 60);
+        for (let k = 0; k < 40; k++) { g.fillStyle = `rgba(80,60,40,${Math.random() * 0.12})`; g.fillRect(x * 64 + Math.random() * 60, y * 64 + Math.random() * 60, 2, 2); }
+      }
+    }, [14, 10]);
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 30), new THREE.MeshStandardMaterial({ map: tileTex, roughness: 0.95 }));
+    ground.rotation.x = -Math.PI / 2; ground.position.z = 4; ground.receiveShadow = true; scene.add(ground);
+    // 駄菓子屋の壁（木の板）
+    const woodTex = canvasTex(512, 256, (g, w, h) => {
+      for (let x = 0; x < w; x += 32) {
+        g.fillStyle = `hsl(28,${35 + Math.random() * 10}%,${30 + Math.random() * 8}%)`; g.fillRect(x, 0, 32, h);
+        g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(x, 0, 2, h);
+        for (let k = 0; k < 6; k++) { g.strokeStyle = `rgba(30,15,5,${0.1 + Math.random() * 0.15})`; g.beginPath(); const xx = x + 4 + Math.random() * 24; g.moveTo(xx, 0); g.bezierCurveTo(xx + 6, h / 3, xx - 6, h * 2 / 3, xx + 2, h); g.stroke(); }
+      }
+    }, [6, 2]);
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(24, 4.6), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.9 }));
+    wall.position.set(0, 2.3, -2.6); wall.receiveShadow = true; scene.add(wall);
+    // 日よけ（しま模様）
+    const awnTex = canvasTex(256, 16, (g, w, h) => { for (let x = 0; x < w; x += 32) { g.fillStyle = '#e34a3a'; g.fillRect(x, 0, 16, h); g.fillStyle = '#fff6e6'; g.fillRect(x + 16, 0, 16, h); } }, [10, 1]);
+    const awning = new THREE.Mesh(new THREE.PlaneGeometry(24, 1.6, 1, 1), new THREE.MeshStandardMaterial({ map: awnTex, roughness: 0.8, side: THREE.DoubleSide }));
+    awning.position.set(0, 4.55, -1.95); awning.rotation.x = 0.75; awning.castShadow = true; scene.add(awning);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(24, 0.3, 1.6), new THREE.MeshStandardMaterial({ color: '#5d4a3c', roughness: 0.9 }));
+    roof.position.set(0, 4.75, -3.2); scene.add(roof);
+    // いつもの猫のポスター
+    const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
+    {
+      const poster = new THREE.Group();
+      const paper = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.4), new THREE.MeshStandardMaterial({ color: '#fff4d6', roughness: 0.9 }));
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.0), new THREE.MeshStandardMaterial({ map: catTex, transparent: true, alphaTest: 0.1, roughness: 0.8 }));
+      face.position.set(0, 0.08, 0.005);
+      poster.add(paper, face); poster.position.set(-1.35, 2.95, -2.58); poster.rotation.z = 0.06; scene.add(poster);
+    }
+    // 鉢植え
+    const plantMat = new THREE.MeshStandardMaterial({ color: '#3f8f3a', roughness: 0.8 });
+    const potMat = new THREE.MeshStandardMaterial({ color: '#b5643a', roughness: 0.85 });
+    for (const x of [-4.4, 4.6]) {
+      const g = new THREE.Group();
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.26, 0.5, 20), potMat); pot.position.y = 0.25; g.add(pot);
+      for (let k = 0; k < 7; k++) { const l = new THREE.Mesh(new THREE.SphereGeometry(0.22 + Math.random() * 0.12, 12, 10), plantMat); l.position.set((Math.random() - .5) * .5, 0.65 + Math.random() * 0.5, (Math.random() - .5) * .4); g.add(l); }
+      g.position.set(x, 0, -1.9); scene.add(shade(g));
+    }
+
+    // ---------- ガチャの機械 ----------
+    const CAP_COLORS = ['#ff5a5a', '#ffb13d', '#ffe14d', '#5ed16a', '#3db7ff', '#8b6bff', '#ff6bd0'];
+    const capTopMats = CAP_COLORS.map(c => new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.25, clearcoat: 0.6, transparent: true, opacity: 0.92 }));
+    const capBotMat = new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: 0.15, transparent: true, opacity: 0.55, clearcoat: 1 });
+    const HALF_TOP = new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2);
+    const HALF_BOT = new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+    const BAND = new THREE.CylinderGeometry(1.01, 1.01, 0.08, 28, 1, true);
+    function makeCapsule(ci) {
+      const g = new THREE.Group();
+      const top = new THREE.Mesh(HALF_TOP, capTopMats[ci]), bot = new THREE.Mesh(HALF_BOT, capBotMat), band = new THREE.Mesh(BAND, capTopMats[ci]);
+      g.add(top, bot, band); g.userData = { top, bot, band };
+      return shade(g);
+    }
+    function makeMachine(bodyColor) {
+      const m = new THREE.Group();
+      const body = new THREE.MeshPhysicalMaterial({ color: bodyColor, roughness: 0.35, clearcoat: 0.5 });
+      const chrome = new THREE.MeshStandardMaterial({ color: '#e8e8ee', metalness: 0.95, roughness: 0.2 });
+      const dark = new THREE.MeshStandardMaterial({ color: '#1b1410', roughness: 0.9 });
+      const base = new THREE.Mesh(new RoundedBoxGeometry(1.6, 1.5, 1.35, 4, 0.12), body); base.position.y = 0.85; m.add(base);
+      const plinth = new THREE.Mesh(new RoundedBoxGeometry(1.7, 0.12, 1.45, 2, 0.04), dark); plinth.position.y = 0.06; m.add(plinth);
+      // 表示板（大きな「？」の模様）
+      const panelTex = canvasTex(256, 96, (g, w, h) => {
+        g.fillStyle = '#fff8e6'; g.fillRect(0, 0, w, h);
+        for (let i = 0; i < 7; i++) { g.fillStyle = CAP_COLORS[i]; g.font = '900 64px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.save(); g.translate(20 + i * 36, h / 2 + (i % 2 ? 8 : -8)); g.rotate((i % 3 - 1) * 0.3); g.fillText('?', 0, 0); g.restore(); }
+      });
+      const panel = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.42), new THREE.MeshStandardMaterial({ map: panelTex, roughness: 0.5 }));
+      panel.position.set(0, 1.35, 0.68); m.add(panel);
+      // ハンドル
+      const handle = new THREE.Group(); handle.position.set(0.25, 0.86, 0.7);
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.07, 36), chrome); disc.rotation.x = Math.PI / 2; handle.add(disc);
+      const grip = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.12, 0.14, 2, 0.05), new THREE.MeshPhysicalMaterial({ color: '#fff2c0', roughness: 0.3, clearcoat: 0.6 })); grip.position.z = 0.08; handle.add(grip);
+      const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.12, 16), chrome); hub.rotation.x = Math.PI / 2; hub.position.z = 0.14; handle.add(hub);
+      m.add(handle);
+      // コインの投入口
+      const slot = new THREE.Mesh(new RoundedBoxGeometry(0.26, 0.4, 0.06, 2, 0.02), chrome); slot.position.set(-0.4, 0.86, 0.69); m.add(slot);
+      const slit = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.24, 0.02), dark); slit.position.set(-0.4, 0.86, 0.725); m.add(slit);
+      // 取り出し口
+      const chute = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.36, 0.1), dark); chute.position.set(0, 0.32, 0.65); m.add(chute);
+      const flap = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.05, 0.3), chrome); flap.position.set(0, 0.15, 0.78); m.add(flap);
+      // 首とドーム
+      const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.8, 0.16, 36), chrome); collar.position.y = 1.68; m.add(collar);
+      const inner = new THREE.Group(); inner.position.y = 2.42; m.add(inner);
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(0.82, 40, 28), new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: 0.03, transparent: true, opacity: 0.22, clearcoat: 1, depthWrite: false }));
+      dome.position.y = 2.42; dome.renderOrder = 2; m.add(dome);
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 0.16, 28), body); cap.position.y = 3.27; m.add(cap);
+      const knob = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 12), chrome); knob.position.y = 3.38; m.add(knob);
+      // 中に詰まったカプセル
+      const caps = [];
+      for (let k = 0; k < 34; k++) {
+        const c = makeCapsule(k % CAP_COLORS.length); c.scale.setScalar(0.17);
+        const lay = Math.floor(k / 8), ang = k * 2.39;
+        const r = 0.5 * Math.sqrt(Math.max(0, 1 - ((lay * 0.19 - 0.5) / 0.75) ** 2));
+        c.position.set(Math.cos(ang) * r * (0.4 + (k % 3) * 0.3), -0.55 + lay * 0.19, Math.sin(ang) * r * (0.4 + (k % 3) * 0.3));
+        c.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+        c.userData.home = c.position.clone(); inner.add(c); caps.push(c);
+      }
+      m.userData = { handle, inner, caps };
+      return shade(m);
+    }
+    const machine = makeMachine('#e8423a'); scene.add(machine);
+    for (const [x, c] of [[-2.25, '#2f8be0'], [2.25, '#f0b62e']]) { const mm = makeMachine(c); mm.position.set(x, 0, -0.9); mm.rotation.y = -x * 0.08; scene.add(mm); }
+    const { handle, inner: domeInner } = machine.userData;
+
+    // ---------- アイテム ----------
+    // 1件 = { n: {ja,en,...}, c: ["#rrggbb 印"...], p: [[形, 引数, 色番号, 位置, 回転(度), 拡大]...] }
+    // 色の印: m=金属 s=つや g=ガラス e=光る r=ざらざら w=針金
+    function itemMat(spec) {
+      const [hex, flags = ''] = spec.split(' ');
+      const o = { color: hex, roughness: 0.55, metalness: 0 };
+      if (flags.includes('m')) { o.metalness = 0.9; o.roughness = 0.25; }
+      if (flags.includes('s')) o.roughness = 0.12;
+      if (flags.includes('r')) o.roughness = 1;
+      if (flags.includes('g')) { o.transparent = true; o.opacity = 0.45; o.roughness = 0.05; }
+      if (flags.includes('e')) { o.emissive = hex; o.emissiveIntensity = 0.8; }
+      if (flags.includes('w')) o.wireframe = true;
+      return new THREE.MeshStandardMaterial(o);
+    }
+    const v2 = a => { const r = []; for (let i = 0; i + 1 < a.length; i += 2) r.push(new THREE.Vector2(a[i], a[i + 1])); return r; };
+    const v3 = a => { const r = []; for (let i = 0; i + 2 < a.length; i += 3) r.push(new THREE.Vector3(a[i], a[i + 1], a[i + 2])); return r; };
+    function itemGeo(kind, a) {
+      switch (kind) {
+        case 'box': return a[3] ? new RoundedBoxGeometry(a[0], a[1], a[2], 3, Math.min(a[3], Math.min(a[0], a[1], a[2]) / 2 - 0.001)) : new THREE.BoxGeometry(a[0], a[1], a[2]);
+        case 'sph': return new THREE.SphereGeometry(a[0], 32, 20, 0, Math.PI * 2, 0, Math.PI * (a[1] ?? 1));
+        case 'cyl': return new THREE.CylinderGeometry(a[0], a[1], a[2], a[3] ?? 32);
+        case 'cone': return new THREE.ConeGeometry(a[0], a[1], a[2] ?? 32);
+        case 'tor': return new THREE.TorusGeometry(a[0], a[1], 16, 48, THREE.MathUtils.degToRad(a[2] ?? 360));
+        case 'cap': return new THREE.CapsuleGeometry(a[0], a[1], 8, 20);
+        case 'lat': return new THREE.LatheGeometry(v2(a), 40);
+        case 'ext': { const g = new THREE.ExtrudeGeometry(new THREE.Shape(v2(a[0])), { depth: a[1], bevelEnabled: true, bevelSize: Math.min(0.03, a[1] / 3), bevelThickness: Math.min(0.03, a[1] / 3), bevelSegments: 2, curveSegments: 16 }); g.center(); return g; }
+        case 'tube': return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(v3(a[0])), 80, a[1], 12, false);
+        case 'knot': return new THREE.TorusKnotGeometry(a[0], a[1], 128, 16, a[2] ?? 2, a[3] ?? 3);
+        case 'ico': return new THREE.IcosahedronGeometry(a[0], a[1] ?? 0);
+        case 'oct': return new THREE.OctahedronGeometry(a[0], a[1] ?? 0);
+        case 'tet': return new THREE.TetrahedronGeometry(a[0], a[1] ?? 0);
+        case 'dod': return new THREE.DodecahedronGeometry(a[0], a[1] ?? 0);
+        case 'pl': return new THREE.PlaneGeometry(a[0], a[1]);
+        case 'cat': return new THREE.PlaneGeometry(a[0], a[0]);
+      }
+      return new THREE.BoxGeometry(0.3, 0.3, 0.3);
+    }
+    const DEG = Math.PI / 180;
+    function buildItem(def) {
+      const mats = def.c.map(itemMat);
+      const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+      for (const [kind, args, ci = 0, pos = [0, 0, 0], rot = [0, 0, 0], scl = 1] of def.p) {
+        const mat = kind === 'cat' ? new THREE.MeshStandardMaterial({ map: catTex, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide, roughness: 0.7 }) : (kind === 'pl' ? mats[ci].clone() : mats[ci]);
+        if (kind === 'pl') mat.side = THREE.DoubleSide;
+        const mesh = new THREE.Mesh(itemGeo(kind, args), mat);
+        mesh.position.set(...pos); mesh.rotation.set(rot[0] * DEG, rot[1] * DEG, rot[2] * DEG);
+        if (Array.isArray(scl)) mesh.scale.set(...scl); else mesh.scale.setScalar(scl);
+        body.add(mesh);
+      }
+      // 大きさをそろえて真ん中に置く
+      const box = new THREE.Box3().setFromObject(body), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+      const s = 1.5 / Math.max(size.x, size.y, size.z, 0.01);
+      body.scale.setScalar(s); body.position.copy(c).multiplyScalar(-s);
+      return shade(g);
+    }
+    function disposeItem(g) { g.traverse(m => { if (m.isMesh) { m.geometry.dispose(); } }); }
+    const chunks = new Map();
+    function loadChunk(ci) {
+      if (!chunks.has(ci)) chunks.set(ci, fetch(`items/${String(ci).padStart(3, '0')}.json`).then(r => r.json()).catch(e => { chunks.delete(ci); throw e; }));
+      return chunks.get(ci);
+    }
+    const loadItem = id => loadChunk(Math.floor(id / CHUNK)).then(a => a[id % CHUNK]);
+    const nameOf = (def, l = lang) => def.n[l] || def.n.en || def.n.ja;
+    const no4 = id => String(id + 1).padStart(4, '0');
+
+    // ---------- 集めた記録 ----------
+    let got = new Set(store.get('got', []));
+    const dexBar = document.querySelector('#dex i'), dexNum = document.querySelector('#dex span');
+    const drawDex = () => { dexBar.style.width = (got.size / TOTAL * 100) + '%'; dexNum.textContent = `${got.size} / ${TOTAL}`; };
+    drawDex();
+
+    // ---------- 粒（紙吹雪・きらきら） ----------
+    const bits = [];
+    const BIT_GEO = new THREE.PlaneGeometry(0.06, 0.1);
+    const bitMats = CAP_COLORS.map(c => new THREE.MeshBasicMaterial({ color: c, side: THREE.DoubleSide, transparent: true }));
+    function confetti(p, n) {
+      for (let k = 0; k < n; k++) {
+        const m = new THREE.Mesh(BIT_GEO, bitMats[k % bitMats.length].clone());
+        m.position.copy(p);
+        const a = Math.random() * Math.PI * 2, up = 2 + Math.random() * 3;
+        m.userData = { v: new THREE.Vector3(Math.cos(a) * (1 + Math.random() * 2.5), up, Math.sin(a) * 1.5 + 0.8), w: new THREE.Vector3(Math.random() * 10, Math.random() * 10, Math.random() * 10), life: 1.6 + Math.random() * 0.8, age: 0 };
+        scene.add(m); bits.push(m);
+      }
+    }
+    function updateBits(dt) {
+      for (let i = bits.length - 1; i >= 0; i--) {
+        const m = bits[i], u = m.userData; u.age += dt;
+        u.v.y -= 6 * dt; u.v.multiplyScalar(1 - 1.6 * dt);
+        m.position.addScaledVector(u.v, dt); m.rotation.x += u.w.x * dt; m.rotation.y += u.w.y * dt;
+        m.material.opacity = Math.max(0, 1 - u.age / u.life);
+        if (u.age >= u.life) { scene.remove(m); m.material.dispose(); bits.splice(i, 1); }
+      }
+    }
+
+    // ---------- 進行 ----------
+    // idle → turning → out（カプセルが出た） → opening → reveal
+    let state = 'idle';
+    let turn = 0, turnAuto = false, lastClick = 0;
+    let capsule = null, capT = 0, capColor = 0;
+    let item = null, itemDef = null, itemId = -1, itemPromise = null, itemFailed = false, openT = 0;
+    const TRAY = new THREE.Vector3(0, 0.3, 0.98), REVEAL = new THREE.Vector3(0, 1.85, 1.35);
+    const nameEl = document.getElementById('name');
+
+    function pickId() {
+      // まだ持っていない物が少し出やすい
+      for (let k = 0; k < 3; k++) { const id = Math.floor(Math.random() * ITEM_COUNT); if (!got.has(id)) return id; }
+      return Math.floor(Math.random() * ITEM_COUNT);
+    }
+    function startTurn() {
+      if (state !== 'idle') return;
+      state = 'turning'; turn = 0; lastClick = 0;
+      itemId = pickId(); itemDef = null;
+      itemFailed = false;
+      itemPromise = loadItem(itemId).then(d => { itemDef = d; return d; });
+      itemPromise.catch(() => { itemFailed = true; });
+    }
+    function addTurn(a) {
+      turn = Math.min(Math.PI * 2, turn + Math.max(0, a));
+      while (turn - lastClick >= Math.PI / 4) { lastClick += Math.PI / 4; sRatchet(); }
+      if (turn >= Math.PI * 2 - 1e-4) dispense();
+    }
+    function dispense() {
+      state = 'out'; capT = 0; turnAuto = false;
+      capColor = Math.floor(Math.random() * CAP_COLORS.length);
+      capsule = makeCapsule(capColor); capsule.scale.setScalar(0.24); scene.add(capsule);
+    }
+    function openCapsule() {
+      if (state !== 'out' || capT < 0.7) return;
+      state = 'opening'; openT = 0; sFly();
+      capsule.userData.from = capsule.position.clone();
+    }
+    function again() {
+      if (state !== 'reveal') return;
+      if (item) { scene.remove(item); disposeItem(item); item = null; }
+      if (capsule) { scene.remove(capsule); capsule = null; }
+      state = 'idle'; turn = 0; handle.rotation.z = 0; halo.visible = false;
+      nameEl.style.display = 'none'; snap = null; shareFile = null;
+      renderControls(); resize();
+    }
+    // アイテムの後ろの光の放射
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 4.2), new THREE.MeshBasicMaterial({
+      map: canvasTex(512, 512, (g, w, h) => {
+        const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+        gr.addColorStop(0, 'rgba(255,250,220,1)'); gr.addColorStop(0.35, 'rgba(255,220,120,.75)'); gr.addColorStop(1, 'rgba(255,200,80,0)');
+        g.fillStyle = gr; g.translate(w / 2, h / 2);
+        for (let k = 0; k < 16; k++) { g.rotate(Math.PI / 8); g.beginPath(); g.moveTo(0, 0); g.lineTo(w, -w * 0.12); g.lineTo(w, w * 0.12); g.closePath(); g.fill(); }
+        g.beginPath(); g.arc(0, 0, w * 0.22, 0, Math.PI * 2); g.fill();
+      }), transparent: true, depthWrite: false, opacity: 0 }));
+    halo.renderOrder = 3; scene.add(halo); halo.visible = false;
+    function reveal(def) {
+      halo.visible = true;
+      item = buildItem(def); item.position.copy(REVEAL); item.scale.setScalar(0.01); scene.add(item);
+      const isNew = !got.has(itemId);
+      got.add(itemId); store.set('got', [...got]); drawDex();
+      confetti(REVEAL, isNew ? 90 : 40); sOpen(); sChime(); setTimeout(() => itemVoice(itemId), 450);
+      state = 'reveal'; openT = 0;
+      showName(); renderControls(); resize();
+      setTimeout(() => { if (state === 'reveal') { takeSnap(); prepareShare(); } }, 900);
+    }
+    function showName() {
+      if (!itemDef) return;
+      nameEl.querySelector('small').textContent = `No.${no4(itemId)}`;
+      nameEl.querySelector('b').textContent = nameOf(itemDef);
+      nameEl.style.display = 'flex';
+    }
+
+    // ---------- 操作 ----------
+    const canvas = renderer.domElement;
+    let drag = null;
+    const handleScreen = () => { const p = handle.getWorldPosition(new THREE.Vector3()).project(camera); const r = canvas.getBoundingClientRect(); return { x: r.left + (p.x + 1) / 2 * r.width, y: r.top + (1 - p.y) / 2 * r.height }; };
+    canvas.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (state === 'idle') startTurn();
+      if (state === 'turning') {
+        const c = handleScreen();
+        drag = { id: e.pointerId, a: Math.atan2(e.clientY - c.y, e.clientX - c.x), x: e.clientX, y: e.clientY, moved: 0, c };
+        turnAuto = false; canvas.setPointerCapture(e.pointerId);
+      } else if (state === 'out') openCapsule();
+    });
+    canvas.addEventListener('pointermove', e => {
+      if (!drag || drag.id !== e.pointerId || state !== 'turning') return;
+      const a = Math.atan2(e.clientY - drag.c.y, e.clientX - drag.c.x);
+      let d = a - drag.a; if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2;
+      drag.a = a; drag.moved += Math.hypot(e.clientX - drag.x, e.clientY - drag.y); drag.x = e.clientX; drag.y = e.clientY;
+      addTurn(Math.abs(d));
+    });
+    const endDrag = e => { if (!drag || drag.id !== e.pointerId) return; drag = null; if (state === 'turning') turnAuto = true; };
+    canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
+    addEventListener('keydown', e => {
+      if (e.repeat || !['Space', 'Enter'].includes(e.code) || shelfView.style.display === 'flex') return;
+      if (e.target.tagName === 'SELECT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'A') return;
+      e.preventDefault();
+      if (state === 'idle') { startTurn(); turnAuto = true; } else if (state === 'out') openCapsule(); else if (state === 'reveal') again();
+    });
+
+    // ---------- 画面サイズ ----------
+    const controls = document.getElementById('controls');
+    const CENTER = new THREE.Vector3(0, 1.55, 0.3);
+    function resize() {
+      const w = stage.clientWidth, H = stage.clientHeight;
+      renderer.setSize(w, H, false);
+      const btnH = Math.min(72, Math.max(56, 0.08 * Math.min(innerWidth, innerHeight))) + 12;
+      const reserve = Math.max(0, stage.getBoundingClientRect().bottom - controls.getBoundingClientRect().bottom) + btnH;
+      stage.style.setProperty('--reserve', reserve + 'px');
+      const h = Math.max(120, H - reserve);
+      const wide = h <= 520 && w / h >= 4 / 3;
+      // 上の方はゲージとアイテム名を出す所にして、機械はその下に収める
+      const band = Math.round(h * (wide ? 0.06 : 0.16)), fh = h - band;
+      camera.aspect = w / fh;
+      camera.setViewOffset(w, fh, 0, -band, w, H);
+      const vf = THREE.MathUtils.degToRad(camera.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
+      // 縦は機械の上から受け皿まで、横は機械の幅が入る距離
+      const d = Math.min(Math.max(2.0 / Math.sin(vf / 2), 1.3 / Math.sin(hf / 2)), 22);
+      const dir = new THREE.Vector3(0, 0.32, 1).normalize();
+      // 背の低い横長でアイテム名を左に出すときは、機械を右へ
+      const side = (state === 'reveal' && wide) ? -1.6 : 0;
+      camera.position.copy(CENTER).addScaledVector(dir, d).add(new THREE.Vector3(side, 0, 0));
+      camera.lookAt(CENTER.x + side, CENTER.y, CENTER.z);
+      camera.updateProjectionMatrix();
+    }
+    addEventListener('resize', resize);
+
+    // ---------- ボタン ----------
+    const ICON_SHELF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M3 4h18v16H3zM3 12h18"/><circle cx="8" cy="9" r="2" fill="currentColor"/><path d="M14 10l2-3 2 3z" fill="currentColor"/><path d="M6 17h3v-2H6zM13 17a2 2 0 1 0 4 0z" fill="currentColor"/></svg>';
+    function renderControls() {
+      controls.innerHTML = '';
+      const sb = document.createElement('button'); sb.className = 'shelf'; sb.innerHTML = ICON_SHELF; sb.setAttribute('aria-label', 'shelf');
+      sb.addEventListener('click', openShelf); controls.append(sb);
+      if (state !== 'reveal') { controls.style.justifyContent = 'flex-start'; return; }
+      const b = document.createElement('button'); b.className = 'go'; b.textContent = t('again'); b.addEventListener('click', again); controls.append(b);
+      const a = document.createElement('a'); a.className = 'post'; a.textContent = t('post');
+      const text = t('share')(nameOf(itemDef), no4(itemId));
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SHARE_URL)}`;
+      const coarse = matchMedia('(pointer: coarse)').matches;
+      if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
+      // スマホは画像ごと共有シートへ。PCは画像を保存してから投稿画面を開く
+      a.addEventListener('click', e => {
+        if (coarse && navigator.share) {
+          e.preventDefault();
+          const data = shareFile && navigator.canShare?.({ files: [shareFile] }) ? { files: [shareFile], text: `${text}\n${SHARE_URL}` } : { text: `${text}\n${SHARE_URL}` };
+          navigator.share(data).catch(() => {});
+          return;
+        }
+        const img = resultImage();
+        if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = `nazo-gacha-${no4(itemId)}.png`; d.click(); }
+      });
+      controls.append(a);
+    }
+
+    // ---------- 共有画像 ----------
+    let snap = null, shareFile = null;
+    function takeSnap() {
+      renderer.render(scene, camera);
+      const src = renderer.domElement;
+      const f = REVEAL.clone().project(camera);
+      const fx = (f.x + 1) / 2 * src.width, fy = (1 - f.y) / 2 * src.height;
+      const side = Math.min(src.width, src.height);
+      const sx = THREE.MathUtils.clamp(fx - side / 2, 0, src.width - side), sy = THREE.MathUtils.clamp(fy - side * 0.42, 0, src.height - side);
+      snap = document.createElement('canvas'); snap.width = snap.height = 1080;
+      snap.getContext('2d').drawImage(src, sx, sy, side, side, 0, 0, 1080, 1080);
+    }
+    const FONT = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans SC", "Noto Sans Devanagari", "Noto Sans Bengali", "Noto Sans Arabic", sans-serif`;
+    function resultImage() {
+      if (!snap || !itemDef) return null;
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      g.drawImage(snap, 0, 0);
+      const gr = g.createLinearGradient(0, 640, 0, 1080); gr.addColorStop(0, 'rgba(40,20,5,0)'); gr.addColorStop(1, 'rgba(40,20,5,.75)'); g.fillStyle = gr; g.fillRect(0, 640, 1080, 440);
+      g.textAlign = 'center'; g.lineJoin = 'round'; g.direction = lang === 'ar' ? 'rtl' : 'ltr';
+      const text = (str, y, px, max, fill = '#fff') => {
+        g.font = FONT(px); const w = g.measureText(str).width; if (w > max) { px = Math.floor(px * max / w); g.font = FONT(px); }
+        g.lineWidth = px * 0.16; g.strokeStyle = '#4a2a10'; g.strokeText(str, 540, y); g.fillStyle = fill; g.fillText(str, 540, y);
+      };
+      text(`No.${no4(itemId)}`, 860, 64, 900, '#ffd23d');
+      text(nameOf(itemDef), 960, 92, 980);
+      text(t('title'), 1040, 40, 900);
+      return c;
+    }
+    function prepareShare() {
+      const c = resultImage(); if (!c) return;
+      c.toBlob(b => { if (b) shareFile = new File([b], `nazo-gacha-${no4(itemId)}.png`, { type: 'image/png' }); }, 'image/png');
+    }
+
+    // ---------- 棚 ----------
+    const shelfView = document.getElementById('shelfView'), grid = document.getElementById('grid');
+    let thumbR = null, thumbScene = null, thumbCam = null;
+    const thumbCache = new Map();
+    function thumb(def) {
+      if (!thumbR) {
+        thumbR = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); thumbR.setSize(192, 192, false);
+        thumbR.toneMapping = THREE.ACESFilmicToneMapping; thumbR.outputColorSpace = THREE.SRGBColorSpace;
+        thumbScene = new THREE.Scene(); thumbScene.add(new THREE.HemisphereLight('#ffffff', '#8a6a44', 1.6));
+        const l = new THREE.DirectionalLight('#fff0dc', 2.2); l.position.set(2, 3, 4); thumbScene.add(l);
+        thumbCam = new THREE.PerspectiveCamera(30, 1, 0.1, 20); thumbCam.position.set(0, 0.6, 3.4); thumbCam.lookAt(0, 0, 0);
+      }
+      const g = buildItem(def); g.rotation.y = 0.5; thumbScene.add(g);
+      thumbR.render(thumbScene, thumbCam);
+      const url = thumbR.domElement.toDataURL('image/png');
+      thumbScene.remove(g); disposeItem(g);
+      return url;
+    }
+    let shelfJob = 0;
+    function openShelf() {
+      shelfView.style.display = 'flex'; grid.innerHTML = '';
+      const ids = [...got].sort((a, b) => a - b), job = ++shelfJob;
+      const figs = ids.map(id => {
+        const f = document.createElement('figure');
+        f.innerHTML = `<div class="ph"></div><figcaption>No.${no4(id)}</figcaption>`; grid.append(f); return f;
+      });
+      let k = 0;
+      const step = async () => {
+        if (job !== shelfJob || k >= ids.length) return;
+        const id = ids[k], f = figs[k]; k++;
+        try {
+          const def = await loadItem(id);
+          if (!thumbCache.has(id)) thumbCache.set(id, thumb(def));
+          const img = new Image(); img.src = thumbCache.get(id); img.alt = ''; f.title = nameOf(def); f.firstChild.replaceWith(img);
+        } catch {}
+        setTimeout(step, 0);
+      };
+      step();
+    }
+    document.getElementById('shelfClose').addEventListener('click', () => { shelfView.style.display = 'none'; shelfJob++; });
+
+    // ---------- ループ ----------
+    const ease = x => 1 - Math.pow(1 - x, 3);
+    const back = x => { const c = 1.70158; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+    let last = performance.now(), time = 0;
+    function frame(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
+      if (state === 'turning' && turnAuto) addTurn(dt * Math.PI * 2 / 1.1);
+      // ハンドルとドームの中身
+      handle.rotation.z = -turn;
+      const shake = state === 'turning' ? Math.sin(turn * 8) * 0.04 : 0;
+      machine.userData.caps.forEach((c, i) => { c.position.y = c.userData.home.y + Math.abs(Math.sin(turn * 3 + i)) * shake * 1.5; c.rotation.y += shake * 0.5; });
+      domeInner.rotation.y = turn * 0.15;
+      // 待っている間はハンドルが少しだけ揺れて「回して」と伝える
+      if (state === 'idle') handle.rotation.z = Math.sin(time * 3) * 0.12 * Math.max(0, Math.sin(time * 1.2));
+      // 出てくるカプセル
+      if (capsule && state === 'out') {
+        capT += dt;
+        const k = Math.min(1, capT / 0.45);
+        const from = new THREE.Vector3(0, 0.4, 0.55);
+        capsule.position.lerpVectors(from, TRAY, ease(k));
+        capsule.position.y = THREE.MathUtils.lerp(from.y, TRAY.y, k) + Math.abs(Math.sin(Math.min(capT, 0.9) * 9)) * 0.12 * Math.max(0, 1 - capT / 0.9);
+        if (capT - dt < 0.45 && capT >= 0.45) sDrop();
+        capsule.rotation.x = -capT * 6 * Math.max(0, 1 - capT / 0.9);
+        if (capT > 0.9) { capsule.rotation.z = Math.sin(time * 6) * 0.08; capsule.scale.setScalar(0.24 * (1 + Math.sin(time * 5) * 0.03)); }
+      }
+      if (capsule && state === 'opening') {
+        openT += dt;
+        const k = Math.min(1, openT / 0.55);
+        capsule.position.lerpVectors(capsule.userData.from, REVEAL, ease(k));
+        capsule.position.y += Math.sin(k * Math.PI) * 0.4;
+        capsule.scale.setScalar(THREE.MathUtils.lerp(0.24, 0.62, ease(k)));
+        capsule.rotation.set(0, 0, openT > 0.55 ? Math.sin(openT * 40) * 0.12 * Math.min(1, (openT - 0.55) * 4) : -k * Math.PI * 2);
+        if (openT > 0.95 && itemDef) {
+          capsule.userData.split = 0; capsule.rotation.set(0, 0, 0); reveal(itemDef);
+        } else if (openT > 0.95 && itemFailed) { state = 'reveal'; again(); } // 読めなければやり直し
+      }
+      if (state === 'reveal') {
+        openT += dt;
+        if (capsule) {
+          const u = capsule.userData, s = Math.min(1, openT / 0.6);
+          u.top.position.y = ease(s) * 1.6; u.top.rotation.z = s * 0.9; u.band.position.y = ease(s) * 1.6;
+          u.bot.position.y = -ease(s) * 1.6; u.bot.rotation.z = -s * 0.6;
+          capsule.visible = s < 1;
+        }
+        // 光の放射はカメラに向けて、アイテムの少し後ろでゆっくり回す
+        halo.position.copy(REVEAL).addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 0.9);
+        halo.quaternion.copy(camera.quaternion); halo.rotateZ(time * 0.3);
+        halo.material.opacity = Math.min(0.85, openT * 2);
+        if (item) {
+          const s = Math.min(1, openT / 0.6);
+          item.scale.setScalar(Math.max(0.01, back(s)));
+          item.rotation.y += dt * 0.8;
+          item.position.y = REVEAL.y + Math.sin(time * 2) * 0.05;
+        }
+      }
+      updateBits(dt);
+      if (shelfView.style.display !== 'flex') renderer.render(scene, camera); // 棚を開いている間は裏を描かない
+      requestAnimationFrame(frame);
+    }
+    resize(); renderControls(); applyLang();
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+    // 最初の1回のアイテムを読んでおく
+    loadChunk(0).catch(() => {});
+  </script>
+</body>
+</html>
