@@ -554,6 +554,9 @@
       part(BOXG, glass, TW + gt / 2, TH / 2, 0, gt, TH, 2 * TD, tank);
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(2 * TW + 2 * gt, TH, 2 * TD + 2 * gt)), new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.35, depthWrite: false }));
       edges.position.y = TH / 2; tank.add(edges);
+      // 底は無地の白っぽい板にする（木目が水ごしに縞に見えないように）
+      const base = part(BOXG, mat('#dfe5e9', 0.6), 0, 0.006, 0, 2 * TW + 2 * gt, 0.012, 2 * TD + 2 * gt, tank);
+      base.receiveShadow = true; base.layers.enable(1);
     }
 
     // マドラー（木の棒）
@@ -597,20 +600,29 @@
     const occRT = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: true, depthTexture: new THREE.DepthTexture(1, 1) });
     // 奥行きは半精度だと段々の縞が出るので、使えれば32bitにする
     const FT = renderer.extensions.has('EXT_color_buffer_float') ? THREE.FloatType : THREE.HalfFloatType;
-    const depthRT = RT(1, 1, { depthBuffer: true, type: FT }), blurRT = RT(1, 1, { type: FT }), thickRT = RT(1, 1, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+    const depthRT = RT(1, 1, { depthBuffer: true, type: FT }), blurRT = RT(1, 1, { type: FT }), thickRT = RT(1, 1, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter }), thickRT2 = RT(1, 1, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
     const PT_VERT = `
       uniform float uRad, uPx; attribute float speed; varying vec3 vC; varying float vS;
       void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); vC = mv.xyz; vS = speed; gl_Position = projectionMatrix * mv; gl_PointSize = 2.0 * uRad * uPx / -mv.z; }`;
     const PT_COMMON = `
-      uniform float uRad; uniform mat4 uP; uniform sampler2D uSD; uniform vec2 uRes; varying vec3 vC; varying float vS;
+      uniform float uRad; uniform mat4 uP, uVI; uniform vec3 uCam, uBMin, uBMax; uniform sampler2D uSD; uniform vec2 uRes; varying vec3 vC; varying float vS;
       float sphere(out vec3 p) {
         vec2 c = gl_PointCoord * 2.0 - 1.0; c.y = -c.y; float r2 = dot(c, c); if (r2 > 1.0) discard;
         float h = sqrt(1.0 - r2); p = vC + vec3(c, h) * uRad;
+        // ガラスの外にはみ出た粒の部分は、ガラスの面まで押し戻す（壁に接した水面が平らになり、縞が消える）
+        vec3 pw = (uVI * vec4(p, 1.0)).xyz, dir = normalize(pw - uCam);
+        vec3 t0 = (uBMin - uCam) / dir, t1 = (uBMax - uCam) / dir, tn = min(t0, t1);
+        float tIn = max(max(tn.x, tn.y), tn.z), tP = dot(pw - uCam, dir);
+        if (tP < tIn) {
+          if (tP + 2.0 * h * uRad < tIn) discard;
+          p = (viewMatrix * vec4(uCam + dir * tIn, 1.0)).xyz;
+        }
         vec4 cl = uP * vec4(p, 1.0); float z = cl.z / cl.w * 0.5 + 0.5;
         if (z > texture2D(uSD, gl_FragCoord.xy / uRes).x) discard;
         gl_FragDepth = z; return h;
       }`;
-    const ptUniforms = (rad) => ({ uRad: { value: rad }, uPx: { value: 1 }, uP: { value: camera.projectionMatrix }, uSD: { value: occRT.depthTexture }, uRes: { value: new THREE.Vector2() }, uScale: { value: 1 } });
+    const BMIN = new THREE.Vector3(), BMAX = new THREE.Vector3();
+    const ptUniforms = (rad) => ({ uRad: { value: rad }, uPx: { value: 1 }, uP: { value: camera.projectionMatrix }, uVI: { value: camera.matrixWorld }, uCam: { value: camera.position }, uBMin: { value: BMIN }, uBMax: { value: BMAX }, uSD: { value: occRT.depthTexture }, uRes: { value: new THREE.Vector2() }, uScale: { value: 1 } });
     const depthMat = new THREE.ShaderMaterial({
       uniforms: ptUniforms(S * 0.75), vertexShader: PT_VERT,
       fragmentShader: PT_COMMON + `void main() { vec3 p; sphere(p); gl_FragColor = vec4(-p.z, 0.0, 0.0, 1.0); }`,
@@ -636,9 +648,9 @@
         void main() {
           float d0 = texture2D(tD, vUv).x; if (d0 <= 0.0) { gl_FragColor = vec4(0.0); return; }
           // 1画素ずつ全部拾う（飛ばして拾うと縞が出る）
-          float rp = clamp(uWR * uPx / d0, 1.0, 24.0), s2 = 2.0 * (rp * 0.5) * (rp * 0.5);
+          float rp = clamp(uWR * uPx / d0, 1.0, 40.0), s2 = 2.0 * (rp * 0.5) * (rp * 0.5);
           float sum = d0, ws = 1.0;
-          for (int i = 1; i <= 24; i++) {
+          for (int i = 1; i <= 40; i++) {
             float o = float(i); if (o > rp) break;
             float w = exp(-o * o / s2);
             for (int k = 0; k < 2; k++) {
@@ -647,6 +659,18 @@
             }
           }
           gl_FragColor = vec4(sum / ws, 0.0, 0.0, 1.0);
+        }`,
+    });
+    // 厚みは粒の重なりででこぼこするので、ふつうにぼかす（水の薄い縁が階段状に見えないように）
+    const blurTMat = new THREE.ShaderMaterial({
+      uniforms: { tD: { value: null }, uDir: { value: new THREE.Vector2() } },
+      vertexShader: QUAD_VERT, depthTest: false, depthWrite: false,
+      fragmentShader: `
+        uniform sampler2D tD; uniform vec2 uDir; varying vec2 vUv;
+        void main() {
+          vec4 sum = texture2D(tD, vUv) * 0.12; float ws = 0.12;
+          for (int i = 1; i <= 8; i++) { float o = float(i) * 2.0 - 0.5, w = exp(-o * o / 128.0) * 0.12; sum += (texture2D(tD, vUv + uDir * o) + texture2D(tD, vUv - uDir * o)) * w; ws += 2.0 * w; }
+          gl_FragColor = sum / ws;
         }`,
     });
     const lin = c => new THREE.Color(c);
@@ -676,7 +700,9 @@
             vec3 v = normalize(-p);
             vec2 tt = texture2D(tT, vUv).xy; float th = tt.x;
             // 屈折: 水面の傾きに合わせて奥の景色をずらし、厚いところほど赤を吸って青くする
-            vec3 refr = texture2D(tS, clamp(vUv + n.xy * 0.04 * clamp(th * 2.0, 0.0, 1.0), 0.001, 0.999)).rgb;
+            vec2 ruv = clamp(vUv + n.xy * 0.03 * clamp(th * 2.0, 0.0, 1.0), 0.001, 0.999);
+            if (texture2D(tD, ruv).x <= 0.0) ruv = vUv; // 水の外の景色（テーブルの木目など）を拾わない
+            vec3 refr = texture2D(tS, ruv).rgb;
             vec3 tr = exp(-th * vec3(2.0, 0.65, 0.35));
             vec3 water = refr * tr + vec3(0.02, 0.2, 0.3) * (1.0 - tr.g);
             vec3 r = reflect(-v, n);
@@ -716,9 +742,9 @@
       camera.updateProjectionMatrix(); camera.updateMatrixWorld();
       renderer.getDrawingBufferSize(buf);
       const bw = buf.x, bh = buf.y;
-      // 水は半分の解像度で描いてぼかす（軽くするため）
-      const ww = Math.max(1, bw >> 1), wh = Math.max(1, bh >> 1);
-      sceneRT.setSize(bw, bh); occRT.setSize(bw, bh); depthRT.setSize(ww, wh); blurRT.setSize(ww, wh); thickRT.setSize(ww, wh);
+      // 水は画面と同じ解像度で描く（スマホは少しだけ下げて軽くする）
+      const ws = MOBILE ? 0.75 : 1, ww = Math.max(1, Math.round(bw * ws)), wh = Math.max(1, Math.round(bh * ws));
+      sceneRT.setSize(bw, bh); occRT.setSize(bw, bh); depthRT.setSize(ww, wh); blurRT.setSize(ww, wh); thickRT.setSize(ww, wh); thickRT2.setSize(ww, wh);
       const px = camera.projectionMatrix.elements[5] * wh / 2;
       for (const m of [depthMat, thickMat]) { m.uniforms.uPx.value = px; m.uniforms.uRes.value.set(ww, wh); }
       blurMat.uniforms.uPx.value = px;
@@ -737,7 +763,12 @@
       ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
       ray.setFromCamera(ndc, camera);
     }
-    function aimStick() { if (ray.ray.intersectPlane(waterPlane, tmp)) { stick.tx = tmp.x; stick.tz = tmp.z; } }
+    // 棒は押した場所へ飛ばず、ドラッグした分だけ動く
+    function aimStick() {
+      if (!ptr.from || !ray.ray.intersectPlane(waterPlane, tmp)) return;
+      stick.tx = Math.min(TW - 0.08, Math.max(-TW + 0.08, ptr.sx + tmp.x - ptr.from.x));
+      stick.tz = Math.min(TD - 0.08, Math.max(-TD + 0.08, ptr.sz + tmp.z - ptr.from.z));
+    }
     function aimCat(body) { if (ray.ray.intersectPlane(grabPlane, tmp)) { body.tx = tmp.x; body.ty = Math.max(RMIN, Math.min(2.6, tmp.y)); body.tz = tmp.z; } }
     cv.addEventListener('pointerdown', e => {
       e.preventDefault();
@@ -759,16 +790,13 @@
         body.grab = true; aimCat(body); body.ty = Math.max(body.ty, body.y);
         meow('grab', body.f0);
       } else {
-        ptr = { id: e.pointerId, body: null };
-        aimStick(); stick.down = true;
-        // 遠くを押したら棒はそこへ持ち上げて移す
-        if (Math.hypot(stick.tx - stick.x, stick.tz - stick.z) > 0.6 && stick.tip > LEVEL) { stick.x = stick.px = Math.min(tankX + TW - 0.08, Math.max(tankX - TW + 0.08, stick.tx)); stick.z = stick.pz = Math.min(TD - 0.08, Math.max(-TD + 0.08, stick.tz)); }
+        ptr = { id: e.pointerId, body: null, from: ray.ray.intersectPlane(waterPlane, new THREE.Vector3()), sx: stick.x, sz: stick.z };
+        stick.tx = stick.x; stick.tz = stick.z; stick.down = true;
       }
     });
     cv.addEventListener('pointermove', e => {
       setRay(e);
       if (ptr && e.pointerId === ptr.id) { if (ptr.body) aimCat(ptr.body); else aimStick(); }
-      else if (!ptr && e.pointerType === 'mouse') aimStick();
     });
     const up = e => {
       if (!ptr || e.pointerId !== ptr.id) return;
@@ -987,6 +1015,7 @@
       sa.set(SPD);
       posAttr.needsUpdate = true; spdAttr.needsUpdate = true;
       tank.position.x = tankX;
+      BMIN.set(tankX - TW, 0, -TD); BMAX.set(tankX + TW, 10, TD);
       stickMesh.position.set(stick.px + (stick.x - stick.px) * alpha, stick.ptip + (stick.tip - stick.ptip) * alpha, stick.pz + (stick.z - stick.pz) * alpha);
       bodies.forEach((body, k) => {
         const { g, facing } = floats[k];
@@ -1004,6 +1033,11 @@
       renderer.setClearColor(0x000000, 0);
       renderer.setRenderTarget(depthRT); renderer.clear(); renderer.render(depthScene, camera);
       renderer.setRenderTarget(thickRT); renderer.clear(); renderer.render(thickScene, camera);
+      quad.material = blurTMat;
+      blurTMat.uniforms.tD.value = thickRT.texture; blurTMat.uniforms.uDir.value.set(1 / thickRT.width, 0);
+      renderer.setRenderTarget(thickRT2); renderer.render(quadScene, quadCam);
+      blurTMat.uniforms.tD.value = thickRT2.texture; blurTMat.uniforms.uDir.value.set(0, 1 / thickRT.height);
+      renderer.setRenderTarget(thickRT); renderer.render(quadScene, quadCam);
       quad.material = blurMat;
       for (let k = 0; k < 2; k++) {
         blurMat.uniforms.tD.value = depthRT.texture; blurMat.uniforms.uDir.value.set(1 / depthRT.width, 0);
