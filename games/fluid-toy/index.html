@@ -269,7 +269,7 @@
     const shakeOffset = tt => tt > 3 ? 0 : 0.17 * Math.sin(tt * Math.PI * 2 * 1.5) * Math.exp(-tt * 1.3) * Math.min(1, tt * 8);
     // マドラー（縦の棒）: 先端より上の水を横に押しのける
     const SR = 0.05;
-    const stick = { x: TW - 0.3, z: TD - 0.3, tip: LEVEL + 0.45, tx: TW - 0.3, tz: TD - 0.3, down: false, px: 0, pz: 0, ptip: 0 };
+    const stick = { x: TW - 0.3, z: TD - 0.3, tip: 99, tx: TW - 0.3, tz: TD - 0.3, down: false, px: 0, pz: 0, ptip: 0 };
     // 猫の浮き輪: 輪（トーラス）＋頭（球）
     const RM = 0.22, RMIN = 0.08, HEAD_Y = 0.2, HEAD_R = 0.16;
     const makeBody = (x, z, f0) => ({ x, y: 1.9, z, vx: 0, vy: 0, vz: 0, px: x, py: 1.9, pz: z, grab: false, tx: 0, ty: 0, tz: 0, sub: 0, on: true, f0 });
@@ -464,8 +464,9 @@
       const mx = stick.tx - stick.x, mz = stick.tz - stick.z, ml = Math.hypot(mx, mz), maxStep = 5 * DT;
       if (ml > maxStep) { stick.x += mx / ml * maxStep; stick.z += mz / ml * maxStep; } else { stick.x = stick.tx; stick.z = stick.tz; }
       stick.x = Math.min(tankX + TW - 0.08, Math.max(tankX - TW + 0.08, stick.x)); stick.z = Math.min(TD - 0.08, Math.max(-TD + 0.08, stick.z));
-      const tipT = stick.down ? 0.1 : LEVEL + 0.45;
-      stick.tip += Math.max(-6 * DT, Math.min(6 * DT, tipT - stick.tip));
+      // 押している間だけ水に入る。離したら水から出す（見えない棒が水をさえぎらないように）
+      if (stick.down) stick.tip += Math.max(-6 * DT, Math.min(6 * DT, 0.1 - stick.tip));
+      else stick.tip = 99;
       stepBodies();
       if (MPM) mpm.step(); else pbfStep();
     }
@@ -884,7 +885,7 @@
     }
 
     // マドラー（木の棒）
-    const stickMesh = new THREE.Group(); scene.add(stickMesh);
+    const stickMesh = new THREE.Group(); // 棒は見せない（かき混ぜる当たり判定だけ残す）
     {
       const m = mat('#d9b07a', 0.55);
       const rod = new THREE.Mesh(new THREE.CylinderGeometry(SR * 0.8, SR, 2.2, 16), m); rod.position.y = 1.1; stickMesh.add(rod);
@@ -1093,11 +1094,11 @@
       ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
       ray.setFromCamera(ndc, camera);
     }
-    // 棒は押した場所へ飛ばず、ドラッグした分だけ動く
+    // 指の下の水をかき混ぜる（見えない棒）
     function aimStick() {
-      if (!ptr.from || !ray.ray.intersectPlane(waterPlane, tmp)) return;
-      stick.tx = Math.min(TW - 0.08, Math.max(-TW + 0.08, ptr.sx + tmp.x - ptr.from.x));
-      stick.tz = Math.min(TD - 0.08, Math.max(-TD + 0.08, ptr.sz + tmp.z - ptr.from.z));
+      if (!ray.ray.intersectPlane(waterPlane, tmp)) return;
+      stick.tx = Math.min(TW - 0.08, Math.max(-TW + 0.08, tmp.x));
+      stick.tz = Math.min(TD - 0.08, Math.max(-TD + 0.08, tmp.z));
     }
     function aimCat(body) { if (ray.ray.intersectPlane(grabPlane, tmp)) { body.tx = tmp.x; body.ty = Math.max(RMIN, Math.min(2.6, tmp.y)); body.tz = tmp.z; } }
     cv.addEventListener('pointerdown', e => {
@@ -1120,8 +1121,9 @@
         body.grab = true; aimCat(body); body.ty = Math.max(body.ty, body.y);
         meow('grab', body.f0);
       } else {
-        ptr = { id: e.pointerId, body: null, from: ray.ray.intersectPlane(waterPlane, new THREE.Vector3()), sx: stick.x, sz: stick.z };
-        stick.tx = stick.x; stick.tz = stick.z; stick.down = true;
+        ptr = { id: e.pointerId, body: null };
+        aimStick(); stick.x = stick.px = stick.tx; stick.z = stick.pz = stick.tz;
+        stick.tip = stick.ptip = LEVEL + 0.3; stick.down = true;
       }
     });
     cv.addEventListener('pointermove', e => {
