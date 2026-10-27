@@ -447,15 +447,22 @@
           const dy = X[i * 3 + 1] - b.y;
           if (d2 + dy * dy < 0.16) { cnt++; fx += V[i * 3]; fy += V[i * 3 + 1]; fz += V[i * 3 + 2]; }
         }
-        const sub = Math.max(0, Math.min(1, (top + PR - (b.y - RMIN)) / (2 * RMIN)));
-        const subH = Math.max(0, Math.min(1, (top + PR - (b.y + HEAD_Y - HEAD_R)) / (2 * HEAD_R)));
+        // 水面の高さは波やしぶきでばたつくので、なめらかに追いかける
+        if (top > 0) b.surf = b.surf === undefined ? top : b.surf + (top - b.surf) * Math.min(1, DT * 6);
+        const surf = b.surf ?? -1;
+        const sub = Math.max(0, Math.min(1, (surf + PR - (b.y - RMIN)) / (2 * RMIN)));
+        const subH = Math.max(0, Math.min(1, (surf + PR - (b.y + HEAD_Y - HEAD_R)) / (2 * HEAD_R)));
         b.sub = sub;
-        b.vy += G * (sub / 0.45 + subH * 1.2 - 1) * DT;
+        // 浮力は強くなりすぎないように上限をつける（跳ね返りすぎないように）
+        b.vy += G * Math.min(0.8, sub / 0.45 + subH * 0.6 - 1) * DT;
+        let fvy = 0;
         if (cnt) {
           const k = Math.min(1, DT * 5 * (sub + 0.1));
-          b.vx += (fx / cnt - b.vx) * k; b.vy += (fy / cnt - b.vy) * k * 0.6; b.vz += (fz / cnt - b.vz) * k;
+          fvy = fy / cnt;
+          b.vx += (fx / cnt - b.vx) * k; b.vz += (fz / cnt - b.vz) * k;
         }
-        b.vy *= 1 - Math.min(1, DT * 2.5 * sub);
+        // 水の中では上下の動きを水の流れに合わせて強く抑える
+        b.vy = fvy * 0.3 + (b.vy - fvy * 0.3) * (1 - Math.min(1, DT * 9 * Math.max(sub, subH)));
         b.x += b.vx * DT; b.y += b.vy * DT; b.z += b.vz * DT;
       }
       // マドラーに押される
