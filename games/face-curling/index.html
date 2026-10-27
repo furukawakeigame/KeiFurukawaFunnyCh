@@ -570,11 +570,12 @@
     pv.tmp2 = V();
 
     // ---------- 狙いの矢印 ----------
-    const arrow = new THREE.Mesh((() => {
-      const s = new THREE.Shape(); s.moveTo(-0.07, 0); s.lineTo(-0.07, 0.82); s.lineTo(-0.18, 0.82); s.lineTo(0, 1); s.lineTo(0.18, 0.82); s.lineTo(0.07, 0.82); s.lineTo(0.07, 0); s.closePath();
-      const g = new THREE.ShapeGeometry(s); g.rotateX(-Math.PI / 2); return g;
-    })(), new THREE.MeshBasicMaterial({ color: '#ffcc33', transparent: true, opacity: 0.85, depthWrite: false }));
-    arrow.position.y = 0.01; arrow.visible = false; scene.add(arrow);
+    // 線（長さを変える）＋止まる位置の輪
+    const arrowM = new THREE.MeshBasicMaterial({ color: '#ffcc33', transparent: true, opacity: 0.85, depthWrite: false });
+    const arrow = new THREE.Group(); arrow.visible = false; scene.add(arrow);
+    const arrowLine = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 1).rotateX(-Math.PI / 2).translate(0, 0, -0.5), arrowM);
+    const arrowRing = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.42, 32).rotateX(-Math.PI / 2), arrowM);
+    arrow.add(arrowLine, arrowRing);
 
     // ---------- 氷のかけら ----------
     const FX_N = 400;
@@ -605,6 +606,8 @@
     const STEP = 1 / 120;
     const A0 = 0.78; // 何もしないときの減速（m/s²）
     const VMAX = 6.6;
+    // 引いた長さ → スイープしなかったときに止まる距離（m）。距離に比例させて加減しやすくする
+    const aimDist = () => 2 + aim.p * 20;
     let clock = 0;
 
     function stepPhysics(dt) {
@@ -653,7 +656,7 @@
     const moving = () => stones.some(s => s.st === 'go' && (s.vx || s.vz));
 
     function launch() {
-      const s = stones[cur], v = VMAX * aim.p;
+      const s = stones[cur], v = Math.sqrt(2 * A0 * aimDist());
       s.vx = Math.sin(aim.ang) * v; s.vz = -Math.cos(aim.ang) * v;
       s.w = (Math.random() - 0.5) * 0.6;
       state = 'slide'; shotOnce = true; sweepPow = 0; brushOff = 0;
@@ -673,7 +676,7 @@
       for (const s of stones) {
         if (s.st === 'lost') continue;
         const d = Math.hypot(s.x - s.x0t, s.z - s.z0t);
-        sum += THREE.MathUtils.clamp(1 - d / 1.8, 0, 1);
+        sum += THREE.MathUtils.clamp(1 - d / 2.0, 0, 1);
       }
       return Math.round(sum / stones.length * 100);
     }
@@ -937,9 +940,11 @@
         s.mesh.position.z = s.z + aim.p * 0.5;
         arrow.visible = state === 'aim' && aim.p > 0.02;
         if (arrow.visible) {
-          arrow.position.set(s.x, 0.012, s.mesh.position.z - s.r - 0.1);
+          // 矢印の先が、そのまま止まる位置
+          arrow.position.set(s.x, 0.012, s.z);
           arrow.rotation.y = -aim.ang;
-          arrow.scale.set(0.8 + aim.p * 0.6, 1, 0.6 + aim.p * 4.5);
+          const d = aimDist();
+          arrowLine.scale.z = d - 0.42; arrowRing.position.z = -d;
         }
       }
       hp.face.set(1, 0, 0);
