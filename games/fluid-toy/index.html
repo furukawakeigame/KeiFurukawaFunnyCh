@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>流体おもちゃ</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="流体おもちゃ">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/fluid-toy/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/fluid-toy/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #bfe3f5; color: #1f3340;
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif;
+      display: flex; flex-direction: column; overflow: hidden;
+      -webkit-user-select: none; user-select: none;
+    }
+    header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+    header a { color: #1f3340; font-size: 14px; text-decoration: none; margin-right: auto; }
+    header button, header select {
+      background: #fff; border: 1px solid #9cc3d6; border-radius: 8px;
+      height: 34px; min-width: 40px; padding: 0 10px; font-size: 13px; color: #1f3340; cursor: pointer;
+    }
+    header svg { width: 18px; height: 18px; display: block; }
+    #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+    /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
+    #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 560px; width: 100%; margin: 0 auto; }
+    #controls button, #controls a {
+      flex: 1; height: clamp(56px, 8vmin, 72px); border: none; border-radius: 14px; font-size: clamp(16px, 2.6vmin, 20px); font-weight: 800;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none;
+      touch-action: manipulation;
+    }
+    #controls svg { height: 62%; width: auto; display: block; }
+    .tool { background: #fff; color: #1d6f9c; box-shadow: 0 4px 0 #7fb2cc; }
+    .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; }
+    /* 背の低い横長画面では、ボタンを右に縦に並べて水槽を大きく見せる */
+    @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+      #controls { left: auto; right: 0; width: 132px; flex-direction: column; padding: 0 12px; }
+      #controls button, #controls a { flex: none; height: clamp(44px, 12vh, 60px); }
+    }
+    #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="stage"><div id="msg"></div></div>
+  <div id="controls">
+    <button id="shake" class="tool"><svg viewBox="0 0 40 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16h16V4"/><path d="M12 13c2-1.6 4-1.6 5.3 0s3.4 1.6 5.4 0 4-1.6 5.3 0" /><path d="M7 9l-4 3 4 3M33 9l4 3-4 3"/></svg></button>
+    <button id="splash" class="tool"><svg viewBox="0 0 40 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 1.5c-2.6 3.4-4.2 5.4-4.2 7.4a4.2 4.2 0 0 0 8.4 0c0-2-1.6-4-4.2-7.4z" fill="currentColor"/><path d="M6 20c3-2 5-2 7 0s4.6 2 7 0 4.6-2 7 0 4.6 2 7 0"/><path d="M11 15l-2-3M29 15l2-3"/></svg></button>
+    <a id="post" class="post"></a>
+  </div>
+
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+  <script>
+    // CDN が読めないときの一言
+    setTimeout(() => { if (!window.FLUID_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 8000);
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    window.FLUID_READY = true;
+
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/fluid-toy/';
+
+    // ---------- 言語 ----------
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('fluid-toy:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('fluid-toy:' + k, JSON.stringify(v)); } catch {} },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
+    const DICT = {
+      ja: { title: '流体おもちゃ', back: '← トップへ戻る', post: 'Xに投稿', shake: 'ゆらす', splash: 'ざぶん', share: '3Dの水で遊んだ #流体おもちゃゲーム' },
+      ko: { title: '유체 장난감', back: '← 처음으로', post: 'X에 게시', shake: '흔들기', splash: '첨벙', share: '3D 물로 놀았다 #流体おもちゃゲーム' },
+      en: { title: 'Fluid Toy', back: '← Back to top', post: 'Post on X', shake: 'Shake', splash: 'Splash', share: 'Playing with 3D water #流体おもちゃゲーム' },
+      th: { title: 'ของเล่นของไหล', back: '← กลับหน้าแรก', post: 'โพสต์ลง X', shake: 'เขย่า', splash: 'ตูม', share: 'เล่นกับน้ำ 3 มิติ #流体おもちゃゲーム' },
+    };
+    let lang = store.get('lang', null) || autoLang();
+    const t = k => DICT[lang][k];
+    const langSel = document.getElementById('lang');
+    langSel.value = lang;
+    langSel.addEventListener('change', () => { lang = langSel.value; store.set('lang', lang); applyLang(); });
+    const postA = document.getElementById('post');
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      document.getElementById('shake').setAttribute('aria-label', t('shake'));
+      document.getElementById('splash').setAttribute('aria-label', t('splash'));
+      postA.textContent = t('post');
+      postA.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share'))}&url=${encodeURIComponent(SHARE_URL)}`;
+    }
+
+    // ---------- 音 ----------
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const drawSoundBtn = () => {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${soundOn ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>'}</svg>`;
+    };
+    drawSoundBtn();
+    soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); });
+    let ac = null, slosh = null, sloshF = null, noiseBuf = null;
+    function initAudio() {
+      if (ac) return;
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
+        o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.05);
+        noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+        const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        // ちゃぷちゃぷ: 水の動きの大きさに合わせて鳴り続けるざわめき
+        const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+        sloshF = ac.createBiquadFilter(); sloshF.type = 'bandpass'; sloshF.frequency.value = 500; sloshF.Q.value = 0.9;
+        const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200;
+        slosh = ac.createGain(); slosh.gain.value = 0;
+        s.connect(sloshF).connect(lp).connect(slosh).connect(ac.destination); s.start();
+      } catch { ac = null; }
+    }
+    addEventListener('pointerdown', initAudio, { capture: true });
+    addEventListener('keydown', initAudio, { capture: true });
+    function tone(type, f0, f1, dur, vol, delay = 0) {
+      if (!soundOn || !ac) return;
+      const now = ac.currentTime + delay;
+      const o = ac.createOscillator(); o.type = type;
+      o.frequency.setValueAtTime(f0, now); o.frequency.exponentialRampToValueAtTime(f1, now + dur);
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(vol, now + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      o.connect(g).connect(ac.destination); o.start(now); o.stop(now + dur + 0.02);
+    }
+    // 泡がはじける「ポコッ」: 小さな泡ほど高い音で、音程が上がりながら消える
+    function bubble(vol = 0.08, delay = 0) {
+      const f = 350 + Math.random() * 900;
+      tone('sine', f, f * (1.6 + Math.random() * 0.8), 0.04 + Math.random() * 0.05, vol, delay);
+    }
+    // 水しぶき: 減衰するノイズを水音らしい帯域に通し、泡の音をばらまく
+    function splashSound(vol) {
+      if (!soundOn || !ac) return;
+      const now = ac.currentTime, dur = 0.25 + vol * 0.5;
+      const s = ac.createBufferSource(); s.buffer = noiseBuf;
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.7;
+      bp.frequency.setValueAtTime(1800, now); bp.frequency.exponentialRampToValueAtTime(500, now + dur);
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.5 * vol + 0.05, now + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      s.connect(bp).connect(g).connect(ac.destination); s.start(now, Math.random()); s.stop(now + dur + 0.05);
+      tone('sine', 140, 60, 0.12, 0.25 * vol);
+      for (let k = 0; k < 3 + vol * 10; k++) bubble(0.05 + 0.05 * vol, 0.03 + Math.random() * dur);
+    }
+    // 声: 声帯の振動（のこぎり波＋ゆらぎ）を、母音ごとの共鳴（フォルマント）に通す
+    const VOWEL = { a: [800, 1200, 2600], i: [300, 2300, 3000], u: [350, 1250, 2500], e: [500, 1900, 2600], o: [500, 850, 2500] };
+    function voice(f0, seq, dur, vol = 0.5, shake = 0.04, breath = 0.15) {
+      if (!soundOn || !ac) return;
+      const now = ac.currentTime;
+      const o = ac.createOscillator(); o.type = 'sawtooth';
+      // 高く出て下がる抑揚
+      o.frequency.setValueAtTime(f0 * 1.15, now);
+      o.frequency.linearRampToValueAtTime(f0 * 1.35, now + dur * 0.3);
+      o.frequency.exponentialRampToValueAtTime(f0 * 0.75, now + dur);
+      const vib = ac.createOscillator(); vib.frequency.value = 5.5 + Math.random() * 3;
+      const vg = ac.createGain(); vg.gain.value = f0 * shake; vib.connect(vg).connect(o.frequency);
+      const ns = ac.createBufferSource(); ns.buffer = noiseBuf;
+      const ng = ac.createGain(); ng.gain.value = breath;
+      const src = ac.createGain();
+      o.connect(src); ns.connect(ng).connect(src);
+      const out = ac.createGain();
+      out.gain.setValueAtTime(0, now);
+      out.gain.linearRampToValueAtTime(vol, now + 0.03);
+      out.gain.setValueAtTime(vol, now + dur * 0.55);
+      out.gain.exponentialRampToValueAtTime(0.001, now + dur);
+      [1, 0.6, 0.25].forEach((amp, fi) => {
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = fi === 0 ? 6 : 9;
+        seq.forEach((v, si) => { const tt = now + dur * si / Math.max(1, seq.length - 1) * 0.7; bp.frequency[si ? 'linearRampToValueAtTime' : 'setValueAtTime'](VOWEL[v][fi] * 1.2, tt); });
+        const g = ac.createGain(); g.gain.value = amp * 3;
+        src.connect(bp).connect(g).connect(out);
+      });
+      out.connect(ac.destination);
+      o.start(now); vib.start(now); ns.start(now, Math.random());
+      o.stop(now + dur); vib.stop(now + dur); ns.stop(now + dur);
+    }
+    const pick = a => a[Math.floor(Math.random() * a.length)];
+    // 猫の声（「にゃ」「にゃう」「にゃあー」）。毎回少しずつ変える
+    let lastMeow = -9;
+    function meow(kind) {
+      if (!ac) return;
+      const now = ac.currentTime; if (now - lastMeow < 0.5) return; lastMeow = now;
+      const f0 = 560 + Math.random() * 140;
+      if (kind === 'grab') voice(f0, pick([['i', 'a'], ['i', 'e', 'a']]), 0.22 + Math.random() * 0.08, 0.32, 0.03, 0.1);
+      else if (kind === 'dunk') voice(f0 * 0.8, pick([['i', 'a', 'o'], ['e', 'a', 'u']]), 0.7 + Math.random() * 0.2, 0.4, 0.12, 0.25);
+      else voice(f0 * 1.1, pick([['i', 'a', 'u'], ['i', 'a', 'a']]), 0.4 + Math.random() * 0.15, 0.38, 0.05, 0.12);
+    }
+
+    // ---------- 流体（PBF: 位置ベースの粒子法） ----------
+    const MOBILE = matchMedia('(pointer: coarse)').matches;
+    const N = MOBILE ? 1600 : 2600, ITER = MOBILE ? 3 : 4;
+    const TW = 1.2, TD = 0.75, TH = 1.5, YMAX = 4;          // 水槽の内側（半幅・半奥行き・高さ）
+    const S = Math.cbrt(2 * TW * 2 * TD * 0.72 / N);           // 粒の間隔（水位が 0.72 くらいになる）
+    const LEVEL = N * S ** 3 / (2 * TW * 2 * TD);
+    const H = 1.8 * S, H2 = H * H, PR = S * 0.5;
+    const POLY6 = 315 / (64 * Math.PI * H ** 9), SPIKY = -45 / (Math.PI * H ** 6);
+    const G = 13, DT = 1 / 60, MAXN = 64;
+    // 静止状態の密度と、拘束の勾配の大きさを格子から求めておく
+    let RHO0 = 0, D0 = 0;
+    for (let a = -3; a <= 3; a++) for (let b = -3; b <= 3; b++) for (let c = -3; c <= 3; c++) {
+      const r = S * Math.hypot(a, b, c);
+      if (r >= H) continue;
+      RHO0 += POLY6 * (H2 - r * r) ** 3;
+      if (r > 0) { const g = SPIKY * (H - r) ** 2 / r; D0 += g * g * r * r; }
+    }
+    D0 /= RHO0 * RHO0;
+    const EPS = D0 * 0.1, WQ = POLY6 * (H2 - (0.2 * H) ** 2) ** 3, KCORR = 0.1 / D0;
+
+    const X = new Float32Array(N * 3), P = new Float32Array(N * 3), V = new Float32Array(N * 3), V2 = new Float32Array(N * 3);
+    const PX = new Float32Array(N * 3); // 1つ前の刻みの位置（描画の補間用）
+    const LAM = new Float32Array(N), DP = new Float32Array(N * 3), SPD = new Float32Array(N);
+    const NB = new Int32Array(N * MAXN), NC = new Int32Array(N);
+    const GX0 = -TW - 0.4, GZ0 = -TD - 0.1;
+    const NX = Math.ceil((2 * TW + 0.8) / H) + 1, NY = Math.ceil(YMAX / H) + 1, NZ = Math.ceil((2 * TD + 0.2) / H) + 1;
+    const cellStart = new Int32Array(NX * NY * NZ + 1), cellFill = new Int32Array(NX * NY * NZ), sorted = new Int32Array(N), pcell = new Int32Array(N);
+
+    // 最初は左側に積んだ水の柱を崩す（開いた瞬間から水が動く）
+    function initWater() {
+      const nz = Math.floor(2 * TD / S), nx = Math.floor(1.3 / S);
+      for (let i = 0; i < N; i++) {
+        const layer = Math.floor(i / (nx * nz)), r = i % (nx * nz);
+        X[i * 3] = -TW + PR + (r % nx) * S + (Math.random() - 0.5) * 0.01 * S;
+        X[i * 3 + 1] = PR + layer * S;
+        X[i * 3 + 2] = -TD + PR + Math.floor(r / nx) * S + (Math.random() - 0.5) * 0.01 * S;
+      }
+      PX.set(X); P.set(X); V.fill(0);
+    }
+
+    // ---------- 動かせる物（水槽のゆれ・マドラー・猫の浮き輪） ----------
+    let tankX = 0, shakeT = 99;
+    const shakeOffset = tt => tt > 3 ? 0 : 0.17 * Math.sin(tt * Math.PI * 2 * 1.5) * Math.exp(-tt * 1.3) * Math.min(1, tt * 8);
+    // マドラー（縦の棒）: 先端より上の水を横に押しのける
+    const SR = 0.05;
+    const stick = { x: TW - 0.3, z: TD - 0.3, tip: LEVEL + 0.45, tx: TW - 0.3, tz: TD - 0.3, down: false, px: 0, pz: 0, ptip: 0 };
+    // 猫の浮き輪: 輪（トーラス）＋頭（球）
+    const RM = 0.22, RMIN = 0.08, HEAD_Y = 0.2, HEAD_R = 0.16;
+    const body = { x: 0.6, y: 1.9, z: 0.05, vx: 0, vy: 0, vz: 0, px: 0.6, py: 1.9, pz: 0.05, grab: false, tx: 0, ty: 0, tz: 0, sub: 0 };
+
+    function collide(i) {
+      const i3 = i * 3;
+      let x = P[i3], y = P[i3 + 1], z = P[i3 + 2];
+      // 浮き輪
+      let lx = x - body.x, ly = y - body.y, lz = z - body.z;
+      if (lx * lx + lz * lz < 0.2 && ly > -0.2 && ly < 0.4) {
+        const q = Math.hypot(lx, lz), a = q - RM, d = Math.hypot(a, ly);
+        if (d < RMIN + PR && d > 1e-6 && q > 1e-6) {
+          const k = (RMIN + PR - d) / d;
+          x += a * lx / q * k; y += ly * k; z += a * lz / q * k;
+        }
+        lx = x - body.x; ly = y - body.y - HEAD_Y; lz = z - body.z;
+        const dh = Math.hypot(lx, ly, lz);
+        if (dh < HEAD_R + PR && dh > 1e-6) { const k = (HEAD_R + PR - dh) / dh; x += lx * k; y += ly * k; z += lz * k; }
+      }
+      // マドラー
+      if (y > stick.tip - PR) {
+        const sx = x - stick.x, sz = z - stick.z, d2 = sx * sx + sz * sz, rr = SR + PR;
+        if (d2 < rr * rr) {
+          if (y > stick.tip) { const d = Math.sqrt(d2) || 1e-6; const k = (rr - d) / d; x += sx * k; z += sz * k; }
+          else { const sy = y - stick.tip, d = Math.hypot(sx, sy, sz) || 1e-6; if (d < rr) { const k = (rr - d) / d; x += sx * k; y += sy * k; z += sz * k; } }
+        }
+      }
+      // 壁
+      const x0 = tankX - TW + PR, x1 = tankX + TW - PR;
+      if (x < x0) x = x0 + Math.random() * 1e-4; else if (x > x1) x = x1 - Math.random() * 1e-4;
+      if (z < -TD + PR) z = -TD + PR + Math.random() * 1e-4; else if (z > TD - PR) z = TD - PR - Math.random() * 1e-4;
+      if (y < PR) y = PR + Math.random() * 1e-4; else if (y > YMAX - 0.05) y = YMAX - 0.05;
+      P[i3] = x; P[i3 + 1] = y; P[i3 + 2] = z;
+    }
+
+    function buildNeighbors() {
+      cellStart.fill(0);
+      for (let i = 0; i < N; i++) {
+        let cx = Math.floor((P[i * 3] - GX0) / H), cy = Math.floor(P[i * 3 + 1] / H), cz = Math.floor((P[i * 3 + 2] - GZ0) / H);
+        cx = cx < 0 ? 0 : cx >= NX ? NX - 1 : cx; cy = cy < 0 ? 0 : cy >= NY ? NY - 1 : cy; cz = cz < 0 ? 0 : cz >= NZ ? NZ - 1 : cz;
+        const c = (cx * NY + cy) * NZ + cz; pcell[i] = c; cellStart[c + 1]++;
+      }
+      for (let c = 0; c < NX * NY * NZ; c++) { cellStart[c + 1] += cellStart[c]; cellFill[c] = cellStart[c]; }
+      for (let i = 0; i < N; i++) sorted[cellFill[pcell[i]]++] = i;
+      for (let i = 0; i < N; i++) {
+        const c = pcell[i], cz = c % NZ, cy = Math.floor(c / NZ) % NY, cx = Math.floor(c / (NZ * NY));
+        const xi = P[i * 3], yi = P[i * 3 + 1], zi = P[i * 3 + 2];
+        let n = 0; const base = i * MAXN;
+        for (let ax = Math.max(0, cx - 1); ax <= Math.min(NX - 1, cx + 1); ax++)
+          for (let ay = Math.max(0, cy - 1); ay <= Math.min(NY - 1, cy + 1); ay++) {
+            const c0 = (ax * NY + ay) * NZ, z0 = Math.max(0, cz - 1), z1 = Math.min(NZ - 1, cz + 1);
+            for (let k = cellStart[c0 + z0], e = cellStart[c0 + z1 + 1]; k < e; k++) {
+              const j = sorted[k]; if (j === i) continue;
+              const dx = xi - P[j * 3], dy = yi - P[j * 3 + 1], dz = zi - P[j * 3 + 2];
+              if (dx * dx + dy * dy + dz * dz < H2 && n < MAXN) NB[base + n++] = j;
+            }
+          }
+        NC[i] = n;
+      }
+    }
+
+    let impact = 0, agitation = 0;
+    function simStep() {
+      // 水槽のゆれ
+      shakeT += DT; tankX = shakeOffset(shakeT);
+      // マドラー: 指を追いかける（速すぎると水が弾けるので速さに上限）
+      stick.px = stick.x; stick.pz = stick.z; stick.ptip = stick.tip;
+      const mx = stick.tx - stick.x, mz = stick.tz - stick.z, ml = Math.hypot(mx, mz), maxStep = 5 * DT;
+      if (ml > maxStep) { stick.x += mx / ml * maxStep; stick.z += mz / ml * maxStep; } else { stick.x = stick.tx; stick.z = stick.tz; }
+      stick.x = Math.min(tankX + TW - 0.08, Math.max(tankX - TW + 0.08, stick.x)); stick.z = Math.min(TD - 0.08, Math.max(-TD + 0.08, stick.z));
+      const tipT = stick.down ? 0.1 : LEVEL + 0.45;
+      stick.tip += Math.max(-6 * DT, Math.min(6 * DT, tipT - stick.tip));
+      stepBody();
+
+      for (let i = 0; i < N * 3; i += 3) {
+        V[i + 1] -= G * DT;
+        P[i] = X[i] + V[i] * DT; P[i + 1] = X[i + 1] + V[i + 1] * DT; P[i + 2] = X[i + 2] + V[i + 2] * DT;
+      }
+      for (let i = 0; i < N; i++) collide(i);
+      buildNeighbors();
+      for (let it = 0; it < ITER; it++) {
+        // 密度の拘束（圧縮されたぶんだけ押し広げる）
+        for (let i = 0; i < N; i++) {
+          const xi = P[i * 3], yi = P[i * 3 + 1], zi = P[i * 3 + 2], base = i * MAXN, n = NC[i];
+          let rho = POLY6 * H2 * H2 * H2, gx = 0, gy = 0, gz = 0, sg = 0;
+          for (let k = 0; k < n; k++) {
+            const j = NB[base + k], dx = xi - P[j * 3], dy = yi - P[j * 3 + 1], dz = zi - P[j * 3 + 2], r2 = dx * dx + dy * dy + dz * dz;
+            if (r2 >= H2) continue;
+            const w = H2 - r2; rho += POLY6 * w * w * w;
+            const r = Math.sqrt(r2); if (r < 1e-6) continue;
+            const g = SPIKY * (H - r) * (H - r) / r;
+            gx += g * dx; gy += g * dy; gz += g * dz; sg += g * g * r2;
+          }
+          const C = rho / RHO0 - 1;
+          LAM[i] = C > 0 ? -C / ((sg + gx * gx + gy * gy + gz * gz) / (RHO0 * RHO0) + EPS) : 0;
+        }
+        for (let i = 0; i < N; i++) {
+          const xi = P[i * 3], yi = P[i * 3 + 1], zi = P[i * 3 + 2], base = i * MAXN, n = NC[i], li = LAM[i];
+          let ox = 0, oy = 0, oz = 0;
+          for (let k = 0; k < n; k++) {
+            const j = NB[base + k], dx = xi - P[j * 3], dy = yi - P[j * 3 + 1], dz = zi - P[j * 3 + 2], r2 = dx * dx + dy * dy + dz * dz;
+            if (r2 >= H2) continue;
+            const r = Math.sqrt(r2); if (r < 1e-6) continue;
+            const w = H2 - r2, q = POLY6 * w * w * w / WQ, sc = -KCORR * q * q * q * q;
+            const g = (li + LAM[j] + sc) * SPIKY * (H - r) * (H - r) / r;
+            ox += g * dx; oy += g * dy; oz += g * dz;
+          }
+          DP[i * 3] = ox / RHO0; DP[i * 3 + 1] = oy / RHO0; DP[i * 3 + 2] = oz / RHO0;
+        }
+        for (let i = 0; i < N; i++) { P[i * 3] += DP[i * 3]; P[i * 3 + 1] += DP[i * 3 + 1]; P[i * 3 + 2] += DP[i * 3 + 2]; collide(i); }
+      }
+      // 速さを更新し、まわりと少しなじませる（粘り）
+      let imp = 0, sum = 0;
+      for (let i = 0; i < N * 3; i += 3) {
+        const so = Math.hypot(V[i], V[i + 1] + G * DT, V[i + 2]);
+        let vx = (P[i] - X[i]) / DT, vy = (P[i + 1] - X[i + 1]) / DT, vz = (P[i + 2] - X[i + 2]) / DT;
+        const sn = Math.hypot(vx, vy, vz);
+        if (sn > 12) { vx *= 12 / sn; vy *= 12 / sn; vz *= 12 / sn; }
+        V[i] = vx; V[i + 1] = vy; V[i + 2] = vz;
+        if (so > 2.5 && so - sn > 1.5) imp += so - sn;
+        sum += sn;
+      }
+      impact = imp / N; agitation = sum / N;
+      for (let i = 0; i < N; i++) {
+        const xi = P[i * 3], yi = P[i * 3 + 1], zi = P[i * 3 + 2], base = i * MAXN, n = NC[i];
+        let ax = 0, ay = 0, az = 0;
+        for (let k = 0; k < n; k++) {
+          const j = NB[base + k], dx = xi - P[j * 3], dy = yi - P[j * 3 + 1], dz = zi - P[j * 3 + 2], r2 = dx * dx + dy * dy + dz * dz;
+          if (r2 >= H2) continue;
+          const w = H2 - r2, wk = POLY6 * w * w * w / RHO0;
+          ax += (V[j * 3] - V[i * 3]) * wk; ay += (V[j * 3 + 1] - V[i * 3 + 1]) * wk; az += (V[j * 3 + 2] - V[i * 3 + 2]) * wk;
+        }
+        V2[i * 3] = V[i * 3] + 0.05 * ax; V2[i * 3 + 1] = V[i * 3 + 1] + 0.05 * ay; V2[i * 3 + 2] = V[i * 3 + 2] + 0.05 * az;
+        SPD[i] = Math.hypot(V2[i * 3], V2[i * 3 + 1], V2[i * 3 + 2]);
+      }
+      V.set(V2);
+      PX.set(X); X.set(P);
+    }
+
+    // 浮き輪: まわりの水面の高さで浮力を決め、まわりの水の流れに乗る
+    function stepBody() {
+      const b = body;
+      b.px = b.x; b.py = b.y; b.pz = b.z;
+      if (b.grab) {
+        const k = Math.min(1, DT * 18);
+        const nx = b.x + (b.tx - b.x) * k, ny = b.y + (b.ty - b.y) * k, nz = b.z + (b.tz - b.z) * k;
+        b.vx = (nx - b.x) / DT; b.vy = (ny - b.y) / DT; b.vz = (nz - b.z) / DT;
+        b.x = nx; b.y = ny; b.z = nz;
+      } else {
+        let top = -1, cnt = 0, fx = 0, fy = 0, fz = 0;
+        for (let i = 0; i < N; i++) {
+          const dx = X[i * 3] - b.x, dz = X[i * 3 + 2] - b.z, d2 = dx * dx + dz * dz;
+          if (d2 > 0.18 && d2 < 0.36 && SPD[i] < 3 && X[i * 3 + 1] > top) top = X[i * 3 + 1]; // 輪のすぐ外の水面
+          const dy = X[i * 3 + 1] - b.y;
+          if (d2 + dy * dy < 0.16) { cnt++; fx += V[i * 3]; fy += V[i * 3 + 1]; fz += V[i * 3 + 2]; }
+        }
+        const sub = Math.max(0, Math.min(1, (top + PR - (b.y - RMIN)) / (2 * RMIN)));
+        const subH = Math.max(0, Math.min(1, (top + PR - (b.y + HEAD_Y - HEAD_R)) / (2 * HEAD_R)));
+        b.sub = sub;
+        b.vy += G * (sub / 0.45 + subH * 1.2 - 1) * DT;
+        if (cnt) {
+          const k = Math.min(1, DT * 5 * (sub + 0.1));
+          b.vx += (fx / cnt - b.vx) * k; b.vy += (fy / cnt - b.vy) * k * 0.6; b.vz += (fz / cnt - b.vz) * k;
+        }
+        b.vy *= 1 - Math.min(1, DT * 2.5 * sub);
+        b.x += b.vx * DT; b.y += b.vy * DT; b.z += b.vz * DT;
+      }
+      // マドラーに押される
+      const sx = b.x - stick.x, sz = b.z - stick.z, sd = Math.hypot(sx, sz), rr = RM + RMIN + SR;
+      if (b.y + RMIN > stick.tip && sd < rr && sd > 1e-6) { b.x += sx / sd * (rr - sd); b.z += sz / sd * (rr - sd); b.vx += sx / sd * 0.5; b.vz += sz / sd * 0.5; }
+      const lim = RM + RMIN;
+      if (b.x < tankX - TW + lim) { b.x = tankX - TW + lim; b.vx = Math.abs(b.vx) * 0.3; }
+      if (b.x > tankX + TW - lim) { b.x = tankX + TW - lim; b.vx = -Math.abs(b.vx) * 0.3; }
+      if (b.z < -TD + lim) { b.z = -TD + lim; b.vz = Math.abs(b.vz) * 0.3; }
+      if (b.z > TD - lim) { b.z = TD - lim; b.vz = -Math.abs(b.vz) * 0.3; }
+      if (b.y < RMIN) { b.y = RMIN; b.vy = Math.abs(b.vy) * 0.2; }
+      if (b.y > 2.8) { b.y = 2.8; b.vy = 0; }
+    }
+
+    // ざぶん: 水面の水をひとかたまり持ち上げて、上から落とす
+    const BLOB = Math.round(N * 0.13);
+    const blobOffsets = [];
+    {
+      const R = Math.ceil(Math.cbrt(BLOB * 3 / (4 * Math.PI))) + 2;
+      for (let a = -R; a <= R; a++) for (let b = -R; b <= R; b++) for (let c = -R; c <= R; c++) blobOffsets.push([a * S, b * S, c * S]);
+      blobOffsets.sort((p, q) => Math.hypot(...p) - Math.hypot(...q));
+      blobOffsets.length = BLOB;
+    }
+    const blobR = Math.hypot(...blobOffsets[BLOB - 1]);
+    function dropBlob() {
+      const idx = Array.from({ length: N }, (_, i) => i).sort((a, b) => X[b * 3 + 1] - X[a * 3 + 1]).slice(0, BLOB);
+      const cx = tankX + (Math.random() * 2 - 1) * (TW - blobR - 0.1), cz = (Math.random() * 2 - 1) * Math.max(0, TD - blobR - 0.1), cy = 2.45;
+      idx.forEach((i, k) => {
+        const o = blobOffsets[k];
+        X[i * 3] = PX[i * 3] = cx + o[0] + (Math.random() - 0.5) * 0.02 * S;
+        X[i * 3 + 1] = PX[i * 3 + 1] = cy + o[1];
+        X[i * 3 + 2] = PX[i * 3 + 2] = cz + o[2] + (Math.random() - 0.5) * 0.02 * S;
+        V[i * 3] = 0; V[i * 3 + 1] = -1.5; V[i * 3 + 2] = 0;
+      });
+      tone('sine', 220, 520, 0.18, 0.12);
+      for (let k = 0; k < 4; k++) bubble(0.05, Math.random() * 0.15);
+    }
+
+    // ---------- 3D ----------
+    const stage = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    stage.prepend(renderer.domElement);
+    const scene = new THREE.Scene();
+    const canvasTex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; return tx; };
+    const SKY_TOP = '#6fb8ef', SKY_HOR = '#d6eef7', GROUND = '#7fae5a';
+    scene.background = canvasTex(4, 256, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, SKY_TOP); gr.addColorStop(0.6, '#bfe3f5'); gr.addColorStop(1, '#eef8e8'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+    scene.fog = new THREE.Fog('#dff0e6', 14, 38);
+    const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
+    scene.add(new THREE.HemisphereLight('#e8f4ff', '#5a7a3a', 1.1));
+    const sun = new THREE.DirectionalLight('#fff4e0', 2.4); sun.position.set(-3, 9, 5);
+    sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.radius = 4; sun.shadow.bias = -0.0008;
+    Object.assign(sun.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4, near: 1, far: 25 });
+    scene.add(sun);
+
+    const mat = (c, rough = 0.75, metal = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: metal });
+    const shade = o => { o.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.layers.enable(1); } }); return o; };
+    const SPHG = new THREE.SphereGeometry(1, 24, 16), CYLG = new THREE.CylinderGeometry(1, 1, 1, 20), BOXG = new THREE.BoxGeometry(1, 1, 1);
+    const part = (geo, m, x, y, z, sx, sy = sx, sz = sx, parent) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.scale.set(sx, sy, sz); parent?.add(o); return o; };
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const FLOOR = -2.45;
+
+    // テーブル（木目）と庭
+    {
+      const wood = canvasTex(512, 128, (c, w, h) => { c.fillStyle = '#a8703f'; c.fillRect(0, 0, w, h); for (let i = 0; i < 70; i++) { c.strokeStyle = `rgba(70,35,10,${0.08 + Math.random() * 0.2})`; c.lineWidth = 1 + Math.random() * 2.5; const y = Math.random() * h; c.beginPath(); c.moveTo(0, y); c.bezierCurveTo(w * .3, y + Math.random() * 8 - 4, w * .6, y + Math.random() * 8 - 4, w, y); c.stroke(); } });
+      wood.wrapS = wood.wrapT = THREE.RepeatWrapping;
+      const woodM = new THREE.MeshStandardMaterial({ map: wood, roughness: 0.6 });
+      const top = part(BOXG, woodM, 0, -0.08, 0, 3.6, 0.16, 2.5, scene); top.receiveShadow = true; top.layers.enable(1);
+      for (const [x, z] of [[-1.6, -1.05], [1.6, -1.05], [-1.6, 1.05], [1.6, 1.05]]) shade(part(BOXG, woodM, x, (FLOOR - 0.16) / 2, z, 0.16, -FLOOR - 0.16, 0.16, scene));
+      const grass = canvasTex(256, 256, (c, w, h) => { c.fillStyle = '#6cbf4a'; c.fillRect(0, 0, w, h); for (let i = 0; i < 2600; i++) { c.fillStyle = `hsl(${95 + Math.random() * 20},${45 + Math.random() * 20}%,${34 + Math.random() * 22}%)`; c.fillRect(Math.random() * w, Math.random() * h, 1.5, 3 + Math.random() * 3); } });
+      grass.wrapS = grass.wrapT = THREE.RepeatWrapping; grass.repeat.set(24, 24);
+      const ground = new THREE.Mesh(new THREE.CircleGeometry(40, 48), new THREE.MeshStandardMaterial({ map: grass, roughness: 1 }));
+      ground.rotation.x = -Math.PI / 2; ground.position.y = FLOOR; ground.receiveShadow = true; scene.add(ground);
+      const tuft = new THREE.ConeGeometry(0.08, 0.45, 5), tuftM = mat('#4f9a35'), petal = new THREE.SphereGeometry(0.11, 8, 6), stemM = mat('#4f9a35'), heartM = mat('#ffcf3a');
+      for (let i = 0; i < 80; i++) {
+        const a = Math.random() * Math.PI * 2, d = rnd(2.4, 8);
+        const x = Math.cos(a) * d, z = Math.sin(a) * d;
+        if (Math.random() < 0.35) {
+          const f = new THREE.Group(); f.position.set(x, FLOOR, z);
+          part(CYLG, stemM, 0, 0.22, 0, 0.02, 0.45, 0.02, f);
+          const fc = mat(pick(['#ffffff', '#ffd23a', '#ff8ab0', '#ff6a4a', '#b08aff']));
+          for (let k = 0; k < 5; k++) part(petal, fc, Math.cos(k * 1.26) * 0.1, 0.47, Math.sin(k * 1.26) * 0.1, 1, 0.5, 1, f);
+          part(petal, heartM, 0, 0.5, 0, 0.6, 0.5, 0.6, f);
+          scene.add(f);
+        } else for (let k = 0; k < 3; k++) { const m = part(tuft, tuftM, x + rnd(-.1, .1), FLOOR + 0.2, z + rnd(-.1, .1), 1, rnd(0.7, 1.3), 1); m.rotation.z = rnd(-.4, .4); scene.add(m); }
+      }
+      const leaf = mat('#3f8f3a'), trunk = mat('#7a4a28');
+      for (let i = 0; i < 16; i++) {
+        const a = Math.PI * (1.05 + 0.9 * i / 15) + rnd(-0.05, 0.05), d = rnd(11, 18);
+        const tr = new THREE.Group(); tr.position.set(Math.cos(a) * d, FLOOR, Math.sin(a) * d); tr.scale.setScalar(rnd(1, 1.6));
+        part(CYLG, trunk, 0, 0.8, 0, 0.25, 1.6, 0.25, tr);
+        part(SPHG, leaf, 0, 2.3, 0, 1.3, 1.2, 1.3, tr); part(SPHG, leaf, 0.6, 1.9, 0.3, 0.8, 0.8, 0.8, tr); part(SPHG, leaf, -0.6, 2.0, -0.2, 0.9, 0.8, 0.9, tr);
+        scene.add(tr);
+      }
+    }
+
+    // 水槽: 薄いガラスと金属のふち
+    const tank = new THREE.Group(); scene.add(tank);
+    {
+      const glass = new THREE.MeshStandardMaterial({ color: '#e6f6ff', roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.13, depthWrite: false, side: THREE.DoubleSide });
+      const gt = 0.02;
+      part(BOXG, glass, 0, TH / 2, -TD - gt / 2, 2 * TW, TH, gt, tank);
+      part(BOXG, glass, 0, TH / 2, TD + gt / 2, 2 * TW, TH, gt, tank);
+      part(BOXG, glass, -TW - gt / 2, TH / 2, 0, gt, TH, 2 * TD, tank);
+      part(BOXG, glass, TW + gt / 2, TH / 2, 0, gt, TH, 2 * TD, tank);
+      const frame = mat('#c9d4dc', 0.3, 0.7), e = 0.05, W = 2 * TW + 2 * gt, D = 2 * TD + 2 * gt;
+      for (const y of [e / 2, TH]) {
+        for (const z of [-D / 2, D / 2]) part(BOXG, frame, 0, y, z, W + e, e, e, tank);
+        for (const x of [-W / 2, W / 2]) part(BOXG, frame, x, y, 0, e, e, D + e, tank);
+      }
+      for (const x of [-W / 2, W / 2]) for (const z of [-D / 2, D / 2]) part(BOXG, frame, x, TH / 2, z, e, TH, e, tank);
+      tank.traverse(m => { if (m.isMesh && m.material === frame) { m.castShadow = true; m.receiveShadow = true; m.layers.enable(1); } });
+    }
+
+    // マドラー（木の棒）
+    const stickMesh = new THREE.Group(); scene.add(stickMesh);
+    {
+      const m = mat('#d9b07a', 0.55);
+      const rod = new THREE.Mesh(new THREE.CylinderGeometry(SR * 0.8, SR, 2.2, 16), m); rod.position.y = 1.1; stickMesh.add(rod);
+      part(SPHG, m, 0, 0, 0, SR, SR, SR, stickMesh);
+      part(new THREE.SphereGeometry(1, 16, 12), mat('#e05a3a', 0.4), 0, 2.2, 0, SR * 1.8, SR * 1.8, SR * 1.8, stickMesh);
+      shade(stickMesh).traverse(m => m.layers.enable(1));
+    }
+
+    // いつもの猫: 浮き輪に乗った猫
+    const catG = new THREE.Group(); scene.add(catG);
+    const facing = new THREE.Group(); catG.add(facing);
+    const catPick = [];
+    {
+      const stripes = canvasTex(256, 16, (c, w, h) => { for (let i = 0; i < 8; i++) { c.fillStyle = i % 2 ? '#ffffff' : '#f0503a'; c.fillRect(i * w / 8, 0, w / 8, h); } });
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(RM, RMIN, 18, 48), new THREE.MeshStandardMaterial({ map: stripes, roughness: 0.3 }));
+      ring.rotation.x = Math.PI / 2; catG.add(ring); catPick.push(ring);
+      const fur = mat('#8a6e55', 0.9), white = mat('#f4efe8', 0.8);
+      part(SPHG, fur, 0, 0.08, -0.08, 0.16, 0.17, 0.12, facing);
+      for (const s of [-1, 1]) part(SPHG, white, s * 0.1, 0.07, 0.17, 0.05, 0.035, 0.06, facing);
+      const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.46), new THREE.MeshStandardMaterial({ map: catTex, emissive: '#ffffff', emissiveMap: catTex, emissiveIntensity: 0.45, alphaTest: 0.5, roughness: 0.8, side: THREE.DoubleSide }));
+      face.position.set(0, 0.3, 0.08); face.rotation.x = -0.4; facing.add(face); // 上から見るカメラに少し向ける catPick.push(face);
+      shade(catG).traverse(m => m.layers.enable(1));
+    }
+
+    // ---------- 水の描画（粒の奥行きをなめらかにして水面を作る） ----------
+    const geo = new THREE.BufferGeometry();
+    const posAttr = new THREE.BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage);
+    const spdAttr = new THREE.BufferAttribute(new Float32Array(N), 1).setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('position', posAttr); geo.setAttribute('speed', spdAttr);
+    const RT = (w, h, o = {}) => new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, ...o });
+    const sceneRT = RT(1, 1, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: true, samples: 4 });
+    // 水を隠す物（水槽のふち・猫・棒・台）だけの奥行き。MSAAの奥行きは環境によって崩れるので別に描く
+    const occRT = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: true, depthTexture: new THREE.DepthTexture(1, 1) });
+    // 奥行きは半精度だと段々の縞が出るので、使えれば32bitにする
+    const FT = renderer.extensions.has('EXT_color_buffer_float') ? THREE.FloatType : THREE.HalfFloatType;
+    const depthRT = RT(1, 1, { depthBuffer: true, type: FT }), blurRT = RT(1, 1, { type: FT }), thickRT = RT(1, 1, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+    const PT_VERT = `
+      uniform float uRad, uPx; attribute float speed; varying vec3 vC; varying float vS;
+      void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); vC = mv.xyz; vS = speed; gl_Position = projectionMatrix * mv; gl_PointSize = 2.0 * uRad * uPx / -mv.z; }`;
+    const PT_COMMON = `
+      uniform float uRad; uniform mat4 uP; uniform sampler2D uSD; uniform vec2 uRes; varying vec3 vC; varying float vS;
+      float sphere(out vec3 p) {
+        vec2 c = gl_PointCoord * 2.0 - 1.0; c.y = -c.y; float r2 = dot(c, c); if (r2 > 1.0) discard;
+        float h = sqrt(1.0 - r2); p = vC + vec3(c, h) * uRad;
+        vec4 cl = uP * vec4(p, 1.0); float z = cl.z / cl.w * 0.5 + 0.5;
+        if (z > texture2D(uSD, gl_FragCoord.xy / uRes).x) discard;
+        gl_FragDepth = z; return h;
+      }`;
+    const ptUniforms = (rad) => ({ uRad: { value: rad }, uPx: { value: 1 }, uP: { value: camera.projectionMatrix }, uSD: { value: occRT.depthTexture }, uRes: { value: new THREE.Vector2() }, uScale: { value: 1 } });
+    const depthMat = new THREE.ShaderMaterial({
+      uniforms: ptUniforms(S * 0.75), vertexShader: PT_VERT,
+      fragmentShader: PT_COMMON + `void main() { vec3 p; sphere(p); gl_FragColor = vec4(-p.z, 0.0, 0.0, 1.0); }`,
+    });
+    const thickMat = new THREE.ShaderMaterial({
+      uniforms: ptUniforms(S * 1.1), vertexShader: PT_VERT, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
+      fragmentShader: PT_COMMON + `uniform float uScale; void main() { vec3 p; float h = sphere(p); float t = 2.0 * h * uRad * uScale; gl_FragColor = vec4(t, t * smoothstep(7.0, 11.0, vS), 0.0, 1.0); }`,
+    });
+    // 粒の重なりで厚みを数えすぎないよう、粒の体積で割り戻す
+    thickMat.uniforms.uScale.value = S ** 3 / (4 / 3 * Math.PI * (S * 1.1) ** 3);
+    const depthScene = new THREE.Scene(), thickScene = new THREE.Scene();
+    const ptsD = new THREE.Points(geo, depthMat), ptsT = new THREE.Points(geo, thickMat);
+    ptsD.frustumCulled = ptsT.frustumCulled = false;
+    depthScene.add(ptsD); thickScene.add(ptsT);
+
+    const QUAD_VERT = `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+    const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const blurMat = new THREE.ShaderMaterial({
+      uniforms: { tD: { value: null }, uDir: { value: new THREE.Vector2() }, uPx: { value: 1 }, uWR: { value: S * 2 }, uDZ: { value: S * 2 } },
+      vertexShader: QUAD_VERT, depthTest: false, depthWrite: false,
+      fragmentShader: `
+        uniform sampler2D tD; uniform vec2 uDir; uniform float uPx, uWR, uDZ; varying vec2 vUv;
+        void main() {
+          float d0 = texture2D(tD, vUv).x; if (d0 <= 0.0) { gl_FragColor = vec4(0.0); return; }
+          // 1画素ずつ全部拾う（飛ばして拾うと縞が出る）
+          float rp = clamp(uWR * uPx / d0, 1.0, 24.0), s2 = 2.0 * (rp * 0.5) * (rp * 0.5);
+          float sum = d0, ws = 1.0;
+          for (int i = 1; i <= 24; i++) {
+            float o = float(i); if (o > rp) break;
+            float w = exp(-o * o / s2);
+            for (int k = 0; k < 2; k++) {
+              float d = texture2D(tD, vUv + uDir * o * (k == 0 ? 1.0 : -1.0)).x;
+              if (d > 0.0) { float dz = (d - d0) / uDZ; float ww = w * exp(-dz * dz); sum += d * ww; ws += ww; }
+            }
+          }
+          gl_FragColor = vec4(sum / ws, 0.0, 0.0, 1.0);
+        }`,
+    });
+    const lin = c => new THREE.Color(c);
+    const compMat = new THREE.ShaderMaterial({
+      uniforms: {
+        tS: { value: sceneRT.texture }, tD: { value: depthRT.texture }, tT: { value: thickRT.texture }, uIP: { value: camera.projectionMatrixInverse },
+        uVW: { value: new THREE.Matrix3() }, uTx: { value: new THREE.Vector2() }, uSun: { value: new THREE.Vector3() },
+        uTop: { value: lin(SKY_TOP) }, uHor: { value: lin(SKY_HOR) }, uGnd: { value: lin(GROUND) },
+      },
+      vertexShader: QUAD_VERT, depthTest: false, depthWrite: false,
+      fragmentShader: `
+        uniform sampler2D tS, tD, tT; uniform mat4 uIP; uniform mat3 uVW; uniform vec2 uTx; uniform vec3 uSun, uTop, uHor, uGnd; varying vec2 vUv;
+        vec3 at(vec2 uv, float d) { vec4 p = uIP * vec4(uv * 2.0 - 1.0, -1.0, 1.0); p.xyz /= p.w; return p.xyz * (d / -p.z); }
+        vec3 sky(vec3 r) { return r.y > 0.0 ? mix(uHor, uTop, pow(r.y, 0.6)) : mix(uHor, uGnd, clamp(-r.y * 4.0, 0.0, 1.0)); }
+        void main() {
+          vec3 col = texture2D(tS, vUv).rgb;
+          float d = texture2D(tD, vUv).x;
+          if (d > 0.0) {
+            vec3 p = at(vUv, d);
+            vec2 ex = vec2(uTx.x, 0.0), ey = vec2(0.0, uTx.y);
+            float dr = texture2D(tD, vUv + ex).x, dl = texture2D(tD, vUv - ex).x, du = texture2D(tD, vUv + ey).x, dd = texture2D(tD, vUv - ey).x;
+            vec3 a1 = dr > 0.0 ? at(vUv + ex, dr) - p : vec3(0.0), a2 = dl > 0.0 ? p - at(vUv - ex, dl) : vec3(0.0);
+            vec3 b1 = du > 0.0 ? at(vUv + ey, du) - p : vec3(0.0), b2 = dd > 0.0 ? p - at(vUv - ey, dd) : vec3(0.0);
+            vec3 ax = (dr <= 0.0 || (dl > 0.0 && abs(a2.z) < abs(a1.z))) ? a2 : a1;
+            vec3 by = (du <= 0.0 || (dd > 0.0 && abs(b2.z) < abs(b1.z))) ? b2 : b1;
+            vec3 n = cross(ax, by); n = dot(n, n) > 0.0 ? normalize(n) : vec3(0.0, 0.0, 1.0);
+            vec3 v = normalize(-p);
+            vec2 tt = texture2D(tT, vUv).xy; float th = tt.x;
+            // 屈折: 水面の傾きに合わせて奥の景色をずらし、厚いところほど赤を吸って青くする
+            vec3 refr = texture2D(tS, clamp(vUv + n.xy * 0.04 * clamp(th * 2.0, 0.0, 1.0), 0.001, 0.999)).rgb;
+            vec3 tr = exp(-th * vec3(2.0, 0.65, 0.35));
+            vec3 water = refr * tr + vec3(0.02, 0.2, 0.3) * (1.0 - tr.g);
+            vec3 r = reflect(-v, n);
+            float f = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+            vec3 c = mix(water, sky(normalize(uVW * r)), f);
+            c += pow(max(dot(r, uSun), 0.0), 300.0) * vec3(5.0, 4.7, 4.2);
+            c = mix(c, vec3(0.85, 0.93, 1.0), clamp(tt.y * 6.0, 0.0, 0.6));
+            col = mix(col, c, smoothstep(0.0, 0.04, th));
+          }
+          gl_FragColor = vec4(col, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+    });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), compMat);
+    const quadScene = new THREE.Scene(); quadScene.add(quad);
+
+    // ---------- 画面サイズ ----------
+    const controls = document.getElementById('controls');
+    const CENTER = new THREE.Vector3(0, 0.7, 0.15);
+    const buf = new THREE.Vector2();
+    function resize() {
+      const w = stage.clientWidth, Hs = stage.clientHeight;
+      renderer.setSize(w, Hs, false);
+      // 下の空白とボタンの所には大事な物を置かないので、その上（横並びの時は左）の範囲に水槽を収める（描画は全体にする）
+      const sr = stage.getBoundingClientRect(), cr = controls.getBoundingClientRect();
+      const side = getComputedStyle(controls).flexDirection === 'column';
+      const fw = side ? Math.max(120, w - (sr.right - cr.left)) : w;
+      const h = Math.max(120, Hs - (sr.bottom - (side ? cr.bottom : cr.top)) - 8);
+      camera.aspect = fw / h;
+      camera.setViewOffset(fw, h, 0, 0, w, Hs);
+      // 横は水槽の幅、縦は水槽の高さと少し上の余白が入る距離のうち、遠い方
+      const vf = THREE.MathUtils.degToRad(camera.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
+      const d = Math.min(Math.max(1.5 / Math.tan(hf / 2), 1.3 / Math.tan(vf / 2)) + 1.0, 30);
+      camera.position.copy(CENTER).addScaledVector(new THREE.Vector3(0, 0.62, 1).normalize(), d);
+      camera.lookAt(CENTER);
+      camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+      renderer.getDrawingBufferSize(buf);
+      const bw = buf.x, bh = buf.y;
+      // 水は半分の解像度で描いてぼかす（軽くするため）
+      const ww = Math.max(1, bw >> 1), wh = Math.max(1, bh >> 1);
+      sceneRT.setSize(bw, bh); occRT.setSize(bw, bh); depthRT.setSize(ww, wh); blurRT.setSize(ww, wh); thickRT.setSize(ww, wh);
+      const px = camera.projectionMatrix.elements[5] * wh / 2;
+      for (const m of [depthMat, thickMat]) { m.uniforms.uPx.value = px; m.uniforms.uRes.value.set(ww, wh); }
+      blurMat.uniforms.uPx.value = px;
+      compMat.uniforms.uTx.value.set(1 / ww, 1 / wh);
+    }
+    new ResizeObserver(resize).observe(stage);
+    addEventListener('resize', resize);
+
+    // ---------- 入力 ----------
+    const cv = renderer.domElement;
+    const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), tmp = new THREE.Vector3();
+    const waterPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -LEVEL), grabPlane = new THREE.Plane();
+    let ptr = null;
+    function setRay(e) {
+      const r = cv.getBoundingClientRect();
+      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+    }
+    function aimStick() { if (ray.ray.intersectPlane(waterPlane, tmp)) { stick.tx = tmp.x; stick.tz = tmp.z; } }
+    function aimCat() { if (ray.ray.intersectPlane(grabPlane, tmp)) { body.tx = tmp.x; body.ty = Math.max(RMIN, Math.min(2.6, tmp.y)); body.tz = tmp.z; } }
+    cv.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (ptr) return;
+      cv.setPointerCapture(e.pointerId);
+      setRay(e);
+      const c = new THREE.Vector3(body.x, body.y + 0.1, body.z);
+      if (ray.intersectObjects(catPick, false).length || ray.ray.distanceToPoint(c) < 0.36) {
+        ptr = { id: e.pointerId, cat: true };
+        grabPlane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(tmp).negate(), c);
+        body.grab = true; aimCat(); body.ty = Math.max(body.ty, body.y);
+        meow('grab');
+      } else {
+        ptr = { id: e.pointerId, cat: false };
+        aimStick(); stick.down = true;
+        // 遠くを押したら棒はそこへ持ち上げて移す
+        if (Math.hypot(stick.tx - stick.x, stick.tz - stick.z) > 0.6 && stick.tip > LEVEL) { stick.x = stick.px = Math.min(tankX + TW - 0.08, Math.max(tankX - TW + 0.08, stick.tx)); stick.z = stick.pz = Math.min(TD - 0.08, Math.max(-TD + 0.08, stick.tz)); }
+      }
+    });
+    cv.addEventListener('pointermove', e => {
+      setRay(e);
+      if (ptr && e.pointerId === ptr.id) { if (ptr.cat) aimCat(); else aimStick(); }
+      else if (!ptr && e.pointerType === 'mouse') aimStick();
+    });
+    const up = e => {
+      if (!ptr || e.pointerId !== ptr.id) return;
+      if (ptr.cat) { body.grab = false; if (Math.hypot(body.vx, body.vy, body.vz) > 3) meow('throw'); }
+      else stick.down = false;
+      ptr = null;
+    };
+    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+    stage.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+    document.getElementById('shake').addEventListener('click', () => { shakeT = 0; tone('sine', 90, 55, 0.2, 0.25); });
+    document.getElementById('splash').addEventListener('click', dropBlob);
+
+    // ---------- 共有 ----------
+    // 押した瞬間の水槽を正方形に切り抜き、タイトルを小さく重ねる
+    function shareImage() {
+      render(1);
+      const src = cv, side = Math.min(src.width, src.height);
+      const f = CENTER.clone().project(camera);
+      const fx = (f.x + 1) / 2 * src.width, fy = (1 - f.y) / 2 * src.height;
+      const sx = THREE.MathUtils.clamp(fx - side / 2, 0, src.width - side), sy = THREE.MathUtils.clamp(fy - side / 2, 0, src.height - side);
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      g.drawImage(src, sx, sy, side, side, 0, 0, 1080, 1080);
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.lineJoin = 'round';
+      let px = 64; const font = () => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
+      g.font = font(); const tw = g.measureText(t('title')).width; if (tw > 900) { px *= 900 / tw; g.font = font(); }
+      g.lineWidth = px * 0.18; g.strokeStyle = '#1d5f86'; g.strokeText(t('title'), 540, 1030); g.fillText(t('title'), 540, 1030);
+      return c;
+    }
+    const coarse = matchMedia('(pointer: coarse)').matches;
+    if (!coarse) { postA.target = '_blank'; postA.rel = 'noopener'; }
+    // スマホは画像ごと共有シートへ。PCは画像を保存してから投稿画面を開く（画像は同期で作るので Safari でも共有が止まらない）
+    postA.addEventListener('click', e => {
+      const img = shareImage();
+      if (coarse && navigator.share) {
+        e.preventDefault();
+        const text = `${t('share')}\n${SHARE_URL}`;
+        const url = img.toDataURL('image/jpeg', 0.9), bin = atob(url.split(',')[1]), arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        const file = new File([arr], 'fluid-toy.jpg', { type: 'image/jpeg' });
+        navigator.share(navigator.canShare?.({ files: [file] }) ? { files: [file], text } : { text }).catch(() => {});
+        return;
+      }
+      const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'fluid-toy.png'; d.click();
+    });
+
+    // ---------- ループ ----------
+    const sunView = new THREE.Vector3();
+    function render(alpha) {
+      const pa = posAttr.array, sa = spdAttr.array;
+      for (let i = 0; i < N * 3; i++) pa[i] = PX[i] + (X[i] - PX[i]) * alpha;
+      sa.set(SPD);
+      posAttr.needsUpdate = true; spdAttr.needsUpdate = true;
+      tank.position.x = tankX;
+      stickMesh.position.set(stick.px + (stick.x - stick.px) * alpha, stick.ptip + (stick.tip - stick.ptip) * alpha, stick.pz + (stick.z - stick.pz) * alpha);
+      catG.position.set(body.px + (body.x - body.px) * alpha, body.py + (body.y - body.py) * alpha, body.pz + (body.z - body.pz) * alpha);
+      // 猫は傾きながら、顔をいつもこちらに向ける
+      catG.rotation.set(THREE.MathUtils.clamp(body.vz * 0.12, -0.4, 0.4), 0, THREE.MathUtils.clamp(-body.vx * 0.12, -0.4, 0.4));
+      facing.rotation.y = Math.atan2(camera.position.x - catG.position.x, camera.position.z - catG.position.z);
+
+      renderer.setRenderTarget(sceneRT); renderer.render(scene, camera);
+      const bg = scene.background; scene.background = null; camera.layers.set(1);
+      renderer.setRenderTarget(occRT); renderer.render(scene, camera);
+      scene.background = bg; camera.layers.set(0);
+      renderer.setClearColor(0x000000, 0);
+      renderer.setRenderTarget(depthRT); renderer.clear(); renderer.render(depthScene, camera);
+      renderer.setRenderTarget(thickRT); renderer.clear(); renderer.render(thickScene, camera);
+      quad.material = blurMat;
+      for (let k = 0; k < 2; k++) {
+        blurMat.uniforms.tD.value = depthRT.texture; blurMat.uniforms.uDir.value.set(1 / depthRT.width, 0);
+        renderer.setRenderTarget(blurRT); renderer.render(quadScene, quadCam);
+        blurMat.uniforms.tD.value = blurRT.texture; blurMat.uniforms.uDir.value.set(0, 1 / depthRT.height);
+        renderer.setRenderTarget(depthRT); renderer.render(quadScene, quadCam);
+      }
+      quad.material = compMat;
+      compMat.uniforms.uVW.value.setFromMatrix4(camera.matrixWorld);
+      compMat.uniforms.uSun.value.copy(sunView.copy(sun.position).normalize().transformDirection(camera.matrixWorldInverse));
+      renderer.setRenderTarget(null); renderer.render(quadScene, quadCam);
+    }
+
+    let lastSplash = 0, lastDunk = 0, simTime = 0;
+    function audioTick() {
+      if (!ac) return;
+      const now = ac.currentTime;
+      const target = soundOn ? Math.min(0.32, Math.max(0, agitation - 0.12) * 0.35) : 0;
+      slosh.gain.setTargetAtTime(target, now, 0.08);
+      sloshF.frequency.setTargetAtTime(380 + agitation * 500, now, 0.1);
+      if (soundOn && Math.random() < Math.min(0.5, (agitation - 0.15) * 0.6)) bubble(0.02 + Math.min(0.08, agitation * 0.04));
+      if (impact > 0.05 && now - lastSplash > 0.15) { lastSplash = now; splashSound(Math.min(1, impact * 2.5)); }
+      // 浮き輪を深く沈めると怒る
+      if (body.grab && body.y < LEVEL - 0.25 && now - lastDunk > 1.2) { lastDunk = now; meow('dunk'); for (let k = 0; k < 6; k++) bubble(0.07, Math.random() * 0.4); }
+    }
+
+    let last = performance.now(), acc = 0;
+    function loop(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      acc += dt;
+      let n = 0;
+      while (acc >= DT) { acc -= DT; if (n++ < 2) { simStep(); simTime += DT; } }
+      if (n) audioTick();
+      render(acc / DT);
+      requestAnimationFrame(loop);
+    }
+
+    initWater();
+    resize();
+    applyLang();
+    // 最初の1回が重くならないように、計算と描画を一度空回ししておく
+    simStep(); render(1);
+    requestAnimationFrame(t0 => { last = t0; requestAnimationFrame(loop); });
+  </script>
+</body>
+</html>
