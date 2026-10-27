@@ -40,38 +40,32 @@
     #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
     /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
-    #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 560px; width: 100%; margin: 0 auto; }
-    #controls button, #controls a {
-      flex: 1; height: clamp(56px, 8vmin, 72px); border: none; border-radius: 14px; font-size: clamp(16px, 2.6vmin, 20px); font-weight: 800;
+    #controls, #paintBar { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 560px; width: 100%; margin: 0 auto; z-index: 3; }
+    #controls button, #controls a, #paintBar button {
+      flex: 1; height: clamp(56px, 8vmin, 72px); border: none; border-radius: 14px; font-size: clamp(15px, 2.4vmin, 20px); font-weight: 800;
       cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none;
-      touch-action: manipulation;
+      touch-action: manipulation; padding: 0 4px;
     }
     #controls svg { height: 62%; width: auto; display: block; }
     .tool { background: #fff; color: #1d6f9c; box-shadow: 0 4px 0 #7fb2cc; }
     .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; }
     #post { flex: 1.3; }
-    /* 画像の切り取り画面 */
-    #crop { position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center; background: rgba(10, 30, 45, .72); padding: 12px 12px calc(80px + env(safe-area-inset-bottom)); }
-    #crop.open { display: flex; }
-    #crop .box { background: #fff; border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 12px; align-items: center; box-shadow: 0 10px 40px rgba(0,0,0,.3); max-width: 100%; }
-    #cropCv { width: min(78vw, calc(100vh - 330px), 420px); height: min(78vw, calc(100vh - 330px), 420px); min-width: 160px; min-height: 160px; border-radius: 12px; background: #23313a; touch-action: none; cursor: grab; display: block; }
-    #crop .side { display: flex; flex-direction: column; gap: 12px; width: 100%; }
-    #zoom { width: 100%; accent-color: #1d6f9c; }
-    #crop .row { display: flex; gap: 8px; width: 100%; flex-wrap: wrap; }
-    #crop .row button { flex: 1; min-width: 72px; height: 48px; border: none; border-radius: 12px; font-size: 15px; font-weight: 800; cursor: pointer; background: #e8f2f7; color: #1d6f9c; }
-    #crop .row #cropOk { background: #1d6f9c; color: #fff; }
-    @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
-      #crop { padding-bottom: 12px; }
-      #crop .box { flex-direction: row; }
-      #cropCv { width: min(calc(100vh - 60px), 50vw); height: min(calc(100vh - 60px), 50vw); }
-      #crop .side { width: 220px; justify-content: center; }
-    }
+    /* 切り抜き（塗った所だけ使う。タピオカメーカーと同じ） */
+    #stage #cut { position: absolute; inset: 0; display: none; cursor: crosshair; background: #e8f4f6; z-index: 2; }
+    #paintBar { display: none; }
+    body.painting #stage #cut { display: block; }
+    body.painting #controls { display: none; }
+    body.painting #paintBar { display: flex; }
+    .dot { display: inline-block; background: currentColor; border-radius: 50%; }
+    #paintBar .on { background: #ff8a5c; color: #fff; box-shadow: 0 4px 0 #c45a30; }
+    #paintBar button:disabled { opacity: .4; cursor: default; }
+    #paintBar .main { background: #1d6f9c; color: #fff; box-shadow: 0 4px 0 #0f4766; }
+    #controls button:active, #controls a:active, #paintBar button:active { transform: translateY(3px); box-shadow: none; }
     /* 背の低い横長画面では、ボタンを右に縦に並べて水槽を大きく見せる */
     @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
       #controls { left: auto; right: 0; width: 132px; flex-direction: column; padding: 0 12px; }
       #controls button, #controls a { flex: none; height: clamp(44px, 12vh, 60px); }
     }
-    #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
   </style>
 </head>
 <body>
@@ -80,22 +74,19 @@
     <button id="sound" aria-label="sound"></button>
     <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
   </header>
-  <div id="stage"><div id="msg"></div></div>
+  <div id="stage"><canvas id="cut"></canvas><div id="msg"></div></div>
   <div id="controls">
     <button id="shake" class="tool"><svg viewBox="0 0 40 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16h16V4"/><path d="M12 13c2-1.6 4-1.6 5.3 0s3.4 1.6 5.4 0 4-1.6 5.3 0" /><path d="M7 9l-4 3 4 3M33 9l4 3-4 3"/></svg></button>
     <button id="splash" class="tool"><svg viewBox="0 0 40 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 1.5c-2.6 3.4-4.2 5.4-4.2 7.4a4.2 4.2 0 0 0 8.4 0c0-2-1.6-4-4.2-7.4z" fill="currentColor"/><path d="M6 20c3-2 5-2 7 0s4.6 2 7 0 4.6-2 7 0 4.6 2 7 0"/><path d="M11 15l-2-3M29 15l2-3"/></svg></button>
     <button id="image" class="tool"><svg viewBox="0 0 40 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="22" height="20" rx="3"/><circle cx="16" cy="9" r="2.4" fill="currentColor"/><path d="M10 20l7-7 4 4 3-3 6 6"/></svg></button>
     <a id="post" class="post"></a>
   </div>
-  <div id="crop">
-    <div class="box">
-      <canvas id="cropCv"></canvas>
-      <div class="side">
-        <input type="range" id="zoom" min="0" max="1" step="0.001" value="0">
-        <div class="row"><button id="cropPick"></button><button id="cropDel"></button></div>
-        <div class="row"><button id="cropNo"></button><button id="cropOk"></button></div>
-      </div>
-    </div>
+  <div id="paintBar">
+    <button id="brush" class="tool" aria-label="brush"><span class="dot" style="width:11px;height:11px"></span></button>
+    <button id="erase" class="tool"></button>
+    <button id="undo" class="tool"></button>
+    <button id="cancel" class="tool"></button>
+    <button id="done" class="tool main" disabled></button>
   </div>
   <input type="file" id="file" accept="image/*" hidden>
 
@@ -117,10 +108,10 @@
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
-      ja: { title: '流体おもちゃ', back: '← トップへ戻る', post: 'Xに投稿', shake: 'ゆらす', splash: 'ざぶん', image: '画像', pick: '画像を選ぶ', del: '消す', no: 'やめる', ok: '決定', share: '3Dの水で遊んだ #流体おもちゃゲーム' },
-      ko: { title: '유체 장난감', back: '← 처음으로', post: 'X에 게시', shake: '흔들기', splash: '첨벙', image: '이미지', pick: '이미지 선택', del: '삭제', no: '취소', ok: '결정', share: '3D 물로 놀았다 #流体おもちゃゲーム' },
-      en: { title: 'Fluid Toy', back: '← Back to top', post: 'Post on X', shake: 'Shake', splash: 'Splash', image: 'Image', pick: 'Choose image', del: 'Remove', no: 'Cancel', ok: 'Done', share: 'Playing with 3D water #流体おもちゃゲーム' },
-      th: { title: 'ของเล่นของไหล', back: '← กลับหน้าแรก', post: 'โพสต์ลง X', shake: 'เขย่า', splash: 'ตูม', image: 'รูปภาพ', pick: 'เลือกรูป', del: 'ลบ', no: 'ยกเลิก', ok: 'ตกลง', share: 'เล่นกับน้ำ 3 มิติ #流体おもちゃゲーム' },
+      ja: { title: '流体おもちゃ', back: '← トップへ戻る', post: 'Xに投稿', shake: 'ゆらす', splash: 'ざぶん', image: '画像', erase: '消す', undo: '戻す', cancel: 'やめる', done: 'できた', share: '3Dの水で遊んだ #流体おもちゃゲーム' },
+      ko: { title: '유체 장난감', back: '← 처음으로', post: 'X에 게시', shake: '흔들기', splash: '첨벙', image: '이미지', erase: '지우기', undo: '되돌리기', cancel: '취소', done: '완성', share: '3D 물로 놀았다 #流体おもちゃゲーム' },
+      en: { title: 'Fluid Toy', back: '← Back to top', post: 'Post on X', shake: 'Shake', splash: 'Splash', image: 'Image', erase: 'Erase', undo: 'Undo', cancel: 'Cancel', done: 'Done', share: 'Playing with 3D water #流体おもちゃゲーム' },
+      th: { title: 'ของเล่นของไหล', back: '← กลับหน้าแรก', post: 'โพสต์ลง X', shake: 'เขย่า', splash: 'ตูม', image: 'รูปภาพ', erase: 'ลบ', undo: 'ย้อนกลับ', cancel: 'ยกเลิก', done: 'เสร็จ', share: 'เล่นกับน้ำ 3 มิติ #流体おもちゃゲーム' },
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -135,7 +126,7 @@
       document.getElementById('shake').setAttribute('aria-label', t('shake'));
       document.getElementById('splash').setAttribute('aria-label', t('splash'));
       document.getElementById('image').setAttribute('aria-label', t('image'));
-      for (const k of ['pick', 'del', 'no', 'ok']) document.getElementById('crop' + k[0].toUpperCase() + k.slice(1)).textContent = t(k);
+      for (const k of ['erase', 'undo', 'cancel', 'done']) document.getElementById(k).textContent = t(k);
       postA.textContent = t('post');
       postA.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share'))}&url=${encodeURIComponent(SHARE_URL)}`;
     }
@@ -804,39 +795,17 @@
     document.getElementById('shake').addEventListener('click', () => { shakeT = 0; tone('sine', 90, 55, 0.2, 0.25); });
     document.getElementById('splash').addEventListener('click', dropBlob);
 
-    // ---------- 自分の画像（丸く切り取って2つ目の浮き輪に乗せる） ----------
-    const cropEl = document.getElementById('crop'), cropCv = document.getElementById('cropCv'), cg = cropCv.getContext('2d');
-    const zoomEl = document.getElementById('zoom'), fileEl = document.getElementById('file'), delBtn = document.getElementById('cropDel');
-    const crop = { img: null, z: 0, ox: 0, oy: 0 }; // z: 0〜1 の拡大、ox/oy: 円の中心からの画像のずれ（円の半径を1とする）
+    // ---------- 自分の画像（塗った所だけ切り抜いて、2つ目の浮き輪に乗せる。タピオカメーカーと同じ） ----------
+    const $ = id => document.getElementById(id);
     const userCanvas = document.createElement('canvas'); userCanvas.width = userCanvas.height = 256;
     const userTex = new THREE.CanvasTexture(userCanvas); userTex.colorSpace = THREE.SRGBColorSpace;
     floats[1].face.material = faceMat(userTex);
-    // 画像の置き方: 拡大0で、画像の短い辺が円にぴったり入る
-    const cropScale = () => { const im = crop.img; return 2 / Math.min(im.width, im.height) * Math.pow(6, crop.z); };
-    function drawCrop() {
-      const r = cropCv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio, 2);
-      const W = Math.round(r.width * dpr); if (cropCv.width !== W) cropCv.width = cropCv.height = W;
-      const R = W * 0.42, c = W / 2;
-      cg.fillStyle = '#23313a'; cg.fillRect(0, 0, W, W);
-      if (crop.img) {
-        const k = cropScale() * R;
-        cg.drawImage(crop.img, c + crop.ox * R - crop.img.width * k / 2, c + crop.oy * R - crop.img.height * k / 2, crop.img.width * k, crop.img.height * k);
-      }
-      // 円の外は暗く
-      cg.fillStyle = 'rgba(10,25,35,.62)'; cg.beginPath(); cg.rect(0, 0, W, W); cg.arc(c, c, R, 0, Math.PI * 2, true); cg.fill();
-      cg.strokeStyle = '#fff'; cg.lineWidth = Math.max(2, W / 200); cg.beginPath(); cg.arc(c, c, R, 0, Math.PI * 2); cg.stroke();
-    }
-    function cropTo(canvas) {
-      const S2 = canvas.width, g = canvas.getContext('2d'), R = S2 / 2, k = cropScale() * R;
-      g.clearRect(0, 0, S2, S2);
-      g.save(); g.beginPath(); g.arc(R, R, R - 1, 0, Math.PI * 2); g.clip();
-      g.drawImage(crop.img, R + crop.ox * R - crop.img.width * k / 2, R + crop.oy * R - crop.img.height * k / 2, crop.img.width * k, crop.img.height * k);
-      g.restore();
-    }
+    // 切り抜いた絵を、縦横比を保って正方形の真ん中に置く
     function setUser(url, drop) {
       const im = new Image();
       im.onload = () => {
-        const g = userCanvas.getContext('2d'); g.clearRect(0, 0, 256, 256); g.drawImage(im, 0, 0, 256, 256);
+        const g = userCanvas.getContext('2d'), k = 256 / Math.max(im.width, im.height);
+        g.clearRect(0, 0, 256, 256); g.drawImage(im, (256 - im.width * k) / 2, (256 - im.height * k) / 2, im.width * k, im.height * k);
         userTex.needsUpdate = true;
         const b = bodies[1];
         if (drop || !b.on) { Object.assign(b, { x: tankX - 0.5, y: 2.2, z: 0, vx: 0, vy: 0, vz: 0, grab: false }); b.px = b.x; b.py = b.y; b.pz = b.z; }
@@ -846,65 +815,148 @@
       im.src = url;
     }
     { const saved = store.get('face', null); if (saved) setUser(saved, false); }
-    function openCrop() {
-      if (!crop.img && bodies[1].on) { crop.img = userCanvas; crop.z = 0; crop.ox = crop.oy = 0; } // 今の画像を切り直せる
-      delBtn.style.display = bodies[1].on ? '' : 'none';
-      zoomEl.value = crop.z;
-      cropEl.classList.add('open'); drawCrop();
+
+    const cutCv = $('cut'), cx = cutCv.getContext('2d');
+    let img = null, mask = null, mctx = null, CW = 0, CH = 0, CB = 0, DPR = 1, view = null;
+    let brushIdx = 1, erasing = false, undoStack = [], lastPt = null, pinch = null;
+    const touches = new Map(), BRUSH = [8, 22, 50];
+    const painting = () => document.body.classList.contains('painting');
+    function setPainting(on) {
+      document.body.classList.toggle('painting', on);
+      if (on) { erasing = false; $('erase').classList.remove('on'); updateDone(); resizeCut(); }
     }
-    const closeCrop = () => { cropEl.classList.remove('open'); };
-    document.getElementById('image').addEventListener('click', () => { if (!crop.img && !bodies[1].on) fileEl.click(); openCrop(); });
-    document.getElementById('cropPick').addEventListener('click', () => fileEl.click());
-    document.getElementById('cropNo').addEventListener('click', closeCrop);
-    delBtn.addEventListener('click', () => { bodies[1].on = false; store.set('face', null); crop.img = null; closeCrop(); });
-    document.getElementById('cropOk').addEventListener('click', () => {
-      if (crop.img) {
-        const c = document.createElement('canvas'); c.width = c.height = 256; cropTo(c);
-        const url = c.toDataURL('image/png');
-        store.set('face', url); setUser(url, true);
-        // 次に開いたときは、切り取った画像をそのまま切り直せるように
-        const im = new Image(); im.onload = () => { crop.img = im; crop.z = 0; crop.ox = crop.oy = 0; }; im.src = url;
-      }
-      closeCrop();
-    });
-    fileEl.addEventListener('change', () => {
-      const f = fileEl.files[0]; fileEl.value = ''; if (!f) return;
+    $('image').addEventListener('click', () => $('file').click());
+    $('file').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+    function loadFile(f) {
+      if (!f || !f.type.startsWith('image/')) return;
       const u = URL.createObjectURL(f), im = new Image();
       im.onload = () => {
-        // 大きすぎる画像は縮めておく
-        const k = Math.min(1, 1024 / Math.max(im.width, im.height)), c = document.createElement('canvas');
-        c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
         URL.revokeObjectURL(u);
-        crop.img = c; crop.z = 0; crop.ox = crop.oy = 0; zoomEl.value = 0;
-        if (!cropEl.classList.contains('open')) openCrop(); else drawCrop();
+        const k = Math.min(1, 1600 / Math.max(im.width, im.height));
+        img = document.createElement('canvas');
+        img.width = Math.max(1, Math.round(im.width * k)); img.height = Math.max(1, Math.round(im.height * k));
+        img.getContext('2d').drawImage(im, 0, 0, img.width, img.height);
+        mask = document.createElement('canvas'); mask.width = img.width; mask.height = img.height;
+        mctx = mask.getContext('2d');
+        undoStack = []; touches.clear(); pinch = null;
+        setPainting(true);
       };
       im.onerror = () => URL.revokeObjectURL(u);
       im.src = u;
-    });
-    // ドラッグで動かし、2本指・ホイール・つまみで拡大
-    const cps = new Map();
-    let pinch = 0;
-    const cropPt = e => { const r = cropCv.getBoundingClientRect(); return [(e.clientX - r.left) / (r.width * 0.42), (e.clientY - r.top) / (r.width * 0.42)]; };
-    function zoomTo(z) {
-      if (!crop.img) return;
-      const old = cropScale(); crop.z = Math.max(0, Math.min(1, z)); const k = cropScale() / old;
-      crop.ox *= k; crop.oy *= k; zoomEl.value = crop.z; drawCrop();
     }
-    cropCv.addEventListener('pointerdown', e => { cropCv.setPointerCapture(e.pointerId); cps.set(e.pointerId, cropPt(e)); if (cps.size === 2) { const [a, b] = [...cps.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); } });
-    cropCv.addEventListener('pointermove', e => {
-      if (!cps.has(e.pointerId) || !crop.img) return;
-      const p = cropPt(e), q = cps.get(e.pointerId);
-      if (cps.size === 1) { crop.ox += p[0] - q[0]; crop.oy += p[1] - q[1]; cps.set(e.pointerId, p); drawCrop(); return; }
-      cps.set(e.pointerId, p);
-      const [a, b] = [...cps.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
-      if (pinch > 0) zoomTo(crop.z + Math.log(d / pinch) / Math.log(6));
-      pinch = d;
+    function resizeCut() {
+      if (!painting()) return;
+      const r = cutCv.getBoundingClientRect();
+      DPR = Math.min(window.devicePixelRatio || 1, 2); CW = r.width; CH = r.height;
+      // 下のボタンと空白の所には画像を置かない
+      CB = Math.max(0, r.bottom - $('paintBar').getBoundingClientRect().top);
+      cutCv.width = Math.max(1, Math.round(CW * DPR)); cutCv.height = Math.max(1, Math.round(CH * DPR));
+      if (img) { const pad = 12, k = Math.min((CW - pad * 2) / img.width, (CH - CB - pad * 2) / img.height); view = { k, fit: k, x: (CW - img.width * k) / 2, y: (CH - CB - img.height * k) / 2 }; }
+      drawCut();
+    }
+    addEventListener('resize', resizeCut);
+    function snapFit() { if (view.k <= view.fit * 1.001) { view.x = (CW - img.width * view.k) / 2; view.y = (CH - CB - img.height * view.k) / 2; } }
+    let tmpC = null;
+    function drawCut() {
+      cx.setTransform(DPR, 0, 0, DPR, 0, 0); cx.clearRect(0, 0, CW, CH);
+      if (!img || !view) return;
+      const { k, x, y } = view;
+      cx.fillStyle = '#20343a'; cx.fillRect(x, y, img.width * k, img.height * k);
+      cx.globalAlpha = 0.35; cx.drawImage(img, x, y, img.width * k, img.height * k); cx.globalAlpha = 1;
+      if (!tmpC || tmpC.width !== img.width || tmpC.height !== img.height) { tmpC = document.createElement('canvas'); tmpC.width = img.width; tmpC.height = img.height; }
+      const g = tmpC.getContext('2d');
+      g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, tmpC.width, tmpC.height); g.drawImage(mask, 0, 0);
+      g.globalCompositeOperation = 'source-in'; g.drawImage(img, 0, 0);
+      g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(60, 220, 110, 0.45)'; g.fillRect(0, 0, tmpC.width, tmpC.height);
+      cx.drawImage(tmpC, x, y, img.width * k, img.height * k);
+    }
+    const brushPx = () => BRUSH[brushIdx] / view.k;
+    function toImg(e) { const r = cutCv.getBoundingClientRect(); return { x: (e.clientX - r.left - view.x) / view.k, y: (e.clientY - r.top - view.y) / view.k }; }
+    const mid = (a, b) => { const r = cutCv.getBoundingClientRect(); return { x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top }; };
+    function stroke(a, b) {
+      mctx.save();
+      mctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
+      mctx.strokeStyle = '#000'; mctx.fillStyle = '#000';
+      mctx.lineCap = 'round'; mctx.lineJoin = 'round'; mctx.lineWidth = brushPx();
+      mctx.beginPath(); mctx.moveTo(a.x, a.y); mctx.lineTo(b.x, b.y); mctx.stroke();
+      mctx.beginPath(); mctx.arc(b.x, b.y, brushPx() / 2, 0, Math.PI * 2); mctx.fill();
+      mctx.restore();
+    }
+    function maskBox() {
+      if (!mctx) return null;
+      const d = mctx.getImageData(0, 0, mask.width, mask.height).data;
+      let x0 = mask.width, y0 = mask.height, x1 = -1, y1 = -1;
+      for (let y = 0; y < mask.height; y++) for (let x = 0; x < mask.width; x++) {
+        if (d[(y * mask.width + x) * 4 + 3] > 20) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      }
+      return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+    }
+    function updateDone() { $('done').disabled = !maskBox(); }
+    function makeSprite() {
+      const b = maskBox(); if (!b) return null;
+      const k = Math.min(1, 256 / Math.max(b.w, b.h));
+      const c = document.createElement('canvas');
+      c.width = Math.max(2, Math.round(b.w * k)); c.height = Math.max(2, Math.round(b.h * k));
+      const g = c.getContext('2d');
+      g.drawImage(img, b.x, b.y, b.w, b.h, 0, 0, c.width, c.height);
+      g.globalCompositeOperation = 'destination-in';
+      g.drawImage(mask, b.x, b.y, b.w, b.h, 0, 0, c.width, c.height);
+      return c;
+    }
+    cutCv.addEventListener('pointerdown', e => {
+      if (!view) return;
+      e.preventDefault(); cutCv.setPointerCapture(e.pointerId);
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 1 && !pinch) {
+        undoStack.push(mctx.getImageData(0, 0, mask.width, mask.height));
+        if (undoStack.length > 20) undoStack.shift();
+        lastPt = toImg(e); stroke(lastPt, lastPt); drawCut();
+      } else if (touches.size === 2) {
+        // 2本目の指：塗りかけを取り消して拡大縮小
+        if (lastPt) { const d = undoStack.pop(); if (d) mctx.putImageData(d, 0, 0); lastPt = null; }
+        const [a, b] = [...touches.values()];
+        pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: mid(a, b), k0: view.k, x0: view.x, y0: view.y };
+        drawCut();
+      }
     });
-    const cropUp = e => { cps.delete(e.pointerId); pinch = 0; };
-    cropCv.addEventListener('pointerup', cropUp); cropCv.addEventListener('pointercancel', cropUp);
-    cropCv.addEventListener('wheel', e => { e.preventDefault(); zoomTo(crop.z - e.deltaY * 0.001); }, { passive: false });
-    zoomEl.addEventListener('input', () => zoomTo(+zoomEl.value));
-    addEventListener('resize', () => { if (cropEl.classList.contains('open')) drawCrop(); });
+    cutCv.addEventListener('pointermove', e => {
+      if (!touches.has(e.pointerId)) return;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && touches.size >= 2) {
+        const [a, b] = [...touches.values()], m = mid(a, b);
+        const k = Math.max(view.fit, Math.min(view.fit * 12, pinch.k0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0));
+        view.x = m.x - (pinch.m0.x - pinch.x0) / pinch.k0 * k;
+        view.y = m.y - (pinch.m0.y - pinch.y0) / pinch.k0 * k;
+        view.k = k; snapFit(); drawCut();
+      } else if (lastPt) { const p = toImg(e); stroke(lastPt, p); lastPt = p; drawCut(); }
+    });
+    const cutUp = e => {
+      touches.delete(e.pointerId);
+      if (touches.size === 0) pinch = null;
+      if (lastPt) { lastPt = null; updateDone(); }
+    };
+    cutCv.addEventListener('pointerup', cutUp);
+    cutCv.addEventListener('pointercancel', cutUp);
+    cutCv.addEventListener('wheel', e => {
+      if (!view) return;
+      e.preventDefault();
+      const r = cutCv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+      const k = Math.max(view.fit, Math.min(view.fit * 12, view.k * Math.exp(-e.deltaY * 0.0015)));
+      view.x = mx - (mx - view.x) / view.k * k; view.y = my - (my - view.y) / view.k * k; view.k = k; snapFit(); drawCut();
+    }, { passive: false });
+    $('brush').onclick = () => {
+      brushIdx = (brushIdx + 1) % BRUSH.length;
+      const d = $('brush').firstChild; d.style.width = d.style.height = [5, 11, 20][brushIdx] + 'px';
+    };
+    $('erase').onclick = () => { erasing = !erasing; $('erase').classList.toggle('on', erasing); };
+    $('undo').onclick = () => { const d = undoStack.pop(); if (d) { mctx.putImageData(d, 0, 0); drawCut(); updateDone(); } };
+    $('cancel').onclick = () => setPainting(false);
+    $('done').onclick = () => {
+      const c = makeSprite(); if (!c) return;
+      const url = c.toDataURL('image/png');
+      store.set('face', url); setUser(url, true);
+      setPainting(false);
+    };
 
     // ---------- 共有 ----------
     // 押した瞬間の水槽を正方形に切り抜き、タイトルを小さく重ねる
