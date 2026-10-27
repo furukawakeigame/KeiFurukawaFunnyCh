@@ -274,7 +274,7 @@
     // ---------- リンク ----------
     const W = 2.6;           // リンクの半分の幅
     const FZ = -14;          // 顔の中心
-    const BACK = -19.3;      // ここより奥は落ちる
+    const BACK = -19.3;      // 奥の壁
     const FRONT = 3.2;
     function canvasTex(w, h, draw, repeat) {
       const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -305,9 +305,6 @@
     const ice = new THREE.Mesh(new THREE.PlaneGeometry(W * 2, rinkLen), new THREE.MeshStandardMaterial({ map: iceTex, roughness: 0.12, metalness: 0, envMapIntensity: 0.6 }));
     ice.rotation.x = -Math.PI / 2; ice.position.z = (FRONT + 1 + BACK) / 2; ice.receiveShadow = true;
     scene.add(ice);
-    // 奥の落ちるみぞ
-    const gutter = new THREE.Mesh(new THREE.BoxGeometry(W * 2, 0.5, 1.6), new THREE.MeshStandardMaterial({ color: '#4e5d70', roughness: 0.9 }));
-    gutter.position.set(0, -0.45, BACK - 0.8); gutter.receiveShadow = true; scene.add(gutter);
     // まわりの床
     const floorTex = canvasTex(256, 256, (g, w, h) => {
       g.fillStyle = '#8c939c'; g.fillRect(0, 0, w, h);
@@ -320,18 +317,21 @@
     const boardM = new THREE.MeshStandardMaterial({ color: '#f4f6f8', roughness: 0.4 });
     const stripeM = new THREE.MeshStandardMaterial({ color: '#2f6fb0', roughness: 0.5 });
     for (const sx of [-1, 1]) {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.45, rinkLen + 1.6), boardM);
-      b.position.set(sx * (W + 0.06), 0.03, ice.position.z - 0.8); b.castShadow = b.receiveShadow = true; scene.add(b);
-      const s = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.05, rinkLen + 1.6), stripeM);
-      s.position.set(sx * (W + 0.06), 0.2, ice.position.z - 0.8); scene.add(s);
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.45, rinkLen), boardM);
+      b.position.set(sx * (W + 0.06), 0.03, ice.position.z); b.castShadow = b.receiveShadow = true; scene.add(b);
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.05, rinkLen), stripeM);
+      s.position.set(sx * (W + 0.06), 0.2, ice.position.z); scene.add(s);
     }
+    // 奥の壁
     {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(W * 2 + 0.24, 0.6, 0.12), boardM);
-      b.position.set(0, 0.0, BACK - 1.66); b.castShadow = b.receiveShadow = true; scene.add(b);
+      const b = new THREE.Mesh(new THREE.BoxGeometry(W * 2 + 0.24, 0.45, 0.12), boardM);
+      b.position.set(0, 0.03, BACK - 0.06); b.castShadow = b.receiveShadow = true; scene.add(b);
+      const s = new THREE.Mesh(new THREE.BoxGeometry(W * 2 + 0.25, 0.05, 0.13), stripeM);
+      s.position.set(0, 0.2, BACK - 0.06); scene.add(s);
     }
     // 氷に描いた線（スタートの赤線・途中の青線）
     const lineM = c => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.7, depthWrite: false });
-    for (const [z, c, w] of [[0.9, '#d03a3a', 0.08], [-7.5, '#2f6fb0', 0.12], [BACK + 0.15, '#d03a3a', 0.06]]) {
+    for (const [z, c, w] of [[0.9, '#d03a3a', 0.08], [-7.5, '#2f6fb0', 0.12]]) {
       const l = new THREE.Mesh(new THREE.PlaneGeometry(W * 2, w), lineM(c)); l.rotation.x = -Math.PI / 2; l.position.set(0, 0.004, z); scene.add(l);
     }
     // 観客席: 段々と、色とりどりの頭
@@ -514,8 +514,9 @@
     {
       const wall = world.createBody();
       const fd = { friction: 0.1, restitution: 0.5 };
-      wall.createFixture(new planck.Edge(planck.Vec2(-W, FRONT), planck.Vec2(-W, BACK - 4)), fd);
-      wall.createFixture(new planck.Edge(planck.Vec2(W, FRONT), planck.Vec2(W, BACK - 4)), fd);
+      wall.createFixture(new planck.Edge(planck.Vec2(-W, FRONT), planck.Vec2(-W, BACK)), fd);
+      wall.createFixture(new planck.Edge(planck.Vec2(W, FRONT), planck.Vec2(W, BACK)), fd);
+      wall.createFixture(new planck.Edge(planck.Vec2(-W, BACK), planck.Vec2(W, BACK)), fd);
       wall.createFixture(new planck.Edge(planck.Vec2(-W, FRONT), planck.Vec2(W, FRONT)), fd);
     }
     // 投げる前のパーツは、リンクの右の床に並べておく
@@ -677,7 +678,6 @@
     function stepPhysics(dt) {
       for (const s of stones) {
         s.px = s.x; s.pz = s.z; s.prot = s.rot;
-        if (s.st === 'lost') { s.x += s.vx * dt; s.z += s.vz * dt; s.vy -= 9.8 * dt; s.y += s.vy * dt; s.rot += s.w * dt; continue; }
         if (s.st !== 'go') continue;
         // 氷の摩擦: 速さに関係なく一定の減速（スイープ中は小さく）
         const b = s.body, v = b.getLinearVelocity(), sp = v.length();
@@ -696,7 +696,6 @@
         const b = s.body, p = b.getPosition(), v = b.getLinearVelocity();
         s.x = p.x; s.z = p.y; s.rot = b.getAngle(); s.vx = v.x; s.vz = v.y; s.w = b.getAngularVelocity();
         if (Math.hypot(s.vx, s.vz) < 0.02) s.vx = s.vz = 0;
-        if (s.z < BACK) { s.st = 'lost'; s.vy = 0; s.w += (Math.random() - 0.5) * 4; b.setActive(false); }
       }
     }
     let lastHit = 0;
@@ -727,7 +726,6 @@
     function computeScore() {
       let sum = 0;
       for (const s of stones) {
-        if (s.st === 'lost') continue;
         const d = Math.hypot(s.x - s.x0t, s.z - s.z0t);
         sum += THREE.MathUtils.clamp(1 - d / 2.0, 0, 1);
       }
@@ -986,7 +984,6 @@
         const m = s.mesh;
         m.position.set(s.px + (s.x - s.px) * alpha, s.y, s.pz + (s.z - s.pz) * alpha);
         m.rotation.y = -(s.prot + (s.rot - s.prot) * alpha);
-        if (s.st === 'lost' && s.y < -3) m.visible = false;
       }
       if (state === 'aim' || state === 'ready') {
         const s = stones[cur];
