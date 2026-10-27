@@ -969,12 +969,20 @@
     let snap = null, shareCache = null, needSnap = false;
     function takeSnap() {
       const src = renderer.domElement;
-      const f = tmpV.set(0, 0, FZ).project(camera);
-      const fx2 = (f.x + 1) / 2 * src.width, fy = (1 - f.y) / 2 * src.height;
-      const side = Math.min(src.width, src.height, Math.max(view.uw, view.uh) * renderer.getPixelRatio());
-      const sx = THREE.MathUtils.clamp(fx2 - side / 2, 0, src.width - side), sy = THREE.MathUtils.clamp(fy - side / 2, 0, src.height - side);
+      // 顔の輪郭がまるごと入り、下に％を書く余白が残るように切り抜く
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      for (const k of faceKeys) {
+        const q = tmpV.copy(k).project(camera), px = (q.x + 1) / 2 * src.width, py = (1 - q.y) / 2 * src.height;
+        x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+      }
+      const side = Math.max(x1 - x0, y1 - y0) * 1.32;
+      const sx = (x0 + x1) / 2 - side / 2, sy = (y0 + y1) / 2 - side * 0.44;
       snap = document.createElement('canvas'); snap.width = snap.height = 1080;
-      snap.getContext('2d').drawImage(src, sx, sy, side, side, 0, 0, 1080, 1080);
+      const g = snap.getContext('2d'), k = 1080 / side;
+      // 画面の外にはみ出す所は氷の色で埋める
+      g.fillStyle = '#e6ecf2'; g.fillRect(0, 0, 1080, 1080);
+      const ax = Math.max(0, sx), ay = Math.max(0, sy), bx = Math.min(src.width, sx + side), by = Math.min(src.height, sy + side);
+      if (bx > ax && by > ay) g.drawImage(src, ax, ay, bx - ax, by - ay, (ax - sx) * k, (ay - sy) * k, (bx - ax) * k, (by - ay) * k);
       shareCache = null;
     }
     function resultImage() {
@@ -989,7 +997,7 @@
         const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
         g.lineWidth = px * .16; g.strokeStyle = '#2b4a72'; g.strokeText(str, 540, y); g.fillText(str, 540, y);
       };
-      text(`${score}%`, 1010, 170, 960);
+      text(`${score}%`, 1030, 150, 960);
       text(t('title'), 90, 56, 900);
       return c;
     }
@@ -1066,7 +1074,7 @@
       requestAnimationFrame(loop);
     }
 
-    window.__curl = { stones, get state() { return state; }, get score() { return score; }, aim, launch: (p, ang) => { aim.p = p; aim.ang = ang; launch(); }, sweep: dx => sweepMove(dx), camera, renderer };
+    window.__curl = { shareImage: () => resultImage()?.toDataURL("image/png"), stones, get state() { return state; }, get score() { return score; }, aim, launch: (p, ang) => { aim.p = p; aim.ang = ang; launch(); }, sweep: dx => sweepMove(dx), camera, renderer };
     resize();
     start();
     applyLang();
