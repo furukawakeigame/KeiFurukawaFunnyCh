@@ -300,6 +300,8 @@
       g.setIndex(idx); g.computeVertexNormals();
       return g;
     }
+    // 線路は高架の上（猫の顔の高さ）
+    const H = 24;
     // ジオラマの台
     const box = new THREE.Box2(); for (const p of SP) box.expandByPoint(new THREE.Vector2(p.x, p.z));
     box.expandByScalar(70);
@@ -322,11 +324,18 @@
       for (let i = 0; i < 1600; i++) { const l = 35 + rnd() * 40; g.fillStyle = `hsl(30,6%,${l}%)`; g.beginPath(); g.arc(rnd() * w, rnd() * h, 0.8 + rnd() * 1.6, 0, 7); g.fill(); }
     }, [1, 1]);
     gravelTex.repeat.set(1.2, 1);
-    const ballast = new THREE.Mesh(extrude([[-2.4, 0.02], [-1.5, 0.6], [1.5, 0.6], [2.4, 0.02]]), std('#fff', 1, { map: gravelTex }));
+    const deckTex = canvasTex(64, 64, (g, w, h) => { g.fillStyle = '#b9b2a6'; g.fillRect(0, 0, w, h); for (let i = 0; i < 400; i++) { g.fillStyle = `rgba(0,0,0,${rnd() * 0.08})`; g.fillRect(rnd() * w, rnd() * h, 2, 2); } }, [1, 1]);
+    const deck = new THREE.Mesh(extrude([[-3, H - 0.2], [-3, H - 1.6], [-2.6, H - 2.2], [2.6, H - 2.2], [3, H - 1.6], [3, H - 0.2], [-3, H - 0.2]]), std('#fff', 0.9, { map: deckTex }));
+    deck.castShadow = deck.receiveShadow = true; scene.add(deck);
+    {
+      const pierG = new THREE.BoxGeometry(3.2, 1, 2.2), pierM = std('#a9a196', 0.9);
+      for (let s = 12; s < L; s += 26) { const p = at(s), tg = tanAt(s); const m = new THREE.Mesh(pierG, pierM); m.scale.y = H - 2; m.position.set(p.x, (H - 2) / 2, p.z); m.rotation.y = Math.atan2(tg.x, tg.z); scene.add(shade(m)); }
+    }
+    const ballast = new THREE.Mesh(extrude([[-2.4, H - 0.2], [-1.5, H + 0.6], [1.5, H + 0.6], [2.4, H - 0.2]]), std('#fff', 1, { map: gravelTex }));
     ballast.receiveShadow = true; scene.add(ballast);
     const railM = std('#a8a39b', 0.35, { metalness: 0.8 });
     for (const s of [-0.48, 0.48]) {
-      const r = new THREE.Mesh(extrude([[s - 0.09, 0.8], [s - 0.07, 1.12], [s + 0.07, 1.12], [s + 0.09, 0.8]], 1.5), railM);
+      const r = new THREE.Mesh(extrude([[s - 0.09, H + 0.8], [s - 0.07, H + 1.12], [s + 0.07, H + 1.12], [s + 0.09, H + 0.8]], 1.5), railM);
       r.castShadow = true; scene.add(r);
     }
     {
@@ -336,7 +345,7 @@
       for (let i = 0; i < n; i++) {
         const s = i * 1.15, p = at(s), tg = tanAt(s);
         q.setFromAxisAngle(up, Math.atan2(tg.x, tg.z));
-        m.compose(p.clone().setY(0.71), q, new THREE.Vector3(1, 1, 1)); sl.setMatrixAt(i, m);
+        m.compose(p.clone().setY(H + 0.71), q, new THREE.Vector3(1, 1, 1)); sl.setMatrixAt(i, m);
       }
       sl.receiveShadow = true; scene.add(sl);
     }
@@ -348,7 +357,7 @@
         const g = new THREE.Group();
         const pole = new THREE.Mesh(poleG, poleM); pole.position.y = 4; g.add(pole);
         const arm = new THREE.Mesh(armG, poleM); arm.position.y = 7.4; g.add(arm);
-        g.position.set(p.x + sd.x * 3.6, 0, p.z + sd.z * 3.6);
+        g.position.set(p.x + sd.x * 2.7, H - 0.2, p.z + sd.z * 2.7);
         g.rotation.y = Math.atan2(sd.x, sd.z);
         scene.add(shade(g));
       }
@@ -456,7 +465,7 @@
       });
       for (const o of [ti, fi]) { o.castShadow = true; o.receiveShadow = true; scene.add(o); }
       // 花
-      const fl = []; for (let i = 0; i < 500; i++) { const x = box.min.x + rnd() * bw, z = box.min.y + rnd() * bd; if (distToTrack(x, z) > 4) fl.push([x, z]); }
+      const fl = []; for (let i = 0; i < 500; i++) { const x = box.min.x + rnd() * bw, z = box.min.y + rnd() * bd; if (distToTrack(x, z) > 3) fl.push([x, z]); }
       const flm = new THREE.InstancedMesh(new THREE.SphereGeometry(0.35, 6, 4), std('#fff'), fl.length);
       const FC = ['#ffffff', '#ffd84a', '#ff8fb0', '#c9a0ff'];
       fl.forEach(([x, z], i) => { m.compose(new THREE.Vector3(x, 0.3, z), q.identity(), new THREE.Vector3(1, 1, 1)); flm.setMatrixAt(i, m); flm.setColorAt(i, c.set(FC[Math.floor(rnd() * 4)])); });
@@ -488,12 +497,13 @@
       for (const z of [-10, 0, 10]) { const pl = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5.2, 0.4), pM); pl.position.set(1, 4.4, z); st.add(pl); }
       const sign = new THREE.Mesh(new THREE.BoxGeometry(0.3, 2, 5), std('#fff')); sign.position.set(1, 4, -16); st.add(sign);
       const signC = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.5, 5), std('#3f6a8a')); signC.position.set(1, 3.4, -16); st.add(signC);
-      st.position.set(p.x + sd.x * 4.4, 0, p.z + sd.z * 4.4);
+      st.position.set(p.x + sd.x * 4.4, H - 1.8, p.z + sd.z * 4.4);
+      for (const z of [-16, 0, 16]) { const pl = new THREE.Mesh(new THREE.BoxGeometry(3, H - 2, 2), std('#a9a196', 0.9)); pl.position.set(0, -(H - 2) / 2, z); st.add(pl); }
       st.rotation.y = Math.atan2(tg.x, tg.z);
       scene.add(shade(st));
       // 車止め
       const bp = at(L - 2), btg = tanAt(L - 2);
-      const bump = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2, 0.6), std('#d33a2a')); bump.position.copy(bp).setY(1.6); bump.rotation.y = Math.atan2(btg.x, btg.z); scene.add(shade(bump));
+      const bump = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2, 0.6), std('#d33a2a')); bump.position.copy(bp).setY(H + 1.6); bump.rotation.y = Math.atan2(btg.x, btg.z); scene.add(shade(bump));
     }
 
     // 運転席から見える車体の先端
@@ -568,7 +578,7 @@
         flyT += dt;
         const c = victim, k = Math.min(1, flyT / 0.32);
         // 猫が線路へ飛びかかる
-        tmp.copy(c.home).lerp(c.hit, 1 - (1 - k) ** 2); tmp.y = Math.sin(k * Math.PI) * 10;
+        tmp.copy(c.home).lerp(c.hit, 1 - (1 - k) ** 2); tmp.y = (H - 16) * k + Math.sin(k * Math.PI) * 8;
         c.g.position.copy(tmp);
         c.upper.rotation.x = 0.55 * k;
         c.legs.forEach((l, i) => { l.rotation.x = -1.6 * Math.sin(Math.min(1, flyT / 0.4) * Math.PI) - 0.3 * k; });
@@ -585,7 +595,7 @@
     }
     function pounce(c) {
       state = 'fly'; victim = c; flyT = 0; landed = false; roll = 0; flyV.set(0, 0, 0);
-      at(s, flyP).setY(2.4); camPos.copy(flyP);
+      at(s, flyP).setY(H + 2.4); camPos.copy(flyP);
       const hp = at(Math.max(s + 6, Math.min(c.s, s + 18)));
       c.dir = hp.clone().sub(c.home).setY(0).normalize();
       c.hit = hp.clone().addScaledVector(c.dir, -12);
@@ -599,12 +609,12 @@
       const t = performance.now() / 1000;
       if (victim) {
         const head = victim.head.getWorldPosition(tmp2);
-        if (flyT < 0.3) { const ss = s; at(ss, camPos).setY(2.4); look.copy(at(ss + 14, tmp)).setY(1.6); camera.position.copy(camPos); camera.lookAt(look); }
+        if (flyT < 0.3) { const ss = s; at(ss, camPos).setY(H + 2.4); look.copy(at(ss + 14, tmp)).setY(H + 1.6); camera.position.copy(camPos); camera.lookAt(look); }
         else { camera.position.copy(flyP); camera.lookAt(head); camera.rotateZ(roll); }
       } else {
         const ss = prevS + (s - prevS) * alpha;
-        at(ss, camPos).setY(2.4 + Math.sin(t * 40) * 0.015 * Math.min(1, v / 40));
-        look.copy(at(ss + 14, tmp)).setY(1.7);
+        at(ss, camPos).setY(H + 2.4 + Math.sin(t * 40) * 0.015 * Math.min(1, v / 40));
+        look.copy(at(ss + 14, tmp)).setY(H + 1.2);
         camera.position.copy(camPos); camera.lookAt(look);
       }
       // 影は電車のまわりだけ
