@@ -164,8 +164,23 @@
     drawSoundBtn();
     soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); });
     let ac = null;
+    // iPhone の消音モード（マナーモード）でも鳴らす: 音の種類を「再生」にし、
+    // 対応していない端末では無音の <audio> をループ再生して同じ扱いにしてもらう
+    function unmuteIOS() {
+      try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch {}
+      try {
+        const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+        const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+        w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+        v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+        const a = document.createElement('audio');
+        a.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })); a.loop = true; a.setAttribute('playsinline', '');
+        a.play().catch(() => {});
+      } catch {}
+    }
     function initAudio() {
       if (ac) return;
+      unmuteIOS();
       try {
         ac = new (window.AudioContext || window.webkitAudioContext)();
         const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
@@ -524,7 +539,7 @@
 
     // ---------- ゲーム ----------
     // state: intro（寸劇）→ ready（ファイトのあと、最初の操作待ち）→ play → over（決着の演出）→ result
-    let state = 'intro', introT = 0, armed = false, elapsed = 0, power = 0, damage = 0, outcome = null, overT = 0;
+    let state = 'intro', introT = 0, introVoiced = false, armed = false, elapsed = 0, power = 0, damage = 0, outcome = null, overT = 0;
     let catF = 0, surgeT = 0, windT = 0, nextSurge = 0, creakT = 0, needSnap = false, endFocus = new THREE.Vector3();
     function reset() {
       for (const tr of bits) { world.removeBody(tr.b); scene.remove(tr.m); tracks.splice(tracks.indexOf(tr), 1); }
@@ -540,7 +555,7 @@
     }
     function start() {
       reset();
-      state = 'intro'; introT = 0;
+      state = 'intro'; introT = 0; introVoiced = !!ac;
       resultEl.style.display = 'none'; fightEl.style.display = 'none';
       renderControls(); resize();
     }
@@ -550,7 +565,11 @@
       fightEl.style.display = 'flex'; sGong();
     }
     function tap() {
-      if (state === 'intro') { toReady(); return; }
+      if (state === 'intro') {
+        // 音が出せるようになる前に始まった寸劇は、最初のタップで声つきで言い直す（飛ばせるのは2回目から）
+        if (!introVoiced && soundOn) { introVoiced = true; b1.style.display = b2.style.display = 'none'; introT = 0.3; return; }
+        toReady(); return;
+      }
       if (state === 'ready') { state = 'play'; armed = true; }
       if (state !== 'play') return;
       power += 3; sPat();
