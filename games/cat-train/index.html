@@ -370,7 +370,7 @@
       const arch = []; for (let i = 0; i <= 14; i++) { const a = Math.PI * i / 14; arch.push([Math.cos(a) * R, H - 2 + Math.sin(a) * R * 1.3]); }
       arch.unshift([R, H - 2.4]); arch.push([-R, H - 2.4]);
       const portalShape = new THREE.Shape(); portalShape.moveTo(-9, -1); portalShape.lineTo(9, -1); portalShape.lineTo(9, 9); portalShape.lineTo(-9, 9); portalShape.lineTo(-9, -1);
-      const hole = new THREE.Path(); hole.moveTo(R, -0.4); for (let i = 0; i <= 14; i++) { const a = Math.PI * i / 14; hole.lineTo(Math.cos(a) * R, Math.sin(a) * R * 1.3 + 0.4); } hole.lineTo(-R, -0.4); portalShape.holes.push(hole);
+      const hole = new THREE.Path(); hole.moveTo(R - 0.4, -0.4); for (let i = 0; i <= 14; i++) { const a = Math.PI * i / 14; hole.lineTo(Math.cos(a) * (R - 0.4), Math.sin(a) * (R * 1.3 - 0.4)); } hole.lineTo(-R + 0.4, -0.4); portalShape.holes.push(hole);
       const portalG = new THREE.ExtrudeGeometry(portalShape, { depth: 1.5, bevelEnabled: false }); portalG.translate(0, 0, -0.75);
       const portalM = std('#fff', 0.9, { map: stoneTex }), lampM = std('#fff2c0', 0.4, { emissive: '#ffcf70', emissiveIntensity: 1.2 });
       for (const [a, b] of TUNNELS) {
@@ -389,32 +389,41 @@
         const pa = at(a), pb = at(b), mid = pa.clone().add(pb).multiplyScalar(0.5);
         const dir = pb.clone().sub(pa).setY(0).normalize();
         const len = pa.distanceTo(pb);
-        // 山は高さの格子で作り、トンネルの手前は線路の所だけ切り通しにする
-        const rx = len * 0.8 + 6, rz = 42, top = H + 20, NU = 70, NW = 44;
-        const hp = [], hi = [], huv = [];
-        for (let i = 0; i <= NU; i++) for (let j = 0; j <= NW; j++) {
-          const u = (i / NU * 2 - 1), w = (j / NW * 2 - 1);
-          const x = mid.x + dir.x * u * rx - dir.z * w * rz, z = mid.z + dir.z * u * rx + dir.x * w * rz;
-          const q = u * u + w * w;
-          let h = q < 1 ? top * Math.pow(1 - q, 0.55) : 0;
-          let best = 1e9, bs = 0; for (let k = Math.max(0, a - 200); k <= Math.min(L, b + 200); k += 2) { const d = (SP[k].x - x) ** 2 + (SP[k].z - z) ** 2; if (d < best) { best = d; bs = k; } }
-          if (Math.sqrt(best) < 6.5 && !inTunnel(bs)) h = Math.min(h, H - 2.6);
-          hp.push(x, h - 0.5, z); huv.push(u * 3, w * 2);
-          if (i && j) { const c0 = (i - 1) * (NW + 1) + j - 1, c1 = c0 + 1, c2 = c0 + NW + 1, c3 = c2 + 1; hi.push(c0, c1, c2, c1, c3, c2); }
-        }
+        // 山は線路に沿った格子で作る。トンネルの外は線路の所だけ切り通しにし、入口の面で縦にすっぱり切る
+        const ext = 46, rz = 34, top = H + 20, half = (b - a) / 2 + ext, ms = (a + b) / 2;
+        const rows = []; for (let ss = a - ext; ss <= b + ext; ss += 2) { if (ss > a - 2 && ss < a + 2 || ss > b - 2 && ss < b + 2) continue; rows.push([ss, ss < a || ss > b ? 1 : 0]); }
+        // 入口の面には3列重ねる: 切り通しの高さ → 入口の石の上端 → 山の高さ（下の2列の間は穴にする）
+        rows.push([a, 1], [a, 2], [a, 0], [b, 0], [b, 2], [b, 1]);
+        const ord = { 1: 0, 2: 1, 0: 2 }; rows.sort((p, q) => p[0] - q[0] || (p[0] === a ? ord[p[1]] - ord[q[1]] : ord[q[1]] - ord[p[1]]));
+        const cols = []; for (let d = -rz; d <= rz; d += 2) if (Math.abs(Math.abs(d) - 6.5) > 0.9) cols.push([d, Math.abs(d) < 6.5]);
+        cols.push([-6.5, false], [-6.5, true], [6.5, true], [6.5, false]); cols.sort((p, q) => p[0] - q[0] || (p[0] < 0 ? (p[1] ? 1 : -1) : (p[1] ? -1 : 1)));
+        const hp = [], hi = [], huv = [], NC = cols.length;
+        rows.forEach(([ss, outside], i) => {
+          const q = at(ss), sd = sideOf(tanAt(ss)), u = (ss - ms) / half;
+          cols.forEach(([d, inner], j) => {
+            const w = d / rz, r2 = u * u + w * w;
+            let h = r2 < 1 ? top * Math.pow(1 - r2, 0.55) : 0;
+            if (inner && outside) h = Math.min(h, outside === 1 ? H - 2.6 : H + 7.5);
+            hp.push(q.x + sd.x * d, h - 0.5, q.z + sd.z * d); huv.push(u * 3, w * 2);
+            const hole = rows[i - 1]?.[0] === ss && rows[i - 1][1] + outside === 3 && inner && cols[j - 1][1];
+            if (i && j && !hole) { const c0 = (i - 1) * NC + j - 1, c1 = c0 + 1, c2 = c0 + NC, c3 = c2 + 1; hi.push(c0, c1, c2, c1, c3, c2); }
+          });
+        });
         const hg = new THREE.BufferGeometry(); hg.setAttribute('position', new THREE.Float32BufferAttribute(hp, 3)); hg.setAttribute('uv', new THREE.Float32BufferAttribute(huv, 2)); hg.setIndex(hi); hg.computeVertexNormals();
-        if (hg.attributes.normal.getY(Math.floor(hp.length / 6)) < 0) { hg.setIndex(hi.map((v, k) => hi[k - k % 3 + [0, 2, 1][k % 3]])); hg.computeVertexNormals(); }
+        const ci = Math.floor(rows.length / 2) * NC + Math.floor(NC / 2);
+        if (hg.attributes.normal.getY(ci) < 0) { hg.setIndex(hi.map((v, k) => hi[k - k % 3 + [0, 2, 1][k % 3]])); hg.computeVertexNormals(); }
+        const rx = half;
         const hill = new THREE.Mesh(hg, std('#fff', 1, { map: rockTex }));
         hill.castShadow = hill.receiveShadow = true; scene.add(hill);
         HILLS.push({ x: mid.x, z: mid.z, cx: dir.x, cz: dir.z, rx: rx * 0.9, rz: rz * 0.9 });
         // 山の上の木
         const tg2 = new THREE.IcosahedronGeometry(1, 1);
-        for (let i = 0; i < 26; i++) {
-          const u = (rnd() * 2 - 1) * 0.8, w = (rnd() * 2 - 1) * 0.8; if (u * u + w * w > 0.64) continue;
-          const y = (H + 20) * Math.pow(1 - u * u - w * w, 0.55) - 1.5; if (Math.abs(w * rz) < 9) continue;
+        for (let i = 0; i < 60; i++) {
+          const k = Math.floor(rnd() * hp.length / 3), y = hp[k * 3 + 1];
+          if (y < 6 || Math.abs(cols[k % NC][0]) < 9) continue;
           const t = new THREE.Mesh(tg2, std(new THREE.Color().setHSL(0.24 + rnd() * 0.06, 0.45, 0.24 + rnd() * 0.1), 1, { flatShading: true }));
           const r = 3 + rnd() * 3; t.scale.set(r, r * 1.2, r);
-          t.position.set(mid.x + dir.x * u * rx - dir.z * w * rz, y + r * 0.7, mid.z + dir.z * u * rx + dir.x * w * rz);
+          t.position.set(hp[k * 3], y + r * 0.6, hp[k * 3 + 2]);
           scene.add(shade(t));
         }
         // 入口と出口
@@ -510,7 +519,7 @@
     {
       const poleG = new THREE.CylinderGeometry(0.18, 0.22, 8, 6), armG = new THREE.BoxGeometry(2.2, 0.2, 0.2), poleM = std('#7a6a58');
       for (let s = 20; s < L - 40; s += 34) {
-        if (inTunnel(s, 4)) continue;
+        if (inTunnel(s, 12)) continue;
         const p = at(s), sd = sideOf(tanAt(s));
         const g = new THREE.Group();
         const pole = new THREE.Mesh(poleG, poleM); pole.position.y = 4; g.add(pole);
