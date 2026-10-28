@@ -96,6 +96,7 @@
     import * as THREE from 'three';
     import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
     import * as CANNON from 'cannon-es';
+    import { ConvexHull } from 'three/addons/math/ConvexHull.js';
     window.CANDLE_READY = true;
 
     const SHARE_URL = 'https://keifurukawafunnych.com/games/candle-rocket/';
@@ -441,7 +442,7 @@
       for (let i = 0; i < 800; i++) { g.fillStyle = `rgba(255,255,255,${Math.random() * 0.6})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
     });
     const creamM = new THREE.MeshStandardMaterial({ map: creamTex, roughness: 0.55, envMapIntensity: 0.5 });
-    const cakeG = new THREE.Group(); cakeG.position.set(CAKE.x, 0, CAKE.z); scene.add(cakeG);
+    const cakeG = new THREE.Group(); cakeG.position.set(CAKE.x, 0, CAKE.z); cakeG.userData.noSolid = true; scene.add(cakeG);
     {
       const plate = new THREE.Mesh(new THREE.CylinderGeometry(CAKE.plate, CAKE.plate * 0.85, CAKE.ph, 48), mat('#ffffff', 0.15, { envMapIntensity: 0.8 }));
       plate.position.y = CAKE.ph / 2; plate.castShadow = plate.receiveShadow = true; cakeG.add(plate);
@@ -471,7 +472,6 @@
       }
     }
     // 机の上の小物: カップ・フォーク・プレゼント・花びん
-    const statics = []; // 物理の当たり判定 { shape, pos, quat }
     {
       const cupM = mat('#ffffff', 0.2, { envMapIntensity: 0.8 });
       for (const [x, z, c] of [[3.6, -0.5, '#6ac4e8'], [-3.6, -0.5, '#f26d8f']]) {
@@ -479,7 +479,6 @@
         part(new THREE.CylinderGeometry(0.39, 0.39, 0.02, 24), mat('#7a4a2a', 0.2), x, 0.75, z);
         const h = part(new THREE.TorusGeometry(0.2, 0.05, 8, 16, Math.PI), cupM, x + 0.42 * Math.sign(x), 0.45, z); h.rotation.z = -Math.PI / 2 * Math.sign(x);
         part(new THREE.CylinderGeometry(0.75, 0.75, 0.05, 32), mat(c, 0.3), x, 0.025, z);
-        statics.push({ shape: new CANNON.Cylinder(0.42, 0.38, 0.9, 10), pos: [x, 0.45, z] });
       }
       // 取り皿とフォーク
       for (const [x, z] of [[3.4, 2.6], [-3.4, 2.6]]) {
@@ -492,10 +491,8 @@
       part(BOX, mat('#6ac4e8', 0.5), 0, 0.65, 0, 1.4, 1.3, 1.4, gift);
       part(BOX, mat('#ffd25a', 0.4), 0, 0.65, 0, 1.42, 1.32, 0.25, gift); part(BOX, mat('#ffd25a', 0.4), 0, 0.65, 0, 0.25, 1.32, 1.42, gift);
       for (const s of [-1, 1]) { const bw = part(new THREE.TorusGeometry(0.22, 0.07, 8, 16), mat('#ffd25a', 0.4), s * 0.2, 1.42, 0, 1, 1, 1, gift); bw.rotation.y = Math.PI / 2; bw.rotation.x = s * 0.5; }
-      statics.push({ shape: new CANNON.Box(new CANNON.Vec3(0.7, 0.65, 0.7)), pos: [-3.8, 0.65, -5.4], ry: 0.4 });
       // 花びん
       const vase = part(new THREE.LatheGeometry([[0.01, 0], [0.38, 0.05], [0.45, 0.5], [0.22, 1.1], [0.26, 1.35], [0.01, 1.35]].map(([x, y]) => new THREE.Vector2(x, y)), 20), mat('#3a6ad8', 0.15, { envMapIntensity: 1 }), 3.8, 0, -6);
-      statics.push({ shape: new CANNON.Cylinder(0.3, 0.42, 1.35, 10), pos: [3.8, 0.675, -6] });
       const stemM = mat('#4a8a3a', 0.8), petalM = [mat('#ffd25a', 0.6), mat('#f26d8f', 0.6), mat('#fff', 0.6)];
       for (let i = 0; i < 5; i++) {
         const a = i * 1.3, h = rnd(1.2, 2), x = 3.8 + Math.cos(a) * 0.35, z = -6 + Math.sin(a) * 0.35;
@@ -548,7 +545,7 @@
       part(SPH, furM, 0.55, -0.15, 0, 1.7, 1.75, 2.4, catHead);
       const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
       const face = new THREE.Mesh(new THREE.PlaneGeometry(3.3, 3.3), new THREE.MeshStandardMaterial({ map: catTex, transparent: true, alphaTest: 0.35, roughness: 0.9, side: THREE.DoubleSide }));
-      face.rotation.y = -Math.PI / 2; face.position.set(-0.4, 0.15, 0); face.castShadow = true; catHead.add(face);
+      face.rotation.y = -Math.PI / 2; face.position.set(-0.4, 0.15, 0); face.castShadow = true; face.userData.solid = true; catHead.add(face);
       // 顔はケーキと発射台の間を見る
       catG.lookAt(0, catG.position.y, 14); catG.rotateY(Math.PI / 2);
     }
@@ -566,30 +563,14 @@
       if (ry) b.quaternion.setFromEuler(0, ry, 0);
       world.addBody(b); return b;
     };
-    const tableBody = addStatic(new CANNON.Box(new CANNON.Vec3(TX, 0.2, TZ)), 0, -0.2, 0);
     const plateBody = addStatic(new CANNON.Cylinder(CAKE.plate, CAKE.plate * 0.85, CAKE.ph, 16), CAKE.x, CAKE.ph / 2, CAKE.z);
     const cakeBody = addStatic(new CANNON.Cylinder(CAKE.r, CAKE.r, CAKE.h, 20), CAKE.x, CAKE.ph + CAKE.h / 2, CAKE.z);
-    const hardBodies = new Set([plateBody]);
-    for (const s of statics) hardBodies.add(addStatic(s.shape, ...s.pos, s.ry || 0));
     const floorBody = addStatic(new CANNON.Box(new CANNON.Vec3(RX, 1, (RZ1 - RZ0) / 2)), 0, FLOOR - 1, (RZ0 + RZ1) / 2);
     addStatic(new CANNON.Box(new CANNON.Vec3(RX, 1, (RZ1 - RZ0) / 2)), 0, CEIL + 1, (RZ0 + RZ1) / 2);
     addStatic(new CANNON.Box(new CANNON.Vec3(1, 20, (RZ1 - RZ0) / 2 + 2)), -RX - 1, 0, (RZ0 + RZ1) / 2);
     addStatic(new CANNON.Box(new CANNON.Vec3(1, 20, (RZ1 - RZ0) / 2 + 2)), RX + 1, 0, (RZ0 + RZ1) / 2);
     addStatic(new CANNON.Box(new CANNON.Vec3(20, 20, 1)), 0, 0, RZ0 - 1);
     addStatic(new CANNON.Box(new CANNON.Vec3(20, 20, 1)), 0, 0, RZ1 + 1);
-    // 椅子の座面
-    addStatic(new CANNON.Box(new CANNON.Vec3(2, 0.3, 2)), -8.6, SEAT, 2.5);
-    addStatic(new CANNON.Box(new CANNON.Vec3(2, 0.3, 2)), 8.6, SEAT, -3.2);
-    // 猫（頭と胴）
-    const catBody = new CANNON.Body({ mass: 0, type: CANNON.Body.STATIC });
-    {
-      catG.updateMatrixWorld(true);
-      const hp = catHead.getWorldPosition(new THREE.Vector3());
-      catBody.addShape(new CANNON.Sphere(1.5), new CANNON.Vec3(hp.x - CAT.x, hp.y, hp.z - CAT.z));
-      catBody.addShape(new CANNON.Sphere(1.35), new CANNON.Vec3(0, SEAT + 2.2, 0));
-      catBody.position.set(CAT.x, 0, CAT.z);
-      world.addBody(catBody);
-    }
 
     // ---------- 障害物（リビング → 仕切りのドア → ダイニング） ----------
     const SHELF_TOP = 2.8;
@@ -605,14 +586,12 @@
         part(BOX, mat(pick(bookCols), 0.7), x + w / 2, y + h / 2, -1.62, w, h, 0.25, shelf).castShadow = false;
         x += w + 0.04;
       }
-      addStatic(new CANNON.Box(new CANNON.Vec3(5, 5, 1.8)), 0, FLOOR + 5, 58.2);
       // ソファとローテーブル（よけなくてよい横の家具）
       const sofa = new THREE.Group(); sofa.position.set(-11.5, FLOOR, 46); scene.add(sofa);
       const sofaM = mat('#5a7a9a', 0.95);
       part(BOX, sofaM, 0, 2, 0, 6, 4, 14, sofa); part(BOX, sofaM, -2.4, 5, 0, 1.6, 4, 14, sofa);
       for (const z of [-7.4, 7.4]) part(BOX, sofaM, 0.3, 3.8, z, 6.4, 3.4, 1.4, sofa);
       for (const z of [-3.2, 0, 3.2]) part(new THREE.CapsuleGeometry(0.9, 1.6, 6, 12), mat(pick(['#f2c45a', '#e8577a', '#fff6e8']), 0.95), -1.1, 6.3, z, 1, 1, 1, sofa).rotation.x = Math.PI / 2;
-      addStatic(new CANNON.Box(new CANNON.Vec3(3.2, 4, 8)), -11.5, FLOOR + 3.5, 46);
       // テレビ台とテレビ（右の壁）
       const tv = new THREE.Group(); tv.position.set(13.8, FLOOR, 46); scene.add(tv);
       part(BOX, shelfM, 0, 1.8, 0, 3, 3.6, 12, tv);
@@ -625,8 +604,6 @@
       part(new THREE.CylinderGeometry(1, 1.2, 0.3, 24), lampM, LX, FLOOR + 0.15, LZ);
       const lshade = part(new THREE.CylinderGeometry(0.9, 1.5, 2, 24, 1, true), mat('#f6e2c0', 0.8, { side: THREE.DoubleSide, emissive: '#ffcf80', emissiveIntensity: 0.6 }), LX, 6.3, LZ);
       lshade.castShadow = false;
-      addStatic(new CANNON.Cylinder(0.12, 0.12, 5.4 - FLOOR, 8), LX, (FLOOR + 5.4) / 2, LZ);
-      addStatic(new CANNON.Cylinder(0.9, 1.5, 2, 12), LX, 6.3, LZ);
       // 大きな観葉植物
       const PX = -2.6, PZ = 43;
       part(new THREE.CylinderGeometry(1.4, 1.1, 3, 24), mat('#c9744a', 0.8), PX, FLOOR + 1.5, PZ);
@@ -637,10 +614,8 @@
         lf.rotation.set(rnd(-.5, .5), -a, rnd(-.6, .6));
       }
       part(CYL, mat('#5a7a3a', 0.8), PX, FLOOR + 5, PZ, 0.25, 6, 0.25);
-      addStatic(new CANNON.Cylinder(1.4, 1.1, 3, 12), PX, FLOOR + 1.5, PZ);
-      addStatic(new CANNON.Sphere(2.3), PX, FLOOR + 7.6, PZ);
       // 天井の扇風機（回っている）
-      fanG = new THREE.Group(); fanG.position.set(0, CEIL - 2.4, 37.5); scene.add(fanG);
+      fanG = new THREE.Group(); fanG.position.set(0, CEIL - 2.4, 37.5); fanG.userData.noSolid = true; scene.add(fanG);
       const fanM = mat('#7a4a2a', 0.5);
       part(CYL, mat('#c8b890', 0.4, { metalness: 0.6 }), 0, 1.2, 0, 0.15, 2.4, 0.15, fanG);
       part(CYL, mat('#c8b890', 0.4, { metalness: 0.6 }), 0, 0, 0, 1, 0.7, 1, fanG);
@@ -651,6 +626,9 @@
         const b = part(BOX, fanM, Math.cos(a) * 3, 0.05, -Math.sin(a) * 3, 4.6, 0.1, 1.1, fanG); b.rotation.y = a;
         fanBody.addShape(new CANNON.Box(new CANNON.Vec3(2.3, 0.15, 0.55)), new CANNON.Vec3(Math.cos(a) * 3, 0.05, -Math.sin(a) * 3), new CANNON.Quaternion().setFromEuler(0, a, 0));
       }
+      fanBody.addShape(new CANNON.Cylinder(0.075, 0.075, 2.4, 8), new CANNON.Vec3(0, 1.2, 0));
+      fanBody.addShape(new CANNON.Cylinder(0.5, 0.5, 0.7, 12));
+      fanBody.addShape(new CANNON.Sphere(0.4), new CANNON.Vec3(0, -0.45, 0));
       fanBody.position.set(fanG.position.x, fanG.position.y, fanG.position.z);
       world.addBody(fanBody);
       // 仕切りの壁: 真ん中にドアの開いた出入り口
@@ -658,7 +636,6 @@
       const pwM = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.9 });
       const pw = (x0, x1, y0, y1) => {
         part(BOX, pwM, (x0 + x1) / 2, (y0 + y1) / 2, WALLZ, x1 - x0, y1 - y0, 1);
-        addStatic(new CANNON.Box(new CANNON.Vec3((x1 - x0) / 2, (y1 - y0) / 2, 0.5)), (x0 + x1) / 2, (y0 + y1) / 2, WALLZ);
       };
       pw(-RX, -DW, FLOOR, CEIL); pw(DW, RX, FLOOR, CEIL); pw(-DW, DW, DTOP, CEIL);
       for (const sz of [-1, 1]) {
@@ -674,7 +651,6 @@
       part(BOX, mat('#a8744a', 0.5), dw / 2, (DTOP - FLOOR - 0.1) / 2, 0, dw, DTOP - FLOOR - 0.1, 0.35, door);
       for (const y of [3, 9.5]) part(BOX, mat('#946238', 0.5), dw / 2, y, 0.2, dw - 1.2, 4.5, 0.06, door);
       part(SPH, mat('#e8c25a', 0.2, { metalness: 0.9 }), dw - 0.6, 7.4, 0.3, 0.35, 0.35, 0.35, door);
-      addStatic(new CANNON.Box(new CANNON.Vec3(dw / 2, (DTOP - FLOOR) / 2, 0.2)), DW - 0.1 + Math.cos(ry) * dw / 2, (FLOOR + DTOP) / 2, WALLZ + 0.6 - Math.sin(ry) * dw / 2, ry);
       // 壁の絵（ダイニング側）
       for (const [x, c] of [[-9, '#e8577a'], [9, '#3a6ad8']]) {
         part(BOX, mat('#5a3a22', 0.5), x, 4.5, WALLZ - 0.6, 4, 3, 0.2);
@@ -686,16 +662,11 @@
         part(SPH, new THREE.MeshStandardMaterial({ color: bcols[i], roughness: 0.2, metalness: 0.05 }), x, y, z, 1.7, 2, 1.7);
         const str = part(CYL, mat('#ddd', 0.8), (x - 1) / 2, (y - 1 + FLOOR) / 2, (z + 22) / 2, 0.02, y - 1 - FLOOR, 0.02); str.castShadow = false;
         str.rotation.set((z - 22) / (y - FLOOR) * -1, 0, (x + 1) / (y - FLOOR));
-        addStatic(new CANNON.Sphere(0.9), x, y, z);
       });
       part(BOX, mat('#e8577a', 0.4), -1, FLOOR + 0.3, 22, 0.8, 0.6, 0.8);
       // 机の手前の椅子（背もたれが机より高い）
       chair(0, 11.6, -Math.PI / 2);
-      addStatic(new CANNON.Box(new CANNON.Vec3(1.8, 2.7, 0.2)), 0, SEAT + 2.6, 13.45);
-      addStatic(new CANNON.Box(new CANNON.Vec3(2, 0.3, 2)), 0, SEAT, 11.6);
       // 机の上のランプ
-      addStatic(new CANNON.Sphere(1.2), 0, 7.6, -1.5);
-      addStatic(new CANNON.Cylinder(0.05, 0.05, CEIL - 8.2, 6), 0, (CEIL + 8.2) / 2, -1.5);
       // 横の窓（リビング）
       for (const z of [40, 52]) {
         const w = new THREE.Group(); w.position.set(-RX + 0.05, 5, z); w.rotation.y = Math.PI / 2; scene.add(w);
@@ -709,7 +680,7 @@
     const THRUST = 10, DRAG = 2.5, GRIP = 6, TURN = 1.6;
     const LAUNCH = new THREE.Vector3(0, SHELF_TOP + 0.8, 57.2);
     const LAUNCH_DIR = new THREE.Vector3(0, 0.12, -1).normalize();
-    const candleG = new THREE.Group(); scene.add(candleG);
+    const candleG = new THREE.Group(); candleG.userData.noSolid = true; scene.add(candleG);
     const stripeTex = canvasTex(64, 256, (g, w, h) => {
       g.fillStyle = '#fff8f2'; g.fillRect(0, 0, w, h);
       g.fillStyle = '#f26d8f';
@@ -739,7 +710,7 @@
     goalGlow.position.set(CAKE.x, CAKE.top + 0.7, CAKE.z); scene.add(goalGlow);
     // 発射台（スプーン型のレール）
     {
-      const g = new THREE.Group(); g.position.copy(LAUNCH); scene.add(g);
+      const g = new THREE.Group(); g.position.copy(LAUNCH); g.userData.noSolid = true; scene.add(g);
       const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), LAUNCH_DIR);
       const rail = new THREE.Group(); rail.quaternion.copy(q); g.add(rail);
       const metal = mat('#c8ccd2', 0.25, { metalness: 0.85 });
@@ -747,6 +718,73 @@
       part(BOX, metal, 0, -0.14, 0.6, 0.18, 0.03, 0.1, rail); part(BOX, metal, 0, -0.14, -0.6, 0.18, 0.03, 0.1, rail);
       part(CYL, metal, 0, -0.33 - 0.06, -0.3, 0.05, 0.46, 0.05, g); part(CYL, metal, 0, -0.27 - 0.06, 0.4, 0.05, 0.58, 0.05, g);
       part(new THREE.CylinderGeometry(0.55, 0.65, 0.12, 24), mat('#c9604a', 0.4), 0, SHELF_TOP - LAUNCH.y + 0.06, 0.1, 1, 1, 1, g);
+    }
+
+    // ---------- 家具の当たり判定: 見た目の形からそのまま作る ----------
+    // 箱は同じ大きさの箱、円柱は円柱、球は球。それ以外は形をぴったり包む凸の立体にする
+    const solidBody = new CANNON.Body({ mass: 0, type: CANNON.Body.STATIC });
+    const catBody = new CANNON.Body({ mass: 0, type: CANNON.Body.STATIC });
+    const hardShapes = new Set();
+    {
+      scene.updateMatrixWorld(true);
+      const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+      const P = V(), Q = new THREE.Quaternion(), S = V();
+      const cv = v => new CANNON.Vec3(v.x, v.y, v.z), cq = q => new CANNON.Quaternion(q.x, q.y, q.z, q.w);
+      const boxFromBounds = (m, b) => {
+        const g = m.geometry; g.computeBoundingBox();
+        const bb = g.boundingBox, c = bb.getCenter(V()).applyMatrix4(m.matrixWorld), h = bb.getSize(V()).multiply(S).multiplyScalar(0.5);
+        b.addShape(new CANNON.Box(new CANNON.Vec3(Math.max(0.015, Math.abs(h.x)), Math.max(0.015, Math.abs(h.y)), Math.max(0.015, Math.abs(h.z)))), cv(c), cq(Q));
+      };
+      const hullFrom = (pts, b) => {
+        const hull = new ConvexHull().setFromPoints(pts);
+        const verts = [], idx = new Map(), faces = [];
+        const c = V(); for (const p of pts) c.add(p); c.multiplyScalar(1 / pts.length);
+        for (const f of hull.faces) {
+          const face = []; let e = f.edge;
+          do { const p = e.head().point; if (!idx.has(p)) { idx.set(p, verts.length); verts.push(p); } face.push(idx.get(p)); e = e.next; } while (e !== f.edge);
+          // 面の向きを外向きにそろえる
+          const [a, b2, d] = face.map(i => verts[i]);
+          const n = V().subVectors(b2, a).cross(V().subVectors(d, a));
+          if (n.dot(V().subVectors(a, c)) < 0) face.reverse();
+          faces.push(face);
+        }
+        if (verts.length < 4) return false;
+        b.addShape(new CANNON.ConvexPolyhedron({ vertices: verts.map(v => new CANNON.Vec3(v.x - c.x, v.y - c.y, v.z - c.z)), faces }), cv(c));
+        return true;
+      };
+      const addMesh = (m, b) => {
+        const g = m.geometry, t = g.type, pr = g.parameters || {};
+        m.matrixWorld.decompose(P, Q, S);
+        const n0 = b.shapes.length;
+        g.computeBoundingBox();
+        const sz = g.boundingBox.getSize(V()).multiply(S);
+        if (t === 'BoxGeometry') b.addShape(new CANNON.Box(new CANNON.Vec3(pr.width * S.x / 2, pr.height * S.y / 2, pr.depth * S.z / 2)), cv(P), cq(Q));
+        else if (Math.min(sz.x, sz.y, sz.z) < 0.03) boxFromBounds(m, b);
+        else if (t === 'CylinderGeometry' && Math.abs(S.x - S.z) < 1e-4) b.addShape(new CANNON.Cylinder(Math.max(0.01, pr.radiusTop * S.x), Math.max(0.01, pr.radiusBottom * S.x), pr.height * S.y, 12), cv(P), cq(Q));
+        else if (t === 'SphereGeometry' && pr.phiLength >= 6.28 && pr.thetaLength >= 3.14 && Math.abs(S.x - S.y) < 1e-4 && Math.abs(S.x - S.z) < 1e-4) b.addShape(new CANNON.Sphere(pr.radius * S.x), cv(P));
+        else {
+          // ゆがめた球などは、少ない点で作った同じ形を包む
+          let src = g;
+          if (t === 'SphereGeometry') src = new THREE.SphereGeometry(pr.radius, 10, 7, pr.phiStart, pr.phiLength, pr.thetaStart, pr.thetaLength);
+          const pos = src.attributes.position, step = Math.max(1, Math.ceil(pos.count / 90)), pts = [];
+          for (let i = 0; i < pos.count; i += step) pts.push(V().fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld));
+          let okH = false; try { okH = hullFrom(pts, b); } catch { okH = false; }
+          if (!okH) boxFromBounds(m, b);
+        }
+        const mt = Array.isArray(m.material) ? m.material[0] : m.material;
+        if (mt && (mt.roughness ?? 1) < 0.3) for (let i = n0; i < b.shapes.length; i++) hardShapes.add(b.shapes[i]);
+      };
+      const walk = (o, b) => {
+        if (o.userData.noSolid) return;
+        if (o === catG) b = catBody;
+        if (o.isMesh && !(o.material && o.material.blending === THREE.AdditiveBlending)) {
+          const flat = o.geometry.type === 'PlaneGeometry' || o.geometry.type === 'CircleGeometry';
+          if (!flat || o.userData.solid) addMesh(o, b);
+        }
+        for (const c of o.children) walk(c, b);
+      };
+      walk(scene, solidBody);
+      world.addBody(solidBody); world.addBody(catBody);
     }
 
     // ---------- 粒（炎・煙・クリーム・紙ふぶき） ----------
@@ -848,7 +886,7 @@
       }
       if (!touched && state === 'fly') { touched = true; crash(); }
       touched = true;
-      if (imp > 0.4) knock(Math.min(1, imp / 8), hardBodies.has(e.body));
+      if (imp > 0.4) knock(Math.min(1, imp / 8), e.body === plateBody || hardShapes.has(c.bi === body ? c.sj : c.si));
     }
     function crash() {
       state = 'crash'; stateT = 0; crashT = 0; stillT = 0;
@@ -1310,7 +1348,7 @@
         body.position.set(CAKE.x + x, CAKE.top + h, CAKE.z + z); body.quaternion.set(q.x, q.y, q.z, q.w);
         body.velocity.set(0, -6, 0); curPos.copy(toT(body.position)); prevPos.copy(curPos); curQ.copy(q); prevQ.copy(q);
       },
-      camera, scene, cakeG, look(px, py, pz, lx, ly, lz) { camera.position.set(px, py, pz); camera.up.set(0, 1, 0); camera.lookAt(lx, ly, lz); camera.updateMatrixWorld(); renderer.render(scene, camera); },
+      camera, scene, cakeG, solidBody, catBody, world, THREE, look(px, py, pz, lx, ly, lz) { camera.position.set(px, py, pz); camera.up.set(0, 1, 0); camera.lookAt(lx, ly, lz); camera.updateMatrixWorld(); renderer.render(scene, camera); },
       steer(kx, ky) { steer.on = true; steer.kx = kx; steer.ky = ky; }, release() { steer.on = false; },
     };
     resize();
