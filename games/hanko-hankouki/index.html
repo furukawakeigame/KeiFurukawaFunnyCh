@@ -251,8 +251,8 @@
     const sPof = () => { noise(0.08, 0.3, 700); tone('sine', 180, 90, 0.06, 0.12); };
     const sPaper = () => { noise(0.35, 0.18, 3500, 'highpass', 0.7); noise(0.2, 0.12, 5000, 'bandpass', 1, 0.15); };
     const sPaw = () => { noise(0.05, 0.3, 600); tone('sine', 260, 140, 0.06, 0.15); };
-    // 声の高さ: 課長は低め、部下は若い声、部長はさらに低く、枠はか細く高い声、猫は高い
-    const F_KACHO = 102, F_BUKA = 150, F_BUCHO = 82, F_WAKU = 340, F_CAT = 560;
+    // 声の高さ: 課長は低め、部下は若い声、部長はさらに低く、社長は重々しく、枠はか細く高い声、猫は高い
+    const F_KACHO = 102, F_BUKA = 150, F_BUCHO = 82, F_SHACHO = 92, F_WAKU = 340, F_CAT = 560;
 
     // ---------- 3D ----------
     const stage = document.getElementById('stage');
@@ -446,8 +446,9 @@
       sc.fillStyle = sc.strokeStyle = INK; sc.textAlign = 'center'; sc.textBaseline = 'middle';
       const c = st.cfg;
       if (c.kind === 'round') {
-        const r = c.R * PXU;
+        let r = c.R * PXU;
         sc.lineWidth = r * 0.11; sc.beginPath(); sc.arc(0, 0, r * 0.93, 0, 7); sc.stroke();
+        if (c.ring2) { sc.lineWidth = r * 0.04; sc.beginPath(); sc.arc(0, 0, r * 0.76, 0, 7); sc.stroke(); r *= 0.85; }
         sc.font = `900 ${r * 0.78}px "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif`;
         sc.fillText(c.text[0], 0, -r * 0.38); sc.fillText(c.text[1], 0, r * 0.4);
       } else if (c.kind === 'square') {
@@ -553,6 +554,19 @@
     const bucho = person({ suit: '#202228', tie: '#c9a227', hair: '#9a9a9a', slick: true, belly: 0.25, f0: F_BUCHO, scale: 1.06 });
     const BUCHO_POS = new THREE.Vector3(-1.48, 0, -0.38), BUCHO_OFF = new THREE.Vector3(-3.4, 0, -0.6);
     bucho.g.position.copy(BUCHO_OFF); bucho.g.rotation.y = 1.0;
+    // 社長: 最後に課長の後ろへ歩いてくる
+    const shacho = person({ suit: '#1a2236', tie: '#a01828', hair: '#ecebe6', slick: true, mustache: true, glasses: true, belly: 0.24, f0: F_SHACHO, scale: 1.12 });
+    const SHACHO_POS = new THREE.Vector3(0.62, 0, -1.42), SHACHO_OFF = new THREE.Vector3(3.3, 0, -1.6);
+    shacho.g.position.copy(SHACHO_OFF); shacho.g.rotation.y = -0.4;
+    // 途中から歩いて登場する人: 手に持つ腕（arm）とハンコの向き（rot）
+    const BOSSES = {
+      bucho: { p: bucho, pos: BUCHO_POS, off: BUCHO_OFF, arm: 0, pole: new THREE.Vector3(-0.6, -1, -0.6), rot: 0.1, t: -1, hello: () => talk(bucho, speak(F_BUCHO, 'oo', 0.16, 0.45, -0.1)) },
+      shacho: { p: shacho, pos: SHACHO_POS, off: SHACHO_OFF, arm: 0, pole: new THREE.Vector3(-0.3, -1, -0.8), rot: 0, t: -1, hello: () => {
+        // みんなで頭を下げて「お疲れさまです」、社長は「うむ」
+        talk(kacho, speak(F_KACHO * 1.1, 'ouaeaaeu', 0.1, 0.35, 0)); talk(buka, speak(F_BUKA, 'ouaeaaeu', 0.1, 0.3, 0, 0.05)); talk(bucho, speak(F_BUCHO * 1.1, 'ouaeaaeu', 0.1, 0.3, 0, 0.1));
+        setTimeout(() => talk(shacho, speak(F_SHACHO, 'uu', 0.22, 0.5, -0.15)), 1000);
+      } },
+    };
 
     // 猫: 机の左手前に座っている。顔はいつもの猫
     const catG = new THREE.Group(); catG.position.set(-0.92, TOPY, 0.36); scene.add(catG);
@@ -574,6 +588,7 @@
       cat: { kind: 'paw', R: 0.058, from: 5, home: new THREE.Vector3(-0.8, TOPY + 0.1, 0.3), shake: 0.002, snd: 0.6 },
       buka: { kind: 'round', R: 0.063, text: '佐藤', body: '#e2cfa0', from: 11, home: new THREE.Vector3(0.82, TOPY + 0.36, -0.12), shake: 0.004, snd: 0.85 },
       bucho: { kind: 'square', R: 0.12, text: '承認', body: '#8a5a2a', from: 23, home: new THREE.Vector3(-0.8, TOPY + 0.42, -0.2), shake: 0.016, snd: 1.6 },
+      shacho: { kind: 'round', R: 0.15, text: '社長', ring2: true, body: '#efe6cf', from: 38, home: new THREE.Vector3(0.25, TOPY + 0.5, -0.35), shake: 0.03, snd: 2.2 },
     };
     // 時間とともに速く・正確になる（d: 0 → 1）
     function params(id) {
@@ -582,6 +597,7 @@
         case 'kacho': return { track: 0.8 - 0.35 * d, lock: 0.44 - 0.17 * d, speed: 0.9 + 0.8 * d, wait: 0.5 - 0.32 * d, lead: 0.9, err: 0.025 };
         case 'buka': return { track: 0.6, lock: 0.36 - 0.08 * d, speed: 1.3, wait: 0.9 - 0.4 * d, lead: 0.6, err: 0.06 };
         case 'bucho': return { track: 1.0, lock: 0.52 - 0.1 * d, speed: 0.75, wait: 1.6 - 0.6 * d, lead: 1.0, err: 0.015 };
+        case 'shacho': return { track: 1.2, lock: 0.62 - 0.1 * d, speed: 0.6, wait: 2.8 - 0.8 * d, lead: 1.0, err: 0.01 };
         case 'cat': return { track: 0.35, lock: 0.26, speed: 1.6, wait: rnd(4, 7), lead: 0.3, err: 0.03 };
       }
     }
@@ -621,7 +637,7 @@
       tele.rotation.x = -Math.PI / 2; tele.renderOrder = 1; tele.visible = false; scene.add(tele);
       st[id] = { id, cfg: c, g, tele, top, phase: 'off', t: 0, wait: 0, pos: new THREE.Vector3().copy(c.home), prev: new THREE.Vector3().copy(c.home), aim: new THREE.Vector2(), err: new THREE.Vector2(), lockT: 0.4, ink: 1, count: 0, fake: false };
     }
-    const ORDER = ['kacho', 'cat', 'buka', 'bucho'];
+    const ORDER = ['kacho', 'cat', 'buka', 'bucho', 'shacho'];
     const KACHO_REST = new THREE.Vector3(0.52, TOPY, -0.4);
 
     // ---------- 粒（朱の飛沫・紙のほこり）----------
@@ -667,6 +683,7 @@
     const VIEWS = {
       intro: () => ({ target: V(0.12, 1.02, -0.2), dir: V(0, 0.3, 1), band: 0.16, pts: [V(-1.25, TOPY, 0.6), V(1.3, TOPY, 0.6), V(0, 1.5, -0.82), V(1.45, 1.86, -0.28), V(-1.2, TOPY, -0.4)] }),
       stare: () => ({ target: V(0, 0.98, -0.25), dir: V(0, 0.55, 1), band: 0.16, pts: [...paperPts(0.02), V(-0.2, 1.48, -0.82), V(0.2, 1.48, -0.82)] }),
+      boss: () => ({ target: V(0.1, 1.05, -0.6), dir: V(0, 0.35, 1), band: 0, pts: [V(-1.25, TOPY, 0.6), V(1.25, TOPY, 0.6), V(0.62, 2.02, -1.42), V(1.45, 1.85, -0.28), V(-1.48, 1.9, -0.38)] }),
       play: () => ({ target: V(0, TOPY, PZ - 0.03), dir: V(0, 1.6, 1), band: 0, pts: [...paperPts(0.035), V(0, TOPY + 0.3, PZ0)] }),
       result: () => { const f = frameWorld(); return { btn: true, target: f.clone(), dir: V(0, 1.4, 1), band: SW / safeH > 1.4 ? 0.26 : 0.3, pts: [V(f.x - 0.24, TOPY, f.z - 0.2), V(f.x + 0.24, TOPY, f.z - 0.2), V(f.x - 0.24, TOPY, f.z + 0.2), V(f.x + 0.24, TOPY, f.z + 0.2)] }; },
     };
@@ -711,14 +728,14 @@
     const FRAME_START = { x: 0.3, z: PZ + 0.2 };
     const VMAX = 0.95;
     const keys = new Set();
-    let paperT = 0, kachoLean = 0, catMeowCd = 0, buchoT = -1, bukaJoinT = -1;
+    let paperT = 0, kachoLean = 0, catMeowCd = 0, bukaJoinT = -1, pauseT = 0, bow = 0;
     const frameWorld = () => V(frame.x, TOPY, frame.z);
     function reset() {
       drawPaperBase();
       frame.x = frame.px = frame.tx = FRAME_START.x; frame.z = frame.pz = frame.tz = FRAME_START.z; frame.vx = frame.vz = 0; frame.shiver = 0;
       elapsed = 0; overT = 0; hitBy = null; resultT = 0; readyT = 0; keys.clear();
-      buchoT = -1; bukaJoinT = -1;
-      bucho.g.position.copy(BUCHO_OFF); bucho.g.visible = false;
+      bukaJoinT = -1; pauseT = 0; bow = 0;
+      for (const b of Object.values(BOSSES)) { b.t = -1; b.p.g.position.copy(b.off); b.p.g.visible = false; }
       for (const id of ORDER) {
         const s = st[id];
         s.phase = id === 'kacho' ? 'rest' : id === 'cat' ? 'home' : 'off';
@@ -839,6 +856,7 @@
       }
       if (s.id === 'kacho' && Math.random() < 0.25) talk(kacho, speak(F_KACHO, pick(['un', 'u', 'nn']), 0.1, 0.3, -0.1));
       if (s.id === 'bucho') talk(bucho, speak(F_BUCHO, pick(['u', 'un']), 0.12, 0.4, -0.1));
+      if (s.id === 'shacho') talk(shacho, speak(F_SHACHO, pick(['uu', 'un']), 0.16, 0.45, -0.15));
     }
     function gameOver(s) {
       state = 'over'; overT = 0; hitBy = s;
@@ -852,7 +870,7 @@
       const c = s.cfg; s.t += dt;
       s.prev.copy(s.pos);
       const p = params(s.id);
-      const canAttack = state === 'play' && elapsed >= c.from && (s.id !== 'bucho' || buchoT > 1.3);
+      const canAttack = state === 'play' && pauseT <= 0 && elapsed >= c.from && (!BOSSES[s.id] || BOSSES[s.id].t > 1.3);
       switch (s.phase) {
         case 'off':
           if (state === 'play' && elapsed >= c.from - 1.2) {
@@ -873,7 +891,7 @@
           if (canAttack) { s.wait -= dt; if (s.wait <= 0) { s.phase = 'aim'; s.t = 0; initAim(s); } }
           break;
         case 'aim': {
-          if (state !== 'play') { s.phase = 'home'; break; }
+          if (state !== 'play' || pauseT > 0) { s.phase = 'home'; break; }
           const lockT = p.lock;
           const tx = clampX(frame.x + frame.vx * (lockT + 0.06) * p.lead + s.err.x), tz = clampZ(frame.z + frame.vz * (lockT + 0.06) * p.lead + s.err.y);
           const dx = tx - s.aim.x, dz = tz - s.aim.y, dist = Math.hypot(dx, dz);
@@ -885,7 +903,7 @@
           break;
         }
         case 'lock': {
-          if (state !== 'play') { s.phase = 'home'; break; }
+          if (state !== 'play' || pauseT > 0) { s.phase = 'home'; break; }
           const k = Math.min(1, s.t / s.lockT);
           s.pos.y = s.y0 + (TOPY + 0.3 - s.y0) * easeOut(k);
           // フェイント: 振りかぶってから狙い直す
@@ -952,7 +970,13 @@
         if (introT >= 6.8) { toReady(false); }
       }
       if (state === 'ready') { readyT += dt; if (readyT > 1.2) b2.style.display = 'none'; }
-      if (state === 'play') elapsed += dt;
+      if (state === 'play') {
+        // 社長の登場中は手が止まる
+        if (pauseT > 0) { pauseT -= dt; if (pauseT <= 0) viewName = 'play'; }
+        else elapsed += dt;
+      }
+      const bowT = pauseT > 0.3 && pauseT < 1.7 ? 1 : 0;
+      bow += (bowT - bow) * (1 - Math.exp(-8 * dt));
       frame.voiceCd -= dt;
       // 枠の移動
       if (state === 'play' || state === 'ready') {
@@ -981,14 +1005,15 @@
       }
       if (state === 'result') resultT += dt;
 
-      // 部長の登場
-      if (state === 'play' && elapsed >= CFG.bucho.from - 1.4 && buchoT < 0) { buchoT = 0; bucho.g.visible = true; }
-      if (buchoT >= 0) {
-        const prevT = buchoT; buchoT += gdt;
-        const k = Math.min(1, buchoT / 1.2);
-        bucho.g.position.lerpVectors(BUCHO_OFF, BUCHO_POS, easeOut(k));
-        bucho.g.position.y = k < 1 ? Math.abs(Math.sin(buchoT * 12)) * 0.03 : 0;
-        if (prevT < 1.2 && buchoT >= 1.2) talk(bucho, speak(F_BUCHO, 'oo', 0.16, 0.45, -0.1));
+      // 部長・社長の登場（歩いてくる）
+      for (const [id, b] of Object.entries(BOSSES)) {
+        if (state === 'play' && elapsed >= CFG[id].from - 1.4 && b.t < 0) { b.t = 0; b.p.g.visible = true; if (id === 'shacho') { pauseT = 2.9; viewName = 'boss'; } }
+        if (b.t < 0) continue;
+        const prevT = b.t; b.t += gdt;
+        const k = Math.min(1, b.t / 1.2);
+        b.p.g.position.lerpVectors(b.off, b.pos, easeOut(k));
+        b.p.g.position.y = k < 1 ? Math.abs(Math.sin(b.t * 12)) * 0.03 : 0;
+        if (prevT < 1.2 && b.t >= 1.2) b.hello();
       }
       if (bukaJoinT >= 0) bukaJoinT += gdt;
       // 猫が手を出す前に鳴く
@@ -996,7 +1021,7 @@
 
       for (const id of ORDER) stepStamper(st[id], gdt);
       shake = Math.max(0, shake - dt * 0.08);
-      for (const p of [kacho, buka, bucho]) p.talk = Math.max(0, p.talk - dt);
+      for (const p of [kacho, buka, bucho, shacho]) p.talk = Math.max(0, p.talk - dt);
       stepFx(gdt);
       if (state === 'result' && resultT >= 1.0 && !snap && !needSnap) needSnap = true;
     }
@@ -1080,7 +1105,7 @@
 
     // ---------- 描画 ----------
     const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3();
-    const POLE_R = V(1, -1, -0.6), POLE_L = V(-1, -1, -0.6), POLE_BUKA = V(0.6, -1, -0.6), POLE_BUCHO = V(-0.6, -1, -0.6), POLE_DOWN = V(0, -1, 0.3);
+    const POLE_R = V(1, -1, -0.6), POLE_L = V(-1, -1, -0.6), POLE_BUKA = V(0.6, -1, -0.6), POLE_DOWN = V(0, -1, 0.3);
     function placeBubble(el, obj, dy) {
       if (el.style.display !== 'block') return;
       obj.getWorldPosition(tmpV); tmpV.y += dy; tmpV.project(camera);
@@ -1116,19 +1141,20 @@
         const s = st[id];
         const p = hp[id] = tmpV.lerpVectors(s.prev, s.pos, alpha).clone();
         s.g.position.copy(p);
-        s.g.visible = s.phase !== 'off' && (id !== 'bucho' || bucho.g.visible);
+        s.g.visible = s.phase !== 'off' && (!BOSSES[id] || BOSSES[id].p.g.visible);
         if (id === 'buka' && bukaJoinT >= 0 && bukaJoinT < 0.3) s.g.scale.setScalar(Math.max(0.01, bukaJoinT / 0.3)); else s.g.scale.setScalar(1);
-        s.g.rotation.y = id === 'bucho' ? 0.1 : 0;
+        s.g.rotation.y = BOSSES[id] ? BOSSES[id].rot : 0;
         if (s.phase === 'press') s.g.scale.y = 0.94;
       }
       // 人の姿勢と腕
-      for (const p of [kacho, buka, bucho]) {
+      for (const p of [kacho, buka, bucho, shacho]) {
         p.mouth.scale.y = p.talk > 0 ? 0.008 + Math.abs(Math.sin(now * 22)) * 0.022 : 0.008;
       }
       // 課長: ハンコの位置に合わせて身を乗り出す
       const kp = hp.kacho;
       const leanT = state === 'intro' && introT > 2.8 && introT < 5.6 ? 0.28 : clamp((kp.z + 0.45) * 0.55, 0, 0.42);
       kachoLean += (leanT - kachoLean) * 0.12;
+      buka.pivot.rotation.x = bucho.pivot.rotation.x = bow * 0.5;
       kacho.pivot.rotation.x = kachoLean;
       kacho.pivot.rotation.z = -clamp(kp.x * 0.2, -0.15, 0.15);
       kacho.g.updateMatrixWorld(true);
@@ -1136,7 +1162,7 @@
       reach(kacho, kacho.arms[1], kHand, POLE_R);
       reach(kacho, kacho.arms[0], V(-0.3, TOPY + 0.03, -0.42), POLE_L);
       const kLook = state === 'intro' && introT < 2.6 ? buka.head.getWorldPosition(V()) : state === 'result' || state === 'over' ? frameWorld() : state === 'intro' ? paperG.position.clone() : V(frame.x, TOPY, frame.z);
-      kacho.head.lookAt(kLook);
+      kacho.head.lookAt(pauseT > 0 && pauseT < 2.2 ? shacho.head.getWorldPosition(V()) : kLook); // 社長が来たら振り返る
       const brow = state === 'play' || state === 'ready' ? 0.25 : state === 'intro' && introT > 4 ? 0.15 : 0;
       kacho.brows.forEach((b, i) => b.rotation.z = (i ? -1 : 1) * -0.12 + (i ? 1 : -1) * brow);
       // 部下
@@ -1147,13 +1173,17 @@
       reach(buka, buka.arms[0], sidePos(buka, -1), POLE_DOWN);
       buka.head.lookAt(state === 'intro' ? kacho.head.getWorldPosition(V()) : st.buka.phase !== 'off' ? hp.buka : frameWorld());
       // 部長
-      bucho.g.updateMatrixWorld(true);
-      const bReady = buchoT > 0.9;
-      reach(bucho, bucho.arms[0], bReady ? V(hp.bucho.x, hp.bucho.y + st.bucho.top + 0.02, hp.bucho.z) : sidePos(bucho, -1), POLE_BUCHO);
-      reach(bucho, bucho.arms[1], sidePos(bucho, 1), POLE_DOWN);
-      if (!bReady) { st.bucho.pos.copy(bucho.arms[0].hand.position).y -= st.bucho.top + 0.02; st.bucho.prev.copy(st.bucho.pos); st.bucho.g.position.copy(st.bucho.pos); }
-      bucho.head.lookAt(bReady ? hp.bucho : kacho.head.getWorldPosition(V()));
-      for (const a of bucho.arms) { a.up.visible = a.lo.visible = a.hand.visible = a.cuff.visible = bucho.g.visible; }
+      // 部長・社長: 着くまではハンコを手に下げている
+      for (const [id, b] of Object.entries(BOSSES)) {
+        const p = b.p, s = st[id];
+        p.g.updateMatrixWorld(true);
+        const ready = b.t > 0.9;
+        reach(p, p.arms[b.arm], ready ? V(hp[id].x, hp[id].y + s.top + 0.02, hp[id].z) : sidePos(p, b.arm ? 1 : -1), b.pole);
+        reach(p, p.arms[1 - b.arm], sidePos(p, b.arm ? -1 : 1), POLE_DOWN);
+        if (!ready) { s.pos.copy(p.arms[b.arm].hand.position).y -= s.top + 0.02; s.prev.copy(s.pos); s.g.position.copy(s.pos); }
+        p.head.lookAt(ready ? hp[id] : kacho.head.getWorldPosition(V()));
+        for (const a of p.arms) { a.up.visible = a.lo.visible = a.hand.visible = a.cuff.visible = p.g.visible; }
+      }
       // 猫の腕
       const cp = hp.cat;
       const csh = catG.localToWorld(CAT_SH.clone());
@@ -1179,7 +1209,7 @@
     applyLang();
     start(true);
     // 最初の1回が重くならないように、全部の形を一度描いておく
-    { for (const id of ORDER) { st[id].g.visible = true; st[id].tele.visible = true; } bucho.g.visible = true; updateCamera(0); renderer.compile(scene, camera); renderer.render(scene, camera); drawSeal(st.kacho, 0, 0, 0, 1); reset(); }
+    { for (const id of ORDER) { st[id].g.visible = true; st[id].tele.visible = true; } bucho.g.visible = shacho.g.visible = true; updateCamera(0); renderer.compile(scene, camera); renderer.render(scene, camera); drawSeal(st.kacho, 0, 0, 0, 1); reset(); }
     requestAnimationFrame(t0 => { last = t0; loop(t0); });
   </script>
 </body>
