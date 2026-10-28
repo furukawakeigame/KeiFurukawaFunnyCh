@@ -109,13 +109,13 @@
     const TAG = '#ロウソク立てゲーム';
     const DICT = {
       ja: { title: 'ロウソク立て', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', tilt: d => `傾き ${d}°`, off: c => `中心から ${c}cm`,
-        shareOk: (d, c) => `ロケットみたいに飛ぶロウソクをケーキに立てた！ 傾き${d}° 中心から${c}cm ${TAG}`, shareNg: `ロケットみたいに飛ぶロウソクをケーキに立てられなかった ${TAG}` },
+        shareOk: (d, c) => `ロケットみたいに飛ぶロウソクをケーキに立てた！ 傾き${d}° 中心から${c}cm ${TAG}`, shareNg: m => `ロケットみたいに飛ぶロウソクをケーキに立てられなかった（ケーキまで${m}m） ${TAG}`, left: m => `ケーキまで ${m}m` },
       ko: { title: '케이크 초 꽂기', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', tilt: d => `기울기 ${d}°`, off: c => `중심에서 ${c}cm`,
-        shareOk: (d, c) => `로켓처럼 나는 초를 케이크에 꽂았다! 기울기 ${d}° 중심에서 ${c}cm ${TAG}`, shareNg: `로켓처럼 나는 초를 케이크에 꽂지 못했다 ${TAG}` },
+        shareOk: (d, c) => `로켓처럼 나는 초를 케이크에 꽂았다! 기울기 ${d}° 중심에서 ${c}cm ${TAG}`, shareNg: m => `로켓처럼 나는 초를 케이크에 꽂지 못했다 (케이크까지 ${m}m) ${TAG}`, left: m => `케이크까지 ${m}m` },
       en: { title: 'Candle Rocket', back: '← Back to top', again: 'Play again', post: 'Post on X', tilt: d => `Tilt ${d}°`, off: c => `${c}cm from center`,
-        shareOk: (d, c) => `I flew a rocket candle into the cake and it stood! Tilt ${d}°, ${c}cm from center ${TAG}`, shareNg: `I flew a rocket candle at the cake and it didn't stand ${TAG}` },
+        shareOk: (d, c) => `I flew a rocket candle into the cake and it stood! Tilt ${d}°, ${c}cm from center ${TAG}`, shareNg: m => `I flew a rocket candle at the cake and it didn't stand (${m}m to go) ${TAG}`, left: m => `${m}m to the cake` },
       th: { title: 'ปักเทียนจรวด', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', tilt: d => `เอียง ${d}°`, off: c => `ห่างจากกลาง ${c}cm`,
-        shareOk: (d, c) => `บังคับเทียนจรวดไปปักบนเค้กได้! เอียง ${d}° ห่างจากกลาง ${c}cm ${TAG}`, shareNg: `บังคับเทียนจรวดไปปักบนเค้กไม่สำเร็จ ${TAG}` },
+        shareOk: (d, c) => `บังคับเทียนจรวดไปปักบนเค้กได้! เอียง ${d}° ห่างจากกลาง ${c}cm ${TAG}`, shareNg: m => `บังคับเทียนจรวดไปปักบนเค้กไม่สำเร็จ (ห่างจากเค้ก ${m}m) ${TAG}`, left: m => `ห่างจากเค้ก ${m}m` },
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -287,12 +287,12 @@
     renderer.toneMappingExposure = 1.05;
     stage.prepend(renderer.domElement);
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 120);
+    const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 160);
     const fitCam = new THREE.PerspectiveCamera(50, 1, 0.05, 120);
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     scene.background = new THREE.Color('#3a2820');
-    scene.fog = new THREE.Fog('#3a2820', 22, 48);
+    scene.fog = new THREE.Fog('#3a2820', 40, 100);
 
     const hemi = new THREE.HemisphereLight('#a8bce8', '#6b4a35', 0.9);
     scene.add(hemi);
@@ -300,7 +300,7 @@
     sun.position.set(3, 15, 5); sun.target.position.set(0, 0, -1.5);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
-    Object.assign(sun.shadow.camera, { left: -11, right: 11, top: 11, bottom: -11, near: 2, far: 40 });
+    Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 2, far: 45 });
     sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.03;
     scene.add(sun, sun.target);
 
@@ -333,7 +333,8 @@
 
     // ---------- 部屋 ----------
     // 単位: 1 = 10cm。机の天板の上面が y=0
-    const TX = 6, TZ = 9, FLOOR = -7.2, RX = 16, RZ0 = -17, RZ1 = 15, CEIL = 12;
+    // 奥（-z）がダイニングのケーキ、手前（+z）がリビングの発射台。間に仕切りの壁とドアがある
+    const TX = 6, TZ = 9, FLOOR = -7.2, RX = 16, RZ0 = -17, RZ1 = 62, CEIL = 15, WALLZ = 30;
     const CAKE = { x: 0, z: -3.5, r: 1.1, h: 0.95, plate: 1.5, ph: 0.1 };
     CAKE.top = CAKE.ph + CAKE.h;
     // 床（板張り）
@@ -344,7 +345,7 @@
           g.strokeStyle = 'rgba(40,20,10,.55)'; g.lineWidth = 2; g.strokeRect(-2 + (i % 2) * 180, i * 64, 360, 64);
           for (let k = 0; k < 12; k++) { g.strokeStyle = `rgba(60,30,15,${rnd(0.08, 0.25)})`; g.lineWidth = 1; const y = i * 64 + rnd(4, 60); g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(w / 3, y + rnd(-4, 4), w * 2 / 3, y + rnd(-4, 4), w, y); g.stroke(); }
         }
-      }, [6, 6]);
+      }, [6, 14]);
       const f = new THREE.Mesh(new THREE.PlaneGeometry(RX * 2, RZ1 - RZ0), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55 }));
       f.rotation.x = -Math.PI / 2; f.position.set(0, FLOOR, (RZ0 + RZ1) / 2); f.receiveShadow = true; scene.add(f);
       // ラグ
@@ -372,11 +373,12 @@
     }
     wall(RX * 2, 0, RZ0, 0); wall(RZ1 - RZ0, -RX, (RZ0 + RZ1) / 2, Math.PI / 2); wall(RZ1 - RZ0, RX, (RZ0 + RZ1) / 2, -Math.PI / 2); wall(RX * 2, 0, RZ1, Math.PI);
     { const c = new THREE.Mesh(new THREE.PlaneGeometry(RX * 2, RZ1 - RZ0), mat('#fff3e0', 1, { emissive: '#e0c8a8', emissiveIntensity: 0.55 })); c.rotation.x = Math.PI / 2; c.position.set(0, CEIL, (RZ0 + RZ1) / 2); scene.add(c);
-      for (let i = 0; i < 5; i++) part(BOX, mat('#7a4a2a', 0.6, { emissive: '#3a2010', emissiveIntensity: 0.5 }), 0, CEIL - 0.3, RZ0 + 3 + i * 7, RX * 2, 0.6, 0.8).castShadow = false; }
+      for (let i = 0; i < 11; i++) part(BOX, mat('#7a4a2a', 0.6, { emissive: '#3a2010', emissiveIntensity: 0.5 }), 0, CEIL - 0.3, RZ0 + 3 + i * 7, RX * 2, 0.6, 0.8).castShadow = false; }
     // 窓（奥の壁）: 外は夜空と月
+    let skyTex;
     {
       const win = new THREE.Group(); win.position.set(0, 5, RZ0 + 0.05); scene.add(win);
-      const sky = canvasTex(256, 192, (g, w, h) => {
+      skyTex = canvasTex(256, 192, (g, w, h) => {
         const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#0e1838'); gr.addColorStop(0.7, '#2a3a70'); gr.addColorStop(1, '#5a5080'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
         for (let i = 0; i < 120; i++) { g.fillStyle = `rgba(255,255,240,${Math.random()})`; g.fillRect(Math.random() * w, Math.random() * h * 0.8, 1.2, 1.2); }
         const mg = g.createRadialGradient(190, 50, 4, 190, 50, 40); mg.addColorStop(0, 'rgba(255,250,220,.6)'); mg.addColorStop(1, 'rgba(255,250,220,0)'); g.fillStyle = mg; g.fillRect(140, 0, 100, 100);
@@ -384,7 +386,7 @@
         g.fillStyle = '#18183a'; for (let x = 0; x < w; x += 18) { const hh = rnd(14, 40); g.fillRect(x, h - hh, 16, hh); }
         g.fillStyle = '#ffd98a'; for (let i = 0; i < 30; i++) g.fillRect(Math.random() * w, h - rnd(4, 30), 2, 2);
       });
-      part(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: sky, fog: false }), 0, 0, 0.02, 7, 5, 1, win).castShadow = false;
+      part(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: skyTex, fog: false }), 0, 0, 0.02, 7, 5, 1, win).castShadow = false;
       const fr = mat('#f6efe2', 0.5);
       for (const [x, y, w, h] of [[0, 2.55, 7.6, 0.3], [0, -2.55, 7.8, 0.4], [-3.65, 0, 0.3, 5.3], [3.65, 0, 0.3, 5.3], [0, 0, 0.18, 5.1], [0, 0.4, 7.2, 0.16]]) part(BOX, fr, x, y, 0.15, w, h, 0.3, win);
       // カーテン
@@ -548,7 +550,7 @@
       const face = new THREE.Mesh(new THREE.PlaneGeometry(3.3, 3.3), new THREE.MeshStandardMaterial({ map: catTex, transparent: true, alphaTest: 0.35, roughness: 0.9, side: THREE.DoubleSide }));
       face.rotation.y = -Math.PI / 2; face.position.set(-0.4, 0.15, 0); face.castShadow = true; catHead.add(face);
       // 顔はケーキと発射台の間を見る
-      catG.lookAt(0, catG.position.y, 1.5); catG.rotateY(Math.PI / 2);
+      catG.lookAt(0, catG.position.y, 14); catG.rotateY(Math.PI / 2);
     }
     const catBase = catG.rotation.clone();
 
@@ -571,8 +573,8 @@
     for (const s of statics) hardBodies.add(addStatic(s.shape, ...s.pos, s.ry || 0));
     const floorBody = addStatic(new CANNON.Box(new CANNON.Vec3(RX, 1, (RZ1 - RZ0) / 2)), 0, FLOOR - 1, (RZ0 + RZ1) / 2);
     addStatic(new CANNON.Box(new CANNON.Vec3(RX, 1, (RZ1 - RZ0) / 2)), 0, CEIL + 1, (RZ0 + RZ1) / 2);
-    addStatic(new CANNON.Box(new CANNON.Vec3(1, 20, 20)), -RX - 1, 0, 0);
-    addStatic(new CANNON.Box(new CANNON.Vec3(1, 20, 20)), RX + 1, 0, 0);
+    addStatic(new CANNON.Box(new CANNON.Vec3(1, 20, (RZ1 - RZ0) / 2 + 2)), -RX - 1, 0, (RZ0 + RZ1) / 2);
+    addStatic(new CANNON.Box(new CANNON.Vec3(1, 20, (RZ1 - RZ0) / 2 + 2)), RX + 1, 0, (RZ0 + RZ1) / 2);
     addStatic(new CANNON.Box(new CANNON.Vec3(20, 20, 1)), 0, 0, RZ0 - 1);
     addStatic(new CANNON.Box(new CANNON.Vec3(20, 20, 1)), 0, 0, RZ1 + 1);
     // 椅子の座面
@@ -589,11 +591,124 @@
       world.addBody(catBody);
     }
 
+    // ---------- 障害物（リビング → 仕切りのドア → ダイニング） ----------
+    const SHELF_TOP = 2.8;
+    let fanG, fanBody;
+    {
+      const bookCols = ['#c9604a', '#3a6ad8', '#e8c25a', '#4a8a5a', '#8a4ac0', '#e8e0d0', '#2a2a2a'];
+      // 発射台をのせる本棚（リビングのいちばん手前）
+      const shelf = new THREE.Group(); shelf.position.set(0, FLOOR, 58); scene.add(shelf);
+      const shelfM = new THREE.MeshStandardMaterial({ map: woodTex('#6a4228', '#2a1608', [1, 1]), roughness: 0.5 });
+      part(BOX, shelfM, 0, 5, 0.2, 10, 10, 3.6, shelf);
+      for (const y of [0.6, 3.6, 6.6]) for (let x = -4.4; x < 4.2;) {
+        const w = rnd(0.35, 0.7), h = rnd(1.8, 2.6);
+        part(BOX, mat(pick(bookCols), 0.7), x + w / 2, y + h / 2, -1.62, w, h, 0.25, shelf).castShadow = false;
+        x += w + 0.04;
+      }
+      addStatic(new CANNON.Box(new CANNON.Vec3(5, 5, 1.8)), 0, FLOOR + 5, 58.2);
+      // ソファとローテーブル（よけなくてよい横の家具）
+      const sofa = new THREE.Group(); sofa.position.set(-11.5, FLOOR, 46); scene.add(sofa);
+      const sofaM = mat('#5a7a9a', 0.95);
+      part(BOX, sofaM, 0, 2, 0, 6, 4, 14, sofa); part(BOX, sofaM, -2.4, 5, 0, 1.6, 4, 14, sofa);
+      for (const z of [-7.4, 7.4]) part(BOX, sofaM, 0.3, 3.8, z, 6.4, 3.4, 1.4, sofa);
+      for (const z of [-3.2, 0, 3.2]) part(new THREE.CapsuleGeometry(0.9, 1.6, 6, 12), mat(pick(['#f2c45a', '#e8577a', '#fff6e8']), 0.95), -1.1, 6.3, z, 1, 1, 1, sofa).rotation.x = Math.PI / 2;
+      addStatic(new CANNON.Box(new CANNON.Vec3(3.2, 4, 8)), -11.5, FLOOR + 3.5, 46);
+      // テレビ台とテレビ（右の壁）
+      const tv = new THREE.Group(); tv.position.set(13.8, FLOOR, 46); scene.add(tv);
+      part(BOX, shelfM, 0, 1.8, 0, 3, 3.6, 12, tv);
+      part(BOX, mat('#151515', 0.3), 0.2, 7.2, 0, 0.4, 6, 10.5, tv);
+      part(new THREE.PlaneGeometry(10, 5.5), new THREE.MeshBasicMaterial({ color: '#1e2a40' }), -0.02, 7.2, 0, 1, 1, 1, tv).rotation.y = -Math.PI / 2;
+      // フロアランプ（真ん中寄り）
+      const lampM = mat('#d8c8a8', 0.4, { metalness: 0.6 });
+      const LX = 2.4, LZ = 50.5;
+      part(CYL, lampM, LX, (FLOOR + 5.4) / 2, LZ, 0.24, 5.4 - FLOOR, 0.24);
+      part(new THREE.CylinderGeometry(1, 1.2, 0.3, 24), lampM, LX, FLOOR + 0.15, LZ);
+      const lshade = part(new THREE.CylinderGeometry(0.9, 1.5, 2, 24, 1, true), mat('#f6e2c0', 0.8, { side: THREE.DoubleSide, emissive: '#ffcf80', emissiveIntensity: 0.6 }), LX, 6.3, LZ);
+      lshade.castShadow = false;
+      addStatic(new CANNON.Cylinder(0.12, 0.12, 5.4 - FLOOR, 8), LX, (FLOOR + 5.4) / 2, LZ);
+      addStatic(new CANNON.Cylinder(0.9, 1.5, 2, 12), LX, 6.3, LZ);
+      // 大きな観葉植物
+      const PX = -2.6, PZ = 43;
+      part(new THREE.CylinderGeometry(1.4, 1.1, 3, 24), mat('#c9744a', 0.8), PX, FLOOR + 1.5, PZ);
+      const leafM = mat('#3f8f4a', 0.6), leafM2 = mat('#5aa85a', 0.6);
+      for (let i = 0; i < 26; i++) {
+        const a = i * 2.4, h = rnd(0.2, 1), r = rnd(0.4, 1.9);
+        const lf = part(SPH, i % 2 ? leafM : leafM2, PX + Math.cos(a) * r, FLOOR + 3 + (6 + rnd(-1, 2)) * h + 3, PZ + Math.sin(a) * r, 2.2, 0.25, 1.1);
+        lf.rotation.set(rnd(-.5, .5), -a, rnd(-.6, .6));
+      }
+      part(CYL, mat('#5a7a3a', 0.8), PX, FLOOR + 5, PZ, 0.25, 6, 0.25);
+      addStatic(new CANNON.Cylinder(1.4, 1.1, 3, 12), PX, FLOOR + 1.5, PZ);
+      addStatic(new CANNON.Sphere(2.3), PX, FLOOR + 7.6, PZ);
+      // 天井の扇風機（回っている）
+      fanG = new THREE.Group(); fanG.position.set(0, CEIL - 2.4, 37.5); scene.add(fanG);
+      const fanM = mat('#7a4a2a', 0.5);
+      part(CYL, mat('#c8b890', 0.4, { metalness: 0.6 }), 0, 1.2, 0, 0.15, 2.4, 0.15, fanG);
+      part(CYL, mat('#c8b890', 0.4, { metalness: 0.6 }), 0, 0, 0, 1, 0.7, 1, fanG);
+      part(SPH, new THREE.MeshBasicMaterial({ color: '#fff2c8' }), 0, -0.45, 0, 0.8, 0.6, 0.8, fanG).castShadow = false;
+      fanBody = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC });
+      for (let i = 0; i < 4; i++) {
+        const a = i / 4 * Math.PI * 2;
+        const b = part(BOX, fanM, Math.cos(a) * 3, 0.05, -Math.sin(a) * 3, 4.6, 0.1, 1.1, fanG); b.rotation.y = a;
+        fanBody.addShape(new CANNON.Box(new CANNON.Vec3(2.3, 0.15, 0.55)), new CANNON.Vec3(Math.cos(a) * 3, 0.05, -Math.sin(a) * 3), new CANNON.Quaternion().setFromEuler(0, a, 0));
+      }
+      fanBody.position.set(fanG.position.x, fanG.position.y, fanG.position.z);
+      world.addBody(fanBody);
+      // 仕切りの壁: 真ん中にドアの開いた出入り口
+      const DW = 3.6, DTOP = 8;
+      const pwM = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.9 });
+      const pw = (x0, x1, y0, y1) => {
+        part(BOX, pwM, (x0 + x1) / 2, (y0 + y1) / 2, WALLZ, x1 - x0, y1 - y0, 1);
+        addStatic(new CANNON.Box(new CANNON.Vec3((x1 - x0) / 2, (y1 - y0) / 2, 0.5)), (x0 + x1) / 2, (y0 + y1) / 2, WALLZ);
+      };
+      pw(-RX, -DW, FLOOR, CEIL); pw(DW, RX, FLOOR, CEIL); pw(-DW, DW, DTOP, CEIL);
+      for (const sz of [-1, 1]) {
+        part(BOX, panelM, -(RX + DW) / 2, FLOOR + 2.2, WALLZ + sz * 0.55, RX - DW, 4.4, 0.1).castShadow = false;
+        part(BOX, panelM, (RX + DW) / 2, FLOOR + 2.2, WALLZ + sz * 0.55, RX - DW, 4.4, 0.1).castShadow = false;
+      }
+      const trimM = mat('#f6efe2', 0.5);
+      for (const sx of [-1, 1]) part(BOX, trimM, sx * (DW + 0.15), (FLOOR + DTOP) / 2, WALLZ, 0.3, DTOP - FLOOR, 1.3);
+      part(BOX, trimM, 0, DTOP + 0.15, WALLZ, DW * 2 + 0.6, 0.3, 1.3);
+      // 半分開いたドア（右側をふさぐ）
+      const th = 1.05, dw = DW * 2 - 0.2, ry = Math.PI + th;
+      const door = new THREE.Group(); door.position.set(DW - 0.1, FLOOR, WALLZ + 0.6); door.rotation.y = ry; scene.add(door);
+      part(BOX, mat('#a8744a', 0.5), dw / 2, (DTOP - FLOOR - 0.1) / 2, 0, dw, DTOP - FLOOR - 0.1, 0.35, door);
+      for (const y of [3, 9.5]) part(BOX, mat('#946238', 0.5), dw / 2, y, 0.2, dw - 1.2, 4.5, 0.06, door);
+      part(SPH, mat('#e8c25a', 0.2, { metalness: 0.9 }), dw - 0.6, 7.4, 0.3, 0.35, 0.35, 0.35, door);
+      addStatic(new CANNON.Box(new CANNON.Vec3(dw / 2, (DTOP - FLOOR) / 2, 0.2)), DW - 0.1 + Math.cos(ry) * dw / 2, (FLOOR + DTOP) / 2, WALLZ + 0.6 - Math.sin(ry) * dw / 2, ry);
+      // 壁の絵（ダイニング側）
+      for (const [x, c] of [[-9, '#e8577a'], [9, '#3a6ad8']]) {
+        part(BOX, mat('#5a3a22', 0.5), x, 4.5, WALLZ - 0.6, 4, 3, 0.2);
+        part(new THREE.PlaneGeometry(3.4, 2.4), new THREE.MeshStandardMaterial({ roughness: 0.9, map: canvasTex(128, 96, (g, w, h) => { g.fillStyle = '#f6efe2'; g.fillRect(0, 0, w, h); for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? c : '#f2c45a'; g.beginPath(); g.arc(rnd(10, w - 10), rnd(10, h - 10), rnd(8, 26), 0, 7); g.fill(); } }) }), x, 4.5, WALLZ - 0.71).rotation.y = Math.PI;
+      }
+      // 浮かんでいる風船のかたまり（ダイニングの入口）
+      const bcols = ['#f26d8f', '#ffd25a', '#6ac4e8', '#c28af0', '#8ad86a'];
+      [[-1.6, 3.2, 22], [-0.2, 4.4, 21.5], [-2.4, 5.2, 22.6], [0.6, 2.2, 22.8], [-1, 6.4, 22]].forEach(([x, y, z], i) => {
+        part(SPH, new THREE.MeshStandardMaterial({ color: bcols[i], roughness: 0.2, metalness: 0.05 }), x, y, z, 1.7, 2, 1.7);
+        const str = part(CYL, mat('#ddd', 0.8), (x - 1) / 2, (y - 1 + FLOOR) / 2, (z + 22) / 2, 0.02, y - 1 - FLOOR, 0.02); str.castShadow = false;
+        str.rotation.set((z - 22) / (y - FLOOR) * -1, 0, (x + 1) / (y - FLOOR));
+        addStatic(new CANNON.Sphere(0.9), x, y, z);
+      });
+      part(BOX, mat('#e8577a', 0.4), -1, FLOOR + 0.3, 22, 0.8, 0.6, 0.8);
+      // 机の手前の椅子（背もたれが机より高い）
+      chair(0, 11.6, -Math.PI / 2);
+      addStatic(new CANNON.Box(new CANNON.Vec3(1.8, 2.7, 0.2)), 0, SEAT + 2.6, 13.45);
+      addStatic(new CANNON.Box(new CANNON.Vec3(2, 0.3, 2)), 0, SEAT, 11.6);
+      // 机の上のランプ
+      addStatic(new CANNON.Sphere(1.2), 0, 7.6, -1.5);
+      addStatic(new CANNON.Cylinder(0.05, 0.05, CEIL - 8.2, 6), 0, (CEIL + 8.2) / 2, -1.5);
+      // 横の窓（リビング）
+      for (const z of [40, 52]) {
+        const w = new THREE.Group(); w.position.set(-RX + 0.05, 5, z); w.rotation.y = Math.PI / 2; scene.add(w);
+        part(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: skyTex, fog: false }), 0, 0, 0.02, 6, 4.5, 1, w).castShadow = false;
+        for (const [x, y, ww, hh] of [[0, 2.3, 6.6, 0.3], [0, -2.3, 6.8, 0.4], [-3.15, 0, 0.3, 4.8], [3.15, 0, 0.3, 4.8], [0, 0, 0.18, 4.6]]) part(BOX, trimM, x, y, 0.15, ww, hh, 0.3, w);
+      }
+    }
+
     // ---------- ロウソク ----------
-    const C_R = 0.07, L0 = 1.5, LMIN = 0.42, BURN = 14; // 燃え尽きるまでの秒数
+    const C_R = 0.07, L0 = 1.5, LMIN = 0.42, BURN = 30; // 燃え尽きるまでの秒数
     const THRUST = 10, DRAG = 2.5, GRIP = 6, TURN = 1.6;
-    const LAUNCH = new THREE.Vector3(0, 0.62, 7.2);
-    const LAUNCH_DIR = new THREE.Vector3(0, 0.3, -1).normalize();
+    const LAUNCH = new THREE.Vector3(0, SHELF_TOP + 0.8, 57.2);
+    const LAUNCH_DIR = new THREE.Vector3(0, 0.12, -1).normalize();
     const candleG = new THREE.Group(); scene.add(candleG);
     const stripeTex = canvasTex(64, 256, (g, w, h) => {
       g.fillStyle = '#fff8f2'; g.fillRect(0, 0, w, h);
@@ -619,6 +734,9 @@
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
     flameG.add(glow);
     const flameLight = new THREE.PointLight('#ffa040', 3, 7, 1.6); candleG.add(flameLight);
+    // ゴールの目印: ケーキの上でやわらかく光る
+    const goalGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: '#ffe0a0', blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
+    goalGlow.position.set(CAKE.x, CAKE.top + 0.7, CAKE.z); scene.add(goalGlow);
     // 発射台（スプーン型のレール）
     {
       const g = new THREE.Group(); g.position.copy(LAUNCH); scene.add(g);
@@ -628,7 +746,7 @@
       for (const s of [-1, 1]) part(BOX, metal, s * 0.06, -0.1, 0, 0.03, 0.05, 1.6, rail);
       part(BOX, metal, 0, -0.14, 0.6, 0.18, 0.03, 0.1, rail); part(BOX, metal, 0, -0.14, -0.6, 0.18, 0.03, 0.1, rail);
       part(CYL, metal, 0, -0.33 - 0.06, -0.3, 0.05, 0.46, 0.05, g); part(CYL, metal, 0, -0.27 - 0.06, 0.4, 0.05, 0.58, 0.05, g);
-      part(new THREE.CylinderGeometry(0.55, 0.65, 0.12, 24), mat('#c9604a', 0.4), 0, -LAUNCH.y + 0.06, 0.1, 1, 1, 1, g);
+      part(new THREE.CylinderGeometry(0.55, 0.65, 0.12, 24), mat('#c9604a', 0.4), 0, SHELF_TOP - LAUNCH.y + 0.06, 0.1, 1, 1, 1, g);
     }
 
     // ---------- 粒（炎・煙・クリーム・紙ふぶき） ----------
@@ -787,6 +905,7 @@
       const up = axis(q, 0, 1, 0), camU = axis(q, 0, 0, 1, tv2), f = up.clone().negate();
       const right = V().crossVectors(f, camU);
       // スティック（ドラッグした量）で曲がる速さが決まる
+      if (window.__auto) { const r = window.__auto(toT(body.position), f, camU, right); steer.on = true; steer.kx = r[0]; steer.ky = r[1]; }
       let jx = steer.on ? steer.kx : 0, jy = steer.on ? steer.ky : 0;
       jx += (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0); jy += (keys.ArrowUp ? 1 : 0) - (keys.ArrowDown ? 1 : 0);
       jx = THREE.MathUtils.clamp(jx, -1, 1); jy = THREE.MathUtils.clamp(jy, -1, 1);
@@ -809,6 +928,8 @@
 
     function step(dt) {
       clock += dt; stateT += dt;
+      const fa = clock * 1.6;
+      fanBody.quaternion.setFromEuler(0, fa, 0); fanBody.angularVelocity.set(0, 1.6, 0);
       if (state === 'fly' || state === 'crash') {
         if (state === 'fly') {
           fuel = Math.max(0, fuel - dt / BURN);
@@ -867,7 +988,9 @@
 
     function finish() {
       if (state === 'result') return;
+      // ケーキの上に届かなかったときは、ケーキまでの残りの距離（m）
       if (!res) res = { ok: false };
+      if (res.left === undefined) res.left = res.tilt !== undefined ? 0 : Math.hypot(curPos.x - CAKE.x, curPos.z - CAKE.z) / 10;
       state = 'result'; stateT = 0; steer.on = false; updateStick();
       catMood = hitCat ? -2 : res.ok ? 1 : -1; catMoodT = 0;
       showResult(); resultEl.style.display = 'flex';
@@ -970,6 +1093,9 @@
     }
     const cakeKeys = []; for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; cakeKeys.push(V(CAKE.x + Math.cos(a) * CAKE.plate, 0, CAKE.z + Math.sin(a) * CAKE.plate), V(CAKE.x + Math.cos(a) * CAKE.r, CAKE.top + 0.3, CAKE.z + Math.sin(a) * CAKE.r)); }
     let crashDir = V(0, 0.5, 1).normalize();
+    // ケーキから遠くで落ちたときは、ロウソクのまわりだけを映す
+    const nearCake = p => p.distanceTo(V(CAKE.x, CAKE.top, CAKE.z)) < 7;
+    const aroundKeys = p => [-1, 1].flatMap(a => [-1, 1].flatMap(b => [V(p.x + a * 2.2, p.y - 0.5, p.z + b * 2.2), V(p.x + a * 2.2, p.y + 1.6, p.z + b * 2.2)]));
     function candlePose(alpha) {
       return { p: prevPos.clone().lerp(curPos, alpha), q: prevQ.clone().slerp(curQ, alpha) };
     }
@@ -988,14 +1114,18 @@
         desPos.copy(pose.p).addScaledVector(crashDir, d); desLook.copy(pose.p); desUp.set(0, 1, 0);
         rate = 3;
       } else if (state === 'result') {
-        const kp = cakeKeys.slice();
+        const near = nearCake(pose.p);
+        const kp = near ? cakeKeys.slice() : aroundKeys(pose.p);
         kp.push(pose.p.clone().addScaledVector(up, candleL / 2 + 0.4), pose.p.clone().addScaledVector(up, -candleL / 2));
-        if (view.uw / view.uh > 1.15) { catHead.getWorldPosition(tv2); kp.push(tv2.clone().add(V(0, 0.6, 0))); }
+        if (near && view.uw / view.uh > 1.15) { catHead.getWorldPosition(tv2); kp.push(tv2.clone().add(V(0, 0.6, 0))); }
         const mid = V(); for (const k of kp) mid.add(k); mid.multiplyScalar(1 / kp.length);
         const look = CAKE.top > 0 && res?.ok ? V(CAKE.x, CAKE.top * 0.6, CAKE.z).lerp(mid, 0.3) : mid;
         fit(look, V(-0.4, 0.62, 1).normalize(), kp);
         rate = 2.2;
       }
+      // 影はいま見ている所のまわりにだけ作る
+      const focus = state === 'result' && res?.ok ? tv3.set(CAKE.x, 0, CAKE.z) : tv3.copy(pose.p);
+      sun.target.position.copy(focus); sun.position.copy(focus).add(tv2.set(3, 15, 5));
       // 部屋の外に出ないように
       desPos.x = THREE.MathUtils.clamp(desPos.x, -RX + 0.4, RX - 0.4); desPos.z = THREE.MathUtils.clamp(desPos.z, RZ0 + 0.4, RZ1 - 0.4); desPos.y = THREE.MathUtils.clamp(desPos.y, FLOOR + 0.4, CEIL - 0.4);
       if (Math.abs(desPos.x) < TX && Math.abs(desPos.z) < TZ) desPos.y = Math.max(desPos.y, 0.25);
@@ -1012,11 +1142,11 @@
     function updateHint() { hintEl.style.display = state === 'ready' && !shotOnce ? 'block' : 'none'; }
     const MARK_OK = '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="38" fill="none" stroke="#ffd25a" stroke-width="14"/></svg>';
     const MARK_NG = '<svg viewBox="0 0 100 100"><path d="M18 18 L82 82 M82 18 L18 82" stroke="#ff5a6a" stroke-width="15" stroke-linecap="round"/></svg>';
-    const resultLines = () => !res ? [] : res.ok ? [t('tilt')(res.tilt), t('off')(res.off.toFixed(1))] : res.tilt !== undefined ? [t('tilt')(res.tilt)] : [];
+    const resultLines = () => !res ? [] : res.ok ? [t('tilt')(res.tilt), t('off')(res.off.toFixed(1))] : res.tilt !== undefined ? [t('tilt')(res.tilt)] : [t('left')(res.left.toFixed(1))];
     function showResult() {
       resultEl.innerHTML = (res?.ok ? MARK_OK : MARK_NG) + resultLines().map(s => `<p>${s}</p>`).join('');
     }
-    const shareText = () => res?.ok ? t('shareOk')(res.tilt, res.off.toFixed(1)) : t('shareNg');
+    const shareText = () => res?.ok ? t('shareOk')(res.tilt, res.off.toFixed(1)) : t('shareNg')((res?.left ?? 0).toFixed(1));
     function renderControls() {
       controls.innerHTML = '';
       controls.classList.toggle('hide', state !== 'result');
@@ -1053,8 +1183,8 @@
       const src = renderer.domElement, dpr = renderer.getPixelRatio();
       const S = Math.floor(Math.min(src.width, src.height) / dpr);
       const pose = candlePose(1), up = axis(pose.q, 0, 1, 0);
-      const pts = [...cakeKeys];
-      if (pose.p.distanceTo(V(CAKE.x, CAKE.top, CAKE.z)) < 8) pts.push(pose.p.clone().addScaledVector(up, candleL / 2 + 0.4), pose.p.clone().addScaledVector(up, -candleL / 2));
+      const pts = nearCake(pose.p) ? [...cakeKeys] : aroundKeys(pose.p);
+      pts.push(pose.p.clone().addScaledVector(up, candleL / 2 + 0.4), pose.p.clone().addScaledVector(up, -candleL / 2));
       const look = V(); for (const k of pts) look.add(k); look.multiplyScalar(1 / pts.length);
       const dir = V(-0.4, 0.62, 1).normalize();
       let lo = 2, hi = 60;
@@ -1128,6 +1258,10 @@
         pose = { p: bottomHit.clone().addScaledVector(up, d0), q };
       } else pose = candlePose(alpha);
       candleG.position.copy(pose.p); candleG.quaternion.copy(pose.q);
+      fanG.quaternion.copy(fanBody.quaternion);
+      const gd = camera.position.distanceTo(goalGlow.position);
+      goalGlow.material.opacity = state === 'ready' || state === 'fly' ? 0.45 + 0.2 * Math.sin(clock * 3) : 0;
+      goalGlow.scale.setScalar(Math.max(2.2, gd * 0.07));
       waxMesh.scale.y = candleL; stripeTex.repeat.y = candleL / L0; 
       waxTop.position.y = candleL / 2; wick.position.y = candleL / 2 + 0.05;
       flameG.position.y = candleL / 2 + 0.08;
