@@ -618,6 +618,18 @@
       }
     }
 
+    // ゴールの先で、下からゆっくり上がってくる猫
+    const goalCat = makeCat();
+    {
+      const p = at(L), tg = tanAt(L);
+      goalCat.g.position.copy(p).addScaledVector(tg, 24);
+      goalCat.g.rotation.y = Math.atan2(-tg.x, -tg.z);
+      goalCat.g.scale.setScalar(1.7);
+      goalCat.baseY = H + 8 - 29.8 * 1.7; goalCat.g.position.y = goalCat.baseY - 60;
+      goalCat.g.visible = false;
+      scene.add(goalCat.g);
+    }
+
     // ---------- まわりの小物 ----------
     {
       const trunkG = new THREE.CylinderGeometry(0.5, 0.8, 1, 6), foliG = new THREE.IcosahedronGeometry(1, 1);
@@ -679,8 +691,24 @@
       st.rotation.y = Math.atan2(tg.x, tg.z);
       scene.add(shade(st));
       // 車止め
-      const bp = at(L - 2), btg = tanAt(L - 2);
-      const bump = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2, 0.6), std('#d33a2a')); bump.position.copy(bp).setY(H + 1.6); bump.rotation.y = Math.atan2(btg.x, btg.z); scene.add(shade(bump));
+      // 車止め: レールが曲がって立ち上がり、紅白のしまの横木と赤いランプ
+      const bp = at(L - 3), btg = tanAt(L - 3);
+      const bs = new THREE.Group();
+      const steel = std('#5a5650', 0.45, { metalness: 0.6 });
+      const stripeTex = canvasTex(128, 16, (g, w, h) => { for (let x = 0; x < w; x += 16) { g.fillStyle = (x / 16) % 2 ? '#f4f1ea' : '#d33a2a'; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 16, 0); g.lineTo(x + 8, h); g.lineTo(x - 8, h); g.fill(); } }, null);
+      for (const sx of [-0.48, 0.48]) {
+        const r1 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.25, 3.2), steel); r1.position.set(sx, 2.0, -0.6); r1.rotation.x = -0.75; bs.add(r1); // 斜めに立ち上がる
+        const r2 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 2.6, 0.25), steel); r2.position.set(sx, 2.3, 0.6); bs.add(r2);         // 縦の柱
+      }
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.75, 0.5), [steel, steel, std('#d33a2a', 0.5), std('#d33a2a', 0.5), std('#fff', 0.5, { map: stripeTex }), std('#fff', 0.5, { map: stripeTex })]);
+      beam.position.set(0, 2.9, 0.55); bs.add(beam);
+      for (const sx of [-0.9, 0.9]) { const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.35, 14), std('#2e2c2a', 0.6)); pad.rotation.x = Math.PI / 2; pad.position.set(sx, 2.9, 0.2); bs.add(pad); }
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.32, 14, 10), std('#ff5040', 0.3, { emissive: '#ff2a1a', emissiveIntensity: 1.6 })); lamp.position.set(0, 3.55, 0.55); bs.add(lamp);
+      const lampBase = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 0.25, 10), steel); lampBase.position.set(0, 3.3, 0.55); bs.add(lampBase);
+      const sand = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), std('#b9a27a', 1)); sand.scale.set(2.2, 0.8, 1.4); sand.position.set(0, 0.6, 1.6); bs.add(sand);
+      bs.position.copy(bp).setY(H); bs.rotation.y = Math.atan2(btg.x, btg.z);
+      scene.add(shade(bs));
+      window.__lamp = lamp;
     }
 
     // ---------- 破片 ----------
@@ -709,6 +737,7 @@
     function reset() {
       s = prevS = START; v = 0; time = 0; victim = null; flyT = 0; landed = false; finT = 0; clackAt = Math.ceil(START / 10) * 10;
       for (const b of bits) scene.remove(b.m); bits.length = 0;
+      goalCat.g.visible = false; goalCat.g.position.y = goalCat.baseY - 60; goalCat.meowed = false;
       for (const c of CATS) { c.tension = c.shown = c.anger = 0; c.growled = c.passed = false; c.g.position.copy(c.home); c.g.rotation.set(0, c.rotY, 0); c.upper.rotation.set(0, 0, 0); c.legs.forEach(l => l.rotation.set(0, 0, 0)); setLv(c, 0); }
     }
     const setLv = (c, lv) => { if (c.lv !== lv) { c.lv = lv; c.face.material = faceMats[lv]; } };
@@ -741,7 +770,12 @@
         v = Math.max(0, v - 70 * dt); s = Math.min(L - 5, s + v * dt);
         if (s >= clackAt) { clackAt += 10; if (v > 1) sClack(v); }
         for (const c of CATS) c.tension += (0 - c.tension) * dt * 5;
-        if (finT > 1.4) finish();
+        // 止まりかけた頃に、猫が下からゆっくり顔を出す
+        const k = THREE.MathUtils.clamp((finT - 0.4) / 2.4, 0, 1);
+        goalCat.g.visible = k > 0;
+        goalCat.g.position.y = goalCat.baseY - 60 * (1 - (k * k * (3 - 2 * k)));
+        if (finT > 0.6 && !goalCat.meowed) { goalCat.meowed = true; setTimeout(() => sMeow({ f0: 560 }), 2200); }
+        if (finT > 3.6) finish();
       } else if (state === 'fly') {
         flyT += dt;
         const c = victim, k = Math.min(1, flyT / 0.32);
@@ -784,6 +818,7 @@
         const ss = prevS + (s - prevS) * alpha;
         at(ss, camPos).setY(H + 2.4 + Math.sin(t * 40) * 0.015 * Math.min(1, v / 40));
         look.copy(at(ss + 14, tmp)).setY(H + 1.2);
+        if (goalCat.g.visible) look.lerp(goalCat.face.getWorldPosition(tmp2), THREE.MathUtils.clamp((goalCat.g.position.y - goalCat.baseY + 60) / 60, 0, 1) * 0.85);
         camera.position.copy(camPos); camera.lookAt(look);
       }
       // 影は電車のまわりだけ
