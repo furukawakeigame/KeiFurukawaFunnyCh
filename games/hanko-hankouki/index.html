@@ -428,14 +428,6 @@
     const frameG = new THREE.Group(); paperG.add(frameG);
     const framePlane = new THREE.Mesh(new THREE.PlaneGeometry(F * 2, F * 2), new THREE.MeshBasicMaterial({ map: frameTex, transparent: true, depthWrite: false, toneMapped: false }));
     framePlane.rotation.x = -Math.PI / 2; framePlane.position.y = 0.0015; framePlane.renderOrder = 2; frameG.add(framePlane);
-    const EYE_M = new THREE.MeshBasicMaterial({ color: '#1a1016' }), SHINE = new THREE.MeshBasicMaterial({ color: '#fff' });
-    const fEyes = [-1, 1].map(s => {
-      const e = new THREE.Group(); e.position.set(s * 0.018, 0.004, -0.014); frameG.add(e);
-      const ball = part(SPH, EYE_M, 0, 0, 0, 0.0075, 0.003, 0.0095, e);
-      part(SPH, SHINE, -0.0025, 0.002, -0.003, 0.0025, 0.001, 0.0025, e);
-      return { e, ball };
-    });
-    const fMouth = part(SPH, EYE_M, 0, 0.003, 0.012, 0.007, 0.002, 0.003, frameG);
     // 開始待ちの間だけ、動けることを示す4つの矢印
     const chevG = new THREE.Group(); frameG.add(chevG);
     const chevM = new THREE.MeshBasicMaterial({ color: '#d0281e', transparent: true, depthWrite: false });
@@ -715,7 +707,7 @@
     // ---------- ゲーム ----------
     // state: intro（寸劇）→ ready（最初の操作待ち）→ play → over（押された演出）→ result
     let state = 'intro', introT = 0, introVoiced = false, elapsed = 0, overT = 0, hitBy = null, resultT = 0, readyT = 0;
-    const frame = { x: 0, z: 0, px: 0, pz: 0, vx: 0, vz: 0, tx: 0, tz: 0, eyes: 0, shiver: 0, voiceCd: 0 };
+    const frame = { x: 0, z: 0, px: 0, pz: 0, vx: 0, vz: 0, tx: 0, tz: 0, shiver: 0, voiceCd: 0 };
     const FRAME_START = { x: 0.3, z: PZ + 0.2 };
     const VMAX = 0.95;
     const keys = new Set();
@@ -742,7 +734,7 @@
       resultEl.style.display = 'none';
       b1.style.display = b2.style.display = 'none';
       if (withIntro) {
-        state = 'intro'; introT = 0; introVoiced = !!ac; viewName = 'intro'; paperT = 0; frame.eyes = 0;
+        state = 'intro'; introT = 0; introVoiced = !!ac; viewName = 'intro'; paperT = 0;
       } else {
         toReady(true);
       }
@@ -750,7 +742,7 @@
     }
     // 「よし」と言ってハンコを構えたら、最初の操作を待つ
     function toReady(sayYoshi) {
-      state = 'ready'; readyT = 0; paperT = 1; viewName = 'play'; frame.eyes = 1;
+      state = 'ready'; readyT = 0; paperT = 1; viewName = 'play';
       b1.style.display = 'none';
       st.kacho.phase = 'hover'; st.kacho.t = 0;
       if (sayYoshi) { sayB2('say4'); talk(kacho, speak(F_KACHO, t('v4'), 0.16, 0.5, -0.05)); }
@@ -767,7 +759,7 @@
 
     function tapIntro() {
       // 音が出せるようになる前に始まった寸劇は、最初のタップで声つきで言い直す（飛ばせるのは2回目から）
-      if (!introVoiced && soundOn) { introVoiced = true; b1.style.display = b2.style.display = 'none'; introT = 0; paperT = 0; frame.eyes = 0; viewName = 'intro'; return; }
+      if (!introVoiced && soundOn) { introVoiced = true; b1.style.display = b2.style.display = 'none'; introT = 0; paperT = 0; viewName = 'intro'; return; }
       toReady(true);
     }
 
@@ -850,7 +842,6 @@
     }
     function gameOver(s) {
       state = 'over'; overT = 0; hitBy = s;
-      frame.eyes = -1;
       sStamp(s.cfg.snd * 1.3);
       speak(F_WAKU, 'iaa', 0.1, 0.35, 0.5);
       shake = Math.max(shake, 0.02);
@@ -957,7 +948,7 @@
         if (at(2.8)) { sayB2('say2'); talk(kacho, speak(F_KACHO, t('v2'), 0.15, 0.45)); }
         if (at(4.0)) { sayB2('say3'); viewName = 'stare'; }
         if (at(5.6)) { sayB2('say4'); talk(kacho, speak(F_KACHO, t('v4'), 0.16, 0.5, -0.05)); st.kacho.phase = 'hover'; st.kacho.t = 0; }
-        if (at(6.0)) { frame.eyes = 1; speak(F_WAKU, 'i', 0.1, 0.3, 0.5); frame.shiver = 0.5; }
+        if (at(6.0)) { speak(F_WAKU, 'i', 0.1, 0.3, 0.5); frame.shiver = 0.5; }
         if (introT >= 6.8) { toReady(false); }
       }
       if (state === 'ready') { readyT += dt; if (readyT > 1.2) b2.style.display = 'none'; }
@@ -1116,18 +1107,6 @@
       frameG.position.set(fxp - PAPER_HOME.x + rnd(-sh, sh), 0, fzp - PAPER_HOME.z + rnd(-sh, sh));
       const spd = Math.hypot(frame.vx, frame.vz);
       frameG.rotation.y = state === 'play' || state === 'ready' ? Math.sin(now * 18) * Math.min(0.12, spd * 0.15) : 0;
-      // 目: 一番近い脅威を見る。押されたら「><」
-      let look = null, best = 9;
-      for (const id of ORDER) { const s = st[id]; if (s.tele.visible) { const d = Math.hypot(s.pos.x - frame.x, s.pos.z - frame.z); if (d < best) { best = d; look = s; } } }
-      const lx = look ? clamp((look.pos.x - frame.x) * 0.15, -0.004, 0.004) : 0, lz = look ? clamp((look.pos.z - frame.z) * 0.15, -0.004, 0.004) : 0;
-      fEyes.forEach(({ e, ball }, i) => {
-        e.position.set((i ? 1 : -1) * 0.018 + lx, 0.004, -0.014 + lz);
-        if (frame.eyes === 0) { ball.scale.set(0.009, 0.002, 0.0018); e.rotation.y = 0; }
-        else if (frame.eyes < 0) { ball.scale.set(0.009, 0.002, 0.0022); e.rotation.y = (i ? -1 : 1) * 0.5; }
-        else { const blink = (now % 3.2) < 0.1 ? 0.15 : 1; ball.scale.set(0.0075, 0.003, (look && best < 0.25 ? 0.012 : 0.0095) * blink); e.rotation.y = 0; }
-        e.children[1].visible = frame.eyes > 0;
-      });
-      fMouth.scale.set(frame.eyes < 0 ? 0.012 : look && best < 0.25 ? 0.006 : 0.007, 0.002, frame.eyes < 0 ? 0.006 : look && best < 0.25 ? 0.006 : 0.0025);
       chevG.visible = state === 'ready';
       if (chevG.visible) { chevM.opacity = 0.45 + 0.45 * Math.abs(Math.sin(now * 3)); chevG.children.forEach(h => h.children[0].position.z = -F - 0.02 - Math.abs(Math.sin(now * 3)) * 0.01); }
 
