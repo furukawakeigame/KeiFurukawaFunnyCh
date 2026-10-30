@@ -182,11 +182,18 @@ function sThud() { hit(0.08, 0.012, [[180, 4, 1.4], [420, 6, 0.6], [1100, 8, 0.2
 // a tile landing: a small wooden "koton", louder the harder it falls
 function sLand(v) { const k = Math.min(1, v / 14); hit(0.05, 0.006, [[900, 9, 1], [2100, 10, 0.5], [3400, 8, 0.2]], 0.25 + k * 0.6); tone('sine', 240, 120, 0.06, 0.12 * k); }
 // merge: a round "pon", higher for bigger numbers, with a chime from 64 up
-function sMerge(v) {
-  const lv = Math.log2(v), f = 260 * Math.pow(2, Math.min(lv, 13) * 0.17);
-  tone('sine', f * 0.8, f * 1.5, 0.12, 0.28);
-  hit(0.04, 0.005, [[f * 2.2, 12, 0.6]], 0.4);
-  if (v >= 64) { tone('triangle', f * 2, f * 2, 0.4, 0.08, 0.06); tone('triangle', f * 2.52, f * 2.52, 0.45, 0.07, 0.12); }
+// merge: a short bell-like note. Merges in one turn climb the major scale (do re mi ...),
+// and ones that land at the same moment still play one after another so each step is heard
+const SCALE = [0, 2, 4, 5, 7, 9, 11];
+let chain = 0, nextNote = 0;
+function sMerge() {
+  if (!on()) { chain++; return; }
+  const i = chain++, semi = 12 * Math.floor(i / 7) + SCALE[i % 7], f = 523.25 * Math.pow(2, semi / 12); // from C5
+  const delay = Math.max(0, nextNote - ac.currentTime);
+  nextNote = ac.currentTime + delay + 0.1;
+  tone('sine', f, f, 0.35, 0.26, delay);
+  tone('triangle', f * 2, f * 2, 0.18, 0.05, delay);
+  hit(0.03, 0.004, [[f * 3, 14, 0.5]], 0.3, delay);
 }
 // stuck: two falling notes
 function sOver() { tone('triangle', 520, 400, 0.25, 0.15); tone('triangle', 390, 260, 0.5, 0.15, 0.22); }
@@ -200,7 +207,7 @@ const N = 4, GRAV = 70, DT = 1 / 120, ROT_DUR = 0.28;
 let tiles, ghosts, parts, score, best = store.get('best', 0), maxTile, state, rotDir, rotT, ang, prevAng, spawned, settleT, started, overT, shake, flash;
 let nextId = 1;
 function reset() {
-  tiles = []; ghosts = []; parts = []; score = 0; maxTile = 2;
+  tiles = []; ghosts = []; parts = []; score = 0; maxTile = 2; chain = 0;
   state = 'fall'; rotDir = 0; rotT = 0; ang = prevAng = 0; settleT = 0; started = false; overT = 0;
   shake = 0; flash = [0, 0];
   const cols = [0, 1, 2, 3].sort(() => Math.random() - 0.5);
@@ -245,7 +252,7 @@ function merge(lo, up) {
     const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * (2 + lv * 0.4);
     parts.push({ x: lo.c - 1.5, y: lo.y - 1.5, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2, life: 1, col: tileColor(lo.v)[0], r: 0.05 + Math.random() * 0.06 });
   }
-  sMerge(lo.v);
+  sMerge();
   if (lo.v >= 64) shake = Math.max(shake, Math.min(1, (lv - 5) * 0.25));
 }
 const settled = () => tiles.every(tl => tl.vy === 0);
@@ -285,7 +292,7 @@ const canMerge = () => tiles.some(a => tiles.some(b => b.c === a.c + 1 && Math.r
 const easeBack = k => { const s = 1.4; k -= 1; return k * k * ((s + 1) * k + s) + 1; };
 // dir -1: counterclockwise (things slide to the left), +1: clockwise (to the right)
 function rotate(dir) {
-  state = 'rot'; rotDir = dir; rotT = 0; spawned = false;
+  state = 'rot'; rotDir = dir; rotT = 0; spawned = false; chain = 0;
   flash[dir < 0 ? 0 : 1] = 1;
   sRotate();
 }
