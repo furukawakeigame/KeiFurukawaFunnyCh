@@ -182,55 +182,21 @@ function sMerge(v) {
   hit(0.04, 0.005, [[f * 2.2, 12, 0.6]], 0.4);
   if (v >= 64) { tone('triangle', f * 2, f * 2, 0.4, 0.08, 0.06); tone('triangle', f * 2.52, f * 2.52, 0.45, 0.07, 0.12); }
 }
+// stuck: two falling notes
+function sOver() { tone('triangle', 520, 400, 0.25, 0.15); tone('triangle', 390, 260, 0.5, 0.15, 0.22); }
 function sSpawn() { tone('sine', 520, 900, 0.07, 0.08); }
-// the cat's voice: a sawtooth larynx + breath through vowel formants
-const VOWEL = { a: [800, 1200, 2600], i: [300, 2300, 3000], u: [350, 1250, 2500], e: [500, 1900, 2600], o: [500, 850, 2500] };
-function voice(f0, seq, dur, vol = 0.4, shake = 0.04, breath = 0.12, fall = 0.7) {
-  if (!on()) return;
-  try {
-    const now = ac.currentTime;
-    const o = ac.createOscillator(); o.type = 'sawtooth';
-    o.frequency.setValueAtTime(f0 * 1.1, now);
-    o.frequency.linearRampToValueAtTime(f0 * 1.35, now + dur * 0.25);
-    o.frequency.exponentialRampToValueAtTime(f0 * fall, now + dur);
-    const vib = ac.createOscillator(); vib.frequency.value = 5.5 + Math.random() * 3;
-    const vg = ac.createGain(); vg.gain.value = f0 * shake; vib.connect(vg).connect(o.frequency);
-    const nb = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate), nd = nb.getChannelData(0);
-    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
-    const ns = ac.createBufferSource(); ns.buffer = nb;
-    const ng = ac.createGain(); ng.gain.value = breath;
-    const src = ac.createGain();
-    o.connect(src); ns.connect(ng).connect(src);
-    const out = ac.createGain();
-    out.gain.setValueAtTime(0, now);
-    out.gain.linearRampToValueAtTime(vol, now + 0.04);
-    out.gain.setValueAtTime(vol, now + dur * 0.6);
-    out.gain.exponentialRampToValueAtTime(0.001, now + dur);
-    [1, 0.6, 0.25].forEach((amp, fi) => {
-      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = fi === 0 ? 6 : 9;
-      seq.forEach((v, si) => { const tt = now + dur * si / Math.max(1, seq.length - 1) * 0.8; bp.frequency[si ? 'linearRampToValueAtTime' : 'setValueAtTime'](VOWEL[v][fi] * 1.3, tt); });
-      const g = ac.createGain(); g.gain.value = amp * 3;
-      src.connect(bp).connect(g).connect(out);
-    });
-    out.connect(ac.destination);
-    o.start(now); vib.start(now); ns.start(now);
-    o.stop(now + dur); vib.stop(now + dur); ns.stop(now + dur);
-  } catch {}
-}
-const MEOWS = [['i', 'a', 'u'], ['e', 'a', 'o'], ['i', 'a', 'a'], ['i', 'e', 'a', 'u']];
+
 const pick = a => a[Math.floor(Math.random() * a.length)];
-const sMeow = big => voice((big ? 560 : 680) * (0.9 + Math.random() * 0.2), pick(MEOWS), big ? 0.55 : 0.3 + Math.random() * 0.1, big ? 0.45 : 0.32);
-const sSad = () => voice(480, ['i', 'a', 'u', 'u'], 1.0, 0.4, 0.06, 0.15, 0.55);
 
 // ---- the board ----
 // tiles live in screen space: gravity is always down. y is a float row (0 = top), c the column
 const N = 4, GRAV = 70, DT = 1 / 120, ROT_DUR = 0.28;
-let tiles, ghosts, parts, score, best = store.get('best', 0), maxTile, state, rotDir, rotT, ang, prevAng, spawned, settleT, queued, started, overT, shake, catJump, catVel, catSink, flash;
+let tiles, ghosts, parts, score, best = store.get('best', 0), maxTile, state, rotDir, rotT, ang, prevAng, spawned, settleT, queued, started, overT, shake, flash;
 let nextId = 1;
 function reset() {
   tiles = []; ghosts = []; parts = []; score = 0; maxTile = 2;
   state = 'fall'; rotDir = 0; rotT = 0; ang = prevAng = 0; settleT = 0; queued = 0; started = false; overT = 0;
-  shake = 0; catJump = 0; catVel = 0; catSink = 0; flash = [0, 0];
+  shake = 0; flash = [0, 0];
   const cols = [0, 1, 2, 3].sort(() => Math.random() - 0.5);
   addTile(cols[0], 2); addTile(cols[1], Math.random() < 0.15 ? 4 : 2);
   spawned = true;
@@ -275,8 +241,6 @@ function merge(lo, up) {
   }
   sMerge(lo.v);
   if (lo.v >= 64) shake = Math.max(shake, Math.min(1, (lv - 5) * 0.25));
-  if (lo.v >= 32) catKick(Math.min(1, (lv - 4) * 0.2));
-  if (lo.v >= 128) setTimeout(() => sMeow(lo.v >= 512), 90);
 }
 const settled = () => tiles.every(tl => tl.vy === 0);
 function step(dt) {
@@ -295,7 +259,7 @@ function step(dt) {
         settleT = 0;
         if (!spawned) { spawned = true; if (spawn()) return; }
         state = 'idle';
-        if (tiles.length === N * N && !canMerge()) { state = 'over'; overT = 0; catSink = 0; setTimeout(sSad, 250); }
+        if (tiles.length === N * N && !canMerge()) { state = 'over'; overT = 0; sOver(); }
         else if (queued) { const d = queued; queued = 0; rotate(d); }
       }
     } else settleT = 0;
@@ -311,12 +275,8 @@ function step(dt) {
   }
   shake = Math.max(0, shake - dt * 3);
   flash[0] = Math.max(0, flash[0] - dt * 4); flash[1] = Math.max(0, flash[1] - dt * 4);
-  // the cat hops on a spring
-  catVel += (-catJump * 160 - catVel * 14) * dt; catJump += catVel * dt;
-  if (state === 'over' || state === 'done') catSink = Math.min(1, catSink + dt * 1.2);
 }
 const canMerge = () => tiles.some(a => tiles.some(b => b.c === a.c + 1 && Math.round(b.y) === Math.round(a.y) && b.v === a.v));
-function catKick(k) { catVel -= 4 + k * 8; }
 const easeBack = k => { const s = 1.4; k -= 1; return k * k * ((s + 1) * k + s) + 1; };
 // dir -1: counterclockwise (things slide to the left), +1: clockwise (to the right)
 function rotate(dir) {
@@ -387,13 +347,13 @@ $('share').addEventListener('click', e => {
   }
   const d = document.createElement('a'); d.href = resultImage().toDataURL('image/png'); d.download = 'rolling-2048.png'; d.click();
 });
-// the result image: the final board with the cat, the score big on top, the title small below
+// the result image: the final board, the score big on top, the title small below
 function resultImage() {
   const c = document.createElement('canvas'); c.width = c.height = 1080;
   const g = c.getContext('2d');
   drawBg(g, 1080, 1080);
-  const side = 540;
-  drawScene(g, { cx: 540, cy: 680, side, arrows: null }, 1, true);
+  const side = 620;
+  drawScene(g, { cx: 540, cy: 620, side, arrows: null }, 1, true);
   g.textAlign = 'center'; g.lineJoin = 'round';
   const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
   const text = (str, y, px, max, fill, line) => {
@@ -415,7 +375,6 @@ function prepareShare() {
 }
 
 // ---- look ----
-const catImg = new Image(); catImg.src = 'cat.png';
 const BG = '#f7f3ee', BOX = '#cdc3b8', SLOT = '#e3dbd2', INK = '#8a7a6b';
 const COLORS = {
   2: ['#fbf8f4', '#6b5b4e'], 4: ['#f5ead9', '#6b5b4e'], 8: ['#f6b97c', '#fff'], 16: ['#f39a63', '#fff'],
@@ -458,21 +417,12 @@ function drawArrow(g, x, y, r, dir, alpha) {
   g.beginPath(); g.moveTo(r * 0.5, 0); g.lineTo(-r * 0.25, -r * 0.42); g.lineTo(-r * 0.25, r * 0.42); g.closePath(); g.fill();
   g.restore();
 }
-// the whole scene: cat behind, box (rotating) in front, arrows
+// the whole scene: arrows, then the (rotating) box over them
 function drawScene(g, Ly, k, still) {
   const { cx, cy, side } = Ly;
   const a = still ? 0 : prevAng + (ang - prevAng) * k;
   const sk = still ? 0 : shake * side * 0.02;
   const ox = sk * (Math.random() * 2 - 1), oy = sk * (Math.random() * 2 - 1);
-  // the cat peeks over the top of the box; hops on big merges, ducks when the box is stuck
-  if (catImg.complete && catImg.naturalWidth) {
-    const cw = side * 0.62, jump = still ? 0 : catJump, sink = still ? 0 : catSink;
-    const top = cy - side / 2;
-    const y = top - cw * 0.5 + jump * side * 0.06 + sink * cw * 0.1;
-    g.save(); g.translate(cx + side * 0.18, y + cw / 2); g.rotate(-0.12 + jump * 0.08 - sink * 0.25);
-    g.drawImage(catImg, -cw / 2, -cw / 2, cw, cw);
-    g.restore();
-  }
   // arrows on both sides (under the box so its corners pass over them while turning)
   if (Ly.arrows && Ly.arrowA > 0.01) {
     const pulse = started ? 0 : 0.5 + 0.5 * Math.sin(performance.now() / 260);
@@ -507,9 +457,9 @@ function drawScene(g, Ly, k, still) {
 }
 
 // ---- layout ----
-// fits the cat peeking over the box, the box, and the arrows in the space between the header
+// fits the box (with room for its corners while turning) and the arrows in the space between the header
 // and the bottom 80px (X's in-app browser covers that); spare height goes around evenly
-const TOP = 52, BOT = 80, CAT = 0.34, MAXS = 560;
+const TOP = 52, BOT = 80, PAD = 0.12, MAXS = 560;
 function baseLayout(W, H, result) {
   let top = TOP, bot = H - BOT, left = 0, right = W;
   if (result) {
@@ -519,13 +469,13 @@ function baseLayout(W, H, result) {
   const aw = right - left, ah = bot - top;
   let side, mode = 'none';
   if (!result) {
-    const sA = Math.min(aw * 0.9, ah / (CAT + 1 + 0.4), MAXS);   // arrows under the box
-    const sB = Math.min(aw / 1.9, ah / (CAT + 1 + 0.12), MAXS);  // arrows beside it
+    const sA = Math.min(aw * 0.9, ah / (PAD + 1 + 0.4), MAXS);   // arrows under the box
+    const sB = Math.min(aw / 1.9, ah / (PAD + 1 + 0.12), MAXS);  // arrows beside it
     mode = sA >= sB ? 'below' : 'side'; side = Math.max(sA, sB);
-  } else side = Math.min(aw * 0.84, ah / (CAT + 1 + 0.1), MAXS);
+  } else side = Math.min(aw * 0.84, ah / (PAD + 1 + 0.1), MAXS);
   side = Math.max(120, side);
-  const total = side * (CAT + 1 + (mode === 'below' ? 0.4 : 0.12));
-  const cy = top + Math.max(0, ah - total) * 0.5 + side * (CAT + 0.5);
+  const total = side * (PAD + 1 + (mode === 'below' ? 0.4 : 0.12));
+  const cy = top + Math.max(0, ah - total) * 0.5 + side * (PAD + 0.5);
   const cx = (left + right) / 2;
   const arrowR = side * (mode === 'below' ? 0.1 : 0.12);
   const arrows = mode === 'below'
