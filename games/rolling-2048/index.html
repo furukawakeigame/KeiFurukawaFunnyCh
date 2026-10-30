@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>回転2048</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="回転2048">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/rolling-2048/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/rolling-2048/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #ffe2bd; font-family: system-ui, sans-serif; color: #4a3424; }
+    body { overflow: hidden; -webkit-user-select: none; user-select: none; }
+    header { position: absolute; top: 0; left: 0; right: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; gap: 8px; }
+    header a { color: #4a3424; text-decoration: none; font-size: 14px; background: rgba(255,255,255,.75); border-radius: 14px; padding: 6px 10px; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill { height: 34px; min-width: 34px; border: none; border-radius: 17px; background: #fff; color: #4a3424; font-size: 14px; padding: 0 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    select.pill { appearance: none; -webkit-appearance: none; }
+    canvas { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+    /* the result: score at the top, buttons at the bottom, the board stays visible in between */
+    .panel { position: fixed; inset: 0; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 52px 16px calc(80px + env(safe-area-inset-bottom)); pointer-events: none; }
+    .panel[hidden] { display: none; }
+    .panel > * { pointer-events: auto; }
+    .ptop, .pbtns { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .pbtns { gap: 10px; padding-bottom: 8px; }
+    .big { font-size: clamp(40px, 8vmin, 96px); font-weight: 900; margin: 0; line-height: 1.05; text-shadow: 0 3px 0 #fff; }
+    .sub { margin: 0; font-size: clamp(15px, 2.2vmin, 22px); background: rgba(255,255,255,.85); border-radius: 12px; padding: 4px 12px; }
+    .btn { border: none; border-radius: 28px; background: #e8590c; color: #fff; font-size: clamp(19px, 2.8vmin, 28px); font-weight: 800; padding: 12px 36px; cursor: pointer; text-decoration: none; box-shadow: 0 4px 0 #a33d06; }
+    .btn.x { background: #111; box-shadow: 0 4px 0 #000; font-size: clamp(15px, 2.2vmin, 22px); padding: 10px 24px; }
+    /* wide windows: the board goes left, the result sits on the right */
+    @media (min-aspect-ratio: 11/10) {
+      .panel { left: 50%; justify-content: center; gap: clamp(14px, 4vh, 40px); padding-top: 56px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <div class="hbtns">
+      <button id="sound" class="pill" aria-label="sound">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4a3424" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#4a3424"/><path id="wave" d="M16 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/><path id="mute" d="M16 9l6 6M22 9l-6 6" style="display:none"/></svg>
+      </button>
+      <select id="lang" class="pill" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+    </div>
+  </header>
+  <canvas id="cv"></canvas>
+  <div id="result" class="panel" hidden>
+    <div class="ptop" id="ptop">
+      <p class="big" id="rScore"></p>
+      <p class="sub" id="rSub"></p>
+    </div>
+    <div class="pbtns" id="pbtns">
+      <button id="again" class="btn"></button>
+      <a id="share" class="btn x"></a>
+    </div>
+  </div>
+<script>
+const KEY = 'rolling-2048:';
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(KEY + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(KEY + k, JSON.stringify(v)); } catch {} },
+};
+const URL_ = 'https://keifurukawafunnych.com/games/rolling-2048/';
+const TAG = '#回転2048ゲーム';
+const num = n => n.toLocaleString('en-US');
+const L = {
+  ja: { title: '回転2048', back: '← トップへ戻る', again: 'もう一度', share: 'Xでポスト',
+        pts: n => `${num(n)}点`, sub: (m, b) => `最大 ${m}　自己ベスト ${num(b)}点`,
+        post: (s, m) => `回転2048で ${num(s)}点（最大 ${m}）\n${TAG}` },
+  ko: { title: '회전 2048', back: '← 처음으로', again: '다시 하기', share: 'X에 게시',
+        pts: n => `${num(n)}점`, sub: (m, b) => `최대 ${m}　최고 기록 ${num(b)}점`,
+        post: (s, m) => `회전 2048에서 ${num(s)}점 (최대 ${m})\n${TAG}` },
+  en: { title: 'Rolling 2048', back: '← Top', again: 'Retry', share: 'Post on X',
+        pts: n => `${num(n)} pts`, sub: (m, b) => `Max ${m}　Best ${num(b)} pts`,
+        post: (s, m) => `I scored ${num(s)} pts in Rolling 2048 (max ${m})\n${TAG}` },
+  th: { title: '2048 หมุน', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X',
+        pts: n => `${num(n)} แต้ม`, sub: (m, b) => `สูงสุด ${m}　สถิติ ${num(b)} แต้ม`,
+        post: (s, m) => `ได้ ${num(s)} แต้ม ในเกม 2048 หมุน (สูงสุด ${m})\n${TAG}` },
+};
+const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
+let lang = store.get('lang', autoLang());
+if (!L[lang]) lang = 'en';
+const t = k => L[lang][k];
+const $ = id => document.getElementById(id);
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = t('title');
+  $('lang').value = lang;
+  $('back').textContent = t('back');
+  $('again').textContent = t('again'); $('share').textContent = t('share');
+  if (!$('result').hidden) showResult();
+}
+$('lang').onchange = () => { lang = $('lang').value; store.set('lang', lang); applyLang(); };
+
+// ---- sound (all synthesized) ----
+let soundOn = store.get('sound', true), ac = null;
+function updSound() { $('wave').style.display = soundOn ? '' : 'none'; $('mute').style.display = soundOn ? 'none' : ''; }
+$('sound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updSound(); };
+updSound();
+// play through the iPhone's silent switch
+function unmuteIOS() {
+  try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch {}
+  try {
+    const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+    const a = document.createElement('audio');
+    a.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })); a.loop = true; a.setAttribute('playsinline', '');
+    a.play().catch(() => {});
+  } catch {}
+}
+// made on the first touch (with a silent sound) so the first real sound doesn't stutter
+function initAudio() {
+  if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+  unmuteIOS();
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    const g = ac.createGain(); g.gain.value = 0; g.connect(ac.destination);
+    const o = ac.createOscillator(); o.connect(g); o.start(); o.stop(ac.currentTime + 0.05);
+  } catch { ac = null; }
+}
+addEventListener('pointerdown', initAudio, true);
+addEventListener('keydown', initAudio, true);
+const on = () => soundOn && ac;
+function tone(type, f0, f1, dur, vol, delay = 0) {
+  if (!on()) return;
+  try {
+    const n = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, n); o.frequency.exponentialRampToValueAtTime(f1, n + dur);
+    g.gain.setValueAtTime(0.0001, n); g.gain.linearRampToValueAtTime(vol, n + 0.006); g.gain.exponentialRampToValueAtTime(0.001, n + dur);
+    o.connect(g).connect(ac.destination); o.start(n); o.stop(n + dur + 0.02);
+  } catch {}
+}
+// a burst of noise rung through a few resonances: wood, felt, ...
+function hit(len, decay, bands, vol, delay = 0) {
+  if (!on()) return;
+  try {
+    const n = ac.currentTime + delay, buf = ac.createBuffer(1, Math.floor(ac.sampleRate * len), ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ac.sampleRate * decay));
+    const s = ac.createBufferSource(); s.buffer = buf;
+    for (const [f, q, g0] of bands) {
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * (0.95 + Math.random() * 0.1); bp.Q.value = q;
+      const g = ac.createGain(); g.gain.value = g0 * vol; s.connect(bp).connect(g).connect(ac.destination);
+    }
+    s.start(n);
+  } catch {}
+}
+// the box turning: wood scraping on wood, then a heavy "goto" when it stops
+function sRotate() {
+  if (!on()) return;
+  try {
+    const n = ac.currentTime, dur = 0.26, buf = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (0.5 + 0.5 * Math.sin(i / 90)) ;
+    const s = ac.createBufferSource(); s.buffer = buf;
+    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 3;
+    f.frequency.setValueAtTime(260, n); f.frequency.linearRampToValueAtTime(520, n + dur);
+    const g = ac.createGain(); g.gain.setValueAtTime(0.0001, n); g.gain.linearRampToValueAtTime(0.35, n + dur * 0.4); g.gain.linearRampToValueAtTime(0.0001, n + dur);
+    s.connect(f).connect(g).connect(ac.destination); s.start(n);
+  } catch {}
+}
+function sThud() { hit(0.08, 0.012, [[180, 4, 1.4], [420, 6, 0.6], [1100, 8, 0.2]], 0.9); tone('sine', 110, 55, 0.18, 0.4); }
+// a tile landing: a small wooden "koton", louder the harder it falls
+function sLand(v) { const k = Math.min(1, v / 14); hit(0.05, 0.006, [[900, 9, 1], [2100, 10, 0.5], [3400, 8, 0.2]], 0.25 + k * 0.6); tone('sine', 240, 120, 0.06, 0.12 * k); }
+// merge: a round "pon", higher for bigger numbers, with a chime from 64 up
+function sMerge(v) {
+  const lv = Math.log2(v), f = 260 * Math.pow(2, Math.min(lv, 13) * 0.17);
+  tone('sine', f * 0.8, f * 1.5, 0.12, 0.28);
+  hit(0.04, 0.005, [[f * 2.2, 12, 0.6]], 0.4);
+  if (v >= 64) { tone('triangle', f * 2, f * 2, 0.4, 0.08, 0.06); tone('triangle', f * 2.52, f * 2.52, 0.45, 0.07, 0.12); }
+}
+function sSpawn() { tone('sine', 520, 900, 0.07, 0.08); }
+// the cat's voice: a sawtooth larynx + breath through vowel formants
+const VOWEL = { a: [800, 1200, 2600], i: [300, 2300, 3000], u: [350, 1250, 2500], e: [500, 1900, 2600], o: [500, 850, 2500] };
+function voice(f0, seq, dur, vol = 0.4, shake = 0.04, breath = 0.12, fall = 0.7) {
+  if (!on()) return;
+  try {
+    const now = ac.currentTime;
+    const o = ac.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(f0 * 1.1, now);
+    o.frequency.linearRampToValueAtTime(f0 * 1.35, now + dur * 0.25);
+    o.frequency.exponentialRampToValueAtTime(f0 * fall, now + dur);
+    const vib = ac.createOscillator(); vib.frequency.value = 5.5 + Math.random() * 3;
+    const vg = ac.createGain(); vg.gain.value = f0 * shake; vib.connect(vg).connect(o.frequency);
+    const nb = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate), nd = nb.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    const ns = ac.createBufferSource(); ns.buffer = nb;
+    const ng = ac.createGain(); ng.gain.value = breath;
+    const src = ac.createGain();
+    o.connect(src); ns.connect(ng).connect(src);
+    const out = ac.createGain();
+    out.gain.setValueAtTime(0, now);
+    out.gain.linearRampToValueAtTime(vol, now + 0.04);
+    out.gain.setValueAtTime(vol, now + dur * 0.6);
+    out.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    [1, 0.6, 0.25].forEach((amp, fi) => {
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = fi === 0 ? 6 : 9;
+      seq.forEach((v, si) => { const tt = now + dur * si / Math.max(1, seq.length - 1) * 0.8; bp.frequency[si ? 'linearRampToValueAtTime' : 'setValueAtTime'](VOWEL[v][fi] * 1.3, tt); });
+      const g = ac.createGain(); g.gain.value = amp * 3;
+      src.connect(bp).connect(g).connect(out);
+    });
+    out.connect(ac.destination);
+    o.start(now); vib.start(now); ns.start(now);
+    o.stop(now + dur); vib.stop(now + dur); ns.stop(now + dur);
+  } catch {}
+}
+const MEOWS = [['i', 'a', 'u'], ['e', 'a', 'o'], ['i', 'a', 'a'], ['i', 'e', 'a', 'u']];
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const sMeow = big => voice((big ? 560 : 680) * (0.9 + Math.random() * 0.2), pick(MEOWS), big ? 0.55 : 0.3 + Math.random() * 0.1, big ? 0.45 : 0.32);
+const sSad = () => voice(480, ['i', 'a', 'u', 'u'], 1.0, 0.4, 0.06, 0.15, 0.55);
+
+// ---- the board ----
+// tiles live in screen space: gravity is always down. y is a float row (0 = top), c the column
+const N = 4, GRAV = 70, DT = 1 / 120, ROT_DUR = 0.28;
+let tiles, ghosts, parts, score, best = store.get('best', 0), maxTile, state, rotDir, rotT, ang, prevAng, spawned, settleT, queued, started, overT, shake, catJump, catVel, catSink, flash;
+let nextId = 1;
+function reset() {
+  tiles = []; ghosts = []; parts = []; score = 0; maxTile = 2;
+  state = 'fall'; rotDir = 0; rotT = 0; ang = prevAng = 0; settleT = 0; queued = 0; started = false; overT = 0;
+  shake = 0; catJump = 0; catVel = 0; catSink = 0; flash = [0, 0];
+  const cols = [0, 1, 2, 3].sort(() => Math.random() - 0.5);
+  addTile(cols[0], 2); addTile(cols[1], Math.random() < 0.15 ? 4 : 2);
+  spawned = true;
+}
+function addTile(c, v) { const tl = { id: nextId++, v, c, y: 0, py: 0, vy: 0, pop: 0, sq: 0, born: 1 }; tiles.push(tl); return tl; }
+function spawn() {
+  const free = [0, 1, 2, 3].filter(c => tiles.filter(tl => tl.c === c).length < N);
+  if (!free.length) return false;
+  addTile(pick(free), Math.random() < 0.1 ? 4 : 2); sSpawn();
+  return true;
+}
+const column = c => tiles.filter(tl => tl.c === c).sort((a, b) => b.y - a.y); // bottom first
+function physics(dt) {
+  for (let c = 0; c < N; c++) {
+    const col = column(c);
+    for (let i = 0; i < col.length; i++) {
+      const tl = col[i], below = col[i - 1];
+      tl.vy += GRAV * dt;
+      const ny = tl.y + tl.vy * dt, floor = below ? below.y - 1 : N - 1;
+      if (ny >= floor) {
+        const imp = tl.vy - (below ? below.vy : 0);
+        tl.y = floor; tl.vy = below ? below.vy : 0;
+        if (imp > 4) { sLand(imp); tl.sq = Math.min(1, imp / 16); }
+      } else tl.y = ny;
+    }
+    // equal numbers that touch merge into the lower one; one merge per column per step keeps chains readable
+    for (let i = 1; i < col.length; i++) {
+      const lo = col[i - 1], up = col[i];
+      if (up.v === lo.v && up.y >= lo.y - 1 - 1e-6) { merge(lo, up); break; }
+    }
+  }
+}
+function merge(lo, up) {
+  tiles.splice(tiles.indexOf(up), 1);
+  ghosts.push({ v: up.v, c: up.c, y: up.y, ty: lo.y, life: 1 });
+  lo.v *= 2; lo.pop = 1; score += lo.v;
+  if (lo.v > maxTile) maxTile = lo.v;
+  const lv = Math.log2(lo.v);
+  for (let i = 0; i < 6 + lv * 2; i++) {
+    const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * (2 + lv * 0.4);
+    parts.push({ x: lo.c - 1.5, y: lo.y - 1.5, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2, life: 1, col: tileColor(lo.v)[0], r: 0.05 + Math.random() * 0.06 });
+  }
+  sMerge(lo.v);
+  if (lo.v >= 64) shake = Math.max(shake, Math.min(1, (lv - 5) * 0.25));
+  if (lo.v >= 32) catKick(Math.min(1, (lv - 4) * 0.2));
+  if (lo.v >= 128) setTimeout(() => sMeow(lo.v >= 512), 90);
+}
+const settled = () => tiles.every(tl => tl.vy === 0);
+function step(dt) {
+  for (const tl of tiles) tl.py = tl.y;
+  prevAng = ang;
+  if (state === 'rot') {
+    rotT += dt;
+    const k = Math.min(1, rotT / ROT_DUR);
+    ang = rotDir * Math.PI / 2 * easeBack(k);
+    if (k >= 1) endRotate();
+  } else if (state === 'fall') {
+    physics(dt);
+    if (settled()) {
+      settleT += dt;
+      if (settleT > 0.05) {
+        settleT = 0;
+        if (!spawned) { spawned = true; if (spawn()) return; }
+        state = 'idle';
+        if (tiles.length === N * N && !canMerge()) { state = 'over'; overT = 0; catSink = 0; setTimeout(sSad, 250); }
+        else if (queued) { const d = queued; queued = 0; rotate(d); }
+      }
+    } else settleT = 0;
+  } else if (state === 'over') {
+    overT += dt;
+    if (overT > 1.1) finish();
+  }
+  for (const tl of tiles) { tl.pop = Math.max(0, tl.pop - dt * 4); tl.sq = Math.max(0, tl.sq - dt * 6); tl.born = Math.max(0, tl.born - dt * 7); }
+  for (let i = ghosts.length - 1; i >= 0; i--) { const g = ghosts[i]; g.life -= dt * 10; if (g.life <= 0) ghosts.splice(i, 1); }
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]; p.vy += 9 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt * 1.6;
+    if (p.life <= 0) parts.splice(i, 1);
+  }
+  shake = Math.max(0, shake - dt * 3);
+  flash[0] = Math.max(0, flash[0] - dt * 4); flash[1] = Math.max(0, flash[1] - dt * 4);
+  // the cat hops on a spring
+  catVel += (-catJump * 160 - catVel * 14) * dt; catJump += catVel * dt;
+  if (state === 'over' || state === 'done') catSink = Math.min(1, catSink + dt * 1.2);
+}
+const canMerge = () => tiles.some(a => tiles.some(b => b.c === a.c + 1 && Math.round(b.y) === Math.round(a.y) && b.v === a.v));
+function catKick(k) { catVel -= 4 + k * 8; }
+const easeBack = k => { const s = 1.4; k -= 1; return k * k * ((s + 1) * k + s) + 1; };
+// dir -1: counterclockwise (things slide to the left), +1: clockwise (to the right)
+function rotate(dir) {
+  state = 'rot'; rotDir = dir; rotT = 0; spawned = false;
+  flash[dir < 0 ? 0 : 1] = 1;
+  sRotate();
+}
+function endRotate() {
+  for (const tl of tiles) {
+    const r = Math.round(tl.y), c = tl.c;
+    if (rotDir > 0) { tl.y = c; tl.c = N - 1 - r; } else { tl.y = N - 1 - c; tl.c = r; }
+    tl.py = tl.y; tl.vy = 0;
+  }
+  ang = prevAng = 0; state = 'fall'; settleT = 0;
+  shake = Math.max(shake, 0.35); sThud();
+}
+function move(dir) {
+  if (state === 'over' || state === 'done') return;
+  started = true;
+  if (state === 'idle') rotate(dir); else queued = dir;
+}
+
+// ---- input ----
+const keyDir = { ArrowLeft: -1, ArrowRight: 1, a: -1, d: 1, A: -1, D: 1 };
+addEventListener('keydown', e => {
+  if (!(e.key in keyDir) || e.target.tagName === 'SELECT') return;
+  e.preventDefault(); if (!e.repeat) move(keyDir[e.key]);
+});
+const cv = $('cv'), ctx = cv.getContext('2d');
+let down = null;
+cv.addEventListener('pointerdown', e => { e.preventDefault(); down = { x: e.clientX, y: e.clientY, id: e.pointerId }; });
+cv.addEventListener('pointerup', e => {
+  if (!down || down.id !== e.pointerId) return;
+  const dx = e.clientX - down.x; down = null;
+  // swipe sideways, or tap the left / right half
+  if (Math.abs(dx) > 30) move(Math.sign(dx));
+  else move(e.clientX < cv.clientWidth / 2 ? -1 : 1);
+});
+cv.addEventListener('pointercancel', () => { down = null; });
+
+// ---- result ----
+$('again').onclick = () => { $('result').hidden = true; resultOn = false; snapFile = null; reset(); tone('sine', 600, 800, 0.1, 0.12); };
+const coarse = matchMedia('(pointer: coarse)').matches;
+let resultOn = false;
+function showResult() {
+  $('rScore').textContent = L[lang].pts(score);
+  $('rSub').textContent = L[lang].sub(maxTile, best);
+  const a = $('share');
+  a.href = `https://x.com/intent/post?text=${encodeURIComponent(L[lang].post(score, maxTile))}&url=${encodeURIComponent(URL_)}`;
+  if (coarse) { a.removeAttribute('target'); a.removeAttribute('rel'); }
+  else { a.target = '_blank'; a.rel = 'noopener'; }
+  prepareShare();
+}
+function finish() {
+  state = 'done';
+  if (score > best) { best = score; store.set('best', best); }
+  resultOn = true;
+  showResult(); $('result').hidden = false;
+}
+// phones: share sheet with the result image. PC: save the image, then open the X post page
+$('share').addEventListener('click', e => {
+  const text = `${L[lang].post(score, maxTile)}\n${URL_}`;
+  if (coarse && navigator.share) {
+    e.preventDefault();
+    const file = snapFile?.key === lang ? snapFile.file : null;
+    navigator.share(file && navigator.canShare?.({ files: [file] }) ? { files: [file], text } : { text }).catch(() => {});
+    return;
+  }
+  const d = document.createElement('a'); d.href = resultImage().toDataURL('image/png'); d.download = 'rolling-2048.png'; d.click();
+});
+// the result image: the final board with the cat, the score big on top, the title small below
+function resultImage() {
+  const c = document.createElement('canvas'); c.width = c.height = 1080;
+  const g = c.getContext('2d');
+  drawBg(g, 1080, 1080, 900);
+  const side = 540;
+  drawScene(g, { cx: 540, cy: 680, side, arrows: null, floorY: 1000 }, 1, true);
+  g.textAlign = 'center'; g.lineJoin = 'round';
+  const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
+  const text = (str, y, px, max, fill, line) => {
+    g.font = font(px);
+    const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
+    g.lineWidth = px * .16; g.strokeStyle = line; g.strokeText(str, 540, y); g.fillStyle = fill; g.fillText(str, 540, y);
+  };
+  text(L[lang].pts(score), 170, 150, 960, '#4a3424', '#fff');
+  text(t('title'), 1050, 50, 900, '#fff', '#4a3424');
+  return c;
+}
+// made ahead per language (waiting on click stops the share in Safari)
+let snapFile = null;
+function prepareShare() {
+  const key = lang;
+  if (snapFile?.key === key) return;
+  snapFile = { key, file: null };
+  resultImage().toBlob(b => { if (b && snapFile?.key === key) snapFile.file = new File([b], 'rolling-2048.png', { type: 'image/png' }); }, 'image/png');
+}
+
+// ---- look ----
+const catImg = new Image(); catImg.src = 'cat.png';
+const COLORS = {
+  2: ['#fbf3e6', '#7a5b45'], 4: ['#f8e2bf', '#7a5b45'], 8: ['#f9b469', '#fff'], 16: ['#f78f54', '#fff'],
+  32: ['#f26b4f', '#fff'], 64: ['#e8483c', '#fff'], 128: ['#f6cf4f', '#fff'], 256: ['#f0b92e', '#fff'],
+  512: ['#8fcf5c', '#fff'], 1024: ['#3fb8a8', '#fff'], 2048: ['#5b9df5', '#fff'], 4096: ['#8f6cf0', '#fff'],
+};
+const tileColor = v => COLORS[v] || ['#e055b8', '#fff'];
+// wood grain for the box, drawn once
+const wood = (() => {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#c98a4b'; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 70; i++) {
+    const y = Math.random() * 256, a = 0.05 + Math.random() * 0.12;
+    g.strokeStyle = Math.random() < 0.5 ? `rgba(110,60,20,${a})` : `rgba(255,220,170,${a})`;
+    g.lineWidth = 1 + Math.random() * 3;
+    g.beginPath(); g.moveTo(0, y);
+    for (let x = 0; x <= 256; x += 16) g.lineTo(x, y + Math.sin(x / 40 + i) * 3);
+    g.stroke();
+  }
+  for (let i = 0; i < 3; i++) { // knots
+    const x = Math.random() * 256, y = Math.random() * 256;
+    for (let r = 10; r > 2; r -= 3) { g.strokeStyle = 'rgba(100,55,20,.25)'; g.lineWidth = 1.5; g.beginPath(); g.ellipse(x, y, r * 1.8, r * 0.7, 0, 0, 7); g.stroke(); }
+  }
+  return c;
+})();
+let woodPat = null;
+// felt inside the box
+const felt = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'); g.fillStyle = '#7a4a2c'; g.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 1400; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,220,190'},${Math.random() * 0.08})`; g.fillRect(Math.random() * 128, Math.random() * 128, 1.5, 1.5); }
+  return c;
+})();
+let feltPat = null;
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+// wallpaper: warm gradient with soft polka dots, a wooden table below
+function drawBg(g, W, H, floorY) {
+  const gr = g.createLinearGradient(0, 0, 0, floorY);
+  gr.addColorStop(0, '#fff3dc'); gr.addColorStop(1, '#ffcf9e');
+  g.fillStyle = gr; g.fillRect(0, 0, W, floorY);
+  g.fillStyle = 'rgba(255,255,255,.35)';
+  const step = 46;
+  for (let y = step / 2; y < floorY; y += step) for (let x = ((y / step) % 2 ? step / 2 : 0); x < W + step; x += step) { g.beginPath(); g.arc(x, y, 5, 0, 7); g.fill(); }
+  // table
+  const tg = g.createLinearGradient(0, floorY, 0, H);
+  tg.addColorStop(0, '#b77745'); tg.addColorStop(1, '#7e4b28');
+  g.fillStyle = tg; g.fillRect(0, floorY, W, H - floorY);
+  g.fillStyle = 'rgba(255,230,190,.35)'; g.fillRect(0, floorY, W, 4);
+  g.strokeStyle = 'rgba(80,40,15,.18)'; g.lineWidth = 2;
+  for (let i = 1; i < 6; i++) { const y = floorY + (H - floorY) * i / 6 * (0.6 + i * 0.07); g.beginPath(); g.moveTo(0, y); g.lineTo(W, y + 6); g.stroke(); }
+}
+function rr(g, x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
+function drawTile(g, x, y, s, v, sx = 1, sy = 1, alpha = 1) {
+  const [bg, fg] = tileColor(v);
+  g.save(); g.globalAlpha = alpha;
+  g.translate(x, y + s / 2); g.scale(sx, sy); g.translate(0, -s / 2); // squash from the bottom
+  const r = s * 0.16;
+  g.fillStyle = 'rgba(60,25,5,.35)'; rr(g, -s / 2, -s / 2 + s * 0.06, s, s, r); g.fill();
+  g.fillStyle = bg; rr(g, -s / 2, -s / 2, s, s, r); g.fill();
+  const hl = g.createLinearGradient(0, -s / 2, 0, s / 2);
+  hl.addColorStop(0, 'rgba(255,255,255,.45)'); hl.addColorStop(0.45, 'rgba(255,255,255,0)'); hl.addColorStop(1, 'rgba(0,0,0,.12)');
+  g.fillStyle = hl; rr(g, -s / 2, -s / 2, s, s, r); g.fill();
+  if (v >= 2048 && catImg.complete && catImg.naturalWidth) {
+    // the big ones get the cat's face
+    g.save(); rr(g, -s / 2, -s / 2, s, s, r); g.clip();
+    g.drawImage(catImg, -s * 0.62, -s * 0.72, s * 1.24, s * 1.24);
+    g.restore();
+    g.font = `900 ${s * 0.2}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineWidth = s * 0.05; g.strokeStyle = bg; g.strokeText(v, 0, s * 0.36); g.fillStyle = '#fff'; g.fillText(v, 0, s * 0.36);
+  } else {
+    const d = String(v).length;
+    g.font = `900 ${s * [0, 0.52, 0.46, 0.38, 0.3, 0.25][Math.min(5, d)]}px system-ui, -apple-system, sans-serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = fg;
+    if (fg === '#fff') { g.shadowColor = 'rgba(0,0,0,.25)'; g.shadowOffsetY = s * 0.02; }
+    g.fillText(v, 0, s * 0.03);
+  }
+  g.restore();
+}
+// curved arrow showing which way the box turns
+function drawArrow(g, x, y, r, dir, alpha) {
+  g.save(); g.translate(x, y); g.globalAlpha = alpha;
+  g.lineCap = 'round'; g.lineWidth = r * 0.28;
+  const a0 = dir < 0 ? -0.3 : Math.PI + 0.3, a1 = dir < 0 ? -Math.PI * 1.35 : Math.PI * 2.35;
+  g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = r * 0.42;
+  g.beginPath(); g.arc(0, 0, r, a0, a1, dir < 0); g.stroke();
+  g.strokeStyle = '#e8590c'; g.lineWidth = r * 0.24;
+  g.beginPath(); g.arc(0, 0, r, a0, a1, dir < 0); g.stroke();
+  // head at the end of the arc, pointing along it
+  const hx = Math.cos(a1) * r, hy = Math.sin(a1) * r, tang = a1 + (dir < 0 ? -Math.PI / 2 : Math.PI / 2);
+  g.translate(hx, hy); g.rotate(tang);
+  g.fillStyle = '#e8590c'; g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = r * 0.1; g.lineJoin = 'round';
+  g.beginPath(); g.moveTo(r * 0.5, 0); g.lineTo(-r * 0.25, -r * 0.42); g.lineTo(-r * 0.25, r * 0.42); g.closePath(); g.stroke(); g.fill();
+  g.restore();
+}
+// the whole scene: cat behind, box (rotating) in front, arrows
+function drawScene(g, Ly, k, still) {
+  const { cx, cy, side } = Ly;
+  const a = still ? 0 : prevAng + (ang - prevAng) * k;
+  const sk = still ? 0 : shake * side * 0.02;
+  const ox = sk * (Math.random() * 2 - 1), oy = sk * (Math.random() * 2 - 1);
+  // shadow on the table
+  if (Ly.floorY) {
+    g.fillStyle = 'rgba(70,35,10,.25)';
+    g.beginPath(); g.ellipse(cx, Ly.floorY + side * 0.04, side * 0.5 * (1 + Math.abs(Math.sin(a * 2)) * 0.2), side * 0.06, 0, 0, 7); g.fill();
+  }
+  // the cat peeks over the top of the box; hops on big merges, ducks when the box is stuck
+  if (catImg.complete && catImg.naturalWidth) {
+    const cw = side * 0.62, jump = still ? 0 : catJump, sink = still ? 0 : catSink;
+    const top = cy - side / 2;
+    const y = top - cw * 0.5 + jump * side * 0.06 + sink * cw * 0.1;
+    g.save(); g.translate(cx + side * 0.18, y + cw / 2); g.rotate(-0.12 + jump * 0.08 - sink * 0.25);
+    g.drawImage(catImg, -cw / 2, -cw / 2, cw, cw);
+    g.restore();
+  }
+  // arrows on both sides (under the box so its corners pass over them while turning)
+  if (Ly.arrows && Ly.arrowA > 0.01) {
+    const pulse = started ? 0 : 0.5 + 0.5 * Math.sin(performance.now() / 260);
+    for (const [i, dir] of [[0, -1], [1, 1]]) {
+      const [x, y] = Ly.arrows[i], r = Ly.arrowR * (1 + flash[i] * 0.25 + pulse * 0.08);
+      drawArrow(g, x, y, r, dir, Ly.arrowA * (started ? 0.55 + flash[i] * 0.45 : 0.75 + pulse * 0.25));
+    }
+  }
+  g.save();
+  g.translate(cx + ox, cy + oy); g.rotate(a);
+  const fr = side * 0.065, inner = side - fr * 2, cs = inner / N, ts = cs * 0.88;
+  // box with wood grain
+  g.shadowColor = 'rgba(60,25,5,.35)'; g.shadowBlur = side * 0.05; g.shadowOffsetY = side * 0.03;
+  if (!woodPat || woodPat.ctx !== g) { woodPat = g.createPattern(wood, 'repeat'); woodPat.ctx = g; }
+  g.fillStyle = woodPat; rr(g, -side / 2, -side / 2, side, side, side * 0.06); g.fill();
+  g.shadowColor = 'transparent';
+  const bv = g.createLinearGradient(-side / 2, -side / 2, side / 2, side / 2);
+  bv.addColorStop(0, 'rgba(255,235,200,.35)'); bv.addColorStop(1, 'rgba(70,30,5,.3)');
+  g.fillStyle = bv; rr(g, -side / 2, -side / 2, side, side, side * 0.06); g.fill();
+  // inside: felt, darker toward the edges
+  if (!feltPat || feltPat.ctx !== g) { feltPat = g.createPattern(felt, 'repeat'); feltPat.ctx = g; }
+  g.fillStyle = feltPat; rr(g, -inner / 2, -inner / 2, inner, inner, side * 0.03); g.fill();
+  const vg = g.createRadialGradient(0, 0, inner * 0.2, 0, 0, inner * 0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(30,10,0,.45)');
+  g.fillStyle = vg; rr(g, -inner / 2, -inner / 2, inner, inner, side * 0.03); g.fill();
+  // empty slots
+  g.fillStyle = 'rgba(255,230,200,.07)';
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) { rr(g, -inner / 2 + c * cs + (cs - ts) / 2, -inner / 2 + r * cs + (cs - ts) / 2, ts, ts, ts * 0.16); g.fill(); }
+  g.save(); rr(g, -inner / 2, -inner / 2, inner, inner, side * 0.03); g.clip();
+  const px = c => -inner / 2 + (c + 0.5) * cs, py = y => -inner / 2 + (y + 0.5) * cs - ts / 2;
+  for (const gh of ghosts) drawTile(g, px(gh.c), py(lerp(gh.ty, gh.y, gh.life)), ts * (0.6 + 0.4 * gh.life), gh.v, 1, 1, gh.life);
+  for (const tl of tiles) {
+    const y = still ? tl.y : tl.py + (tl.y - tl.py) * k;
+    const pop = still ? 0 : Math.sin(tl.pop * Math.PI) * 0.18, sq = still ? 0 : tl.sq, born = still ? 0 : tl.born;
+    const s = 1 + pop - born * 0.9;
+    drawTile(g, px(tl.c), py(y), ts, tl.v, s * (1 + sq * 0.12), s * (1 - sq * 0.16));
+  }
+  if (!still) for (const p of parts) {
+    g.globalAlpha = Math.max(0, p.life); g.fillStyle = p.col;
+    g.beginPath(); g.arc(p.x * cs, p.y * cs, p.r * cs * (0.5 + p.life * 0.5), 0, 7); g.fill();
+  }
+  g.globalAlpha = 1;
+  g.restore();
+  g.restore();
+}
+
+// ---- layout ----
+// fits the cat peeking over the box, the box, and the arrows in the space between the header
+// and the bottom 80px (X's in-app browser covers that); spare height goes around evenly
+const TOP = 52, BOT = 80, CAT = 0.34, MAXS = 560;
+function baseLayout(W, H, result) {
+  let top = TOP, bot = H - BOT, left = 0, right = W;
+  if (result) {
+    if (W / H > 1.1) right = W * 0.5;
+    else { top = $('ptop').getBoundingClientRect().bottom + 6; bot = $('pbtns').getBoundingClientRect().top - 6; }
+  }
+  const aw = right - left, ah = bot - top;
+  let side, mode = 'none';
+  if (!result) {
+    const sA = Math.min(aw * 0.9, ah / (CAT + 1 + 0.4), MAXS);   // arrows under the box
+    const sB = Math.min(aw / 1.9, ah / (CAT + 1 + 0.12), MAXS);  // arrows beside it
+    mode = sA >= sB ? 'below' : 'side'; side = Math.max(sA, sB);
+  } else side = Math.min(aw * 0.84, ah / (CAT + 1 + 0.1), MAXS);
+  side = Math.max(120, side);
+  const total = side * (CAT + 1 + (mode === 'below' ? 0.4 : 0.12));
+  const cy = top + Math.max(0, ah - total) * 0.5 + side * (CAT + 0.5);
+  const cx = (left + right) / 2;
+  const arrowR = side * (mode === 'below' ? 0.1 : 0.12);
+  const arrows = mode === 'below'
+    ? [[cx - side * 0.3, cy + side * 0.5 + side * 0.22], [cx + side * 0.3, cy + side * 0.5 + side * 0.22]]
+    : [[cx - side * 0.5 - side * 0.24, cy + side * 0.15], [cx + side * 0.5 + side * 0.24, cy + side * 0.15]];
+  return { cx, cy, side, arrows, arrowR, arrowA: result ? 0 : 1 };
+}
+let resK = 0, curL = null;
+function layoutNow(W, H) {
+  const a = baseLayout(W, H, false);
+  if (resK <= 0) return a;
+  const b = baseLayout(W, H, true), e = resK * resK * (3 - 2 * resK);
+  return { cx: lerp(a.cx, b.cx, e), cy: lerp(a.cy, b.cy, e), side: lerp(a.side, b.side, e), arrows: a.arrows, arrowR: a.arrowR, arrowA: 1 - e };
+}
+function resize() {
+  const dpr = Math.min(2, devicePixelRatio || 1);
+  cv.width = Math.round(innerWidth * dpr); cv.height = Math.round(innerHeight * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener('resize', resize);
+
+function draw(fdt, k) {
+  const W = innerWidth, H = innerHeight;
+  resK = clamp(resK + (resultOn ? 1 : -1) * fdt * 3, 0, 1);
+  const Ly = layoutNow(W, H);
+  // the table sits below everything the box can sweep while turning
+  Ly.floorY = Math.min(H - 10, Ly.cy + Ly.side * 0.5 * 1.42 + 6);
+  drawBg(ctx, W, H, Ly.floorY);
+  drawScene(ctx, Ly, k, false);
+}
+
+let last = performance.now(), simT = last;
+function loop(now) {
+  const fdt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (now - simT > 250) simT = now - 250;
+  while (simT + DT * 1000 <= now) { step(DT); simT += DT * 1000; }
+  draw(fdt, (now - simT) / (DT * 1000));
+  requestAnimationFrame(loop);
+}
+reset(); resize(); applyLang(); draw(0, 1); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
