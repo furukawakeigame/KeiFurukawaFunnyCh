@@ -197,11 +197,11 @@ const pick = a => a[Math.floor(Math.random() * a.length)];
 // ---- the board ----
 // tiles live in screen space: gravity is always down. y is a float row (0 = top), c the column
 const N = 4, GRAV = 70, DT = 1 / 120, ROT_DUR = 0.28;
-let tiles, ghosts, parts, score, best = store.get('best', 0), maxTile, state, rotDir, rotT, ang, prevAng, spawned, settleT, queued, started, overT, shake, flash;
+let tiles, ghosts, parts, score, best = store.get('best', 0), maxTile, state, rotDir, rotT, ang, prevAng, spawned, settleT, started, overT, shake, flash;
 let nextId = 1;
 function reset() {
   tiles = []; ghosts = []; parts = []; score = 0; maxTile = 2;
-  state = 'fall'; rotDir = 0; rotT = 0; ang = prevAng = 0; settleT = 0; queued = 0; started = false; overT = 0;
+  state = 'fall'; rotDir = 0; rotT = 0; ang = prevAng = 0; settleT = 0; started = false; overT = 0;
   shake = 0; flash = [0, 0];
   const cols = [0, 1, 2, 3].sort(() => Math.random() - 0.5);
   addTile(cols[0], 2); addTile(cols[1], Math.random() < 0.15 ? 4 : 2);
@@ -266,7 +266,6 @@ function step(dt) {
         if (!spawned) { spawned = true; if (spawn()) return; }
         state = 'idle';
         if (tiles.length === N * N && !canMerge()) { state = 'over'; overT = 0; sOver(); }
-        else if (queued) { const d = queued; queued = 0; rotate(d); }
       }
     } else settleT = 0;
   } else if (state === 'over') {
@@ -302,7 +301,7 @@ function endRotate() {
 function move(dir) {
   if (state === 'over' || state === 'done') return;
   started = true;
-  if (state === 'idle') rotate(dir); else queued = dir;
+  if (state === 'idle') rotate(dir); // presses while the box is still moving are dropped, not stacked
 }
 
 // ---- input ----
@@ -465,7 +464,8 @@ function drawScene(g, Ly, k, still) {
 // ---- layout ----
 // fits the box (with room for its corners while turning) and the arrows in the space between the header
 // and the bottom 80px (X's in-app browser covers that); spare height goes around evenly
-const BOT = 80, PAD = 0.12, MAXS = 560;
+// the box's corners sweep a circle of radius side * 0.71 while turning; the score row and the arrows stay outside it
+const BOT = 80, PAD = 0.22, MAXS = 560;
 function baseLayout(W, H, result) {
   // tall screens keep the score row under the header clear
   let top = W / H > 1.1 ? 52 : 94, bot = H - BOT, left = 0, right = W;
@@ -476,18 +476,18 @@ function baseLayout(W, H, result) {
   const aw = right - left, ah = bot - top;
   let side, mode = 'none';
   if (!result) {
-    const sA = Math.min(aw * 0.9, ah / (PAD + 1 + 0.4), MAXS);   // arrows under the box
-    const sB = Math.min(aw / 1.9, ah / (PAD + 1 + 0.12), MAXS);  // arrows beside it
+    const sA = Math.min(aw * 0.9, ah / (PAD + 1 + 0.48), MAXS);  // arrows under the box
+    const sB = Math.min(aw / 2.1, ah / (PAD + 1 + 0.22), MAXS);  // arrows beside it
     mode = sA >= sB ? 'below' : 'side'; side = Math.max(sA, sB);
   } else side = Math.min(aw * 0.84, ah / (PAD + 1 + 0.1), MAXS);
   side = Math.max(120, side);
-  const total = side * (PAD + 1 + (mode === 'below' ? 0.4 : 0.12));
+  const total = side * (PAD + 1 + (mode === 'below' ? 0.48 : 0.22));
   const cy = top + Math.max(0, ah - total) * 0.5 + side * (PAD + 0.5);
   const cx = (left + right) / 2;
   const arrowR = side * (mode === 'below' ? 0.1 : 0.12);
   const arrows = mode === 'below'
-    ? [[cx - side * 0.3, cy + side * 0.5 + side * 0.22], [cx + side * 0.3, cy + side * 0.5 + side * 0.22]]
-    : [[cx - side * 0.5 - side * 0.24, cy + side * 0.15], [cx + side * 0.5 + side * 0.24, cy + side * 0.15]];
+    ? [[cx - side * 0.32, cy + side * 0.82], [cx + side * 0.32, cy + side * 0.82]]
+    : [[cx - side * 0.9, cy], [cx + side * 0.9, cy]];
   return { cx, cy, side, arrows, arrowR, arrowA: result ? 0 : 1 };
 }
 let resK = 0, curL = null;
