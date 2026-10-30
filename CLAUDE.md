@@ -19,6 +19,8 @@ Always talk with the owner in Japanese (日本語で会話する), including pro
 
 ## Adding a game
 
+New games are **3D by default** (three.js from a CDN). Use 2D only when the idea clearly suits it better, and confirm with the owner first.
+
 The full flow (企画 → 仕様 → 実装 → 確認 → デプロイ) is the `/make-game` skill in `.claude/skills/make-game/`. In short:
 
 1. Put the game in `games/<game-name>/` with an `index.html` entry point (use relative paths for any assets), plus a square `icon.png` (512×512 recommended).
