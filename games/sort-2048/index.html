@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ソート2048</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="ソート2048">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/sort-2048/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/sort-2048/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #e9dcc8; color: #3d2c1e; overflow: hidden;
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif;
+      -webkit-user-select: none; user-select: none;
+    }
+    canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+    header { position: fixed; top: 0; left: 0; right: 0; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 8px 12px; pointer-events: none; }
+    header > * { pointer-events: auto; }
+    header a { color: #3d2c1e; font-size: 14px; text-decoration: none; margin-right: auto; background: rgba(255,255,255,.75); border-radius: 14px; padding: 6px 10px; }
+    .pill { height: 34px; min-width: 34px; border: none; border-radius: 17px; background: #fff; color: #3d2c1e; font-size: 14px; padding: 0 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    select.pill { appearance: none; -webkit-appearance: none; }
+    /* stage dots and the star gauge: their own row under the header on tall screens, in the header on wide ones */
+    #hud { position: fixed; left: 50%; top: 50px; transform: translateX(-50%); z-index: 2; display: flex; align-items: center; gap: clamp(10px, 2vmin, 18px); }
+    #hud[hidden] { display: none; }
+    @media (min-aspect-ratio: 1/1) { #hud { top: 8px; height: 34px; } }
+    #dots { display: flex; gap: clamp(0px, 0.8vw, 4px); }
+    #dots button { width: clamp(15px, 4.2vw, 18px); height: 18px; border: none; padding: 0; background: none; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    #dots i { display: block; width: 8px; height: 8px; border-radius: 50%; background: rgba(61,44,30,.18); transition: transform .15s; }
+    #dots .done i { background: #e8a33a; }
+    #dots .cur i { background: #3d2c1e; transform: scale(1.45); }
+    #dots button:disabled { cursor: default; }
+    #stars { display: flex; gap: 2px; }
+    .star { width: clamp(18px, 3vmin, 26px); height: auto; display: block; }
+    .star path { fill: #e8a33a; stroke: #9a6416; stroke-width: 1.4; stroke-linejoin: round; transition: fill .2s; }
+    .star.off path { fill: rgba(255,255,255,.55); stroke: rgba(61,44,30,.3); }
+    /* undo / start over: round buttons in the lower corners, above X's in-app bar */
+    .tool { position: fixed; z-index: 2; bottom: calc(80px + env(safe-area-inset-bottom)); width: clamp(54px, 8vmin, 68px); height: clamp(54px, 8vmin, 68px); border: none; border-radius: 50%; background: #fff; box-shadow: 0 4px 0 #b49a7c; cursor: pointer; display: flex; align-items: center; justify-content: center; touch-action: manipulation; }
+    .tool:active { transform: translateY(3px); box-shadow: 0 1px 0 #b49a7c; }
+    .tool svg { width: 50%; height: 50%; }
+    .tool:disabled { opacity: .45; cursor: default; }
+    .tool[hidden] { display: none; }
+    #undo { left: 16px; }
+    #restart { right: 16px; }
+    /* the result: stage, stars and moves at the top, buttons at the bottom, the finished ball in between */
+    .panel { position: fixed; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 52px 16px calc(80px + env(safe-area-inset-bottom)); pointer-events: none; }
+    .panel[hidden] { display: none; }
+    .panel > * { pointer-events: auto; }
+    .ptop, .pbtns { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .pbtns { gap: 10px; padding-bottom: 8px; }
+    .pstars { display: flex; gap: 6px; }
+    .pstars .star { width: clamp(38px, 7vmin, 64px); }
+    .sub { margin: 0; font-size: clamp(15px, 2.2vmin, 22px); background: #fff; border-radius: 12px; padding: 4px 12px; }
+    .big { font-size: clamp(36px, 7vmin, 80px); font-weight: 900; margin: 0; line-height: 1.05; color: #3d2c1e; text-shadow: 0 3px 0 #fff; }
+    .row { display: flex; gap: 10px; }
+    .btn { border: none; border-radius: 28px; background: #e85d4a; color: #fff; font-size: clamp(19px, 2.8vmin, 28px); font-weight: 800; padding: 12px 36px; cursor: pointer; text-decoration: none; box-shadow: 0 4px 0 #9b3324; }
+    .btn.sec { background: #fff; color: #3d2c1e; box-shadow: 0 4px 0 #b49a7c; font-size: clamp(15px, 2.2vmin, 22px); padding: 10px 22px; }
+    .btn.x { background: #111; box-shadow: 0 4px 0 #555; font-size: clamp(15px, 2.2vmin, 22px); padding: 10px 22px; }
+    @media (min-aspect-ratio: 11/10) {
+      .panel { left: 50%; justify-content: center; gap: clamp(14px, 4vh, 40px); padding-top: 56px; }
+    }
+    #msg { position: fixed; inset: 0; z-index: 4; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" class="pill" aria-label="sound">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3d2c1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#3d2c1e"/><path id="wave" d="M16 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/><path id="mute" d="M16 9l6 6M22 9l-6 6" style="display:none"/></svg>
+    </button>
+    <select id="lang" class="pill" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="hud"><div id="dots"></div><div id="stars"></div></div>
+  <button id="undo" class="tool" aria-label="undo"><svg viewBox="0 0 24 24" fill="none" stroke="#3d2c1e" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+  <button id="restart" class="tool" aria-label="restart"><svg viewBox="0 0 24 24" fill="none" stroke="#3d2c1e" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg></button>
+  <div id="result" class="panel" hidden>
+    <div class="ptop" id="ptop">
+      <p class="sub" id="rStage"></p>
+      <div class="pstars" id="rStars"></div>
+      <p class="big" id="rMoves"></p>
+    </div>
+    <div class="pbtns" id="pbtns">
+      <button id="next" class="btn"></button>
+      <div class="row"><button id="again" class="btn sec"></button><a id="share" class="btn x"></a></div>
+    </div>
+  </div>
+  <div id="msg"></div>
+
+  <script type="importmap">{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  } }</script>
+  <script>
+    // CDN が読めないときの一言
+    setTimeout(() => { if (!window.SORT_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 8000);
+  </script>
+  <script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+window.SORT_READY = true;
+
+// ---------- stages ----------
+// t: the target as a power of two, par: the fewest moves (checked by a full search), tubes: bottom to top, powers of two
+const STAGES = [
+  {"t":4,"par":6,"tubes":[[1,3,2,1],[],[]]},
+  {"t":5,"par":6,"tubes":[[1,2],[1,4,3],[]]},
+  {"t":6,"par":7,"tubes":[[3,1,5],[1,4,2],[]]},
+  {"t":7,"par":8,"tubes":[[4,5,3],[6],[1,2,1],[]]},
+  {"t":8,"par":9,"tubes":[[1,2],[4,6,5,1],[3,7],[]]},
+  {"t":9,"par":10,"tubes":[[3,8,4,7],[4,5],[3,4,5],[]]},
+  {"t":9,"par":11,"tubes":[[3,7,5],[4,1,5],[1,5,8,2],[]]},
+  {"t":10,"par":11,"tubes":[[3,6],[4,7,8,7],[7,3,8,5],[]]},
+  {"t":10,"par":12,"tubes":[[3,7,3,6],[3,9,7,6],[3,6,5],[]]},
+  {"t":11,"par":11,"tubes":[[4,5,10,7],[4,5,6,7],[6,9,5],[]]},
+  {"t":10,"par":12,"tubes":[[2,7,1,6],[1,3,7,8],[5,4,8,7],[]]},
+  {"t":11,"par":13,"tubes":[[5,7,5,6],[4,6,4,5],[6,10,6,9],[]]},
+];
+const CAP = 4;
+
+// ---------- language ----------
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('sort-2048:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('sort-2048:' + k, JSON.stringify(v)); } catch {} },
+};
+const URL_ = 'https://keifurukawafunnych.com/games/sort-2048/';
+const TAG = '#ソート2048ゲーム';
+const L = {
+  ja: { title: 'ソート2048', back: '← トップへ戻る', next: '次へ', first: 'ステージ1へ', again: 'もう一度', share: 'Xでポスト',
+        stage: n => `ステージ${n}`, moves: n => `${n}手`,
+        post: (s, m, k) => `ソート2048 ステージ${s}を${m}手でクリア（星${k}つ）\n${TAG}` },
+  ko: { title: '소트 2048', back: '← 처음으로', next: '다음', first: '스테이지 1로', again: '다시 하기', share: 'X에 게시',
+        stage: n => `스테이지 ${n}`, moves: n => `${n}수`,
+        post: (s, m, k) => `소트 2048 스테이지 ${s}를 ${m}수로 클리어 (별 ${k}개)\n${TAG}` },
+  en: { title: 'Sort 2048', back: '← Top', next: 'Next', first: 'To stage 1', again: 'Retry', share: 'Post on X',
+        stage: n => `Stage ${n}`, moves: n => `${n} ${n === 1 ? 'move' : 'moves'}`,
+        post: (s, m, k) => `Cleared Sort 2048 stage ${s} in ${m} ${m === 1 ? 'move' : 'moves'} (${k} ${k === 1 ? 'star' : 'stars'})\n${TAG}` },
+  th: { title: 'เรียง 2048', back: '← กลับหน้าแรก', next: 'ถัดไป', first: 'ไปด่าน 1', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X',
+        stage: n => `ด่าน ${n}`, moves: n => `${n} ครั้ง`,
+        post: (s, m, k) => `ผ่านด่าน ${s} ของเกม เรียง 2048 ใน ${m} ครั้ง (${k} ดาว)\n${TAG}` },
+};
+const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
+let lang = store.get('lang', autoLang());
+if (!L[lang]) lang = 'en';
+const t = k => L[lang][k];
+const $ = id => document.getElementById(id);
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = t('title');
+  $('lang').value = lang;
+  $('back').textContent = t('back');
+  $('again').textContent = t('again'); $('share').textContent = t('share');
+  if (resultOn) showResult();
+}
+$('lang').onchange = () => { lang = $('lang').value; store.set('lang', lang); applyLang(); };
+
+// ---------- sound (all synthesized) ----------
+let soundOn = store.get('sound', true), ac = null;
+function updSound() { $('wave').style.display = soundOn ? '' : 'none'; $('mute').style.display = soundOn ? 'none' : ''; }
+$('sound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updSound(); };
+updSound();
+// play through the iPhone's silent switch
+function unmuteIOS() {
+  try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch {}
+  try {
+    const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+    const a = document.createElement('audio');
+    a.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })); a.loop = true; a.setAttribute('playsinline', '');
+    a.play().catch(() => {});
+  } catch {}
+}
+// made on the first touch (with a silent sound) so the first real sound doesn't stutter
+function initAudio() {
+  if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+  unmuteIOS();
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    const g = ac.createGain(); g.gain.value = 0; g.connect(ac.destination);
+    const o = ac.createOscillator(); o.connect(g); o.start(); o.stop(ac.currentTime + 0.05);
+  } catch { ac = null; }
+}
+addEventListener('pointerdown', initAudio, true);
+addEventListener('keydown', initAudio, true);
+const on = () => soundOn && ac;
+function tone(type, f0, f1, dur, vol, delay = 0) {
+  if (!on()) return;
+  try {
+    const n = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, n); o.frequency.exponentialRampToValueAtTime(f1, n + dur);
+    g.gain.setValueAtTime(0.0001, n); g.gain.linearRampToValueAtTime(vol, n + 0.006); g.gain.exponentialRampToValueAtTime(0.001, n + dur);
+    o.connect(g).connect(ac.destination); o.start(n); o.stop(n + dur + 0.02);
+  } catch {}
+}
+// a burst of noise rung through a few resonances: glass, wood, ...
+function hit(len, decay, bands, vol, delay = 0) {
+  if (!on()) return;
+  try {
+    const n = ac.currentTime + delay, buf = ac.createBuffer(1, Math.floor(ac.sampleRate * len), ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ac.sampleRate * decay));
+    const s = ac.createBufferSource(); s.buffer = buf;
+    for (const [f, q, g0] of bands) {
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * (0.95 + Math.random() * 0.1); bp.Q.value = q;
+      const g = ac.createGain(); g.gain.value = g0 * vol; s.connect(bp).connect(g).connect(ac.destination);
+    }
+    s.start(n);
+  } catch {}
+}
+// a ball taken out of the tube: a light rub on the glass
+function sLift() { hit(0.05, 0.01, [[2600, 6, 0.5], [4100, 8, 0.3]], 0.25); }
+// a ball landing in a glass tube: a bright "kachin" with a little ring of the glass, and a soft knock under it
+function sLand(k = 1) {
+  hit(0.12, 0.018, [[2350, 30, 1], [3900, 40, 0.6], [6100, 30, 0.3]], 0.35 * k);
+  tone('sine', 2350 * (0.97 + Math.random() * 0.06), 2300, 0.25, 0.04 * k);
+  hit(0.05, 0.008, [[260, 4, 1]], 0.5 * k);
+}
+// can't go there: a dull knock on the wooden rack
+function sNo() { hit(0.07, 0.012, [[330, 5, 1.2], [700, 6, 0.4]], 0.8); tone('sine', 140, 90, 0.12, 0.25); }
+function sUndo() { tone('sine', 700, 420, 0.1, 0.08); }
+// merging: a round "pon" (lower for bigger numbers), stepping up the scale while one move keeps merging
+const SCALE = [0, 4, 7, 12, 16, 19, 24];
+function sMerge(v, chainI) {
+  if (!on()) return;
+  const base = 880 * Math.pow(2, -(v - 1) / 5), f = base * Math.pow(2, SCALE[Math.min(chainI, 6)] / 12);
+  tone('sine', f * 1.5, f, 0.09, 0.3);
+  tone('sine', f, f, 0.32, 0.14, 0.03);
+  tone('triangle', f * 2, f * 2, 0.16, 0.04, 0.03);
+  hit(0.04, 0.005, [[f * 2.5, 6, 1]], 0.25);
+}
+function sClear() { [0, 4, 7, 12, 16].forEach((s, i) => { const f = 523.25 * Math.pow(2, s / 12); tone('sine', f, f, 0.9, 0.16, i * 0.09); tone('triangle', f * 2, f * 2, 0.4, 0.03, i * 0.09); }); hit(0.4, 0.15, [[5200, 3, 0.5], [7800, 3, 0.3]], 0.15, 0.36); }
+
+// ---------- 3D ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.95;
+document.body.prepend(renderer.domElement);
+const cv = renderer.domElement;
+const scene = new THREE.Scene();
+const canvasTex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; return tx; };
+// background: warm at the top of the room, the far lab wall melting into it
+scene.background = canvasTex(4, 256, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#bcd6e4'); gr.addColorStop(0.55, '#efe4d2'); gr.addColorStop(1, '#e2cdb0'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+scene.fog = new THREE.Fog('#eadfcd', 11, 28);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
+scene.add(new THREE.HemisphereLight('#dceeff', '#8a6a48', 0.7));
+const sun = new THREE.DirectionalLight('#fff0d8', 2.2); sun.position.set(-4, 9, 7);
+sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.radius = 4; sun.shadow.bias = -0.0006;
+Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 7, bottom: -3, near: 1, far: 30 });
+scene.add(sun);
+
+const shade = o => { o.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } }); return o; };
+// wood grain drawn on a canvas
+function woodTex(base, dark, rep) {
+  const tx = canvasTex(512, 512, (g, w, h) => {
+    g.fillStyle = base; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 70; i++) {
+      const y = Math.random() * h, a = 0.05 + Math.random() * 0.12;
+      g.strokeStyle = `rgba(${dark},${a})`; g.lineWidth = 1 + Math.random() * 4;
+      g.beginPath(); g.moveTo(0, y);
+      for (let x = 0; x <= w; x += 32) g.lineTo(x, y + Math.sin(x / 60 + i) * 4 + Math.sin(x / 17 + i * 3) * 1.5);
+      g.stroke();
+    }
+    for (let i = 0; i < 4; i++) { // knots
+      const x = Math.random() * w, y = Math.random() * h;
+      for (let r = 14; r > 2; r -= 3) { g.strokeStyle = `rgba(${dark},0.12)`; g.lineWidth = 1.5; g.beginPath(); g.ellipse(x, y, r * 2.2, r * 0.7, 0, 0, 7); g.stroke(); }
+    }
+  });
+  tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(rep, rep); tx.anisotropy = 4;
+  return tx;
+}
+const tableMat = new THREE.MeshStandardMaterial({ map: woodTex('#c79b6a', '90,55,25', 6), roughness: 0.55 });
+const rackMat = new THREE.MeshStandardMaterial({ map: woodTex('#a8703f', '60,30,10', 1), roughness: 0.6 });
+const table = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), tableMat);
+table.rotation.x = -Math.PI / 2; table.receiveShadow = true; scene.add(table);
+
+// the lab in the back: a tiled wall, shelves with flasks and beakers
+{
+  const wallTex = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#f4efe6'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = 'rgba(150,130,110,.35)'; g.lineWidth = 3;
+    for (let i = 0; i <= 4; i++) { g.beginPath(); g.moveTo(0, i * 64); g.lineTo(w, i * 64); g.stroke(); g.beginPath(); g.moveTo(i * 64, 0); g.lineTo(i * 64, h); g.stroke(); }
+  });
+  wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping; wallTex.repeat.set(30, 4);
+  const wall = new THREE.Mesh(new THREE.PlaneGeometry(120, 16), new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.4 }));
+  wall.position.set(0, 8, -9); wall.receiveShadow = true; scene.add(wall);
+  const board = new THREE.BoxGeometry(1, 0.15, 1.2);
+  const glassMat = new THREE.MeshStandardMaterial({ color: '#dff1ff', roughness: 0.05, transparent: true, opacity: 0.35, depthWrite: false });
+  const liquids = ['#6fcf97', '#f2994a', '#56ccf2', '#eb5757', '#bb6bd9', '#f2c94c'].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.2 }));
+  const cyl = new THREE.CylinderGeometry(1, 1, 1, 20), sph = new THREE.SphereGeometry(1, 20, 14), cone = new THREE.CylinderGeometry(0.25, 1, 1, 20);
+  for (const [sy, sw] of [[2.6, 14], [4.6, 14]]) {
+    const b = new THREE.Mesh(board, rackMat); b.scale.set(sw, 1, 1); b.position.set(0, sy, -8.4); scene.add(shade(b));
+    for (let x = -sw / 2 + 0.8; x < sw / 2 - 0.5; x += 0.9 + Math.random() * 0.9) {
+      const kind = Math.floor(Math.random() * 3), liq = liquids[Math.floor(Math.random() * liquids.length)], gr = new THREE.Group();
+      const s = 0.25 + Math.random() * 0.18;
+      if (kind === 0) { // round flask
+        const body = new THREE.Mesh(sph, glassMat); body.scale.setScalar(s * 1.3); body.position.y = s * 1.3; gr.add(body);
+        const lq = new THREE.Mesh(sph, liq); lq.scale.set(s * 1.15, s * 0.8, s * 1.15); lq.position.y = s * 1.05; gr.add(lq);
+        const neck = new THREE.Mesh(cyl, glassMat); neck.scale.set(s * 0.3, s * 1.6, s * 0.3); neck.position.y = s * 3; gr.add(neck);
+      } else if (kind === 1) { // conical flask
+        const body = new THREE.Mesh(cone, glassMat); body.scale.set(s, s * 1.8, s); body.position.y = s * 0.9; gr.add(body);
+        const lq = new THREE.Mesh(cone, liq); lq.scale.set(s * 0.92, s * 0.9, s * 0.92); lq.position.y = s * 0.45; gr.add(lq);
+      } else { // beaker
+        const body = new THREE.Mesh(cyl, glassMat); body.scale.set(s, s * 2.2, s); body.position.y = s * 1.1; gr.add(body);
+        const lq = new THREE.Mesh(cyl, liq); lq.scale.set(s * 0.92, s * 1.2, s * 0.92); lq.position.y = s * 0.6; gr.add(lq);
+      }
+      gr.position.set(x, sy + 0.075, -8.4 + (Math.random() - 0.5) * 0.4);
+      scene.add(gr);
+    }
+  }
+}
+
+// ---------- balls ----------
+const COLORS = [null,
+  ['#e9e3d8', '#5a4a3e'], ['#eec67a', '#5a4a3e'], ['#f28a35', '#fff'], ['#ec5f2e', '#fff'],
+  ['#e03a34', '#fff'], ['#c22a58', '#fff'], ['#e8b81c', '#fff'], ['#5cb02e', '#fff'],
+  ['#159c85', '#fff'], ['#2f6fd6', '#fff'], ['#e0a010', '#fff'], ['#7a5ad8', '#fff'],
+];
+const ballCol = v => COLORS[v] || ['#4a4038', '#fff'];
+const R = 0.4, PITCH = 1.3, STEP = 0.84, BASE = 0.32;
+const Y0 = BASE + 0.1 + R, HC = Y0 + 0.08, TR = 0.48;
+const TOP = Y0 + (CAP - 1) * STEP + R + 0.3, LIFT = TOP + 0.6, GOAL_Y = LIFT + 1.3;
+const ballGeo = new THREE.SphereGeometry(R, 48, 32);
+// the number is painted twice around the equator so it faces the camera (front at u = 0.25)
+const mats = new Map();
+function ballMat(v, ghost = false) {
+  const key = v + (ghost ? 'g' : '');
+  if (mats.has(key)) return mats.get(key);
+  const [bg, fg] = ballCol(v), str = String(2 ** v);
+  const map = canvasTex(512, 256, (g, w, h) => {
+    g.fillStyle = bg; g.fillRect(0, 0, w, h);
+    // a slightly darker band at the poles so it reads as a ball, not a flat disc
+    const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(0,0,0,.12)'); gr.addColorStop(0.3, 'rgba(0,0,0,0)'); gr.addColorStop(0.7, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.18)');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    const px = [0, 112, 100, 82, 64, 52][Math.min(5, str.length)];
+    g.font = `900 ${px}px system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+    for (const x of [w * 0.25, w * 0.75]) {
+      if (fg === '#fff') { g.lineWidth = px * 0.14; g.strokeStyle = 'rgba(60,30,20,.35)'; g.strokeText(str, x, h / 2 + px * 0.04); }
+      g.fillStyle = fg; g.fillText(str, x, h / 2 + px * 0.04);
+    }
+  });
+  map.anisotropy = 4;
+  const m = new THREE.MeshStandardMaterial({ map, roughness: v === 11 ? 0.22 : 0.28, metalness: v === 11 ? 0.5 : 0, envMapIntensity: v === 11 ? 1 : 0.55 });
+  if (ghost) { m.transparent = true; m.opacity = 0.45; m.depthWrite = false; }
+  mats.set(key, m);
+  return m;
+}
+const FACE = -0.28; // tilt the number toward the camera, which looks down a little
+function newBall(v) {
+  const m = new THREE.Mesh(ballGeo, ballMat(v));
+  m.castShadow = true; m.rotation.x = FACE;
+  scene.add(m);
+  return { v, mesh: m, pop: 0, sq: 0, spin: 0 };
+}
+function setV(b, v) { b.v = v; b.mesh.material = ballMat(v); }
+
+// ---------- tubes and rack ----------
+const tubeProfile = [];
+for (let i = 0; i <= 12; i++) { const a = i / 12 * Math.PI / 2; tubeProfile.push(new THREE.Vector2(Math.max(0.001, TR * Math.sin(a)), HC - TR * Math.cos(a))); }
+tubeProfile.push(new THREE.Vector2(TR, TOP - 0.04), new THREE.Vector2(TR + 0.05, TOP), new THREE.Vector2(TR + 0.05, TOP + 0.04), new THREE.Vector2(TR - 0.01, TOP + 0.05));
+const tubeGeo = new THREE.LatheGeometry(tubeProfile, 40);
+const glass = () => new THREE.MeshPhysicalMaterial({ color: '#eef8ff', roughness: 0.04, metalness: 0, transparent: true, opacity: 0.22, clearcoat: 1, side: THREE.DoubleSide, depthWrite: false, envMapIntensity: 1.6, emissive: '#ffd27a', emissiveIntensity: 0 });
+const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+let K = 0, tubes = [], tubeMeshes = [], hitBoxes = [], rack = null;
+const tubeX = i => (i - (K - 1) / 2) * PITCH;
+const slotY = n => Y0 + n * STEP;
+function buildRack(k) {
+  if (k === K && rack) return;
+  if (rack) { scene.remove(rack); rack.traverse(o => { if (o.isMesh && o.geometry !== tubeGeo) o.geometry.dispose(); if (o.isMesh && o.material !== rackMat && o.material !== hitMat) o.material.dispose(); }); }
+  K = k; rack = new THREE.Group(); tubeMeshes = []; hitBoxes = [];
+  const w = K * PITCH + 0.5;
+  const base = new THREE.Mesh(new THREE.BoxGeometry(w, BASE, 1.5), rackMat); base.position.set(0, BASE / 2, 0); rack.add(base);
+  const backH = TOP - 0.6;
+  const back = new THREE.Mesh(new THREE.BoxGeometry(w, backH, 0.16), rackMat); back.position.set(0, BASE + backH / 2, -0.7); rack.add(back);
+  for (const s of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, backH, 1.2), rackMat); post.position.set(s * (w / 2 - 0.08), BASE + backH / 2, -0.1); rack.add(post); }
+  shade(rack);
+  const ringGeo = new THREE.TorusGeometry(TR + 0.04, 0.05, 8, 32), ringMat = new THREE.MeshStandardMaterial({ color: '#5a3a20', roughness: 0.7 });
+  for (let i = 0; i < K; i++) {
+    const tm = new THREE.Mesh(tubeGeo, glass()); tm.position.set(tubeX(i), 0, 0); tm.renderOrder = 2; rack.add(tm); tubeMeshes.push(tm);
+    const ring = new THREE.Mesh(ringGeo, ringMat); ring.rotation.x = Math.PI / 2; ring.position.set(tubeX(i), BASE + 0.02, 0); ring.receiveShadow = true; rack.add(ring);
+    const hb = new THREE.Mesh(new THREE.BoxGeometry(PITCH, LIFT + 0.8, 1.6), hitMat); hb.position.set(tubeX(i), (LIFT + 0.8) / 2, 0); hb.userData.i = i; rack.add(hb); hitBoxes.push(hb);
+  }
+  scene.add(rack);
+}
+// the goal: a see-through ball of the number to make, floating above the rack
+let goal = null;
+function setGoal(v) {
+  if (goal) scene.remove(goal);
+  goal = new THREE.Mesh(ballGeo, ballMat(v, true));
+  goal.scale.setScalar(1.35); goal.position.set(0, GOAL_Y, 0); goal.rotation.x = FACE; goal.renderOrder = 3;
+  scene.add(goal);
+}
+
+// ---------- particles ----------
+const partGeo = new THREE.SphereGeometry(1, 8, 6), parts = [];
+const partMats = new Map();
+const partMat = v => { if (!partMats.has(v)) partMats.set(v, new THREE.MeshStandardMaterial({ color: ballCol(v)[0], roughness: 0.3, emissive: ballCol(v)[0], emissiveIntensity: 0.35 })); return partMats.get(v); };
+function burst(pos, v, n) {
+  for (let i = 0; i < n; i++) {
+    const m = new THREE.Mesh(partGeo, partMat(v));
+    const a = Math.random() * Math.PI * 2, up = Math.random(), sp = 1.6 + Math.random() * 2.4;
+    parts.push({ m, p0: pos.clone(), v: new THREE.Vector3(Math.cos(a) * sp * (1 - up * 0.5), 1 + up * 3, Math.sin(a) * sp * 0.6), t: 0, life: 0.5 + Math.random() * 0.4, s: 0.04 + Math.random() * 0.05 });
+    scene.add(m);
+  }
+}
+function updParts(dt) {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]; p.t += dt;
+    if (p.t >= p.life) { scene.remove(p.m); parts.splice(i, 1); continue; }
+    const tt = p.t; // closed form, so it moves the same at any frame rate
+    p.m.position.set(p.p0.x + p.v.x * tt, p.p0.y + p.v.y * tt - 4.5 * tt * tt, p.p0.z + p.v.z * tt);
+    p.m.scale.setScalar(p.s * (1 - p.t / p.life));
+  }
+}
+
+// ---------- animation: one generator at a time, fast-forwarded when the player acts again ----------
+let anim = null;
+function finishAnim() { while (anim) { if (anim.next(1e6).done) anim = null; } }
+function play(gen) { finishAnim(); anim = gen; if (anim.next().done) anim = null; }
+function* tween(dur, f) { let tt = 0; f(0); while (tt < dur) { tt += yield; f(Math.min(1, tt / dur)); } }
+function* wait(d) { let tt = 0; while (tt < d) tt += yield; }
+const easeOut = k => 1 - (1 - k) * (1 - k), easeIn = k => k * k, smooth = k => k * k * (3 - 2 * k);
+
+// ---------- game state ----------
+let stage = Math.min(store.get('stage', 0), STAGES.length - 1);
+let cleared = store.get('cleared', 0); // stages cleared so far (unlocks the next one)
+let best = store.get('best', []);
+let moves = 0, history = [], sel = -1, done = false, resultOn = false, finalBall = null;
+const total = () => tubes.reduce((c, tb) => c + tb.length, 0);
+const starsFor = (m, par) => m <= par ? 3 : m <= par + Math.max(2, Math.ceil(par * 0.3)) ? 2 : 1;
+const snapshot = () => tubes.map(tb => tb.map(b => b.v));
+function placeAll() {
+  tubes.forEach((tb, i) => tb.forEach((b, n) => { b.mesh.position.set(tubeX(i), slotY(n), 0); b.mesh.scale.setScalar(1); b.mesh.rotation.set(FACE, 0, 0); }));
+}
+function setTubes(vals) {
+  for (const tb of tubes) for (const b of tb) scene.remove(b.mesh);
+  if (finalBall) { scene.remove(finalBall.mesh); finalBall = null; }
+  tubes = vals.map(tb => tb.map(v => newBall(v)));
+  placeAll();
+}
+function startStage(s, intro = true) {
+  finishAnim();
+  stage = s; store.set('stage', s);
+  const st = STAGES[s];
+  buildRack(st.tubes.length); setGoal(st.t);
+  setTubes(st.tubes);
+  moves = 0; history = []; sel = -1; done = false; goal.visible = true;
+  setResult(false);
+  updHud();
+  if (intro) play(introAnim());
+}
+// the balls drop into the tubes one after another
+function* introAnim() {
+  const all = [];
+  tubes.forEach((tb, i) => tb.forEach((b, n) => { all.push([b, i, n]); b.mesh.visible = false; }));
+  all.sort((a, b) => a[2] - b[2] || a[1] - b[1]);
+  for (const [b, i, n] of all) {
+    b.mesh.visible = true;
+    const y1 = slotY(n), y0 = LIFT + 0.4;
+    yield* tween(0.07 + (y0 - y1) * 0.03, k => b.mesh.position.set(tubeX(i), y0 + (y1 - y0) * easeIn(k), 0));
+    b.sq = 1; sLand(0.45);
+  }
+}
+
+// ---------- moving balls ----------
+function* liftAnim(i) {
+  const b = tubes[i].at(-1), y0 = b.mesh.position.y;
+  sLift();
+  yield* tween(0.12, k => b.mesh.position.y = y0 + (LIFT - y0) * easeOut(k));
+}
+function* lowerAnim(i) {
+  const b = tubes[i].at(-1), y0 = b.mesh.position.y, y1 = slotY(tubes[i].length - 1);
+  yield* tween(0.12, k => b.mesh.position.y = y0 + (y1 - y0) * easeIn(k));
+  b.sq = 0.6; sLand(0.6);
+}
+function* moveAnim(i, j) {
+  const b = tubes[i].pop(), m = b.mesh;
+  // up out of the tube (if it isn't up already), across, and down into the other one
+  if (m.position.y < LIFT - 0.01) { const y0 = m.position.y; sLift(); yield* tween(0.1, k => m.position.y = y0 + (LIFT - y0) * easeOut(k)); }
+  const x0 = m.position.x, x1 = tubeX(j), dir = Math.sign(x1 - x0);
+  yield* tween(0.1 + Math.abs(x1 - x0) * 0.035, k => {
+    const e = smooth(k);
+    m.position.set(x0 + (x1 - x0) * e, LIFT + Math.sin(k * Math.PI) * 0.25, 0);
+    m.rotation.set(FACE, 0, -dir * Math.sin(k * Math.PI) * 0.5);
+  });
+  m.rotation.set(FACE, 0, 0);
+  const tb = tubes[j], y1 = slotY(tb.length);
+  yield* tween(0.06 + (LIFT - y1) * 0.045, k => m.position.y = LIFT + (y1 - LIFT) * easeIn(k));
+  tb.push(b); b.sq = 1; sLand(1);
+  // equal numbers touching merge downward, one after another
+  let chainI = 0;
+  while (tb.length >= 2 && tb.at(-1).v === tb.at(-2).v) {
+    const up = tb.pop(), lo = tb.at(-1), y0 = up.mesh.position.y;
+    yield* wait(chainI ? 0.06 : 0.03);
+    yield* tween(0.09, k => { up.mesh.position.y = y0 + (lo.mesh.position.y - y0) * easeIn(k); up.mesh.scale.setScalar(1 - 0.5 * k); });
+    scene.remove(up.mesh);
+    setV(lo, lo.v + 1); lo.pop = 1;
+    burst(lo.mesh.position, lo.v, 10 + lo.v * 2);
+    sMerge(lo.v, chainI++);
+    yield* wait(0.12);
+  }
+  if (total() === 1) { done = true; yield* clearAnim(); }
+}
+// the last ball rises into the goal and the stage is cleared
+function* clearAnim() {
+  const b = tubes.find(tb => tb.length)[0], m = b.mesh, p0 = m.position.clone();
+  yield* wait(0.2);
+  tubes.forEach(tb => tb.length = 0); finalBall = b;
+  sClear();
+  yield* tween(0.7, k => {
+    const e = smooth(k);
+    m.position.set(p0.x * (1 - e), p0.y + (GOAL_Y - p0.y) * e, 0);
+    m.scale.setScalar(1 + 0.35 * e);
+    m.rotation.set(FACE, k * Math.PI * 2, 0);
+    goal.material.opacity = 0.45 * (1 - e);
+  });
+  goal.visible = false; goal.material.opacity = 0.45;
+  b.pop = 1; burst(m.position, b.v, 40);
+  yield* wait(0.35);
+  finish();
+}
+
+// ---------- input ----------
+function tap(i) {
+  if (done) return;
+  finishAnim();
+  if (sel < 0) {
+    if (!tubes[i].length) return;
+    sel = i; tubeGlow(); play(liftAnim(i));
+    return;
+  }
+  if (i === sel) { const s = sel; sel = -1; tubeGlow(); play(lowerAnim(s)); return; }
+  const v = tubes[sel].at(-1).v, tb = tubes[i];
+  if (tb.length >= CAP && tb.at(-1).v !== v) { sNo(); wobble = { i, t: 0 }; return; }
+  history.push(snapshot()); moves++;
+  const s = sel; sel = -1; tubeGlow();
+  play(moveAnim(s, i));
+  updHud();
+}
+// a full tube shakes its head
+let wobble = null;
+function tubeGlow() { tubeMeshes.forEach((tm, i) => tm.material.emissiveIntensity = i === sel ? 0.35 : 0); }
+function undo() {
+  if (done || !history.length) return;
+  finishAnim();
+  setTubes(history.pop()); moves--; sel = -1; tubeGlow(); sUndo(); updHud();
+}
+function restart() {
+  if (done || !history.length) return;
+  finishAnim();
+  history = []; moves = 0; sel = -1; tubeGlow(); sUndo(); updHud();
+  setTubes(STAGES[stage].tubes);
+  play(introAnim());
+}
+$('undo').onclick = undo;
+$('restart').onclick = restart;
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  if (resultOn) return;
+  ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const h = ray.intersectObjects(hitBoxes, false)[0];
+  if (h) tap(h.object.userData.i);
+  else if (sel >= 0) tap(sel); // tapping outside puts the ball back
+});
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT') return;
+  if (resultOn) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('next').click(); } return; }
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= K) { e.preventDefault(); tap(n - 1); }
+  else if (e.key === 'z' || e.key === 'Z' || e.key === 'Backspace') { e.preventDefault(); undo(); }
+  else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); restart(); }
+  else if (e.key === 'Escape' && sel >= 0) tap(sel);
+});
+
+// ---------- HUD: stage dots and stars (only touched when something changes) ----------
+const STAR = '<svg class="star" viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z"/></svg>';
+$('stars').innerHTML = STAR.repeat(3);
+$('rStars').innerHTML = STAR.repeat(3);
+for (let s = 0; s < STAGES.length; s++) {
+  const b = document.createElement('button'); b.innerHTML = '<i></i>'; b.setAttribute('aria-label', String(s + 1));
+  b.onclick = () => { if (s <= cleared && s !== stage) { initAudio(); startStage(s); } };
+  $('dots').append(b);
+}
+let hudKey = '';
+function updHud() {
+  const k = starsFor(Math.max(0, moves), STAGES[stage].par), key = [stage, cleared, k].join();
+  $('undo').disabled = $('restart').disabled = !history.length;
+  if (key === hudKey) return;
+  hudKey = key;
+  [...$('dots').children].forEach((b, s) => { b.className = s === stage ? 'cur' : s < cleared ? 'done' : ''; b.disabled = s > cleared; });
+  [...$('stars').children].forEach((st, i) => st.classList.toggle('off', i >= k));
+}
+
+// ---------- result ----------
+const coarse = matchMedia('(pointer: coarse)').matches;
+let lastStars = 0, lastMoves = 0;
+function setResult(onOff) {
+  resultOn = onOff;
+  $('result').hidden = !onOff; $('hud').hidden = onOff; $('undo').hidden = $('restart').hidden = onOff;
+}
+function finish() {
+  lastMoves = moves; lastStars = starsFor(moves, STAGES[stage].par);
+  if (!best[stage] || lastStars > best[stage]) { best[stage] = lastStars; store.set('best', best); }
+  if (stage + 1 > cleared) { cleared = Math.min(STAGES.length - 1, stage + 1); store.set('cleared', cleared); }
+  setResult(true); showResult();
+  shareCache = null;
+  setTimeout(prepareShare, 800); // after the camera has moved to the finished ball
+}
+function showResult() {
+  $('rStage').textContent = L[lang].stage(stage + 1);
+  $('rMoves').textContent = L[lang].moves(lastMoves);
+  [...$('rStars').children].forEach((st, i) => st.classList.toggle('off', i >= lastStars));
+  $('next').textContent = stage + 1 < STAGES.length ? t('next') : t('first');
+  const a = $('share');
+  a.href = `https://x.com/intent/post?text=${encodeURIComponent(L[lang].post(stage + 1, lastMoves, lastStars))}&url=${encodeURIComponent(URL_)}`;
+  if (coarse) { a.removeAttribute('target'); a.removeAttribute('rel'); }
+  else { a.target = '_blank'; a.rel = 'noopener'; }
+  if (shareCache) prepareShare();
+}
+$('next').onclick = () => startStage(stage + 1 < STAGES.length ? stage + 1 : 0);
+$('again').onclick = () => startStage(stage);
+// phones: share sheet with the result image. PC: save the image, then open the X post page
+$('share').addEventListener('click', e => {
+  const text = `${L[lang].post(stage + 1, lastMoves, lastStars)}\n${URL_}`;
+  if (coarse && navigator.share) {
+    e.preventDefault();
+    const file = shareCache?.key === lang ? shareCache.file : null;
+    navigator.share(file && navigator.canShare?.({ files: [file] }) ? { files: [file], text } : { text }).catch(() => {});
+    return;
+  }
+  const img = resultImage();
+  if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'sort-2048.png'; d.click(); }
+});
+// the result image: the finished ball cut out of the screen, the moves big on top, stars, and the title small
+function resultImage() {
+  if (!finalBall) return null;
+  render();
+  const c = document.createElement('canvas'); c.width = c.height = 1080;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, 1080); gr.addColorStop(0, '#bcd6e4'); gr.addColorStop(0.55, '#efe4d2'); gr.addColorStop(1, '#e2cdb0');
+  g.fillStyle = gr; g.fillRect(0, 0, 1080, 1080);
+  // where the ball is on screen, and how big
+  const p = finalBall.mesh.position.clone(), r = R * finalBall.mesh.scale.x;
+  const a = p.clone().project(camera), e = p.clone().add(new THREE.Vector3(0, r, 0)).project(camera);
+  const sx = (a.x + 1) / 2 * cv.width, sy = (1 - a.y) / 2 * cv.height, pr = Math.abs(e.y - a.y) / 2 * cv.height;
+  const side = pr * 2 * 1080 / 520, x0 = sx - side / 2, y0 = sy - side * 0.53;
+  // only the part that's inside the canvas
+  const cx0 = Math.max(0, x0), cy0 = Math.max(0, y0), cx1 = Math.min(cv.width, x0 + side), cy1 = Math.min(cv.height, y0 + side), k = 1080 / side;
+  if (cx1 > cx0 && cy1 > cy0) g.drawImage(cv, cx0, cy0, cx1 - cx0, cy1 - cy0, (cx0 - x0) * k, (cy0 - y0) * k, (cx1 - cx0) * k, (cy1 - cy0) * k);
+  g.textAlign = 'center'; g.lineJoin = 'round';
+  const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
+  const text = (str, y, px, max, fill, line) => {
+    g.font = font(px);
+    const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
+    g.lineWidth = px * .16; g.strokeStyle = line; g.strokeText(str, 540, y); g.fillStyle = fill; g.fillText(str, 540, y);
+  };
+  text(L[lang].moves(lastMoves), 160, 140, 960, '#3d2c1e', '#fff');
+  // stars
+  const star = new Path2D('M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z');
+  for (let i = 0; i < 3; i++) {
+    g.save(); g.translate(540 + (i - 1) * 96 - 42, 200); g.scale(3.5, 3.5);
+    g.fillStyle = i < lastStars ? '#e8a33a' : 'rgba(255,255,255,.7)'; g.strokeStyle = i < lastStars ? '#9a6416' : 'rgba(61,44,30,.3)'; g.lineWidth = 1.4; g.lineJoin = 'round';
+    g.fill(star); g.stroke(star); g.restore();
+  }
+  text(`${t('title')}  ${L[lang].stage(stage + 1)}`, 1040, 46, 900, '#fff', '#3d2c1e');
+  return c;
+}
+// made ahead per language (waiting on click stops the share in Safari)
+let shareCache = null;
+function prepareShare() {
+  if (!resultOn) return;
+  const key = lang;
+  if (shareCache?.key === key) return;
+  const img = resultImage(); if (!img) return;
+  shareCache = { key, file: null };
+  img.toBlob(b => { if (b && shareCache?.key === key) shareCache.file = new File([b], 'sort-2048.png', { type: 'image/png' }); }, 'image/png');
+}
+
+// ---------- layout ----------
+// the rack (and the goal over it) fits between the header row and the bottom 80px + the buttons;
+// spare height goes above and below evenly. Drawing still goes all the way down.
+const VIEW_DIR = new THREE.Vector3(0, 0.32, 1).normalize();
+let W = 0, H = 0, resK = 0;
+function resize() {
+  W = innerWidth; H = innerHeight;
+  renderer.setSize(W, H, false);
+}
+addEventListener('resize', resize);
+function area(result) {
+  const wide = W / H >= 1;
+  let top = wide ? 50 : 88, bot = H - 80 - (wide ? 10 : Math.min(68, Math.max(54, 0.08 * Math.min(W, H))) + 14), left = 0, right = W;
+  if (result) {
+    if (W / H >= 1.1) { right = W * 0.5; top = 50; bot = H - 80; }
+    else { top = $('ptop').getBoundingClientRect().bottom + 4; bot = $('pbtns').getBoundingClientRect().top - 4; }
+  }
+  if (bot - top < 100) bot = top + 100;
+  return { left, top, w: right - left, h: bot - top };
+}
+// fits a box (half sizes hx, hy around c) into a screen rectangle; capped so it doesn't get huge on big screens
+function frame(ar, c, hx, hy) {
+  camera.aspect = ar.w / ar.h;
+  camera.setViewOffset(ar.w, ar.h, -ar.left, -ar.top, W, H);
+  const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2), th = tv * camera.aspect;
+  const d = Math.max(hx / th, hy / tv, hy / tv * ar.h / 820, hx / th * ar.w / 1200) + 0.7;
+  return { c, d };
+}
+const playC = new THREE.Vector3(), resC = new THREE.Vector3(0, GOAL_Y, 0);
+function placeCamera(dt) {
+  resK = Math.max(0, Math.min(1, resK + (resultOn ? 1 : -1) * dt * 2.5));
+  const e = smooth(resK);
+  const yLo = 0, yHi = GOAL_Y + 0.75;
+  playC.set(0, (yLo + yHi) / 2, 0);
+  const a = frame(area(false), playC, K * PITCH / 2 + 0.35, (yHi - yLo) / 2);
+  let c = a.c, d = a.d;
+  if (e > 0) {
+    const b = frame(area(true), resC, 1.1, 1.0);
+    // the screen rectangle for the result is used in full once the move is mostly done
+    c = a.c.clone().lerp(b.c, e); d = a.d + (b.d - a.d) * e;
+    if (e < 0.5) frame(area(false), playC, K * PITCH / 2 + 0.35, (yHi - yLo) / 2);
+  }
+  camera.position.copy(c).addScaledVector(VIEW_DIR, d);
+  camera.lookAt(c);
+  camera.updateProjectionMatrix();
+}
+
+// ---------- loop ----------
+let last = performance.now(), tm = 0;
+function update(dt) {
+  tm += dt;
+  if (anim && anim.next(dt).done) anim = null;
+  updParts(dt);
+  const all = tubes.flat(); if (finalBall) all.push(finalBall);
+  for (const b of all) {
+    b.pop = Math.max(0, b.pop - dt * 4); b.sq = Math.max(0, b.sq - dt * 6);
+    const big = finalBall === b && !anim ? 1.35 : null;
+    const s = (big || (finalBall === b ? b.mesh.scale.x : 1)) * (1 + Math.sin(b.pop * Math.PI) * 0.22);
+    if (!(finalBall === b && anim)) b.mesh.scale.set(s * (1 + b.sq * 0.1), s * (1 - b.sq * 0.12), s * (1 + b.sq * 0.1));
+  }
+  // the lifted ball bobs a little
+  if (sel >= 0 && !anim && tubes[sel].length) tubes[sel].at(-1).mesh.position.y = LIFT + Math.sin(tm * 5) * 0.05;
+  if (finalBall && !anim) { finalBall.mesh.rotation.y = Math.sin(tm * 1.2) * 0.35; finalBall.mesh.position.y = GOAL_Y + Math.sin(tm * 2) * 0.06; }
+  if (goal.visible) { goal.position.y = GOAL_Y + Math.sin(tm * 1.6) * 0.05; goal.rotation.y = Math.sin(tm * 0.9) * 0.3; }
+  if (wobble) {
+    wobble.t += dt;
+    const k = wobble.t / 0.3, tmsh = tubeMeshes[wobble.i];
+    tmsh.rotation.z = k < 1 ? Math.sin(k * Math.PI * 4) * 0.05 * (1 - k) : 0;
+    for (const b of tubes[wobble.i]) b.mesh.position.x = tubeX(wobble.i) + Math.sin(k * Math.PI * 4) * 0.05 * (1 - Math.min(1, k)) * (b.mesh.position.y / TOP);
+    if (k >= 1) { for (const b of tubes[wobble.i]) b.mesh.position.x = tubeX(wobble.i); wobble = null; }
+  }
+}
+function render() { renderer.render(scene, camera); }
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  update(dt);
+  placeCamera(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+resize(); applyLang();
+startStage(stage, false);
+placeCamera(0);
+render(); // one warm-up frame so the first move doesn't hitch
+renderer.compileAsync?.(scene, camera).catch(() => {});
+// make the textures of every number now, not in the middle of a merge
+for (let v = 1; v <= 11; v++) ballMat(v);
+play(introAnim());
+requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
