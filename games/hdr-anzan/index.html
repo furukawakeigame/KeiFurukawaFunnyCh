@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HDR暗算</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="HDR暗算">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/hdr-anzan/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/hdr-anzan/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #07060a; color: #f2ece4; font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+    body { overflow: hidden; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+    /* the LED face drawn again on top in real HDR (brighter than white) when the browser can */
+    #hdr { position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none; display: none; }
+    header { position: fixed; top: 0; left: 0; right: 0; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 8px 12px; }
+    header a { color: #f2ece4; font-size: 14px; text-decoration: none; margin-right: auto; background: rgba(40,36,44,.75); border-radius: 14px; padding: 6px 10px; }
+    .pill { height: 32px; min-width: 32px; border: none; border-radius: 16px; background: rgba(40,36,44,.85); color: #f2ece4; font-size: 14px; padding: 0 10px; display: flex; align-items: center; justify-content: center; font-family: inherit; }
+    button.pill, select.pill { cursor: pointer; }
+    select.pill { appearance: none; -webkit-appearance: none; }
+    #mode { font-size: 12px; font-weight: 800; letter-spacing: .06em; color: #8a8290; background: rgba(40,36,44,.6); }
+    #mode.on { color: #fff; background: linear-gradient(90deg, #ff4f7b, #ffb347, #5fd3ff); text-shadow: 0 0 6px #fff; }
+    header svg { width: 18px; height: 18px; display: block; }
+    #result { position: fixed; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(8px, 2.4vmin, 22px); pointer-events: none; text-align: center; }
+    #result[hidden] { display: none; }
+    #result > * { pointer-events: auto; }
+    .big { margin: 0; font-size: clamp(34px, 8vmin, 92px); font-weight: 900; line-height: 1; white-space: nowrap; color: #fff; text-shadow: 0 0 18px rgba(255,230,190,.7), 0 0 4px #fff; }
+    .big small { font-size: .45em; margin-left: .15em; }
+    .sub { margin: 0; font-size: clamp(15px, 2.6vmin, 24px); font-weight: 700; color: #ffd27a; }
+    .btns { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .btn { border: none; border-radius: 28px; background: #f2ece4; color: #1a1620; font-size: clamp(18px, 2.8vmin, 28px); font-weight: 800; padding: 12px 38px; cursor: pointer; text-decoration: none; font-family: inherit; }
+    .btn.x { background: #000; color: #fff; border: 2px solid #4a4450; font-size: clamp(15px, 2.2vmin, 22px); padding: 9px 24px; }
+    #msg { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px; text-align: center; z-index: 4; }
+  </style>
+</head>
+<body>
+  <canvas id="gl"></canvas>
+  <canvas id="hdr"></canvas>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <span id="mode" class="pill">SDR</span>
+    <button id="sound" class="pill" aria-label="sound"></button>
+    <select id="lang" class="pill" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="result" hidden>
+    <p class="big" id="rNit"></p>
+    <p class="sub" id="rSub"></p>
+    <div class="btns">
+      <button id="again" class="btn"></button>
+      <a id="share" class="btn x"></a>
+    </div>
+  </div>
+  <div id="msg"></div>
+
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+  <script>
+    setTimeout(() => { if (!window.GAME_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 8000);
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    window.GAME_READY = true;
+
+    const URL_ = 'https://keifurukawafunnych.com/games/hdr-anzan/';
+    const TAG = '#HDR暗算ゲーム';
+    const $ = id => document.getElementById(id);
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('hdr-anzan:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('hdr-anzan:' + k, JSON.stringify(v)); } catch {} },
+    };
+
+    // ---------- 言語 ----------
+    const fmt = n => n.toLocaleString('en-US');
+    const L = {
+      ja: { title: 'HDR暗算', back: '← トップへ戻る', again: 'もう一度', share: 'Xでポスト', sub: n => `${n}問正解`,
+            post: (nit, n) => `HDR暗算で ${fmt(nit)} nit まで到達（${n}問正解）\n${TAG}` },
+      ko: { title: 'HDR 암산', back: '← 처음으로', again: '다시 하기', share: 'X에 게시', sub: n => `${n}문제 정답`,
+            post: (nit, n) => `HDR 암산에서 ${fmt(nit)} nit까지 도달 (${n}문제 정답)\n${TAG}` },
+      en: { title: 'HDR Mental Math', back: '← Top', again: 'Retry', share: 'Post on X', sub: n => `${n} correct`,
+            post: (nit, n) => `Reached ${fmt(nit)} nits in HDR Mental Math (${n} correct)\n${TAG}` },
+      th: { title: 'คิดเลขเร็ว HDR', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X', sub: n => `ถูก ${n} ข้อ`,
+            post: (nit, n) => `ไปถึง ${fmt(nit)} nit ในเกมคิดเลขเร็ว HDR (ถูก ${n} ข้อ)\n${TAG}` },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
+    let lang = store.get('lang', null) || autoLang();
+    if (!L[lang]) lang = 'en';
+    const t = k => L[lang][k];
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      $('lang').value = lang;
+      $('back').textContent = t('back');
+      $('again').textContent = t('again');
+      $('share').textContent = t('share');
+      if (state === 'result') { showResult(); prepareShare(); }
+    }
+    $('lang').onchange = () => { lang = $('lang').value; store.set('lang', lang); applyLang(); };
+
+    // ---------- 音（すべて合成） ----------
+    let soundOn = store.get('sound', true), ac = null;
+    const drawSoundBtn = () => {
+      $('sound').innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${soundOn ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>'}</svg>`;
+    };
+    drawSoundBtn();
+    $('sound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); };
+    // iPhone の消音モードでも鳴らす
+    function unmuteIOS() {
+      try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch {}
+      try {
+        const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+        const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+        w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+        v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+        const a = document.createElement('audio');
+        a.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })); a.loop = true; a.setAttribute('playsinline', '');
+        a.play().catch(() => {});
+      } catch {}
+    }
+    function initAudio() {
+      if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+      unmuteIOS();
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        const g = ac.createGain(); g.gain.value = 0; g.connect(ac.destination);
+        const o = ac.createOscillator(); o.connect(g); o.start(); o.stop(ac.currentTime + 0.05);
+      } catch { ac = null; }
+    }
+    addEventListener('pointerdown', initAudio, true);
+    addEventListener('keydown', initAudio, true);
+    const on = () => soundOn && ac;
+    function tone(type, f0, f1, dur, vol, delay = 0) {
+      if (!on()) return;
+      const n = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+      o.type = type; o.frequency.setValueAtTime(f0, n); o.frequency.exponentialRampToValueAtTime(f1, n + dur);
+      g.gain.setValueAtTime(0.0001, n); g.gain.linearRampToValueAtTime(vol, n + 0.005); g.gain.exponentialRampToValueAtTime(0.001, n + dur);
+      o.connect(g).connect(ac.destination); o.start(n); o.stop(n + dur + 0.02);
+    }
+    // ノイズを複数の共鳴に通した打撃音
+    function hit(len, decay, bands, vol, delay = 0) {
+      if (!on()) return;
+      const n = ac.currentTime + delay, buf = ac.createBuffer(1, Math.floor(ac.sampleRate * len), ac.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ac.sampleRate * decay));
+      const s = ac.createBufferSource(); s.buffer = buf;
+      for (const [f, q, g0] of bands) {
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * (0.95 + Math.random() * 0.1); bp.Q.value = q;
+        const g = ac.createGain(); g.gain.value = g0 * vol; s.connect(bp).connect(g).connect(ac.destination);
+      }
+      s.start(n);
+    }
+    // ストロボの放電「パシュッ」: 高いノイズの破裂＋キンという電極の鳴り＋低い胴鳴り
+    function sStrobe(k) {
+      if (!on()) return;
+      const v = 0.35 + 0.25 * k;
+      hit(0.09, 0.014, [[5200, 1.2, 1], [9000, 2, 0.6], [2400, 3, 0.4]], v);
+      tone('sine', 7000, 1800, 0.05, 0.05 * v);
+      tone('sine', 120, 45, 0.09, 0.25 * v);
+    }
+    // 充電の「キュイーン」
+    let whine = null;
+    function sCharge(dur) {
+      if (!on()) return;
+      const n = ac.currentTime, o = ac.createOscillator(), o2 = ac.createOscillator(), g = ac.createGain();
+      o.type = 'sine'; o2.type = 'triangle';
+      o.frequency.setValueAtTime(1400, n); o.frequency.exponentialRampToValueAtTime(7200, n + dur);
+      o2.frequency.setValueAtTime(700, n); o2.frequency.exponentialRampToValueAtTime(3600, n + dur);
+      g.gain.setValueAtTime(0.0001, n); g.gain.exponentialRampToValueAtTime(0.035, n + dur * 0.85); g.gain.exponentialRampToValueAtTime(0.0001, n + dur);
+      o.connect(g); o2.connect(g); g.connect(ac.destination);
+      o.start(n); o2.start(n); o.stop(n + dur + 0.02); o2.stop(n + dur + 0.02);
+      whine = { o, o2, g };
+    }
+    // テンキーの「カチッ」
+    const sKey = () => { hit(0.04, 0.004, [[2600, 6, 1], [5200, 8, 0.5], [900, 5, 0.3]], 0.5); };
+    const sOk = () => { [784, 988, 1319].forEach((f, i) => { tone('sine', f, f, 0.5, 0.16, i * 0.08); tone('triangle', f * 2, f * 2, 0.2, 0.03, i * 0.08); }); };
+    const sBuzz = () => { tone('square', 180, 150, 0.32, 0.06); tone('sawtooth', 120, 100, 0.32, 0.05); };
+    // 猫の声: のこぎり波＋息を母音の共鳴に通す
+    const VOWEL = { a: [800, 1200, 2600], i: [300, 2300, 3000], u: [350, 1250, 2500], e: [500, 1900, 2600], o: [500, 850, 2500] };
+    function voice(f0, seq, dur, vol = 0.45, shake = 0.04, breath = 0.15) {
+      if (!on()) return;
+      const now = ac.currentTime;
+      const o = ac.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0 * 1.2, now);
+      o.frequency.linearRampToValueAtTime(f0 * 1.45, now + dur * 0.2);
+      o.frequency.exponentialRampToValueAtTime(f0 * 0.75, now + dur);
+      const vib = ac.createOscillator(); vib.frequency.value = 6 + Math.random() * 3;
+      const vg = ac.createGain(); vg.gain.value = f0 * shake; vib.connect(vg).connect(o.frequency);
+      const nb = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate), nd = nb.getChannelData(0);
+      for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+      const ns = ac.createBufferSource(); ns.buffer = nb;
+      const ng = ac.createGain(); ng.gain.value = breath;
+      const src = ac.createGain(); o.connect(src); ns.connect(ng).connect(src);
+      const out = ac.createGain();
+      out.gain.setValueAtTime(0, now); out.gain.linearRampToValueAtTime(vol, now + 0.02);
+      out.gain.setValueAtTime(vol, now + dur * 0.5); out.gain.exponentialRampToValueAtTime(0.001, now + dur);
+      [1, 0.6, 0.25].forEach((amp, fi) => {
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = fi === 0 ? 6 : 9;
+        seq.forEach((v, si) => { const tt = now + dur * si / Math.max(1, seq.length - 1) * 0.7; bp.frequency[si ? 'linearRampToValueAtTime' : 'setValueAtTime'](VOWEL[v][fi] * 1.2, tt); });
+        const g = ac.createGain(); g.gain.value = amp * 3; src.connect(bp).connect(g).connect(out);
+      });
+      out.connect(ac.destination);
+      o.start(now); vib.start(now); ns.start(now); o.stop(now + dur); vib.stop(now + dur); ns.stop(now + dur);
+    }
+    const pick = a => a[Math.floor(Math.random() * a.length)];
+    const sNya = () => voice(480 + Math.random() * 80, pick([['i', 'a', 'o'], ['e', 'a', 'u'], ['i', 'a', 'a']]), 0.38 + Math.random() * 0.12, 0.45);
+    const sHappy = () => voice(620 + Math.random() * 60, pick([['i', 'a'], ['e', 'a']]), 0.2, 0.25, 0.02);
+
+    // ---------- LED パネルの中身（80×32 ドット） ----------
+    // R: 光る数字、G: 残像、B: 入力・答え（アンバー）
+    const GW = 80, GH = 32;
+    const ledData = new Uint8Array(GW * GH * 4);
+    let ledDirty = true;
+    const FONT = {
+      0: ['01110', '10001', '10011', '10101', '11001', '10001', '01110'], 1: ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
+      2: ['01110', '10001', '00001', '00010', '00100', '01000', '11111'], 3: ['11111', '00010', '00100', '00010', '00001', '10001', '01110'],
+      4: ['00010', '00110', '01010', '10010', '11111', '00010', '00010'], 5: ['11111', '10000', '11110', '00001', '00001', '10001', '01110'],
+      6: ['00110', '01000', '10000', '11110', '10001', '10001', '01110'], 7: ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
+      8: ['01110', '10001', '10001', '01110', '10001', '10001', '01110'], 9: ['01110', '10001', '10001', '01111', '00001', '00010', '01100'],
+    };
+    function clearChan(c) { for (let i = c; i < ledData.length; i += 4) ledData[i] = 0; ledDirty = true; }
+    function drawNum(c, str, dx = 0, dy = 0) {
+      clearChan(c);
+      if (str === '') return;
+      const n = str.length, s = Math.max(1, Math.min(4, Math.floor(76 / (n * 6 - 1))));
+      const w = n * 6 * s - s, h = 7 * s, x0 = Math.floor((GW - w) / 2) + dx, y0 = Math.floor((GH - h) / 2) + dy;
+      for (let k = 0; k < n; k++) {
+        const g = FONT[str[k]];
+        for (let r = 0; r < 7; r++) for (let q = 0; q < 5; q++) if (g[r][q] === '1')
+          for (let a = 0; a < s; a++) for (let b = 0; b < s; b++) {
+            const x = x0 + k * 6 * s + q * s + b, y = y0 + r * s + a;
+            if (x >= 0 && x < GW && y >= 0 && y < GH) ledData[(y * GW + x) * 4 + c] = 255;
+          }
+      }
+    }
+    // 待ち: 3つの点（n 個だけ点く）
+    function drawDots(c, n) {
+      clearChan(c);
+      for (let k = 0; k < n; k++) for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++)
+        ledData[((14 + a) * GW + 26 + k * 12 + b) * 4 + c] = 255;
+    }
+
+    // ---------- three.js ----------
+    const glCanvas = $('gl');
+    const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true });
+    renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#07060a');
+    scene.fog = new THREE.Fog('#07060a', 9, 26);
+    const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 80);
+
+    const hemi = new THREE.HemisphereLight('#7f97c8', '#1a120c', 0.8); scene.add(hemi);
+    const sun = new THREE.DirectionalLight('#ffcf9a', 1.3);
+    sun.position.set(-4, 9, 7); sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024); sun.shadow.radius = 4;
+    Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -4, near: 1, far: 30 });
+    scene.add(sun);
+    const panelLight = new THREE.PointLight('#fff4e6', 0, 16, 1.6); panelLight.position.set(0, 2.6, 0.9); scene.add(panelLight);
+    const strobeLight = new THREE.PointLight('#e8f0ff', 0, 12, 1.6); scene.add(strobeLight);
+
+    // Canvas で描くテクスチャ
+    function canvasTex(w, h, draw, rep) {
+      const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+      const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 4;
+      if (rep) { tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(rep[0], rep[1]); }
+      return tx;
+    }
+    // 床: 黒っぽいつやのある舞台の板
+    const floorTex = canvasTex(512, 512, (g, w, h) => {
+      g.fillStyle = '#2a1d16'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 8; i++) {
+        const y = i * 64, base = 30 + Math.random() * 14;
+        g.fillStyle = `rgb(${base + 12},${base},${base - 8})`; g.fillRect(0, y + 1, w, 62);
+        for (let k = 0; k < 40; k++) { g.strokeStyle = `rgba(0,0,0,${0.06 + Math.random() * 0.1})`; g.lineWidth = 1 + Math.random() * 2; g.beginPath(); const yy = y + 4 + Math.random() * 56; g.moveTo(0, yy); g.bezierCurveTo(w * .3, yy + Math.random() * 6 - 3, w * .6, yy + Math.random() * 6 - 3, w, yy); g.stroke(); }
+        g.fillStyle = '#0b0705'; g.fillRect(0, y, w, 2);
+        g.fillRect(((i * 197) % 512), y, 2, 64);
+      }
+    }, [8, 8]);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.5, metalness: 0.05 }));
+    floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+    // 奥の幕
+    const curtainTex = canvasTex(1024, 256, (g, w, h) => {
+      const gr = g.createLinearGradient(0, 0, w, 0);
+      for (let i = 0; i <= 32; i++) { const k = i / 32, v = 0.5 + 0.5 * Math.cos(k * Math.PI * 2 * 16); gr.addColorStop(k, `rgb(${60 + 70 * v},${8 + 10 * v},${18 + 14 * v})`); }
+      g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      const sh = g.createLinearGradient(0, 0, 0, h); sh.addColorStop(0, 'rgba(0,0,0,.6)'); sh.addColorStop(0.4, 'rgba(0,0,0,0)'); g.fillStyle = sh; g.fillRect(0, 0, w, h);
+    });
+    const curtain = new THREE.Mesh(new THREE.PlaneGeometry(40, 12), new THREE.MeshStandardMaterial({ map: curtainTex, roughness: 0.95 }));
+    curtain.position.set(0, 6, -5); curtain.receiveShadow = true; scene.add(curtain);
+
+    // スポットライトの光の筋
+    const beamMat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false,
+      uniforms: { k: { value: 0.12 } },
+      vertexShader: 'varying float vY; varying vec3 vN; varying vec3 vV; void main(){ vY = uv.y; vec4 p = modelViewMatrix * vec4(position,1.); vV = normalize(-p.xyz); vN = normalize(normalMatrix*normal); gl_Position = projectionMatrix * p; }',
+      fragmentShader: 'uniform float k; varying float vY; varying vec3 vN; varying vec3 vV; void main(){ float e = pow(abs(dot(vN, vV)), 1.5); gl_FragColor = vec4(vec3(1.,.85,.6) * k * e * (1.-vY) * vY * 3., 1.); }',
+    });
+    for (const x of [-5, 5.6]) {
+      const b = new THREE.Mesh(new THREE.ConeGeometry(1.6, 9, 24, 1, true), beamMat);
+      b.position.set(x, 4.5, -2); b.rotation.z = x < 0 ? 0.25 : -0.25; scene.add(b);
+    }
+
+    // LED パネル
+    const ledTex = new THREE.DataTexture(ledData, GW, GH);
+    ledTex.magFilter = ledTex.minFilter = THREE.LinearFilter; ledTex.needsUpdate = true;
+    const ledU = {
+      map: { value: ledTex },
+      u0: { value: new THREE.Vector4() }, ghost: { value: new THREE.Vector4() }, ans: { value: new THREE.Vector4() }, u1: { value: new THREE.Vector4() },
+    };
+    // WGSL 版（HDR 用）と同じ計算
+    const LED_GLSL = `
+      uniform sampler2D map; uniform vec4 u0; uniform vec4 ghost; uniform vec4 ans; uniform vec4 u1;
+      varying vec2 vUv;
+      void main() {
+        vec2 G = vec2(${GW}.0, ${GH}.0);
+        vec2 uv = vec2(vUv.x, 1.0 - vUv.y);
+        vec2 c = uv * G; vec2 id = floor(c); float d = length(fract(c) - 0.5);
+        float dm = smoothstep(0.47, 0.3, d);
+        vec4 s = texture2D(map, (id + 0.5) / G);
+        float gl = 0.0, gh = 0.0;
+        for (int i = 0; i < 12; i++) {
+          float a = float(i) * 0.5236 + 0.26; vec2 o = vec2(cos(a), sin(a)) / G;
+          gl += texture2D(map, uv + o * u1.x).r + texture2D(map, uv + o * u1.x * 0.45).r;
+          gh += texture2D(map, uv + o * 1.3).g;
+        }
+        gl /= 24.0; gh /= 12.0;
+        vec3 col = vec3(0.05, 0.045, 0.055) * dm;
+        col += dm * s.r * u0.x;
+        col += gl * u0.y * vec3(1.0, 0.93, 0.82);
+        col += gh * ghost.rgb * ghost.a;
+        col += dm * s.b * ans.rgb * ans.a;
+        col += u0.z * u0.x * 0.25;
+        gl_FragColor = vec4(col, 1.0);
+      }`;
+    const LED_WGSL = `
+      struct U { u0: vec4f, ghost: vec4f, ans: vec4f, u1: vec4f };
+      @group(0) @binding(0) var<uniform> u: U;
+      @group(0) @binding(1) var tex: texture_2d<f32>;
+      @group(0) @binding(2) var sl: sampler;
+      struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
+      @vertex fn vs(@builtin(vertex_index) i: u32) -> VO {
+        var q = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+        var o: VO; o.p = vec4f(q[i], 0.0, 1.0); o.uv = vec2f(q[i].x * 0.5 + 0.5, 0.5 - q[i].y * 0.5); return o;
+      }
+      @fragment fn fs(v: VO) -> @location(0) vec4f {
+        let G = vec2f(${GW}.0, ${GH}.0);
+        let uv = v.uv;
+        let c = uv * G; let id = floor(c); let d = length(fract(c) - 0.5);
+        let dm = smoothstep(0.47, 0.3, d);
+        let s = textureSample(tex, sl, (id + 0.5) / G);
+        var gl = 0.0; var gh = 0.0;
+        for (var i = 0; i < 12; i++) {
+          let a = f32(i) * 0.5236 + 0.26; let o = vec2f(cos(a), sin(a)) / G;
+          gl += textureSample(tex, sl, uv + o * u.u1.x).r + textureSample(tex, sl, uv + o * u.u1.x * 0.45).r;
+          gh += textureSample(tex, sl, uv + o * 1.3).g;
+        }
+        gl /= 24.0; gh /= 12.0;
+        var col = vec3f(0.05, 0.045, 0.055) * dm;
+        col += dm * s.r * u.u0.x;
+        col += gl * u.u0.y * vec3f(1.0, 0.93, 0.82);
+        col += gh * u.ghost.rgb * u.ghost.a;
+        col += dm * s.b * u.ans.rgb * u.ans.a;
+        col += u.u0.z * u.u0.x * 0.25;
+        return vec4f(col, 1.0);
+      }`;
+    const ledMat = new THREE.ShaderMaterial({ uniforms: ledU, vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }', fragmentShader: LED_GLSL, toneMapped: false, fog: false });
+    const PANEL_Y = 2.65, FACE_W = 5, FACE_H = 2;
+    const metal = new THREE.MeshStandardMaterial({ color: '#2b2a30', roughness: 0.38, metalness: 0.7 });
+    const panel = new THREE.Group(); scene.add(panel);
+    {
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(FACE_W + 0.36, FACE_H + 0.36, 0.34), metal);
+      frame.position.set(0, PANEL_Y, -0.18); frame.castShadow = true; panel.add(frame);
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(FACE_W, FACE_H), ledMat);
+      face.position.set(0, PANEL_Y, 0.002); panel.add(face);
+      for (const x of [-1.7, 1.7]) {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, PANEL_Y - FACE_H / 2, 12), metal);
+        leg.position.set(x, (PANEL_Y - FACE_H / 2) / 2, -0.2); leg.castShadow = true; panel.add(leg);
+        const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, 0.06, 20), metal);
+        foot.position.set(x, 0.03, -0.2); foot.castShadow = foot.receiveShadow = true; panel.add(foot);
+      }
+    }
+    // パネルのまわりのにじみ（SDR でも眩しさが分かるように）
+    const haloTex = canvasTex(256, 256, (g, w) => { const r = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); r.addColorStop(0, 'rgba(255,245,230,1)'); r.addColorStop(0.35, 'rgba(255,230,200,.35)'); r.addColorStop(1, 'rgba(255,220,180,0)'); g.fillStyle = r; g.fillRect(0, 0, w, w); });
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0, fog: false, toneMapped: false }));
+    halo.position.set(0, PANEL_Y, 0.4); halo.scale.set(11, 6, 1); scene.add(halo);
+
+    // いつもの猫（ストロボ係）
+    const cat = new THREE.Group(); scene.add(cat);
+    const CAT_X = 3.75;
+    cat.position.set(CAT_X, 0, 0.5);
+    const furTex = canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#8a7360'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 9; i++) { g.fillStyle = 'rgba(52,38,28,.75)'; g.beginPath(); const y = i * 30 + 8; g.moveTo(0, y); g.bezierCurveTo(w * .3, y + 14, w * .7, y - 10, w, y + 6); g.lineTo(w, y + 14); g.bezierCurveTo(w * .7, y, w * .3, y + 22, 0, y + 10); g.fill(); }
+      for (let i = 0; i < 1500; i++) { g.fillStyle = `rgba(${Math.random() < .5 ? '255,240,220' : '20,14,10'},.12)`; g.fillRect(Math.random() * w, Math.random() * h, 1, 3); }
+    });
+    const furMat = new THREE.MeshStandardMaterial({ map: furTex, roughness: 0.9 });
+    const bellyMat = new THREE.MeshStandardMaterial({ color: '#efe6da', roughness: 0.9 });
+    const catBody = new THREE.Group(); cat.add(catBody);
+    {
+      const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 0.55, 8, 20), furMat); body.position.y = 0.95; body.scale.set(1, 1, 0.85); body.castShadow = true; catBody.add(body);
+      const belly = new THREE.Mesh(new THREE.SphereGeometry(0.36, 20, 14), bellyMat); belly.position.set(0, 0.9, 0.3); belly.scale.set(1, 1.3, 0.5); catBody.add(belly);
+      for (const s of [-1, 1]) {
+        const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.2, 6, 12), furMat); leg.position.set(s * 0.26, 0.22, 0.12); leg.castShadow = true; catBody.add(leg);
+        const paw = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 10), bellyMat); paw.position.set(s * 0.26, 0.08, 0.26); paw.scale.set(1, 0.6, 1.3); catBody.add(paw);
+      }
+      const tail = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.08, 8, 24, Math.PI * 1.2), furMat); tail.position.set(0.45, 0.6, -0.3); tail.rotation.set(0, 0.6, -0.4); tail.castShadow = true; catBody.add(tail);
+      // 右手は体の横、左手でストロボを高く掲げる
+      const armR = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.42, 6, 12), furMat); armR.position.set(0.5, 0.95, 0.2); armR.rotation.z = 0.35; armR.castShadow = true; catBody.add(armR);
+    }
+    const armL = new THREE.Group(); armL.position.set(-0.42, 1.25, 0.15); catBody.add(armL);
+    {
+      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.8, 6, 12), furMat); arm.position.y = 0.5; arm.castShadow = true; armL.add(arm);
+      const paw = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 10), bellyMat); paw.position.y = 1.0; armL.add(paw);
+      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.5, 0.22), new THREE.MeshStandardMaterial({ color: '#1c1c20', roughness: 0.6 })); grip.position.set(0, 1.25, 0); grip.castShadow = true; armL.add(grip);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.4), new THREE.MeshStandardMaterial({ color: '#26262c', roughness: 0.35, metalness: 0.4 })); head.position.set(0, 1.62, 0.04); head.castShadow = true; armL.add(head);
+      armL.add(strobeLight); strobeLight.position.set(-0.4, 1.62, 0.5);
+    }
+    armL.rotation.z = 0.32;
+    const strobeFaceMat = new THREE.MeshStandardMaterial({ color: '#cfd6e0', emissive: '#ffffff', emissiveIntensity: 0, roughness: 0.2 });
+    { const f = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.22), strobeFaceMat); f.position.set(0, 1.62, 0.245); armL.add(f); }
+    const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
+    const catFace = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshStandardMaterial({ map: catTex, alphaTest: 0.5, roughness: 0.85 }));
+    catFace.position.set(0, 1.9, 0.35); catFace.castShadow = true; catBody.add(catFace);
+    scene.traverse(o => { if (o.isMesh && o !== floor && o !== curtain) o.receiveShadow = true; });
+
+    // 空気中のほこり（光るとキラッと見える）
+    const DUST = 260, dustPos = new Float32Array(DUST * 3), dustVel = [];
+    for (let i = 0; i < DUST; i++) { dustPos.set([(Math.random() - .5) * 13, Math.random() * 6, (Math.random() - .5) * 6], i * 3); dustVel.push([(Math.random() - .5) * .06, (Math.random() - .3) * .05, (Math.random() - .5) * .06]); }
+    const dustGeo = new THREE.BufferGeometry(); dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+    const dotTex = canvasTex(64, 64, (g, w) => { const r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, '#fff'); r.addColorStop(0.3, 'rgba(255,255,255,.5)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, w, w); });
+    const dustMat = new THREE.PointsMaterial({ map: dotTex, size: 0.06, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.15, color: '#ffe9cf' });
+    scene.add(new THREE.Points(dustGeo, dustMat));
+
+    // ---------- テンキー（画面のピクセル単位の正射影で描く） ----------
+    const padScene = new THREE.Scene();
+    const padCam = new THREE.OrthographicCamera(0, 1, 0, -1, -2000, 2000);
+    padScene.add(new THREE.HemisphereLight('#9fb4e0', '#20160e', 1.1));
+    const padSun = new THREE.DirectionalLight('#ffe2c0', 2.2); padSun.position.set(-0.4, 0.9, 1); padScene.add(padSun);
+    const pad = new THREE.Group(); padScene.add(pad);
+    const tilt = new THREE.Group(); pad.add(tilt); tilt.rotation.x = -0.42;
+    function rrShape(w, h, r) { const s = new THREE.Shape(), x = -w / 2, y = -h / 2; s.moveTo(x + r, y); s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r); s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h); s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r); s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y); return s; }
+    const keyGeo = new THREE.ExtrudeGeometry(rrShape(0.92, 0.92, 0.2), { depth: 0.26, bevelEnabled: true, bevelThickness: 0.07, bevelSize: 0.06, bevelSegments: 3, curveSegments: 6 });
+    const baseGeo = new THREE.ExtrudeGeometry(rrShape(3.75, 4.85, 0.4), { depth: 0.18, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 2, curveSegments: 8 });
+    const base = new THREE.Mesh(baseGeo, new THREE.MeshStandardMaterial({ color: '#1a191e', roughness: 0.45, metalness: 0.6 })); base.position.z = -0.25; tilt.add(base);
+    const LABELS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', 'del', '0', 'ok'];
+    const keyMats = { n: new THREE.MeshStandardMaterial({ color: '#3a3842', roughness: 0.55 }), del: new THREE.MeshStandardMaterial({ color: '#5a2e34', roughness: 0.55 }), ok: new THREE.MeshStandardMaterial({ color: '#2f8a52', roughness: 0.5 }) };
+    function labelTex(l) {
+      return canvasTex(128, 128, (g) => {
+        g.fillStyle = '#fff'; g.strokeStyle = '#fff'; g.lineWidth = 10; g.lineCap = g.lineJoin = 'round';
+        if (l === 'del') { g.beginPath(); g.moveTo(22, 64); g.lineTo(46, 36); g.lineTo(104, 36); g.lineTo(104, 92); g.lineTo(46, 92); g.closePath(); g.stroke(); g.lineWidth = 8; g.beginPath(); g.moveTo(62, 50); g.lineTo(88, 78); g.moveTo(88, 50); g.lineTo(62, 78); g.stroke(); }
+        else if (l === 'ok') { g.lineWidth = 14; g.beginPath(); g.moveTo(30, 66); g.lineTo(54, 90); g.lineTo(100, 40); g.stroke(); }
+        else { g.font = '800 92px system-ui, -apple-system, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(l, 64, 70); }
+      });
+    }
+    const keys = LABELS.map((l, i) => {
+      const r = Math.floor(i / 3), c = i % 3;
+      const g = new THREE.Group(); tilt.add(g);
+      const home = new THREE.Vector3((c - 1) * 1.12, (1.5 - r) * 1.12, 0);
+      g.position.copy(home);
+      const body = new THREE.Mesh(keyGeo, keyMats[l === 'del' || l === 'ok' ? l : 'n']); body.userData.key = l; g.add(body);
+      const lab = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 0.66), new THREE.MeshBasicMaterial({ map: labelTex(l), transparent: true, depthTest: false, toneMapped: false, color: '#eee8de' }));
+      lab.renderOrder = 2; // ラベルは自分のキーの上にしか重ならないので常に手前に
+      lab.position.z = 0.34; g.add(lab);
+      return { l, g, body, lab, home, press: 0, delay: (3 - r) * 0.05 + c * 0.02 };
+    });
+    let padK = 0, padTarget = 0, padT = 0;
+
+    // ---------- HDR（WebGPU で白より明るく） ----------
+    const hdrCanvas = $('hdr');
+    let gpu = null, hdrOn = false, hdrTries = 0;
+    async function initHDR() {
+      try {
+        if (!navigator.gpu) return;
+        const adapter = await navigator.gpu.requestAdapter(); if (!adapter) return;
+        const device = await adapter.requestDevice();
+        const ctx = hdrCanvas.getContext('webgpu'); if (!ctx) return;
+        let format = 'rgba16float';
+        try { ctx.configure({ device, format, alphaMode: 'opaque', toneMapping: { mode: 'extended' } }); }
+        catch { format = navigator.gpu.getPreferredCanvasFormat(); ctx.configure({ device, format, alphaMode: 'opaque' }); }
+        const conf = ctx.getConfiguration ? ctx.getConfiguration() : null;
+        const extended = !!(conf && conf.toneMapping && conf.toneMapping.mode === 'extended');
+        if (!extended) { ctx.unconfigure(); return; } // HDR が出せないなら three.js のパネルだけで描く
+        const mod = device.createShaderModule({ code: LED_WGSL });
+        const pipe = device.createRenderPipeline({ layout: 'auto', vertex: { module: mod, entryPoint: 'vs' }, fragment: { module: mod, entryPoint: 'fs', targets: [{ format }] }, primitive: { topology: 'triangle-list' } });
+        const tex = device.createTexture({ size: [GW, GH], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+        const ubuf = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        const sl = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+        const bind = device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }, { binding: 1, resource: tex.createView() }, { binding: 2, resource: sl }] });
+        gpu = { device, ctx, pipe, tex, ubuf, bind, u: new Float32Array(16) };
+        // GPU が落ちたら（画面の切り替えなど）少し待って作り直す。何度も落ちるなら three.js のパネルだけにする
+        device.lost.then(i => { gpu = null; hdrOn = false; hdrCanvas.style.display = "none"; updMode(); if (i.reason !== "destroyed" && ++hdrTries < 3) setTimeout(initHDR, 800); });
+        hdrOn = true; hdrCanvas.style.display = 'block';
+        gpu.device.queue.writeTexture({ texture: tex }, ledData, { bytesPerRow: GW * 4 }, [GW, GH]);
+        resize(); updMode();
+      } catch (e) { gpu = null; hdrOn = false; }
+    }
+    const hdrScreen = matchMedia('(dynamic-range: high)');
+    function updMode() { const m = $('mode'), real = hdrOn && hdrScreen.matches; m.textContent = real ? 'HDR' : 'SDR'; m.classList.toggle('on', real); }
+    hdrScreen.addEventListener?.('change', updMode);
+    function drawHDR() {
+      if (!gpu || !hdrOn) return;
+      const { device, ctx, pipe, ubuf, bind, u } = gpu;
+      if (ledDirty) device.queue.writeTexture({ texture: gpu.tex }, ledData, { bytesPerRow: GW * 4 }, [GW, GH]);
+      u.set([...hdrU0, ...ledU.ghost.value.toArray(), ...ledU.ans.value.toArray(), ...ledU.u1.value.toArray()]);
+      device.queue.writeBuffer(ubuf, 0, u);
+      const enc = device.createCommandEncoder();
+      const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
+      pass.setPipeline(pipe); pass.setBindGroup(0, bind); pass.draw(3); pass.end();
+      device.queue.submit([enc.finish()]);
+    }
+    let hdrU0 = [0, 0, 0, 0];
+
+    // ---------- 画面サイズ ----------
+    // 上のヘッダーと下 80px を除いた範囲を、パネル側 P とテンキー側 K に分ける
+    const BB = { cx: 0.85, cy: 2.0, w: 7.6, h: 4.1 }; // パネルと猫が入る範囲
+    let P = { x: 0, y: 0, w: 1, h: 1 }, K = { x: 0, y: 0, w: 1, h: 1 }, faceR = null, keyS = 60;
+    function regions() {
+      const W = innerWidth, H = innerHeight, top = 52, ah = Math.max(160, H - 80 - top);
+      if (W / ah > 1.15) { const pw = Math.round(W * 0.6); P = { x: 0, y: top, w: pw, h: ah }; K = { x: pw, y: top, w: W - pw, h: ah }; }
+      else { const ph = Math.round(ah * 0.44); P = { x: 0, y: top, w: W, h: ph }; K = { x: 0, y: top + ph, w: W, h: ah - ph }; }
+    }
+    function resize() {
+      const W = innerWidth, H = innerHeight;
+      renderer.setSize(W, H, false);
+      regions();
+      camera.aspect = P.w / P.h;
+      const tn = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      let d = Math.max((BB.h / 2) * 1.1, (BB.w / 2) * 1.06 / camera.aspect) / tn;
+      d = Math.max(d, FACE_W * P.h / (2 * 1000 * tn)); // 大きい画面でもパネルは 1000px まで
+      camera.position.set(BB.cx, BB.cy, d); camera.lookAt(BB.cx, BB.cy, 0);
+      camera.setViewOffset(P.w, P.h, -P.x, -P.y, W, H);
+      camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+      // LED の面が画面のどこに来るか（真正面から見るので長方形になる）
+      const v = new THREE.Vector3();
+      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      for (const [x, y] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        v.set(x * FACE_W / 2, PANEL_Y + y * FACE_H / 2, 0.002).project(camera);
+        const sx = (v.x + 1) / 2 * W, sy = (1 - v.y) / 2 * H;
+        x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
+      }
+      faceR = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+      if (hdrOn) {
+        const dpr = Math.min(2, devicePixelRatio || 1), s = hdrCanvas.style;
+        s.left = x0 + 'px'; s.top = y0 + 'px'; s.width = faceR.w + 'px'; s.height = faceR.h + 'px';
+        hdrCanvas.width = Math.max(1, Math.round(faceR.w * dpr)); hdrCanvas.height = Math.max(1, Math.round(faceR.h * dpr));
+      }
+      // テンキー
+      padCam.left = 0; padCam.right = W; padCam.top = 0; padCam.bottom = -H; padCam.updateProjectionMatrix();
+      keyS = Math.min(K.w / 4.1, K.h / (5.1 * Math.cos(tilt.rotation.x)), 118);
+      pad.scale.setScalar(keyS);
+      pad.position.set(K.x + K.w / 2, -(K.y + K.h / 2), 0);
+      // 結果は K 側に出す
+      const r = $('result').style;
+      r.left = K.x + 'px'; r.top = K.y + 'px'; r.width = K.w + 'px'; r.height = K.h + 'px';
+      renderer.compile(scene, camera);
+    }
+    addEventListener('resize', resize);
+
+    // ---------- ゲームの流れ ----------
+    // idle → count（充電）→ flash（数字が光る）→ answer（入力）→ judge → count ... / result
+    let state = 'idle', stage = 1, nums = [], interval = 0.8, onDur = 0.5, B = 1, ft = 0, cur = -1, lit = false;
+    let typed = '', judgeT = 0, correct = false, solved = 0, lastB = 1;
+    let ghostA = 0, ghostT = 0, flashK = 0, strobeK = 0, adapt = 1, catHop = 0, catShake = 0, idleT = 0;
+    const answer = () => nums.reduce((a, b) => a + b, 0);
+    const bright = k => Math.min(100, Math.pow(2, (k - 1) * 0.6));
+    const NIT = 203; // SDR の白の明るさ
+    function makeStage(k) {
+      const cnt = Math.min(3 + Math.floor((k - 1) / 2), 10), dg = k <= 5 ? 1 : k <= 12 ? 2 : 3;
+      const lo = dg === 1 ? 1 : 10 ** (dg - 1), hi = 10 ** dg - 1;
+      nums = [];
+      while (nums.length < cnt) { const n = lo + Math.floor(Math.random() * (hi - lo + 1)); if (n !== nums[nums.length - 1]) nums.push(n); }
+      interval = Math.max(0.38, 0.9 - 0.045 * (k - 1)); onDur = interval * 0.6; B = bright(k);
+    }
+    function toIdle() {
+      state = 'idle'; stage = 1; solved = 0; typed = ''; cur = -1; lit = false; ghostA = 0;
+      clearChan(0); clearChan(1); drawDots(2, 0); padTarget = 0;
+      $('result').hidden = true; snap = null;
+    }
+    function startCount() {
+      state = 'count'; ft = 0; typed = ''; makeStage(stage); lastB = B;
+      clearChan(0); drawDots(2, 0); padTarget = 0;
+      sCharge(1.25);
+    }
+    function startFlash() { state = 'flash'; ft = 0; cur = -1; lit = false; clearChan(2); }
+    function toAnswer() { state = 'answer'; typed = ''; drawNum(2, ''); padTarget = 1; padT = 0; }
+    function press(l) {
+      if (state !== 'answer') return;
+      const k = keys.find(k => k.l === l); if (k) k.press = 1;
+      sKey();
+      if (l === 'del') typed = typed.slice(0, -1);
+      else if (l === 'ok') { if (typed) judge(); return; }
+      else if (typed.length < 5) typed = (typed === '0' ? '' : typed) + l;
+      drawNum(2, typed);
+    }
+    function judge() {
+      state = 'judge'; judgeT = 0; correct = +typed === answer(); padTarget = 0;
+      if (correct) { solved++; sOk(); catHop = 1; setTimeout(sHappy, 120); }
+      else { sBuzz(); catShake = 1; setTimeout(sNya, 150); }
+    }
+    function finish() { state = 'result'; showResult(); $('result').hidden = false; prepareShare(); }
+
+    function update(dt) {
+      idleT += dt;
+      // 残像は時間で薄れる
+      ghostA = Math.max(0, ghostA - dt / (0.8 + 0.15 * Math.log2(B + 1)) * ghostA * 2.2 - dt * 0.02);
+      flashK = Math.max(0, flashK - dt * 14);
+      strobeK = Math.max(0, strobeK - dt * 9);
+      if (state === 'idle') {
+        drawDots(2, 1 + Math.floor(idleT * 2.5) % 3);
+      } else if (state === 'count') {
+        ft += dt;
+        const n = Math.min(3, Math.floor(ft / 0.4) + 1);
+        drawDots(2, n);
+        if (ft >= 1.3) startFlash();
+      } else if (state === 'flash') {
+        ft += dt;
+        const i = Math.floor(ft / interval);
+        if (i >= nums.length) { if (lit) off(); if (ft > nums.length * interval + 0.35) toAnswer(); }
+        else {
+          const want = ft - i * interval < onDur;
+          if (want && i !== cur) { cur = i; lit = true; drawNum(0, String(nums[i])); flashK = 1; strobeK = 1; sStrobe(Math.min(1, Math.log2(B + 1) / 6)); }
+          else if (!want && lit) off();
+        }
+      } else if (state === 'judge') {
+        judgeT += dt;
+        if (!correct && judgeT > 0.7 && judgeT - dt <= 0.7) drawNum(2, String(answer()));
+        if (correct && judgeT > 0.9) { stage++; startCount(); }
+        else if (!correct && judgeT > 1.9) finish();
+      }
+      // 猫
+      catHop = Math.max(0, catHop - dt * 2.2); catShake = Math.max(0, catShake - dt * 1.4);
+      catBody.position.y = Math.sin(catHop * Math.PI) * 0.45 + Math.sin(idleT * 2.2) * 0.012;
+      catBody.rotation.z = Math.sin(idleT * 30) * 0.12 * catShake;
+      catBody.scale.y = 1 + Math.sin(idleT * 2.2) * 0.012;
+      armL.rotation.z = 0.32 + strobeK * 0.12 + (state === 'idle' ? Math.sin(idleT * 3) * 0.04 : 0);
+      // ほこり
+      for (let i = 0; i < DUST; i++) {
+        const p = i * 3, v = dustVel[i];
+        dustPos[p] += v[0] * dt; dustPos[p + 1] += v[1] * dt; dustPos[p + 2] += v[2] * dt;
+        if (dustPos[p + 1] > 6) dustPos[p + 1] = 0; if (dustPos[p + 1] < 0) dustPos[p + 1] = 6;
+        if (Math.abs(dustPos[p]) > 6.5) v[0] *= -1; if (Math.abs(dustPos[p + 2]) > 3) v[2] *= -1;
+      }
+      dustGeo.attributes.position.needsUpdate = true;
+      // テンキー
+      padK += (padTarget - padK) * Math.min(1, dt * (padTarget ? 7 : 10));
+      if (padTarget) padT += dt;
+      pad.visible = padK > 0.01;
+      for (const k of keys) {
+        const e = padTarget ? Math.min(1, Math.max(0, (padT - k.delay) / 0.35)) : padK;
+        const ease = 1 - Math.pow(1 - e, 3);
+        k.g.position.set(k.home.x, k.home.y - (1 - ease) * 8, k.home.z - k.press * 0.16);
+        k.press = Math.max(0, k.press - dt * 8);
+        k.lab.material.color.setScalar(0.85 + k.press * 0.6);
+      }
+      const be = padTarget ? Math.min(1, padT / 0.3) : padK;
+      base.position.y = -(1 - (1 - Math.pow(1 - be, 3))) * 8;
+    }
+    function off() { lit = false; drawNum(1, String(nums[cur]), Math.round(Math.random() * 4 - 2), Math.round(Math.random() * 2 - 1)); clearChan(0); ghostA = Math.min(0.75, 0.22 + 0.11 * Math.log2(B + 1)); ghostT = 0; }
+
+    // 光り方を uniform に
+    function applyLight() {
+      const on = lit ? 1 : 0, lb = Math.log2(B + 1);
+      const glowR = Math.min(9, 1.6 + 1.1 * lb);
+      // HDR: 数字そのものが B 倍。SDR: 白で頭打ちなので、にじみで眩しさを見せる
+      hdrU0 = [on * B, on * (0.12 + 0.06 * lb) * Math.pow(B, 0.6), flashK, 0];
+      ledU.u0.value.set(on, on * (0.18 + 0.07 * lb), flashK * 0.6, 0);
+      ledU.u1.value.set(glowR, idleT, 0, 0);
+      const hue = 0.5 + 0.5 * Math.sin(idleT * 1.7);
+      ledU.ghost.value.set(0.25 + 0.35 * hue, 0.75 - 0.3 * hue, 0.75 + 0.15 * hue, ghostA);
+      let ac3 = [1, 0.55, 0.12], ab = state === 'idle' || state === 'count' ? 0.55 + (state === 'idle' ? 0.25 * Math.sin(idleT * 5) : 0.3) : 0.95;
+      if (state === 'judge' || state === 'result') {
+        if (correct) ac3 = [0.35, 1, 0.45];
+        else if (judgeT < 0.7) { ac3 = [1, 0.2, 0.15]; ab = Math.floor(judgeT * 8) % 2 ? 0.4 : 1; }
+        else ac3 = [0.35, 1, 0.45];
+      }
+      ledU.ans.value.set(...ac3, ab);
+      // 3D の部屋にも光を
+      const pk = on * Math.min(1, 0.35 + 0.12 * lb);
+      panelLight.intensity = pk * 22 + flashK * 18;
+      halo.material.opacity = on * Math.min(0.9, 0.18 + 0.1 * lb) + flashK * 0.25;
+      strobeLight.intensity = strobeK * strobeK * 40 * Math.min(2, 0.6 + 0.2 * lb);
+      strobeFaceMat.emissiveIntensity = strobeK * 6;
+      dustMat.opacity = 0.12 + pk * 0.8 + strobeK * 0.4;
+      dustMat.size = 0.05 + pk * 0.04;
+      beamMat.uniforms.k.value = 0.1 * (1 - pk * 0.5);
+      // 目が眩しさに慣れる: 明るい間は部屋が暗く見える
+      const target = 1 / (1 + pk * 1.2 + strobeK * 0.6);
+      adapt += (target - adapt) * (target < adapt ? 0.5 : 0.04);
+      renderer.toneMappingExposure = 1.15 * adapt;
+    }
+
+    // ---------- 入力 ----------
+    const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+    glCanvas.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (state === 'idle') { startCount(); return; }
+      if (state !== 'answer') return;
+      ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+      ray.setFromCamera(ndc, padCam);
+      const h = ray.intersectObjects(keys.map(k => k.body), false)[0];
+      if (h) press(h.object.userData.key);
+    });
+    addEventListener('keydown', e => {
+      if (e.target.tagName === 'SELECT' || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (state === 'idle' && (e.key === 'Enter' || e.key === ' ' || /^[0-9]$/.test(e.key))) { e.preventDefault(); startCount(); return; }
+      if (state === 'result' && e.key === 'Enter' && document.activeElement === document.body) { e.preventDefault(); $('again').click(); return; }
+      if (state !== 'answer') return;
+      if (/^[0-9]$/.test(e.key)) press(e.key);
+      else if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); press('del'); }
+      else if (e.key === 'Enter') { e.preventDefault(); press('ok'); }
+    });
+
+    // ---------- 結果 ----------
+    const coarse = matchMedia('(pointer: coarse)').matches;
+    const nitOf = () => Math.round(NIT * lastB);
+    function showResult() {
+      $('rNit').innerHTML = `${fmt(nitOf())}<small>nit</small>`;
+      $('rSub').textContent = L[lang].sub(solved);
+      const a = $('share');
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(L[lang].post(nitOf(), solved))}&url=${encodeURIComponent(URL_)}`;
+      if (coarse) { a.removeAttribute('target'); a.removeAttribute('rel'); } else { a.target = '_blank'; a.rel = 'noopener'; }
+    }
+    $('again').onclick = () => { toIdle(); tone('sine', 600, 900, 0.1, 0.1); };
+    $('share').addEventListener('click', e => {
+      const text = `${L[lang].post(nitOf(), solved)}\n${URL_}`;
+      if (coarse && navigator.share) {
+        e.preventDefault();
+        const file = snap?.key === lang ? snap.file : null;
+        navigator.share(file && navigator.canShare?.({ files: [file] }) ? { files: [file], text } : { text }).catch(() => {});
+        return;
+      }
+      const c = resultImage(); if (!c) return;
+      const d = document.createElement('a'); d.href = c.toDataURL('image/png'); d.download = 'hdr-anzan.png'; d.click();
+    });
+    // 結果画像: パネルと猫のまわりを切り抜き、明るさを大きく、タイトルを小さく
+    function resultImage() {
+      const W = innerWidth, H = innerHeight, cw = glCanvas.width / W;
+      const savedPad = pad.visible; pad.visible = false;
+      render();
+      pad.visible = savedPad;
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      g.fillStyle = '#07060a'; g.fillRect(0, 0, 1080, 1080);
+      // 面の中心を少し下げて、上に数字を書く余白をつくる
+      const side = Math.min(Math.max(faceR.w * 1.75, P.h * 1.1), Math.max(W, H));
+      const cx = faceR.x + faceR.w * 0.72, cy = faceR.y + faceR.h * 0.5 - side * 0.04;
+      g.drawImage(glCanvas, (cx - side / 2) * cw, (cy - side * 0.42) * cw, side * cw, side * cw, 0, 0, 1080, 1080);
+      const sh = g.createLinearGradient(0, 0, 0, 380); sh.addColorStop(0, 'rgba(7,6,10,.9)'); sh.addColorStop(1, 'rgba(7,6,10,0)'); g.fillStyle = sh; g.fillRect(0, 0, 1080, 380);
+      const sb = g.createLinearGradient(0, 900, 0, 1080); sb.addColorStop(0, 'rgba(7,6,10,0)'); sb.addColorStop(1, 'rgba(7,6,10,.9)'); g.fillStyle = sb; g.fillRect(0, 900, 1080, 180);
+      const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
+      const text = (s, y, px, max, col, glow) => {
+        g.font = font(px); const w = g.measureText(s).width; if (w > max) { px *= max / w; g.font = font(px); }
+        g.textAlign = 'center'; g.fillStyle = col; g.shadowColor = glow; g.shadowBlur = px * 0.35; g.fillText(s, 540, y); g.shadowBlur = 0; g.fillText(s, 540, y);
+      };
+      text(`${fmt(nitOf())} nit`, 190, 170, 980, '#ffffff', 'rgba(255,225,180,.95)');
+      text(L[lang].sub(solved), 275, 60, 900, '#ffd27a', 'rgba(0,0,0,0)');
+      text(t('title'), 1045, 50, 900, '#f2ece4', 'rgba(0,0,0,0)');
+      return c;
+    }
+    let snap = null;
+    function prepareShare() {
+      const key = lang;
+      if (snap?.key === key) return;
+      snap = { key, file: null };
+      setTimeout(() => {
+        const c = resultImage();
+        c?.toBlob(b => { if (b && snap?.key === key) snap.file = new File([b], 'hdr-anzan.png', { type: 'image/png' }); }, 'image/png');
+      }, 60);
+    }
+
+    // ---------- 描画 ----------
+    function render() {
+      if (ledDirty) { ledTex.needsUpdate = true; }
+      renderer.autoClear = true;
+      renderer.render(scene, camera);
+      if (pad.visible) { renderer.autoClear = false; renderer.clearDepth(); renderer.render(padScene, padCam); renderer.autoClear = true; }
+    }
+    let last = performance.now();
+    function loop(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      update(dt);
+      applyLight();
+      render();
+      drawHDR();
+      ledDirty = false;
+      requestAnimationFrame(loop);
+    }
+    toIdle(); resize(); applyLang(); applyLight(); render(); updMode();
+    renderer.compile(padScene, padCam);
+    requestAnimationFrame(loop);
+    initHDR();
+  </script>
+</body>
+</html>
