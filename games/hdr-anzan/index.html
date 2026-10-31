@@ -25,8 +25,8 @@
     html, body { margin: 0; height: 100%; background: #07060a; color: #f2ece4; font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
     body { overflow: hidden; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
     #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-    /* the LED face drawn again on top in real HDR (brighter than white) when the browser can */
-    #hdr { position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none; display: none; }
+    /* the same picture again in real HDR (lit parts brighter than white) when the browser can */
+    #hdr { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; display: none; }
     header { position: fixed; top: 0; left: 0; right: 0; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 8px 12px; }
     header a { color: #f2ece4; font-size: 14px; text-decoration: none; margin-right: auto; background: rgba(40,36,44,.75); border-radius: 14px; padding: 6px 10px; }
     .pill { height: 32px; min-width: 32px; border: none; border-radius: 16px; background: rgba(40,36,44,.85); color: #f2ece4; font-size: 14px; padding: 0 10px; display: flex; align-items: center; justify-content: center; font-family: inherit; }
@@ -216,39 +216,28 @@
     const sNya = () => voice(480 + Math.random() * 80, pick([['i', 'a', 'o'], ['e', 'a', 'u'], ['i', 'a', 'a']]), 0.38 + Math.random() * 0.12, 0.45);
     const sHappy = () => voice(620 + Math.random() * 60, pick([['i', 'a'], ['e', 'a']]), 0.2, 0.25, 0.02);
 
-    // ---------- LED パネルの中身（80×32 ドット） ----------
-    // R: 光る数字、G: 残像、B: 入力・答え（アンバー）
-    const GW = 80, GH = 32;
-    const ledData = new Uint8Array(GW * GH * 4);
-    let ledDirty = true;
-    const FONT = {
-      0: ['01110', '10001', '10011', '10101', '11001', '10001', '01110'], 1: ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
-      2: ['01110', '10001', '00001', '00010', '00100', '01000', '11111'], 3: ['11111', '00010', '00100', '00010', '00001', '10001', '01110'],
-      4: ['00010', '00110', '01010', '10010', '11111', '00010', '00010'], 5: ['11111', '10000', '11110', '00001', '00001', '10001', '01110'],
-      6: ['00110', '01000', '10000', '11110', '10001', '10001', '01110'], 7: ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
-      8: ['01110', '10001', '10001', '01110', '10001', '10001', '01110'], 9: ['01110', '10001', '10001', '01111', '00001', '00010', '01100'],
+    // ---------- 光る数字（ネオン管）の形 ----------
+    // 1文字は幅1・高さ1.6の箱。[なめらか?, 閉じる?, 点の列]
+    const GLYPH = {
+      0: [[1, 1, [[0.5, 1.6], [0.9, 1.25], [0.95, 0.8], [0.9, 0.35], [0.5, 0], [0.1, 0.35], [0.05, 0.8], [0.1, 1.25]]]],
+      1: [[0, 0, [[0.2, 1.25], [0.58, 1.6], [0.58, 0]]], [0, 0, [[0.22, 0], [0.92, 0]]]],
+      2: [[1, 0, [[0.06, 1.2], [0.25, 1.52], [0.55, 1.6], [0.88, 1.38], [0.88, 1.0], [0.5, 0.55], [0.06, 0.02]]], [0, 0, [[0.06, 0.02], [0.95, 0.02]]]],
+      3: [[0, 0, [[0.08, 1.58], [0.9, 1.58], [0.45, 0.98]]], [1, 0, [[0.45, 0.98], [0.85, 0.82], [0.95, 0.4], [0.62, 0.02], [0.25, 0.02], [0.04, 0.2]]]],
+      4: [[0, 0, [[0.72, 0], [0.72, 1.6], [0.04, 0.45], [0.98, 0.45]]]],
+      5: [[0, 0, [[0.9, 1.58], [0.15, 1.58], [0.1, 0.92]]], [1, 0, [[0.1, 0.92], [0.5, 1.02], [0.9, 0.78], [0.95, 0.38], [0.6, 0.02], [0.25, 0.02], [0.04, 0.2]]]],
+      6: [[1, 0, [[0.85, 1.5], [0.5, 1.6], [0.15, 1.3], [0.06, 0.7], [0.15, 0.2], [0.5, 0], [0.88, 0.22], [0.92, 0.6], [0.6, 0.92], [0.25, 0.85], [0.08, 0.6]]]],
+      7: [[0, 0, [[0.04, 1.58], [0.96, 1.58], [0.38, 0]]]],
+      8: [[1, 1, [[0.5, 1.6], [0.85, 1.42], [0.82, 1.05], [0.5, 0.88], [0.18, 1.05], [0.15, 1.42]]], [1, 1, [[0.5, 0.88], [0.92, 0.6], [0.88, 0.18], [0.5, 0], [0.12, 0.18], [0.08, 0.6]]]],
+      9: [[1, 0, [[0.15, 0.1], [0.5, 0], [0.85, 0.3], [0.94, 0.9], [0.85, 1.4], [0.5, 1.6], [0.12, 1.38], [0.08, 1.0], [0.4, 0.68], [0.75, 0.75], [0.92, 0.95]]]],
+      '.': [[1, 1, [[0.5, 0.92], [0.62, 0.8], [0.5, 0.68], [0.38, 0.8]]]],
+      ' ': [],
     };
-    function clearChan(c) { for (let i = c; i < ledData.length; i += 4) ledData[i] = 0; ledDirty = true; }
-    function drawNum(c, str, dx = 0, dy = 0) {
-      clearChan(c);
-      if (str === '') return;
-      const n = str.length, s = Math.max(1, Math.min(4, Math.floor(76 / (n * 6 - 1))));
-      const w = n * 6 * s - s, h = 7 * s, x0 = Math.floor((GW - w) / 2) + dx, y0 = Math.floor((GH - h) / 2) + dy;
-      for (let k = 0; k < n; k++) {
-        const g = FONT[str[k]];
-        for (let r = 0; r < 7; r++) for (let q = 0; q < 5; q++) if (g[r][q] === '1')
-          for (let a = 0; a < s; a++) for (let b = 0; b < s; b++) {
-            const x = x0 + k * 6 * s + q * s + b, y = y0 + r * s + a;
-            if (x >= 0 && x < GW && y >= 0 && y < GH) ledData[(y * GW + x) * 4 + c] = 255;
-          }
-      }
-    }
-    // 待ち: 3つの点（n 個だけ点く）
-    function drawDots(c, n) {
-      clearChan(c);
-      for (let k = 0; k < n; k++) for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++)
-        ledData[((14 + a) * GW + 26 + k * 12 + b) * 4 + c] = 255;
-    }
+    const ADV = c => (c === '.' || c === ' ' ? 0.7 : 1.32);
+    // 0: 光る数字、1: 残像、2: 入力・答え
+    let neons = [];
+    function clearChan(c) { neons[c]?.set(''); }
+    function drawNum(c, str, dx = 0, dy = 0) { neons[c]?.set(str, dx, dy); }
+    function drawDots(c, n) { neons[c]?.set('.'.repeat(n) + ' '.repeat(3 - n)); }
 
     // ---------- three.js ----------
     const glCanvas = $('gl');
@@ -314,85 +303,63 @@
       b.position.set(x, 4.5, -2); b.rotation.z = x < 0 ? 0.25 : -0.25; scene.add(b);
     }
 
-    // LED パネル
-    const ledTex = new THREE.DataTexture(ledData, GW, GH);
-    ledTex.magFilter = ledTex.minFilter = THREE.LinearFilter; ledTex.needsUpdate = true;
-    const ledU = {
-      map: { value: ledTex },
-      u0: { value: new THREE.Vector4() }, ghost: { value: new THREE.Vector4() }, ans: { value: new THREE.Vector4() }, u1: { value: new THREE.Vector4() },
-    };
-    // WGSL 版（HDR 用）と同じ計算
-    const LED_GLSL = `
-      uniform sampler2D map; uniform vec4 u0; uniform vec4 ghost; uniform vec4 ans; uniform vec4 u1;
-      varying vec2 vUv;
-      void main() {
-        vec2 G = vec2(${GW}.0, ${GH}.0);
-        vec2 uv = vec2(vUv.x, 1.0 - vUv.y);
-        vec2 c = uv * G; vec2 id = floor(c); float d = length(fract(c) - 0.5);
-        float dm = smoothstep(0.47, 0.3, d);
-        vec4 s = texture2D(map, (id + 0.5) / G);
-        float gl = 0.0, gh = 0.0;
-        for (int i = 0; i < 12; i++) {
-          float a = float(i) * 0.5236 + 0.26; vec2 o = vec2(cos(a), sin(a)) / G;
-          gl += texture2D(map, uv + o * u1.x).r + texture2D(map, uv + o * u1.x * 0.45).r;
-          gh += texture2D(map, uv + o * 1.3).g;
-        }
-        gl /= 24.0; gh /= 12.0;
-        vec3 col = vec3(0.05, 0.045, 0.055) * dm;
-        col += dm * s.r * u0.x;
-        col += gl * u0.y * vec3(1.0, 0.93, 0.82);
-        col += gh * ghost.rgb * ghost.a;
-        col += dm * s.b * ans.rgb * ans.a;
-        col += u0.z * u0.x * 0.25;
-        gl_FragColor = vec4(col, 1.0);
-      }`;
-    const LED_WGSL = `
-      struct U { u0: vec4f, ghost: vec4f, ans: vec4f, u1: vec4f };
-      @group(0) @binding(0) var<uniform> u: U;
-      @group(0) @binding(1) var tex: texture_2d<f32>;
-      @group(0) @binding(2) var sl: sampler;
-      struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
-      @vertex fn vs(@builtin(vertex_index) i: u32) -> VO {
-        var q = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
-        var o: VO; o.p = vec4f(q[i], 0.0, 1.0); o.uv = vec2f(q[i].x * 0.5 + 0.5, 0.5 - q[i].y * 0.5); return o;
-      }
-      @fragment fn fs(v: VO) -> @location(0) vec4f {
-        let G = vec2f(${GW}.0, ${GH}.0);
-        let uv = v.uv;
-        let c = uv * G; let id = floor(c); let d = length(fract(c) - 0.5);
-        let dm = smoothstep(0.47, 0.3, d);
-        let s = textureSample(tex, sl, (id + 0.5) / G);
-        var gl = 0.0; var gh = 0.0;
-        for (var i = 0; i < 12; i++) {
-          let a = f32(i) * 0.5236 + 0.26; let o = vec2f(cos(a), sin(a)) / G;
-          gl += textureSample(tex, sl, uv + o * u.u1.x).r + textureSample(tex, sl, uv + o * u.u1.x * 0.45).r;
-          gh += textureSample(tex, sl, uv + o * 1.3).g;
-        }
-        gl /= 24.0; gh /= 12.0;
-        var col = vec3f(0.05, 0.045, 0.055) * dm;
-        col += dm * s.r * u.u0.x;
-        col += gl * u.u0.y * vec3f(1.0, 0.93, 0.82);
-        col += gh * u.ghost.rgb * u.ghost.a;
-        col += dm * s.b * u.ans.rgb * u.ans.a;
-        col += u.u0.z * u.u0.x * 0.25;
-        return vec4f(col, 1.0);
-      }`;
-    const ledMat = new THREE.ShaderMaterial({ uniforms: ledU, vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }', fragmentShader: LED_GLSL, toneMapped: false, fog: false });
-    const PANEL_Y = 2.65, FACE_W = 5, FACE_H = 2;
+    // 光る数字（ネオン管）
+    const PANEL_Y = 2.65, FACE_W = 5.4, FACE_H = 2.1;
     const metal = new THREE.MeshStandardMaterial({ color: '#2b2a30', roughness: 0.38, metalness: 0.7 });
-    const panel = new THREE.Group(); scene.add(panel);
-    {
-      const frame = new THREE.Mesh(new THREE.BoxGeometry(FACE_W + 0.36, FACE_H + 0.36, 0.34), metal);
-      frame.position.set(0, PANEL_Y, -0.18); frame.castShadow = true; panel.add(frame);
-      const face = new THREE.Mesh(new THREE.PlaneGeometry(FACE_W, FACE_H), ledMat);
-      face.position.set(0, PANEL_Y, 0.002); panel.add(face);
-      for (const x of [-1.7, 1.7]) {
-        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, PANEL_Y - FACE_H / 2, 12), metal);
-        leg.position.set(x, (PANEL_Y - FACE_H / 2) / 2, -0.2); leg.castShadow = true; panel.add(leg);
-        const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, 0.06, 20), metal);
-        foot.position.set(x, 0.03, -0.2); foot.castShadow = foot.receiveShadow = true; panel.add(foot);
+    const glyphCache = {};
+    function glyphGeos(ch) {
+      if (glyphCache[ch]) return glyphCache[ch];
+      const out = [];
+      for (const [smooth, closed, pts] of GLYPH[ch]) {
+        const v = pts.map(([x, y]) => new THREE.Vector3(x - 0.5, y - 0.8, 0));
+        let curve, seg;
+        if (smooth) { curve = new THREE.CatmullRomCurve3(v, !!closed, 'centripetal'); seg = 80; }
+        else { curve = new THREE.CurvePath(); for (let i = 0; i < v.length - 1; i++) curve.add(new THREE.LineCurve3(v[i], v[i + 1])); seg = 40 * (v.length - 1); }
+        const ends = closed ? [] : [v[0], v[v.length - 1]];
+        out.push({ core: new THREE.TubeGeometry(curve, seg, 0.075, 10, !!closed), a: new THREE.TubeGeometry(curve, seg, 0.2, 10, !!closed), b: new THREE.TubeGeometry(curve, seg, 0.46, 10, !!closed), ends });
+      }
+      return (glyphCache[ch] = out);
+    }
+    const capGeo = new THREE.SphereGeometry(0.075, 10, 8), capA = new THREE.SphereGeometry(0.2, 10, 8), capB = new THREE.SphereGeometry(0.46, 10, 8);
+    // まわりのにじみ: 管の芯（カメラを向いた所）ほど明るく、縁ほど薄い
+    function glowMat(col) {
+      return new THREE.ShaderMaterial({
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+        uniforms: { c: { value: new THREE.Color(col) }, k: { value: 0 } },
+        vertexShader: 'varying vec3 vN; varying vec3 vV; void main(){ vec4 p = modelViewMatrix * vec4(position,1.); vV = normalize(-p.xyz); vN = normalize(normalMatrix*normal); gl_Position = projectionMatrix * p; }',
+        fragmentShader: 'uniform vec3 c; uniform float k; varying vec3 vN; varying vec3 vV; void main(){ float e = pow(abs(dot(vN, vV)), 3.0); gl_FragColor = vec4(c * k * e, 1.); }',
+      });
+    }
+    class Neon {
+      constructor(core, a, b) { this.g = new THREE.Group(); scene.add(this.g); this.core = core; this.a = a; this.b = b; this.key = null; }
+      set(str, dx = 0, dy = 0) {
+        const key = str + '|' + dx + '|' + dy;
+        if (key === this.key) return;
+        this.key = key;
+        this.g.clear();
+        let total = 0; for (const ch of str) total += ADV(ch);
+        total -= 0.32;
+        let x = -total / 2;
+        for (const ch of str) {
+          const w = ADV(ch) - 0.32;
+          for (const p of glyphGeos(ch)) {
+            const add = (geo, m, px = 0, py = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x + w / 2 + px, py, 0); this.g.add(o); };
+            add(p.core, this.core); add(p.a, this.a); add(p.b, this.b);
+            for (const e of p.ends) { add(capGeo, this.core, e.x, e.y); add(capA, this.a, e.x, e.y); add(capB, this.b, e.x, e.y); }
+          }
+          x += ADV(ch);
+        }
+        const s = Math.min(1.15, FACE_W / Math.max(1, total + 0.4));
+        this.g.scale.setScalar(s);
+        this.g.position.set(dx * 0.12, PANEL_Y + dy * 0.12, 0);
       }
     }
+    const coreMain = new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false, fog: false });
+    const coreGhost = new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, fog: false });
+    const coreAns = new THREE.MeshBasicMaterial({ color: '#ffaa33', toneMapped: false, fog: false });
+    const gMainA = glowMat('#fff2dc'), gMainB = glowMat('#ffd9a8'), gGhostA = glowMat('#000'), gGhostB = glowMat('#000'), gAnsA = glowMat('#ff9a2a'), gAnsB = glowMat('#ff7a10');
+    neons = [new Neon(coreMain, gMainA, gMainB), new Neon(coreGhost, gGhostA, gGhostB), new Neon(coreAns, gAnsA, gAnsB)];
+    neons[1].g.position.z = -0.05;
     // パネルのまわりのにじみ（SDR でも眩しさが分かるように）
     const haloTex = canvasTex(256, 256, (g, w) => { const r = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); r.addColorStop(0, 'rgba(255,245,230,1)'); r.addColorStop(0.35, 'rgba(255,230,200,.35)'); r.addColorStop(1, 'rgba(255,220,180,0)'); g.fillStyle = r; g.fillRect(0, 0, w, w); });
     const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0, fog: false, toneMapped: false }));
@@ -472,40 +439,45 @@
       const home = new THREE.Vector3((c - 1) * 1.12, (1.5 - r) * 1.12, 0);
       g.position.copy(home);
       const body = new THREE.Mesh(keyGeo, keyMats[l === 'del' || l === 'ok' ? l : 'n']); body.userData.key = l; g.add(body);
-      const lab = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 0.66), new THREE.MeshBasicMaterial({ map: labelTex(l), transparent: true, depthTest: false, toneMapped: false, color: '#eee8de' }));
-      lab.renderOrder = 2; // ラベルは自分のキーの上にしか重ならないので常に手前に
-      lab.position.z = 0.34; g.add(lab);
+      const lab = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 0.66), new THREE.MeshBasicMaterial({ map: labelTex(l), transparent: true, toneMapped: false, color: '#eee8de' }));
+      lab.position.z = 0.45; g.add(lab);
       return { l, g, body, lab, home, press: 0, delay: (3 - r) * 0.05 + c * 0.02 };
     });
     let padK = 0, padTarget = 0, padT = 0;
 
     // ---------- HDR（WebGPU で白より明るく） ----------
+    // three.js で描いた絵をそのまま WebGPU の HDR 画面に写し、白く光っている所（数字・ストロボ）だけ何倍にも明るくする
+    const HDR_WGSL = `
+      @group(0) @binding(0) var<uniform> u: vec4f;
+      @group(0) @binding(1) var bg: texture_2d<f32>;
+      @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        var q = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+        return vec4f(q[i], 0.0, 1.0);
+      }
+      @fragment fn fs(@builtin(position) p: vec4f) -> @location(0) vec4f {
+        let c = textureLoad(bg, vec2i(p.xy), 0).rgb;
+        let m = smoothstep(u.y, 1.0, max(c.r, max(c.g, c.b)));
+        return vec4f(c * (1.0 + (u.x - 1.0) * m * m), 1.0);
+      }`;
     const hdrCanvas = $('hdr');
-    let gpu = null, hdrOn = false, hdrTries = 0;
+    let gpu = null, hdrOn = false, hdrTries = 0, hdrGain = 1;
     async function initHDR() {
       try {
         if (!navigator.gpu) return;
         const adapter = await navigator.gpu.requestAdapter(); if (!adapter) return;
         const device = await adapter.requestDevice();
         const ctx = hdrCanvas.getContext('webgpu'); if (!ctx) return;
-        let format = 'rgba16float';
-        try { ctx.configure({ device, format, alphaMode: 'opaque', toneMapping: { mode: 'extended' } }); }
-        catch { format = navigator.gpu.getPreferredCanvasFormat(); ctx.configure({ device, format, alphaMode: 'opaque' }); }
+        const format = 'rgba16float';
+        ctx.configure({ device, format, alphaMode: 'opaque', toneMapping: { mode: 'extended' } });
         const conf = ctx.getConfiguration ? ctx.getConfiguration() : null;
-        const extended = !!(conf && conf.toneMapping && conf.toneMapping.mode === 'extended');
-        if (!extended) { ctx.unconfigure(); return; } // HDR が出せないなら three.js のパネルだけで描く
-        const mod = device.createShaderModule({ code: LED_WGSL });
+        if (!(conf && conf.toneMapping && conf.toneMapping.mode === 'extended')) { ctx.unconfigure(); return; } // HDR が出せないなら three.js の絵だけ
+        const mod = device.createShaderModule({ code: HDR_WGSL });
         const pipe = device.createRenderPipeline({ layout: 'auto', vertex: { module: mod, entryPoint: 'vs' }, fragment: { module: mod, entryPoint: 'fs', targets: [{ format }] }, primitive: { topology: 'triangle-list' } });
-        const tex = device.createTexture({ size: [GW, GH], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
-        const ubuf = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-        const sl = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
-        const bind = device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }, { binding: 1, resource: tex.createView() }, { binding: 2, resource: sl }] });
-        gpu = { device, ctx, pipe, tex, ubuf, bind, u: new Float32Array(16) };
-        // GPU が落ちたら（画面の切り替えなど）少し待って作り直す。何度も落ちるなら three.js のパネルだけにする
-        device.lost.then(i => { gpu = null; hdrOn = false; hdrCanvas.style.display = "none"; updMode(); if (i.reason !== "destroyed" && ++hdrTries < 3) setTimeout(initHDR, 800); });
-        hdrOn = true; hdrCanvas.style.display = 'block';
-        gpu.device.queue.writeTexture({ texture: tex }, ledData, { bytesPerRow: GW * 4 }, [GW, GH]);
-        resize(); updMode();
+        const ubuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        gpu = { device, ctx, pipe, ubuf, tex: null, bind: null, w: 0, h: 0, u: new Float32Array(4), shown: false };
+        // GPU が落ちたら少し待って作り直す。何度も落ちるなら three.js の絵だけにする
+        device.lost.then(i => { gpu = null; hdrOn = false; hdrCanvas.style.display = 'none'; updMode(); if (i.reason !== 'destroyed' && ++hdrTries < 3) setTimeout(initHDR, 800); });
+        hdrOn = true; updMode();
       } catch (e) { gpu = null; hdrOn = false; }
     }
     const hdrScreen = matchMedia('(dynamic-range: high)');
@@ -513,16 +485,25 @@
     hdrScreen.addEventListener?.('change', updMode);
     function drawHDR() {
       if (!gpu || !hdrOn) return;
-      const { device, ctx, pipe, ubuf, bind, u } = gpu;
-      if (ledDirty) device.queue.writeTexture({ texture: gpu.tex }, ledData, { bytesPerRow: GW * 4 }, [GW, GH]);
-      u.set([...hdrU0, ...ledU.ghost.value.toArray(), ...ledU.ans.value.toArray(), ...ledU.u1.value.toArray()]);
-      device.queue.writeBuffer(ubuf, 0, u);
-      const enc = device.createCommandEncoder();
-      const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
-      pass.setPipeline(pipe); pass.setBindGroup(0, bind); pass.draw(3); pass.end();
-      device.queue.submit([enc.finish()]);
+      try {
+        const { device, ctx, pipe, ubuf, u } = gpu, w = glCanvas.width, h = glCanvas.height;
+        if (gpu.w !== w || gpu.h !== h) {
+          gpu.tex?.destroy();
+          gpu.tex = device.createTexture({ size: [w, h], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+          gpu.bind = device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }, { binding: 1, resource: gpu.tex.createView() }] });
+          hdrCanvas.width = w; hdrCanvas.height = h; gpu.w = w; gpu.h = h;
+        }
+        device.queue.copyExternalImageToTexture({ source: glCanvas }, { texture: gpu.tex }, [w, h]);
+        // 画面の値は sRGB の符号化された値なので、明るさ B 倍は B^(1/2.2)
+        u[0] = Math.pow(hdrGain, 1 / 2.2); u[1] = 0.8;
+        device.queue.writeBuffer(ubuf, 0, u);
+        const enc = device.createCommandEncoder();
+        const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
+        pass.setPipeline(pipe); pass.setBindGroup(0, gpu.bind); pass.draw(3); pass.end();
+        device.queue.submit([enc.finish()]);
+        if (!gpu.shown) { gpu.shown = true; hdrCanvas.style.display = 'block'; }
+      } catch (e) { hdrOn = false; hdrCanvas.style.display = 'none'; updMode(); }
     }
-    let hdrU0 = [0, 0, 0, 0];
 
     // ---------- 画面サイズ ----------
     // 上のヘッダーと下 80px を除いた範囲を、パネル側 P とテンキー側 K に分ける
@@ -548,16 +529,11 @@
       const v = new THREE.Vector3();
       let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
       for (const [x, y] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-        v.set(x * FACE_W / 2, PANEL_Y + y * FACE_H / 2, 0.002).project(camera);
+        v.set(x * FACE_W / 2, PANEL_Y + y * FACE_H / 2, 0).project(camera);
         const sx = (v.x + 1) / 2 * W, sy = (1 - v.y) / 2 * H;
         x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
       }
       faceR = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
-      if (hdrOn) {
-        const dpr = Math.min(2, devicePixelRatio || 1), s = hdrCanvas.style;
-        s.left = x0 + 'px'; s.top = y0 + 'px'; s.width = faceR.w + 'px'; s.height = faceR.h + 'px';
-        hdrCanvas.width = Math.max(1, Math.round(faceR.w * dpr)); hdrCanvas.height = Math.max(1, Math.round(faceR.h * dpr));
-      }
       // テンキー
       padCam.left = 0; padCam.right = W; padCam.top = 0; padCam.bottom = -H; padCam.updateProjectionMatrix();
       keyS = Math.min(K.w / 4.1, K.h / (5.1 * Math.cos(tilt.rotation.x)), 118);
@@ -674,20 +650,29 @@
     // 光り方を uniform に
     function applyLight() {
       const on = lit ? 1 : 0, lb = Math.log2(B + 1);
-      const glowR = Math.min(9, 1.6 + 1.1 * lb);
-      // HDR: 数字そのものが B 倍。SDR: 白で頭打ちなので、にじみで眩しさを見せる
-      hdrU0 = [on * B, on * (0.12 + 0.06 * lb) * Math.pow(B, 0.6), flashK, 0];
-      ledU.u0.value.set(on, on * (0.18 + 0.07 * lb), flashK * 0.6, 0);
-      ledU.u1.value.set(glowR, idleT, 0, 0);
+      // 光る数字: 段が進むほどにじみが広がる（SDR では白で頭打ちなので、にじみで眩しさを見せる）
+      neons[0].g.visible = !!on;
+      gMainA.uniforms.k.value = on * (0.55 + 0.1 * lb) + flashK * 0.5;
+      gMainB.uniforms.k.value = on * (0.12 + 0.07 * lb) + flashK * 0.25;
+      // HDR: 白く光る所が B 倍
+      hdrGain = 1 + (B - 1) * Math.max(on, strobeK);
+      // 残像: 色が変わりながら薄れていく
       const hue = 0.5 + 0.5 * Math.sin(idleT * 1.7);
-      ledU.ghost.value.set(0.25 + 0.35 * hue, 0.75 - 0.3 * hue, 0.75 + 0.15 * hue, ghostA);
-      let ac3 = [1, 0.55, 0.12], ab = state === 'idle' || state === 'count' ? 0.55 + (state === 'idle' ? 0.25 * Math.sin(idleT * 5) : 0.3) : 0.95;
+      const gc = [0.25 + 0.35 * hue, 0.75 - 0.3 * hue, 0.75 + 0.15 * hue];
+      coreGhost.color.setRGB(gc[0] * ghostA * 0.7, gc[1] * ghostA * 0.7, gc[2] * ghostA * 0.7);
+      gGhostA.uniforms.c.value.setRGB(...gc); gGhostA.uniforms.k.value = ghostA * 0.35;
+      gGhostB.uniforms.c.value.setRGB(...gc); gGhostB.uniforms.k.value = ghostA * 0.1;
+      neons[1].g.visible = ghostA > 0.01;
+      // 入力・答え（アンバー → 正解は緑、不正解は赤く点滅）
+      let ac3 = [1, 0.55, 0.12], ab = state === 'idle' || state === 'count' ? 0.55 + (state === 'idle' ? 0.25 * Math.sin(idleT * 5) : 0.3) : 0.9;
       if (state === 'judge' || state === 'result') {
         if (correct) ac3 = [0.35, 1, 0.45];
-        else if (judgeT < 0.7) { ac3 = [1, 0.2, 0.15]; ab = Math.floor(judgeT * 8) % 2 ? 0.4 : 1; }
+        else if (judgeT < 0.7) { ac3 = [1, 0.2, 0.15]; ab = Math.floor(judgeT * 8) % 2 ? 0.35 : 0.9; }
         else ac3 = [0.35, 1, 0.45];
       }
-      ledU.ans.value.set(...ac3, ab);
+      coreAns.color.setRGB(ac3[0] * ab, ac3[1] * ab, ac3[2] * ab);
+      gAnsA.uniforms.c.value.setRGB(...ac3); gAnsA.uniforms.k.value = ab * 0.4;
+      gAnsB.uniforms.c.value.setRGB(...ac3); gAnsB.uniforms.k.value = ab * 0.1;
       // 3D の部屋にも光を
       const pk = on * Math.min(1, 0.35 + 0.12 * lb);
       panelLight.intensity = pk * 22 + flashK * 18;
@@ -784,7 +769,6 @@
 
     // ---------- 描画 ----------
     function render() {
-      if (ledDirty) { ledTex.needsUpdate = true; }
       renderer.autoClear = true;
       renderer.render(scene, camera);
       if (pad.visible) { renderer.autoClear = false; renderer.clearDepth(); renderer.render(padScene, padCam); renderer.autoClear = true; }
@@ -796,7 +780,6 @@
       applyLight();
       render();
       drawHDR();
-      ledDirty = false;
       requestAnimationFrame(loop);
     }
     toIdle(); resize(); applyLang(); applyLight(); render(); updMode();
