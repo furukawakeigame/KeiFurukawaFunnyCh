@@ -496,7 +496,7 @@
         }
         device.queue.copyExternalImageToTexture({ source: glCanvas }, { texture: gpu.tex }, [w, h]);
         // 画面の値は sRGB の符号化された値なので、明るさ B 倍は B^(1/2.2)
-        u[0] = Math.pow(hdrGain, 1 / 2.2); u[1] = 0.8;
+        u[0] = Math.pow(hdrGain, 1 / 2.2); u[1] = 0.75;
         device.queue.writeBuffer(ubuf, 0, u);
         const enc = device.createCommandEncoder();
         const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
@@ -653,10 +653,10 @@
       const on = lit ? 1 : 0, lb = Math.log2(B + 1);
       // 光る数字: 段が進むほどにじみが広がる（SDR では白で頭打ちなので、にじみで眩しさを見せる）
       neons[0].g.visible = !!on;
-      gMainA.uniforms.k.value = on * (0.55 + 0.1 * lb) + flashK * 0.5;
-      gMainB.uniforms.k.value = on * (0.12 + 0.07 * lb) + flashK * 0.25;
-      // HDR: 白く光る所が B 倍
-      hdrGain = 1 + (B - 1) * Math.max(on, strobeK);
+      gMainA.uniforms.k.value = on * 0.95 + flashK * 0.4;
+      gMainB.uniforms.k.value = on * 0.42 + flashK * 0.25;
+      // HDR: 白く光る所を最初から最大の明るさに
+      hdrGain = 1 + 99 * Math.max(on, strobeK); // 画面が出せる限界まで（それ以上は画面側で頭打ち）
       // 残像: 色が変わりながら薄れていく
       const hue = 0.5 + 0.5 * Math.sin(idleT * 1.7);
       const gc = [0.25 + 0.35 * hue, 0.75 - 0.3 * hue, 0.75 + 0.15 * hue];
@@ -675,16 +675,16 @@
       gAnsA.uniforms.c.value.setRGB(...ac3); gAnsA.uniforms.k.value = ab * 0.4;
       gAnsB.uniforms.c.value.setRGB(...ac3); gAnsB.uniforms.k.value = ab * 0.1;
       // 3D の部屋にも光を
-      const pk = on * Math.min(1, 0.35 + 0.12 * lb);
-      panelLight.intensity = pk * 22 + flashK * 18;
-      halo.material.opacity = on * Math.min(0.9, 0.18 + 0.1 * lb) + flashK * 0.25;
-      strobeLight.intensity = strobeK * strobeK * 40 * Math.min(2, 0.6 + 0.2 * lb);
+      const pk = on;
+      panelLight.intensity = pk * 45 + flashK * 40;
+      halo.material.opacity = on * 1 + flashK * 0.4;
+      strobeLight.intensity = strobeK * strobeK * 90;
       strobeFaceMat.emissiveIntensity = strobeK * 6;
       dustMat.opacity = 0.12 + pk * 0.8 + strobeK * 0.4;
       dustMat.size = 0.05 + pk * 0.04;
       beamMat.uniforms.k.value = 0.1 * (1 - pk * 0.5);
       // 目が眩しさに慣れる: 明るい間は部屋が暗く見える
-      const target = 1 / (1 + pk * 1.2 + strobeK * 0.6);
+      const target = 1 / (1 + pk * 2.5 + strobeK * 1.5);
       adapt += (target - adapt) * (target < adapt ? 0.5 : 0.04);
       renderer.toneMappingExposure = 1.15 * adapt;
     }
