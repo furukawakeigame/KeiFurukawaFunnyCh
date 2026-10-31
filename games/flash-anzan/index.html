@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>フラッシュ安産</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="フラッシュ安産">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/flash-anzan/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/flash-anzan/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #11151f; color: #f3ecdf;
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif;
+      display: flex; flex-direction: column; overflow: hidden;
+      -webkit-user-select: none; user-select: none;
+    }
+    header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+    header a { color: #f3ecdf; font-size: 14px; text-decoration: none; margin-right: auto; }
+    header button, header select {
+      background: #232a3a; border: 1px solid #4a5570; border-radius: 8px;
+      height: 34px; min-width: 40px; padding: 0 10px; font-size: 13px; color: #f3ecdf; cursor: pointer;
+    }
+    header svg { width: 18px; height: 18px; display: block; }
+    #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+    #gauge { position: absolute; left: 12px; right: 12px; top: 6px; display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; pointer-events: none; }
+    #gauge svg { width: clamp(18px, 3.4vmin, 28px); height: auto; animation: pop .35s ease-out; }
+    @keyframes pop { from { transform: scale(0); } 60% { transform: scale(1.35); } to { transform: scale(1); } }
+    #result { position: absolute; display: none; align-items: center; justify-content: center; pointer-events: none; }
+    #result b { font-size: clamp(44px, 13vmin, 120px); font-weight: 900; color: #fff; text-shadow: 0 4px 0 #8a3a52, 0 0 22px rgba(0,0,0,.45); white-space: nowrap; }
+    #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+    /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
+    #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; justify-content: center; gap: 6px; padding: 8px 12px 0; max-width: 720px; width: 100%; margin: 0 auto; }
+    #controls.answer { flex-wrap: wrap; }
+    #controls button, #controls a {
+      height: var(--bh, 56px); border: none; border-radius: 14px; font-weight: 800;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none;
+      touch-action: manipulation; font-family: inherit;
+    }
+    .num { width: calc((100% - (var(--cols, 9) - 1) * 6px) / var(--cols, 9)); background: #fff3e2; color: #3a2a1a; box-shadow: 0 4px 0 #b39370; font-size: clamp(22px, 3.6vmin, 30px); }
+    .cam { width: calc(var(--bh, 56px) * 1.5); background: #f6c94a; box-shadow: 0 4px 0 #9a7616; animation: breathe 1.4s ease-in-out infinite; }
+    .cam svg { width: 52%; height: auto; }
+    @keyframes breathe { 50% { transform: scale(1.08); } }
+    .go { flex: 1; background: #e86a8a; color: #fff; box-shadow: 0 4px 0 #8f2a46; font-size: clamp(18px, 3vmin, 24px); }
+    .post { flex: 0 0 34%; background: #000; color: #fff; box-shadow: 0 4px 0 #000; border: 1px solid #444 !important; font-size: clamp(16px, 2.6vmin, 20px); }
+    /* 背の低い横長の画面では、ボタンを右側に縦に並べる */
+    @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+      #controls { left: auto; right: 12px; width: var(--sw, 180px); margin: 0; padding: 0; flex-direction: column; align-items: stretch; }
+      #controls.answer { flex-direction: row; align-content: flex-end; }
+      .go, .post { flex: none !important; width: 100%; }
+      .cam { align-self: center; }
+    }
+    #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="stage"><div id="flash"></div><div id="gauge"></div><div id="result"><b></b></div><div id="msg"></div></div>
+  <div id="controls"></div>
+
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+  <script>
+    // CDN が読めないときの一言
+    setTimeout(() => { if (!window.GAME_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 8000);
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    window.GAME_READY = true;
+
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/flash-anzan/';
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const pick = a => a[Math.floor(Math.random() * a.length)];
+
+    // ---------- 言語 ----------
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('flash-anzan:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('flash-anzan:' + k, JSON.stringify(v)); } catch {} },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
+    const DICT = {
+      ja: { title: 'フラッシュ安産', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', count: n => `${n}回`, share: n => `フラッシュで赤ちゃんの人数を${n}回連続で当てた #フラッシュ安産ゲーム` },
+      ko: { title: '플래시 순산', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', count: n => `${n}회`, share: n => `플래시 속 아기 수를 ${n}회 연속으로 맞혔다 #フラッシュ安産ゲーム` },
+      en: { title: 'Flash Delivery', back: '← Back to top', again: 'Play again', post: 'Post on X', count: n => `${n} in a row`, share: n => `I counted the babies in the flash ${n} ${n === 1 ? 'time' : 'times'} in a row #フラッシュ安産ゲーム` },
+      th: { title: 'แฟลชคลอดง่าย', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', count: n => `${n} ครั้ง`, share: n => `นับจำนวนทารกในแสงแฟลชถูกติดกัน ${n} ครั้ง #フラッシュ安産ゲーム` },
+    };
+    let lang = store.get('lang', null) || autoLang();
+    const t = k => DICT[lang][k];
+    const langSel = document.getElementById('lang');
+    langSel.value = lang;
+    langSel.addEventListener('change', () => { lang = langSel.value; store.set('lang', lang); applyLang(); langSel.blur(); });
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      renderControls();
+      if (state === 'result') { showResult(); prepareShare(); }
+    }
+
+    // ---------- 音 ----------
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const drawSoundBtn = () => {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${soundOn ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>'}</svg>`;
+    };
+    drawSoundBtn();
+    soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); soundBtn.blur(); });
+    let ac = null;
+    // iPhone の消音モードでも鳴らす
+    function unmuteIOS() {
+      try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch {}
+      try {
+        const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+        const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+        w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+        v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+        const a = document.createElement('audio');
+        a.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })); a.loop = true; a.setAttribute('playsinline', '');
+        a.play().catch(() => {});
+      } catch {}
+    }
+    function initAudio() {
+      if (ac) return;
+      unmuteIOS();
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
+        o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.05);
+      } catch { ac = null; }
+    }
+    addEventListener('pointerdown', initAudio, { capture: true });
+    addEventListener('keydown', initAudio, { capture: true });
+    const on = () => soundOn && ac;
+    function tone(type, f0, f1, dur, vol, delay = 0) {
+      if (!on()) return;
+      const now = ac.currentTime + delay;
+      const o = ac.createOscillator(); o.type = type;
+      o.frequency.setValueAtTime(f0, now); o.frequency.exponentialRampToValueAtTime(f1, now + dur);
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(vol, now + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      o.connect(g).connect(ac.destination); o.start(now); o.stop(now + dur + 0.02);
+    }
+    // 短いノイズを共鳴に通す（カチッ・カシャ）
+    function click(dur, vol, bands, delay = 0, decay = 0.006) {
+      if (!on()) return;
+      const now = ac.currentTime + delay;
+      const buf = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ac.sampleRate * decay));
+      const s = ac.createBufferSource(); s.buffer = buf;
+      for (const [f, q, g0] of bands) {
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * rnd(0.95, 1.05); bp.Q.value = q;
+        const g = ac.createGain(); g.gain.value = g0 * vol; s.connect(bp).connect(g).connect(ac.destination);
+      }
+      s.start(now);
+    }
+    // 声: 声帯の振動（のこぎり波＋息）を、母音ごとの共鳴（フォルマント）に通す
+    const VOWEL = { a: [800, 1200, 2600], i: [300, 2300, 3000], u: [350, 1250, 2500], e: [500, 1900, 2600], o: [500, 850, 2500] };
+    function voice(f0, seq, dur, vol, opt = {}) {
+      if (!on()) return;
+      const { contour = [[0, 1.25], [0.15, 1.4], [1, 0.7]], vib = 0.04, vibRate = rnd(5.5, 8.5), breath = 0.15, form = 1, cut = false, delay = 0 } = opt;
+      const now = ac.currentTime + delay;
+      const o = ac.createOscillator(); o.type = 'sawtooth';
+      contour.forEach(([p, m], i) => i ? o.frequency.linearRampToValueAtTime(f0 * m, now + dur * p) : o.frequency.setValueAtTime(f0 * m, now));
+      const v = ac.createOscillator(); v.frequency.value = vibRate;
+      const vg = ac.createGain(); vg.gain.value = f0 * vib; v.connect(vg).connect(o.frequency);
+      const nb = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate), nd = nb.getChannelData(0);
+      for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+      const ns = ac.createBufferSource(); ns.buffer = nb;
+      const ng = ac.createGain(); ng.gain.value = breath;
+      const src = ac.createGain();
+      o.connect(src); ns.connect(ng).connect(src);
+      const out = ac.createGain();
+      out.gain.setValueAtTime(0, now);
+      out.gain.linearRampToValueAtTime(vol, now + 0.025);
+      if (cut) { out.gain.setValueAtTime(vol, now + dur - 0.025); out.gain.linearRampToValueAtTime(0, now + dur); }
+      else { out.gain.setValueAtTime(vol, now + dur * 0.55); out.gain.exponentialRampToValueAtTime(0.001, now + dur); }
+      [1, 0.6, 0.25].forEach((amp, fi) => {
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = fi === 0 ? 6 : 9;
+        seq.forEach((s, si) => { const tt = now + dur * si / Math.max(1, seq.length - 1) * 0.7; bp.frequency[si ? 'linearRampToValueAtTime' : 'setValueAtTime'](VOWEL[s][fi] * form, tt); });
+        const g = ac.createGain(); g.gain.value = amp * 3;
+        src.connect(bp).connect(g).connect(out);
+      });
+      out.connect(ac.destination);
+      o.start(now); v.start(now); ns.start(now);
+      o.stop(now + dur); v.stop(now + dur); ns.stop(now + dur);
+    }
+    // フラッシュの充電音: 高く上がっていくキーン
+    function sCharge() {
+      if (!on()) return;
+      const now = ac.currentTime, dur = 0.6;
+      for (const [k, vol] of [[1, 0.035], [2.01, 0.012]]) {
+        const o = ac.createOscillator(); o.type = 'sine';
+        o.frequency.setValueAtTime(1500 * k, now); o.frequency.exponentialRampToValueAtTime(5600 * k, now + dur);
+        const g = ac.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(vol, now + 0.15); g.gain.setValueAtTime(vol, now + dur - 0.05); g.gain.linearRampToValueAtTime(0, now + dur);
+        o.connect(g).connect(ac.destination); o.start(now); o.stop(now + dur + 0.02);
+      }
+    }
+    // シャッター: 幕が走る「カ」と戻る「シャ」＋小さな胴鳴り
+    function sShutter() {
+      click(0.03, 0.9, [[3200, 2, 1], [6500, 3, 0.5]], 0, 0.004);
+      click(0.09, 0.6, [[2400, 1.5, 0.8], [5200, 2, 0.6]], 0.055, 0.018);
+      tone('sine', 220, 90, 0.07, 0.12);
+      click(0.02, 0.35, [[9000, 1, 1]], 0, 0.002); // ストロボの「パッ」
+    }
+    const sLight = () => { click(0.02, 0.6, [[1600, 4, 1], [3800, 5, 0.4]], 0, 0.003); tone('sine', 120, 118, 0.6, 0.015, 0.05); };
+    const sTap = () => click(0.02, 0.35, [[1200, 5, 1], [2600, 6, 0.4]], 0, 0.004);
+    // 赤ちゃんの「オギャー」: 高い声、強いビブラート、小さい声道（共鳴が高め）
+    const CRY = [['o', 'i', 'a', 'a'], ['u', 'a', 'a', 'e'], ['a', 'a', 'e'], ['o', 'a', 'a'], ['e', 'a', 'a', 'u']];
+    function cries(n) {
+      for (let i = 0; i < Math.min(n, 5); i++) {
+        const f0 = rnd(420, 560), d0 = i * 0.2 + rnd(0, 0.15);
+        let at = d0;
+        for (let k = 0; k < 2; k++) {
+          const dur = rnd(0.5, 0.85);
+          voice(f0 * rnd(0.95, 1.05), pick(CRY), dur, 0.22, { contour: [[0, 0.85], [0.2, 1.12], [0.75, 1.04], [1, 0.72]], vib: 0.06, vibRate: rnd(8, 11), breath: 0.28, form: 1.35, delay: at });
+          at += dur + rnd(0.15, 0.3);
+        }
+      }
+    }
+    // お母さん: 安心の「わぁ」、外れた時の「えっ」
+    const sRelief = () => voice(255, ['u', 'a', 'a'], 0.7, 0.4, { contour: [[0, 1], [0.25, 1.35], [1, 0.85]], vib: 0.03, form: 1.1 });
+    const sEh = () => voice(235, ['e', 'e'], 0.27, 0.55, { contour: [[0, 0.9], [1, 1.5]], vib: 0.01, form: 1.1, cut: true, breath: 0.1 });
+
+    // ---------- 3D ----------
+    const stage = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: false });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    stage.prepend(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#0c0f18');
+    scene.fog = new THREE.Fog('#0c0f18', 14, 34);
+    const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 200);
+
+    const canvasTex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; return tx; };
+    const mat = (c, rough = 0.75, extra = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, ...extra });
+    const shade = o => { o.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } }); return o; };
+    const SPH = new THREE.SphereGeometry(1, 28, 18), CYL = new THREE.CylinderGeometry(1, 1, 1, 20), BOX = new THREE.BoxGeometry(1, 1, 1);
+    const CAPS = new THREE.CapsuleGeometry(1, 1, 8, 18), HALF = new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    const part = (geo, m, x, y, z, sx, sy = sx, sz = sx, parent) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.scale.set(sx, sy, sz); parent?.add(o); return o; };
+
+    // 光: 空色の環境光、窓からの月明かり、天井の暖かい明かり、カメラのフラッシュ
+    const hemi = new THREE.HemisphereLight('#dfe9ff', '#6b5a4a', 0.06); scene.add(hemi);
+    const moon = new THREE.DirectionalLight('#7f9cff', 0.45); moon.position.set(3, 4, -4); scene.add(moon);
+    const lamp = new THREE.DirectionalLight('#ffe6c4', 0);
+    lamp.position.set(1.2, 7, 2.5); lamp.target.position.set(0, 0.6, -0.2);
+    lamp.castShadow = true; lamp.shadow.mapSize.set(1024, 1024); lamp.shadow.radius = 5; lamp.shadow.bias = -0.0006;
+    Object.assign(lamp.shadow.camera, { left: -3.2, right: 3.2, top: 3.2, bottom: -3.2, near: 1, far: 16 });
+    scene.add(lamp, lamp.target);
+    const strobe = new THREE.DirectionalLight('#ffffff', 0);
+    strobe.castShadow = true; strobe.shadow.mapSize.set(1024, 1024); strobe.shadow.radius = 1.5; strobe.shadow.bias = -0.0006;
+    Object.assign(strobe.shadow.camera, { left: -3, right: 3, top: 3, bottom: -3, near: 1, far: 18 });
+    scene.add(strobe, strobe.target);
+    const monLight = new THREE.PointLight('#5cff9a', 0.25, 2.2, 2); monLight.position.set(1.95, 1.55, -1.25); scene.add(monLight);
+
+    // 床: クリーム色のタイル
+    const floorTex = canvasTex(256, 256, (c, w, h) => {
+      const n = 4, s = w / n;
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { const l = 82 + Math.random() * 5; c.fillStyle = `hsl(42,18%,${l}%)`; c.fillRect(i * s, j * s, s, s); }
+      for (let k = 0; k < 1800; k++) { c.fillStyle = `rgba(90,80,60,${Math.random() * 0.08})`; c.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+      c.strokeStyle = '#a89f8c'; c.lineWidth = 3;
+      for (let i = 0; i <= n; i++) { c.beginPath(); c.moveTo(i * s, 0); c.lineTo(i * s, h); c.stroke(); c.beginPath(); c.moveTo(0, i * s); c.lineTo(w, i * s); c.stroke(); }
+    });
+    floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping; floorTex.repeat.set(17, 17);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(70, 70), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.35 }));
+    floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+
+    // 壁: 淡いミント色、下は腰板
+    const WZ = -2.7;
+    const wallTex = canvasTex(256, 256, (c, w, h) => {
+      const gr = c.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#e2efe9'); gr.addColorStop(1, '#c7dfd6'); c.fillStyle = gr; c.fillRect(0, 0, w, h);
+      for (let k = 0; k < 2500; k++) { c.fillStyle = `rgba(60,90,80,${Math.random() * 0.05})`; c.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+    });
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(70, 7), new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.9 }));
+    wall.position.set(0, 3.5, WZ); wall.receiveShadow = true; scene.add(wall);
+    part(BOX, mat('#8fbcae', 0.6), 0, 0.45, WZ + 0.03, 70, 0.9, 0.06, scene).receiveShadow = true;
+    part(BOX, mat('#e9f3ef', 0.5), 0, 0.92, WZ + 0.06, 70, 0.05, 0.08, scene);
+
+    // 窓: 夜空と月
+    {
+      const sky = canvasTex(256, 220, (c, w, h) => {
+        const gr = c.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#0a1440'); gr.addColorStop(1, '#2a3f7a'); c.fillStyle = gr; c.fillRect(0, 0, w, h);
+        for (let i = 0; i < 70; i++) { c.fillStyle = `rgba(255,255,240,${Math.random() * 0.8 + 0.2})`; const r = Math.random() * 1.3 + 0.3; c.beginPath(); c.arc(Math.random() * w, Math.random() * h * 0.8, r, 0, 7); c.fill(); }
+        const mg = c.createRadialGradient(180, 60, 4, 180, 60, 60); mg.addColorStop(0, 'rgba(255,250,220,.5)'); mg.addColorStop(1, 'rgba(255,250,220,0)'); c.fillStyle = mg; c.fillRect(0, 0, w, h);
+        c.fillStyle = '#fff6d6'; c.beginPath(); c.arc(180, 60, 20, 0, 7); c.fill();
+        c.fillStyle = '#0a1440'; c.beginPath(); c.arc(190, 54, 18, 0, 7); c.fill();
+        c.fillStyle = '#0b1230'; for (let x = 0; x < w; x += 18) { const bh = 20 + Math.random() * 50; c.fillRect(x, h - bh, 16, bh); c.fillStyle = '#ffd98a'; for (let k = 0; k < 3; k++) if (Math.random() < 0.5) c.fillRect(x + 3 + Math.random() * 9, h - bh + 6 + Math.random() * (bh - 10), 3, 3); c.fillStyle = '#0b1230'; }
+      });
+      const win = new THREE.Group(); win.position.set(1.9, 2.25, WZ + 0.02);
+      const glass = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.35), new THREE.MeshBasicMaterial({ map: sky, fog: false })); win.add(glass);
+      const fm = mat('#f4f2ec', 0.4);
+      for (const [x, y, w, h] of [[0, 0.7, 1.75, 0.08], [0, -0.7, 1.85, 0.1], [-0.84, 0, 0.08, 1.45], [0.84, 0, 0.08, 1.45], [0, 0, 0.05, 1.35], [0, 0, 1.6, 0.04]]) part(BOX, fm, x, y, 0.04, w, h, 0.08, win);
+      scene.add(shade(win));
+      // カーテン: 波打つ布
+      const cg = new THREE.PlaneGeometry(0.7, 2.1, 40, 1);
+      { const p = cg.attributes.position; for (let i = 0; i < p.count; i++) p.setZ(i, Math.sin(p.getX(i) * 26) * 0.045); cg.computeVertexNormals(); }
+      const cm = mat('#9fc2e8', 0.95, { side: THREE.DoubleSide });
+      for (const s of [-1, 1]) { const c = new THREE.Mesh(cg, cm); c.position.set(1.9 + s * 1.05, 2.15, WZ + 0.14); c.castShadow = c.receiveShadow = true; scene.add(c); }
+      part(CYL, mat('#c0c4cc', 0.3, { metalness: 0.6 }), 1.9, 3.22, WZ + 0.14, 0.02, 2.9, 0.02, scene).rotation.z = Math.PI / 2;
+    }
+    // 時計: 今の時刻を指す
+    {
+      const clock = new THREE.Group(); clock.position.set(-0.2, 2.75, WZ + 0.04);
+      const face = canvasTex(128, 128, (c) => { c.fillStyle = '#fbfaf5'; c.beginPath(); c.arc(64, 64, 62, 0, 7); c.fill(); c.fillStyle = '#333'; for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; c.save(); c.translate(64 + Math.sin(a) * 50, 64 - Math.cos(a) * 50); c.rotate(a); c.fillRect(-2, -6, 4, i % 3 ? 7 : 12); c.restore(); } });
+      part(CYL, mat('#5a6070', 0.4), 0, 0, 0, 0.36, 0.06, 0.36, clock).rotation.x = Math.PI / 2;
+      const fc = new THREE.Mesh(new THREE.CircleGeometry(0.32, 40), new THREE.MeshStandardMaterial({ map: face, roughness: 0.3 })); fc.position.z = 0.032; clock.add(fc);
+      const d = new Date(), hm = mat('#222', 0.5);
+      for (const [len, wd, a] of [[0.17, 0.025, (d.getHours() % 12 + d.getMinutes() / 60) / 12], [0.25, 0.016, d.getMinutes() / 60]]) {
+        const p = new THREE.Group(); p.position.z = 0.04; p.rotation.z = -a * Math.PI * 2; clock.add(p);
+        part(BOX, hm, 0, len / 2, 0, wd, len, 0.01, p);
+      }
+      scene.add(shade(clock));
+    }
+
+    // 分娩台（ベッド）
+    const MT = 0.62; // マットレスの上の高さ
+    {
+      const bed = new THREE.Group();
+      const metal = mat('#c9ced6', 0.3, { metalness: 0.7 });
+      const sheetTex = canvasTex(128, 128, (c, w, h) => { c.fillStyle = '#f4f6f8'; c.fillRect(0, 0, w, h); for (let k = 0; k < 900; k++) { c.fillStyle = `rgba(120,130,150,${Math.random() * 0.06})`; c.fillRect(Math.random() * w, Math.random() * h, 3, 1); } });
+      const sh = new THREE.Shape(); const W = 1.3, L = 1.75, r = 0.18;
+      sh.moveTo(-W + r, -L); sh.lineTo(W - r, -L); sh.quadraticCurveTo(W, -L, W, -L + r); sh.lineTo(W, L - r); sh.quadraticCurveTo(W, L, W - r, L); sh.lineTo(-W + r, L); sh.quadraticCurveTo(-W, L, -W, L - r); sh.lineTo(-W, -L + r); sh.quadraticCurveTo(-W, -L, -W + r, -L);
+      const mg = new THREE.ExtrudeGeometry(sh, { depth: 0.18, bevelEnabled: true, bevelSize: 0.06, bevelThickness: 0.06, bevelSegments: 4 });
+      mg.rotateX(-Math.PI / 2); mg.translate(0, MT - 0.24, 0);
+      const mattress = new THREE.Mesh(mg, new THREE.MeshStandardMaterial({ map: sheetTex, roughness: 0.95 })); bed.add(mattress);
+      part(BOX, mat('#7d8696', 0.5), 0, 0.3, 0, 2.5, 0.12, 3.3, bed);
+      for (const x of [-1.1, 1.1]) for (const z of [-1.5, 1.5]) { part(CYL, metal, x, 0.17, z, 0.04, 0.3, 0.04, bed); part(SPH, mat('#333', 0.6), x, 0.05, z, 0.06, 0.06, 0.06, bed); }
+      // 頭側と足側の手すり
+      for (const [z, hgt] of [[-1.85, 1.05], [1.85, 0.4]]) {
+        for (const x of [-1.15, 1.15]) part(CYL, metal, x, MT + hgt / 2 - 0.25, z, 0.04, hgt + 0.5, 0.04, bed);
+        part(CYL, metal, 0, MT + hgt + 0.0, z, 0.04, 2.3, 0.04, bed).rotation.z = Math.PI / 2;
+        part(BOX, mat('#e3e7ee', 0.5), 0, MT + hgt / 2 - 0.05, z, 2.2, hgt, 0.05, bed);
+      }
+      // まくら
+      part(SPH, mat('#ffffff', 0.9), 0, MT + 0.1, -1.38, 0.7, 0.14, 0.3, bed);
+      scene.add(shade(bed));
+    }
+    // 掛け布団: お母さんのおなかのふくらみがある
+    const bump = (x, z) => 0.24 * Math.exp(-(x * x) / 0.3 - ((z + 0.55) ** 2) / 0.32) + 0.08 * Math.exp(-(x * x) / 0.5 - ((z + 1.05) ** 2) / 0.08);
+    const BZ0 = -1.2, BZ1 = 0.55;
+    const surfY = (x, z) => z < BZ1 ? MT + 0.045 + bump(x, z) : MT + 0.005;
+    {
+      const g = new THREE.PlaneGeometry(2.9, BZ1 - BZ0, 60, 36); g.rotateX(-Math.PI / 2); g.translate(0, 0, (BZ0 + BZ1) / 2);
+      const p = g.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), z = p.getZ(i), ax = Math.abs(x);
+        let y = MT + 0.045 + bump(x, z) + 0.008 * Math.sin(x * 9 + z * 5);
+        if (ax > 1.28) y -= (ax - 1.28) * 2.6;           // 横に垂れる
+        if (z > BZ1 - 0.12) y += 0.03 * Math.sin((z - BZ1 + 0.12) / 0.12 * Math.PI); // 折り返し
+        p.setY(i, y);
+      }
+      g.computeVertexNormals();
+      const quilt = canvasTex(256, 256, (c, w, h) => {
+        c.fillStyle = '#f6c6cf'; c.fillRect(0, 0, w, h);
+        c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 3;
+        for (let i = 0; i <= 8; i++) { c.beginPath(); c.moveTo(i * 32, 0); c.lineTo(i * 32, h); c.stroke(); c.beginPath(); c.moveTo(0, i * 32); c.lineTo(w, i * 32); c.stroke(); }
+        for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) { c.fillStyle = (i + j) % 2 ? '#fff4d8' : '#e88aa0'; c.beginPath(); c.arc(i * 32 + 16, j * 32 + 16, 4, 0, 7); c.fill(); }
+      });
+      quilt.wrapS = quilt.wrapT = THREE.RepeatWrapping; quilt.repeat.set(2, 1.3);
+      const blanket = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: quilt, roughness: 0.95, side: THREE.DoubleSide }));
+      blanket.castShadow = blanket.receiveShadow = true; scene.add(blanket);
+    }
+    // お母さん: いつもの猫（まくらの上の顔）
+    const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
+    const catMat = new THREE.SpriteMaterial({ map: catTex, alphaTest: 0.4 });
+    const cat = new THREE.Sprite(catMat); const CAT_POS = new THREE.Vector3(0, MT + 0.42, -1.4);
+    cat.position.copy(CAT_POS); cat.scale.set(0.95, 0.95, 1); scene.add(cat);
+
+    // 点滴スタンド
+    {
+      const iv = new THREE.Group(); iv.position.set(-1.75, 0, -1.55);
+      const metal = mat('#c9ced6', 0.3, { metalness: 0.7 });
+      for (let k = 0; k < 4; k++) { const l = part(BOX, metal, Math.cos(k * 1.57) * 0.18, 0.04, Math.sin(k * 1.57) * 0.18, 0.36, 0.03, 0.04, iv); l.rotation.y = -k * 1.57; }
+      part(CYL, metal, 0, 1.15, 0, 0.022, 2.3, 0.022, iv);
+      part(CYL, metal, 0, 2.28, 0, 0.015, 0.4, 0.015, iv).rotation.z = Math.PI / 2;
+      const bag = part(CAPS, mat('#e8f4ff', 0.15, { transparent: true, opacity: 0.75 }), 0.15, 1.95, 0, 0.1, 0.08, 0.04, iv);
+      part(BOX, mat('#f2a33a', 0.6), 0.15, 1.95, 0.045, 0.1, 0.06, 0.005, iv);
+      part(CYL, mat('#dfe8f0', 0.2, { transparent: true, opacity: 0.6 }), 0.15, 1.45, 0, 0.008, 0.8, 0.008, iv);
+      scene.add(shade(iv)); bag.castShadow = false;
+    }
+    // 心拍モニター: 緑の線が流れる
+    const ecg = document.createElement('canvas'); ecg.width = 256; ecg.height = 128;
+    const ecgTex = new THREE.CanvasTexture(ecg); ecgTex.colorSpace = THREE.SRGBColorSpace;
+    {
+      const mon = new THREE.Group(); mon.position.set(1.95, 0, -1.55);
+      const metal = mat('#c9ced6', 0.3, { metalness: 0.7 });
+      part(CYL, metal, 0, 0.7, 0, 0.03, 1.4, 0.03, mon);
+      part(CYL, mat('#555', 0.5), 0, 0.03, 0, 0.25, 0.06, 0.25, mon);
+      part(BOX, mat('#3a3f4a', 0.45), 0, 1.6, 0, 0.66, 0.5, 0.22, mon).rotation.y = -0.35;
+      const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.38), new THREE.MeshBasicMaterial({ map: ecgTex }));
+      scr.position.set(-0.04, 1.6, 0.115); scr.rotation.y = -0.35; scr.position.x += 0.0; mon.add(scr);
+      scene.add(shade(mon));
+    }
+    let ecgT = 0;
+    function drawEcg(dt) {
+      ecgT += dt;
+      const c = ecg.getContext('2d'), w = 256, h = 128;
+      c.fillStyle = '#04140c'; c.fillRect(0, 0, w, h);
+      c.strokeStyle = 'rgba(80,255,150,.12)'; c.lineWidth = 1;
+      for (let x = 0; x < w; x += 16) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke(); }
+      c.strokeStyle = '#5cff9a'; c.lineWidth = 3; c.beginPath();
+      for (let x = 0; x < w; x += 2) {
+        const p = ((x / w) * 2.2 - ecgT * 1.3) % 1, q = p < 0 ? p + 1 : p;
+        const y = q > 0.45 && q < 0.5 ? -40 * Math.sin((q - 0.45) / 0.05 * Math.PI) : q > 0.5 && q < 0.54 ? 18 * Math.sin((q - 0.5) / 0.04 * Math.PI) : q > 0.7 && q < 0.82 ? -8 * Math.sin((q - 0.7) / 0.12 * Math.PI) : 0;
+        x ? c.lineTo(x, h * 0.6 + y) : c.moveTo(x, h * 0.6 + y);
+      }
+      c.stroke();
+      ecgTex.needsUpdate = true;
+    }
+    // そばの棚と花
+    {
+      const sh = new THREE.Group(); sh.position.set(-2.0, 0, -0.3);
+      part(BOX, mat('#d9c09a', 0.7), 0, 0.4, 0, 0.6, 0.8, 0.5, sh);
+      part(BOX, mat('#c4a77c', 0.7), 0, 0.5, 0.255, 0.5, 0.25, 0.01, sh);
+      part(CYL, mat('#9fd6e8', 0.1, { transparent: true, opacity: 0.8 }), 0, 0.92, 0, 0.08, 0.24, 0.08, sh);
+      const stem = mat('#4f9a35');
+      for (let k = 0; k < 5; k++) {
+        const a = k * 1.25, x = Math.cos(a) * 0.08, z = Math.sin(a) * 0.08;
+        part(CYL, stem, x * 0.6, 1.1, z * 0.6, 0.008, 0.36, 0.008, sh).rotation.set(z * 2, 0, -x * 2);
+        const fc = mat(pick(['#ff8ab0', '#ffd23a', '#ffffff', '#ff6a4a', '#c08aff']), 0.6);
+        for (let p = 0; p < 5; p++) part(SPH, fc, x * 1.6 + Math.cos(p * 1.26) * 0.035, 1.29, z * 1.6 + Math.sin(p * 1.26) * 0.035, 0.03, 0.018, 0.03, sh);
+        part(SPH, mat('#ffcf3a'), x * 1.6, 1.3, z * 1.6, 0.02, 0.02, 0.02, sh);
+      }
+      scene.add(shade(sh));
+    }
+
+    // ---------- 赤ちゃん ----------
+    const SKINM = ['#ffd9c4', '#f6c39e', '#e2a77e', '#b87a52', '#8a5636'].map(c => mat(c, 0.55));
+    const CLOTHM = ['#bfe0ff', '#ffc9dc', '#fff0a8', '#c9f2d8', '#ffffff', '#e2d0ff', '#ffd8b0'].map(c => mat(c, 0.95));
+    const HAIRM = ['#2a1c12', '#5a3a1e', '#c9a060', '#1a1410'].map(c => mat(c, 0.8));
+    const BLACK = new THREE.MeshStandardMaterial({ color: '#141018', roughness: 0.2 });
+    const SHINE = new THREE.MeshBasicMaterial({ color: '#fff' });
+    const PINK = mat('#f29aa8', 0.6), MOUTH = mat('#9a2a3a', 0.5);
+    const ARC = new THREE.TorusGeometry(1, 0.22, 6, 14, Math.PI);
+    const SHARED = new Set([BLACK, SHINE, PINK, MOUTH, ...SKINM, ...CLOTHM, ...HAIRM]);
+
+    function makeHead(skin) {
+      const head = new THREE.Group();
+      part(SPH, skin, 0, 0, 0, 0.12, 0.115, 0.11, head);
+      for (const s of [-1, 1]) part(SPH, skin, s * 0.115, -0.005, -0.005, 0.022, 0.034, 0.02, head);
+      const sleep = Math.random() < 0.35;
+      for (const s of [-1, 1]) {
+        if (sleep) { const e = part(ARC, BLACK, s * 0.045, 0.012, 0.1, 0.02, 0.02, 0.02, head); e.rotation.z = Math.PI; }
+        else { const e = part(SPH, BLACK, s * 0.045, 0.01, 0.097, 0.018, 0.022, 0.01, head); part(SPH, SHINE, 0.35, 0.35, 0.7, 0.35, 0.3, 0.3, e); }
+        part(SPH, PINK, s * 0.072, -0.035, 0.085, 0.024, 0.014, 0.01, head);
+      }
+      part(SPH, skin, 0, -0.012, 0.11, 0.016, 0.013, 0.012, head);
+      const mouth = part(SPH, MOUTH, 0, -0.055, 0.1, 0.02, 0.008, 0.01, head);
+      if (Math.random() < 0.3) { // ニット帽
+        const hat = pick(CLOTHM);
+        part(HALF, hat, 0, 0.015, -0.005, 0.127, 0.13, 0.12, head);
+        part(SPH, hat, 0, 0.15, -0.01, 0.034, 0.034, 0.034, head);
+      } else {
+        const hm = pick(HAIRM);
+        part(SPH, hm, 0, 0.105, 0.0, 0.035, 0.022, 0.035, head);
+        const curl = part(ARC, hm, 0.012, 0.13, 0.02, 0.022, 0.022, 0.022, head); curl.rotation.y = Math.PI / 2;
+      }
+      return { head, mouth };
+    }
+    function makeBaby() {
+      const g = new THREE.Group();
+      const skin = pick(SKINM), cloth = pick(CLOTHM);
+      const pose = pick(['lie', 'lie', 'sit', 'crawl']);
+      const { head, mouth } = makeHead(skin);
+      const arms = [];
+      if (pose === 'lie') {
+        // おくるみに包まれて寝ている
+        part(CAPS, cloth, 0, 0.1, 0.05, 0.12, 0.1, 0.105, g).rotation.x = Math.PI / 2;
+        part(SPH, cloth, 0, 0.1, -0.15, 0.15, 0.12, 0.12, g);
+        head.position.set(0, 0.16, -0.15); head.rotation.x = -1.2; g.add(head);
+        for (const s of [-1, 1]) arms.push(part(SPH, skin, s * 0.06, 0.2, -0.03, 0.032, 0.03, 0.035, g));
+      } else if (pose === 'sit') {
+        part(CAPS, cloth, 0, 0.14, 0, 0.12, 0.06, 0.1, g);
+        for (const s of [-1, 1]) {
+          part(CAPS, cloth, s * 0.06, 0.045, 0.1, 0.045, 0.03, 0.045, g).rotation.x = Math.PI / 2;
+          part(SPH, skin, s * 0.06, 0.045, 0.18, 0.035, 0.035, 0.045, g);
+          const a = part(CAPS, cloth, s * 0.12, 0.17, 0.03, 0.035, 0.025, 0.035, g); a.rotation.z = s * 0.6;
+          arms.push(part(SPH, skin, s * 0.15, 0.11, 0.07, 0.03, 0.03, 0.03, g));
+        }
+        head.position.set(0, 0.33, 0.01); head.rotation.x = -0.35; g.add(head);
+      } else {
+        // はいはい
+        part(CAPS, cloth, 0, 0.14, 0, 0.11, 0.07, 0.1, g).rotation.x = Math.PI / 2;
+        part(SPH, cloth, 0, 0.16, -0.11, 0.11, 0.1, 0.1, g);
+        for (const s of [-1, 1]) for (const z of [-0.08, 0.08]) {
+          part(CAPS, z > 0 ? skin : cloth, s * 0.075, 0.055, z, 0.035, 0.025, 0.035, g);
+          if (z > 0) arms.push(part(SPH, skin, s * 0.075, 0.025, z + 0.01, 0.034, 0.025, 0.04, g));
+        }
+        head.position.set(0, 0.22, 0.16); head.rotation.x = -0.5; g.add(head);
+      }
+      const s = rnd(1.3, 1.45); g.scale.setScalar(s);
+      g.rotation.y = rnd(-Math.PI, Math.PI);
+      return { g, head, mouth, arms, ph: rnd(0, 6), sp: rnd(5, 8), headRx: head.rotation.x };
+    }
+    const nursery = new THREE.Group(); scene.add(nursery);
+    let babies = [];
+    function clearBabies() {
+      for (const b of babies) { nursery.remove(b.g); }
+      babies = [];
+    }
+    // 赤ちゃんを布団の上に重ならないように並べる
+    function placeBabies(n) {
+      clearBabies();
+      const pts = [];
+      for (let dmin = 0.6; pts.length < n && dmin > 0.3; dmin -= 0.02) {
+        pts.length = 0;
+        for (let tries = 0; tries < 600 && pts.length < n; tries++) {
+          const x = rnd(-1.02, 1.02), z = rnd(-0.85, 1.5);
+          if (pts.every(p => Math.hypot(p.x - x, p.z - z) >= dmin)) pts.push({ x, z });
+        }
+      }
+      for (const p of pts) {
+        const b = makeBaby();
+        b.g.position.set(p.x, surfY(p.x, p.z) - 0.01, p.z);
+        nursery.add(shade(b.g));
+        babies.push(b);
+      }
+      count = pts.length;
+    }
+
+    // 時間で消える小さな粒（紙吹雪・汗）
+    const fx = [], CONF = new THREE.PlaneGeometry(0.05, 0.032), DROP = new THREE.SphereGeometry(1, 12, 10);
+    function confetti() {
+      for (let k = 0; k < 46; k++) {
+        const m = new THREE.Mesh(CONF, new THREE.MeshBasicMaterial({ color: pick(['#ff8ab0', '#ffd23a', '#8fd0ff', '#9af0b8', '#ffffff', '#c9a0ff']), side: THREE.DoubleSide, transparent: true }));
+        m.position.set(rnd(-1, 1), rnd(1.6, 2.4), rnd(-0.8, 1.3));
+        m.rotation.set(rnd(0, 6), rnd(0, 6), 0);
+        scene.add(m);
+        fx.push({ m, v: new THREE.Vector3(rnd(-0.4, 0.4), rnd(0.2, 1.2), rnd(-0.4, 0.4)), spin: new THREE.Vector3(rnd(-8, 8), rnd(-8, 8), 0), t: 0, life: rnd(1.4, 2), grav: 2.2, drag: 1.6 });
+      }
+    }
+    function sweat() {
+      for (let k = 0; k < 3; k++) {
+        const m = new THREE.Mesh(DROP, new THREE.MeshBasicMaterial({ color: '#8fd0ff', transparent: true }));
+        m.position.copy(CAT_POS).add(new THREE.Vector3(0.38 + k * 0.05, 0.25 - k * 0.05, 0.1)); m.scale.set(0.035, 0.05, 0.035);
+        scene.add(m);
+        fx.push({ m, v: new THREE.Vector3(rnd(0.3, 0.7), rnd(0.8, 1.4), 0.2), spin: new THREE.Vector3(), t: -k * 0.12, life: 0.9, grav: 4, drag: 0 });
+      }
+    }
+    function stepFx(dt) {
+      for (let k = fx.length - 1; k >= 0; k--) {
+        const f = fx[k]; f.t += dt; if (f.t < 0) { f.m.visible = false; continue; } f.m.visible = true;
+        f.v.y -= f.grav * dt; f.v.multiplyScalar(1 - f.drag * dt);
+        f.m.position.addScaledVector(f.v, dt);
+        f.m.rotation.x += f.spin.x * dt; f.m.rotation.y += f.spin.y * dt;
+        const q = f.t / f.life; f.m.material.opacity = Math.min(1, (1 - q) * 3);
+        if (q >= 1) { scene.remove(f.m); f.m.material.dispose(); fx.splice(k, 1); }
+      }
+    }
+
+    // ---------- 画面サイズ ----------
+    const CENTER = new THREE.Vector3(0, 0.75, -0.05);
+    const fitCam = new THREE.PerspectiveCamera(38, 1, 0.1, 200);
+    const FIT = []; for (const x of [-1.4, 1.4]) for (const y of [0.25, 1.5]) for (const z of [-1.75, 1.95]) FIT.push(new THREE.Vector3(x, y, z));
+    const DIR = new THREE.Vector3(0, 1.15, 1).normalize();
+    strobe.position.copy(CENTER).addScaledVector(DIR, 9).add(new THREE.Vector3(0.6, 0.8, 0)); strobe.target.position.copy(CENTER);
+    const controls = document.getElementById('controls'), resultEl = document.getElementById('result'), gaugeEl = document.getElementById('gauge'), flashEl = document.getElementById('flash');
+    const sideMQ = matchMedia('(max-height: 520px) and (min-aspect-ratio: 4/3)');
+    function resize() {
+      const W = stage.clientWidth, H = stage.clientHeight;
+      renderer.setSize(W, H, false);
+      const vmin = Math.min(innerWidth, innerHeight);
+      const bh = Math.round(Math.min(64, Math.max(48, 0.075 * vmin)));
+      const side = sideMQ.matches;
+      const cols = side ? 3 : innerWidth >= 560 ? 9 : 5, rows = cols === 9 ? 1 : 2;
+      const sw = 3 * bh + 12;
+      controls.style.setProperty('--bh', bh + 'px'); controls.style.setProperty('--cols', cols); controls.style.setProperty('--sw', sw + 'px');
+      // 下の空白と答えボタンの所には大事な物を置かない（描画は下まで）
+      const gridH = side ? 0 : 8 + rows * bh + (rows - 1) * 6 + 4;
+      const reserve = Math.max(0, stage.getBoundingClientRect().bottom - controls.getBoundingClientRect().bottom) + gridH + 6;
+      const top = Math.min(48, Math.max(30, gaugeEl.offsetHeight + 10));
+      let rx = 0, ry = top, rw = side ? W - sw - 24 : W, rh = Math.max(110, H - reserve - top);
+      if (state === 'result') {
+        if (side) { const tw = Math.round(rw * 0.4); Object.assign(resultEl.style, { left: '0px', top: '0px', width: tw + 'px', height: (H - reserve) + 'px' }); rx = tw; rw -= tw; }
+        else { const band = Math.max(70, Math.round(rh * 0.26)); Object.assign(resultEl.style, { left: '0px', top: ry + 'px', width: W + 'px', height: band + 'px' }); ry += band; rh -= band; }
+      }
+      // 縦長では、余った高さを主に上（壁と窓）に回す
+      if (rw / rh < 0.85) { const nh = rw / 0.85; ry += (rh - nh) * 0.65; rh = nh; }
+      camera.aspect = rw / rh;
+      camera.setViewOffset(rw, rh, -rx, -ry, W, H);
+      // 分娩台と猫が枠いっぱいに入る距離を探す
+      fitCam.aspect = camera.aspect; fitCam.updateProjectionMatrix();
+      let lo = 2, hi = 40;
+      for (let k = 0; k < 22; k++) {
+        const d = (lo + hi) / 2;
+        fitCam.position.copy(CENTER).addScaledVector(DIR, d); fitCam.lookAt(CENTER); fitCam.updateMatrixWorld();
+        let m = 0;
+        for (const c of FIT) { const v = c.clone().project(fitCam); m = Math.max(m, Math.abs(v.x), Math.abs(v.y)); }
+        if (m > 0.94) lo = d; else hi = d;
+      }
+      const d = hi;
+      camera.position.copy(CENTER).addScaledVector(DIR, d);
+      camera.lookAt(CENTER);
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld();
+    }
+    addEventListener('resize', resize);
+
+    // ---------- ゲーム ----------
+    // ready: 暗い部屋で待つ / charge: 充電音 / flash: 一瞬見える / answer: 人数を選ぶ / reveal: 明かりがつく / dim: 次へ / result
+    let regen = false, state = 'ready', timer = 0, count = 0, flashD = 0.6, streak = 0, lit = 0, litTarget = 0, strobeV = 0, correct = false, catKick = 0, catJoy = 0, needSnap = false, shownFlash = -1;
+    const difficulty = () => {
+      const maxN = Math.min(9, 2 + streak), minN = Math.max(1, maxN - 3);
+      return { n: Math.floor(rnd(minN, maxN + 1)), d: Math.max(0.15, 0.6 - streak * 0.045) };
+    };
+    function newRound() { const { n, d } = difficulty(); placeBabies(n); flashD = d; }
+    function shoot() { if (state !== 'ready') return; state = 'charge'; timer = 0; sCharge(); renderControls(); }
+    function answer(n) {
+      if (state !== 'answer') return;
+      sTap();
+      correct = n === count;
+      state = 'reveal'; timer = 0; litTarget = 1; sLight();
+      if (correct) {
+        streak++; addGauge(); confetti(); catJoy = 0.0001;
+        setTimeout(sRelief, 150); cries(count);
+      } else {
+        catKick = 0.0001; sweat(); setTimeout(sEh, 120); setTimeout(() => cries(count), 700);
+      }
+      renderControls();
+    }
+    const STEP = 1 / 60;
+    function step(dt) {
+      timer += dt;
+      lit += (litTarget - lit) * Math.min(1, dt * 9);
+      if (state === 'charge' && timer >= 0.62) { state = 'flash'; timer = 0; strobeV = 1; sShutter(); }
+      else if (state === 'flash') {
+        if (timer >= flashD) { state = 'answer'; timer = 0; strobeV = 0.35; renderControls(); }
+      } else if (state === 'reveal') {
+        if (timer >= (correct ? 1.9 : 2.2)) { if (correct) { state = 'dim'; timer = 0; litTarget = 0; regen = false; } else finish(); }
+      } else if (state === 'dim') {
+        if (timer >= 0.45 && !regen) { newRound(); regen = true; }
+        if (timer >= 0.85) { state = 'charge'; timer = 0; sCharge(); }
+      }
+      if (state !== 'flash') strobeV = Math.max(0, strobeV - dt * 6);
+      if (catKick) catKick += dt; if (catKick > 0.8) catKick = 0;
+      if (catJoy) catJoy += dt; if (catJoy > 1.2) catJoy = 0;
+      stepFx(dt);
+    }
+
+    // ---------- 画面 ----------
+    const BABY_SVG = '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="10" fill="#ffd9c4" stroke="#8a3a52" stroke-width="1.5"/><path d="M12 3c2 0 3 1.5 1.5 2.5" fill="none" stroke="#5a3a1e" stroke-width="1.6" stroke-linecap="round"/><circle cx="8.5" cy="12.5" r="1.3" fill="#2a1c12"/><circle cx="15.5" cy="12.5" r="1.3" fill="#2a1c12"/><ellipse cx="6.5" cy="15.5" rx="1.8" ry="1.1" fill="#f29aa8"/><ellipse cx="17.5" cy="15.5" rx="1.8" ry="1.1" fill="#f29aa8"/><path d="M10 17q2 1.6 4 0" fill="none" stroke="#9a2a3a" stroke-width="1.4" stroke-linecap="round"/></svg>';
+    function addGauge() { gaugeEl.insertAdjacentHTML('beforeend', BABY_SVG); resize(); }
+    const CAM_SVG = '<svg viewBox="0 0 32 24"><rect x="1.5" y="5" width="29" height="17.5" rx="3.5" fill="#3a2a1a"/><path d="M10 5l2.5-3.5h7L22 5z" fill="#3a2a1a"/><circle cx="16" cy="13.5" r="6" fill="#f6c94a" stroke="#fff3e2" stroke-width="1.6"/><circle cx="16" cy="13.5" r="3" fill="#3a2a1a"/><rect x="23.5" y="7.5" width="4.5" height="2.6" rx="1" fill="#fff3e2"/></svg>';
+    function renderControls() {
+      controls.innerHTML = '';
+      controls.className = '';
+      if (state === 'ready') {
+        const b = document.createElement('button'); b.className = 'cam'; b.setAttribute('aria-label', 'flash'); b.innerHTML = CAM_SVG;
+        b.addEventListener('click', shoot); controls.append(b);
+      } else if (state === 'answer') {
+        controls.className = 'answer';
+        for (let i = 1; i <= 9; i++) { const b = document.createElement('button'); b.className = 'num'; b.textContent = i; b.addEventListener('click', () => answer(i)); controls.append(b); }
+      } else if (state === 'result') {
+        const b = document.createElement('button');
+        b.className = 'go'; b.textContent = t('again');
+        b.addEventListener('click', start);
+        controls.append(b);
+        const a = document.createElement('a');
+        a.className = 'post'; a.textContent = t('post');
+        a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(streak))}&url=${encodeURIComponent(SHARE_URL)}`;
+        const coarse = matchMedia('(pointer: coarse)').matches;
+        if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
+        // スマホは画像ごと共有シートへ。PCは画像を保存してから投稿画面を開く
+        a.addEventListener('click', e => {
+          const text = t('share')(streak);
+          if (coarse && navigator.share) {
+            e.preventDefault();
+            const file = shareFile();
+            const data = file && navigator.canShare?.({ files: [file] }) ? { files: [file], text: `${text}\n${SHARE_URL}` } : { text: `${text}\n${SHARE_URL}` };
+            navigator.share(data).catch(() => {});
+            return;
+          }
+          const img = resultImage();
+          if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'flash-anzan.png'; d.click(); }
+        });
+        controls.append(a);
+      }
+    }
+    // 画面のどこをタップしてもフラッシュ
+    renderer.domElement.addEventListener('pointerdown', e => { e.preventDefault(); shoot(); }, { passive: false });
+    stage.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+    addEventListener('keydown', e => {
+      if (e.target instanceof HTMLSelectElement) return;
+      if (/^[1-9]$/.test(e.key)) answer(+e.key);
+      else if ((e.key === ' ' || e.key === 'Enter') && state === 'ready') { e.preventDefault(); shoot(); }
+    });
+
+    // 結果画像: 明かりのついた分娩台に回数を重ねる
+    let snap = null, shareCache = null;
+    function takeSnap() {
+      const src = renderer.domElement;
+      const f = new THREE.Vector3(0, 0.75, -0.25).project(camera);
+      const fx2 = (f.x + 1) / 2 * src.width, fy = (1 - f.y) / 2 * src.height;
+      const side = Math.min(src.width, src.height);
+      const sx = THREE.MathUtils.clamp(fx2 - side / 2, 0, src.width - side), sy = THREE.MathUtils.clamp(fy - side / 2, 0, src.height - side);
+      snap = document.createElement('canvas'); snap.width = snap.height = 1080;
+      snap.getContext('2d').drawImage(src, sx, sy, side, side, 0, 0, 1080, 1080);
+      shareCache = null;
+    }
+    function resultImage() {
+      if (!snap) return null;
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      g.drawImage(snap, 0, 0);
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.lineJoin = 'round';
+      const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
+      const text = (str, y, px, max) => {
+        g.font = font(px);
+        const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
+        g.lineWidth = px * .16; g.strokeStyle = '#8a3a52'; g.strokeText(str, 540, y); g.fillText(str, 540, y);
+      };
+      text(t('count')(streak), 960, 170, 960);
+      text(t('title'), 100, 60, 900);
+      return c;
+    }
+    function prepareShare() {
+      if (!snap) return;
+      const key = lang;
+      if (shareCache?.key === key) return;
+      shareCache = { key, file: null };
+      resultImage().toBlob(b => { if (b && shareCache?.key === key) shareCache.file = new File([b], 'flash-anzan.png', { type: 'image/png' }); }, 'image/png');
+    }
+    const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
+    function showResult() { resultEl.children[0].textContent = t('count')(streak); }
+    function start() {
+      state = 'ready'; timer = 0; streak = 0; litTarget = 0; lit = 0; strobeV = 0;
+      gaugeEl.innerHTML = '';
+      resultEl.style.display = 'none'; gaugeEl.style.display = 'flex';
+      newRound();
+      renderControls(); resize();
+    }
+    function finish() {
+      state = 'result';
+      showResult();
+      resultEl.style.display = 'flex'; gaugeEl.style.display = 'none';
+      snap = null; needSnap = true;
+      renderControls(); resize();
+    }
+
+    // ---------- ループ ----------
+    let last = performance.now(), acc = 0, clock = 0, ecgAcc = 0;
+    function render() {
+      // 光の強さ
+      const L = lit, S = strobeV;
+      lamp.intensity = 2.4 * L;
+      hemi.intensity = 0.06 + 0.85 * L + 0.7 * S;
+      strobe.intensity = 5.5 * S;
+      moon.intensity = 0.45 * (1 - L * 0.6);
+      catMat.color.setScalar(0.22 + 0.78 * Math.min(1, Math.max(L, S)));
+      // 赤ちゃんはフラッシュの間と明かりがついた時だけ見える
+      nursery.visible = state === 'flash' || ((state === 'reveal' || state === 'dim' || state === 'result') && L > 0.12);
+      if (state === 'dim' && L <= 0.12) nursery.visible = false;
+      // 白い閃光（最初の一瞬だけ）
+      const fo = state === 'flash' ? Math.max(0, 0.75 - timer * 14) : 0;
+      const fr = Math.round(fo * 50) / 50;
+      if (fr !== shownFlash) { shownFlash = fr; flashEl.style.opacity = fr; }
+      // 泣いている赤ちゃん（写真の瞬間は止まっている）
+      const cry = state === 'reveal' || state === 'result' || state === 'dim';
+      for (const b of babies) {
+        const w = cry ? Math.sin(clock * b.sp + b.ph) : 0;
+        b.mouth.scale.set(cry ? 0.026 : 0.02, cry ? 0.016 + 0.012 * Math.abs(w) : 0.008, 0.012);
+        b.head.rotation.x = b.headRx + (cry ? 0.08 * w : 0);
+        for (const [i, a] of b.arms.entries()) { a.userData.y ??= a.position.y; a.position.y = a.userData.y + (cry ? Math.sin(clock * 14 + b.ph + i * 2) * 0.012 : 0); }
+      }
+      // お母さん: 喜ぶと弾み、外れると震える
+      cat.position.copy(CAT_POS);
+      let cs = 0.95;
+      if (catJoy) { cat.position.y += Math.abs(Math.sin(catJoy * 10)) * 0.06 * (1 - catJoy / 1.2); }
+      if (catKick) { cs *= 1 + 0.18 * Math.exp(-catKick * 6); cat.position.x += Math.sin(catKick * 70) * 0.03 * (1 - catKick / 0.8); }
+      if (state === 'result' && !correct) cs *= 1.06;
+      cat.scale.set(cs, cs, 1);
+      renderer.render(scene, camera);
+      if (needSnap && lit > 0.97) { needSnap = false; takeSnap(); prepareShare(); }
+    }
+    function loop(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      acc += dt; clock += dt; ecgAcc += dt;
+      while (acc >= STEP) { step(STEP); acc -= STEP; }
+      if (ecgAcc > 0.05) { drawEcg(ecgAcc); ecgAcc = 0; }
+      render();
+      requestAnimationFrame(loop);
+    }
+
+    // 最初の1回が重くならないように、9人の赤ちゃんと全部の光で一度描いておく
+    placeBabies(9);
+    drawEcg(0);
+    resize();
+    lamp.intensity = 1; strobe.intensity = 1; nursery.visible = true;
+    renderer.compile(scene, camera); renderer.render(scene, camera);
+    start();
+    applyLang();
+    requestAnimationFrame(t0 => { last = t0; loop(t0); });
+  </script>
+</body>
+</html>
