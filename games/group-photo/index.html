@@ -48,11 +48,8 @@
     #finder b { position: absolute; right: 5%; top: 6%; width: 12px; height: 12px; border-radius: 50%; background: #ff3b30; box-shadow: 0 0 6px rgba(255,59,48,.8); animation: rec 1s steps(2) infinite; }
     @keyframes rec { 50% { opacity: .15; } }
     #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
-    #pile { position: absolute; left: 12px; top: 8px; width: 80px; height: 70px; pointer-events: none; }
-    #pile canvas { position: absolute; left: 0; top: 0; width: 56px; background: #fff; padding: 3px 3px 8px; box-shadow: 0 2px 5px rgba(0,0,0,.3); }
     .print { position: absolute; background: #fbfaf6; box-shadow: 0 8px 24px rgba(0,0,0,.35); display: none; pointer-events: none; }
     .print canvas { display: block; width: 100%; }
-    .print.fly { transition: left .45s cubic-bezier(.5,0,.7,1), top .45s cubic-bezier(.5,0,.7,1), width .45s cubic-bezier(.5,0,.7,1), padding .45s, transform .45s; }
     .print.move { transition: left .5s ease, top .5s ease, width .5s ease, padding .5s, transform .5s; }
     .print.develop canvas { animation: develop .7s ease-out; }
     .print.pop { animation: pop .25s ease-out; }
@@ -81,7 +78,6 @@
   </header>
   <div id="stage">
     <div id="finder"><i></i><i></i><i></i><i></i><b></b></div>
-    <div id="pile"></div>
     <div class="print" id="print"><canvas></canvas></div>
     <div id="count"></div>
     <div id="flash"></div>
@@ -108,10 +104,10 @@
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
-      ja: { title: '集合写真', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', count: n => `${n}人`, share: n => `${n}人の集合写真を、だれも目をつぶらずに撮れた #集合写真ゲーム` },
-      ko: { title: '단체 사진', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', count: n => `${n}명`, share: n => `${n}명 단체 사진을 아무도 눈 감지 않게 찍었다 #集合写真ゲーム` },
-      en: { title: 'Group Photo', back: '← Back to top', again: 'Play again', post: 'Post on X', count: n => `${n} ${n === 1 ? 'person' : 'people'}`, share: n => `Took a ${n}-person group photo with nobody blinking #集合写真ゲーム` },
-      th: { title: 'ถ่ายรูปหมู่', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', count: n => `${n} คน`, share: n => `ถ่ายรูปหมู่ ${n} คนได้โดยไม่มีใครหลับตา #集合写真ゲーム` },
+      ja: { title: '集合写真', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', count: (o, n) => `${n}人中 ${o}人`, share: (o, n) => `${n}人中${o}人が目を開けている集合写真が撮れた #集合写真ゲーム` },
+      ko: { title: '단체 사진', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', count: (o, n) => `${n}명 중 ${o}명`, share: (o, n) => `${n}명 중 ${o}명이 눈을 뜬 단체 사진을 찍었다 #集合写真ゲーム` },
+      en: { title: 'Group Photo', back: '← Back to top', again: 'Play again', post: 'Post on X', count: (o, n) => `${o} of ${n}`, share: (o, n) => `Took a group photo with ${o} of ${n} people's eyes open #集合写真ゲーム` },
+      th: { title: 'ถ่ายรูปหมู่', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', count: (o, n) => `${o} จาก ${n} คน`, share: (o, n) => `ถ่ายรูปหมู่ได้ ลืมตา ${o} จาก ${n} คน #集合写真ゲーム` },
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -480,7 +476,7 @@
 
     // ---------- 並び ----------
     let persons = [];
-    const MAX = 15, START = 7;
+    const START = 7;
     function layoutSlots(n) {
       const R = n <= 5 ? 1 : n <= 10 ? 2 : 3;
       const base = Math.floor(n / R), extra = n % R;
@@ -599,9 +595,9 @@
     stage.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 
     // ---------- ゲーム ----------
-    let state = 'play', armed = false, roundT = 0, shotT = 0, shotOk = false, closedOnes = [], score = 0, flown = false;
+    let state = 'play', roundT = 0, shotT = 0, shotOk = false, closedOnes = [], score = 0, total = 0, flown = false;
     const print = document.getElementById('print'), printCv = print.querySelector('canvas');
-    const pile = document.getElementById('pile'), flash = document.getElementById('flash'), countEl = document.getElementById('count');
+    const flash = document.getElementById('flash'), countEl = document.getElementById('count');
     let photo = null, printTilt = 0;
 
     function pickKind(n) {
@@ -618,8 +614,7 @@
       for (let n = 2; n <= START; n++) addPerson(makeHuman(pickKind(n)), false); // 最初から7人
       arrange(true);
       for (const p of persons) p.prevPos.copy(p.pos);
-      state = 'play'; armed = false; roundT = 0; score = 0;
-      pile.innerHTML = '';
+      state = 'play'; roundT = 0; score = 0;
       print.style.display = 'none'; countEl.style.display = 'none';
       finder.style.display = '';
       renderControls(); resize();
@@ -649,7 +644,6 @@
     }
 
     function doShot() {
-      armed = true;
       sShutter();
       render(1); // 写真に写る瞬間を描き、その状態で判定する
       // ファインダーに目が写っている人だけを判定する
@@ -675,7 +669,7 @@
       void print.offsetWidth;
       print.className = 'print develop pop';
       state = 'shot'; shotT = 0; flown = false;
-      if (shotOk) score = persons.length;
+      total = persons.length; score = total - closedOnes.length; // 目を開けていた人数
       // フラッシュにつられて、みんな少しあとでまばたき
       for (const p of persons) if (p.bt < 0 && (shotOk || !closedOnes.includes(p))) p.next = rnd(0.12, 0.4);
     }
@@ -683,30 +677,8 @@
       const pad = w * 0.04;
       Object.assign(print.style, { left: x + 'px', top: y + 'px', width: w + 'px', padding: `${pad}px ${pad}px ${pad * 3}px`, transform: `rotate(${tilt}deg)` });
     }
-    function flyToPile() {
-      const n = pile.children.length;
-      print.className = 'print fly';
-      placePrint(12 + Math.min(n, 8) * 3, 8 + Math.min(n, 8) * 2, 56, rnd(-10, 10));
-      setTimeout(() => {
-        if (state === 'result') return;
-        const c = document.createElement('canvas'); c.width = 160; c.height = Math.round(160 * photo.height / photo.width);
-        c.getContext('2d').drawImage(printCv, 0, 0, c.width, c.height);
-        c.style.transform = print.style.transform;
-        c.style.left = Math.min(n, 8) * 3 + 'px'; c.style.top = Math.min(n, 8) * 2 + 'px';
-        pile.append(c);
-        if (print.classList.contains('fly')) print.style.display = 'none';
-      }, 460);
-    }
-    function join() {
-      if (persons.length >= MAX) return;
-      const p = makeHuman(pickKind(persons.length + 1));
-      addPerson(p, true);
-      arrange(false);
-      sPop();
-    }
-
     function stepGame(dt) {
-      if (state === 'play' && armed) roundT += dt;
+      if (state === 'play') roundT += dt;
       const fat = 1 + Math.min(2, roundT * 0.09); // 待つほど疲れてまばたきが増える
       for (const p of persons) {
         stepEyes(p, dt, state === 'play' ? fat : 1);
@@ -727,8 +699,7 @@
         shotT += dt;
         if (shotOk) {
           if (shotT > 0.25 && !flown) { flown = true; sCheer(); }
-          if (shotT > 0.95 && print.classList.contains('develop')) { flyToPile(); join(); }
-          if (shotT > 1.05) { state = 'play'; roundT = 0; }
+          if (shotT > 1.5) finish();
         } else {
           if (shotT > 0.3 && !flown) {
             flown = true;
@@ -755,12 +726,12 @@
       controls.append(b);
       const a = document.createElement('a');
       a.className = 'post'; a.textContent = t('post');
-      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(score))}&url=${encodeURIComponent(SHARE_URL)}`;
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(score, total))}&url=${encodeURIComponent(SHARE_URL)}`;
       const coarse = matchMedia('(pointer: coarse)').matches;
       if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
       // スマホは画像ごと共有シートへ。PCは画像を保存してから投稿画面を開く
       a.addEventListener('click', e => {
-        const text = t('share')(score);
+        const text = t('share')(score, total);
         if (coarse && navigator.share) {
           e.preventDefault();
           const file = shareFile();
@@ -773,7 +744,7 @@
       });
       controls.append(a);
     }
-    function showCount() { countEl.textContent = t('count')(score); }
+    function showCount() { countEl.textContent = t('count')(score, total); }
     function layoutResult() {
       // 写真を大きく、その下（背の低い横長では右）に人数
       const top = 8, bottom = btnReserve() + 8, aw = W - 24, ah = Math.max(100, H - top - bottom);
@@ -832,7 +803,7 @@
         const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
         g.lineWidth = px * .16; g.strokeStyle = '#6b3d1c'; g.strokeText(str, 540, y); g.fillText(str, 540, y);
       };
-      text(t('count')(score), 1030, 150, 960);
+      text(t('count')(score, total), 1030, 150, 960);
       text(t('title'), 80, 52, 900);
       return c;
     }
