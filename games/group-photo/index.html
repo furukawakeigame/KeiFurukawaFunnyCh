@@ -55,7 +55,6 @@
     .print.pop { animation: pop .25s ease-out; }
     @keyframes develop { from { filter: brightness(4) saturate(0); } to { filter: none; } }
     @keyframes pop { from { opacity: 0; scale: 1.15; } to { opacity: 1; scale: 1; } }
-    #count { position: absolute; display: none; align-items: center; justify-content: center; pointer-events: none; font-weight: 900; color: #fff; text-shadow: 0 4px 0 #6b3d1c, 0 0 18px rgba(0,0,0,.3); white-space: nowrap; }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
     /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
     #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; z-index: 4; }
@@ -79,7 +78,6 @@
   <div id="stage">
     <div id="finder"><i></i><i></i><i></i><i></i><b></b></div>
     <div class="print" id="print"><canvas></canvas></div>
-    <div id="count"></div>
     <div id="flash"></div>
     <div id="msg"></div>
   </div>
@@ -104,10 +102,10 @@
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
-      ja: { title: '集合写真', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', count: (o, n) => `${n}人中 ${o}人`, share: (o, n) => `${n}人中${o}人が目を開けている集合写真が撮れた #集合写真ゲーム` },
-      ko: { title: '단체 사진', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', count: (o, n) => `${n}명 중 ${o}명`, share: (o, n) => `${n}명 중 ${o}명이 눈을 뜬 단체 사진을 찍었다 #集合写真ゲーム` },
-      en: { title: 'Group Photo', back: '← Back to top', again: 'Play again', post: 'Post on X', count: (o, n) => `${o} of ${n}`, share: (o, n) => `Took a group photo with ${o} of ${n} people's eyes open #集合写真ゲーム` },
-      th: { title: 'ถ่ายรูปหมู่', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', count: (o, n) => `${o} จาก ${n} คน`, share: (o, n) => `ถ่ายรูปหมู่ได้ ลืมตา ${o} จาก ${n} คน #集合写真ゲーム` },
+      ja: { title: '集合写真', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', share: (o, n) => `${n}人中${o}人が目を開けている集合写真が撮れた #集合写真ゲーム` },
+      ko: { title: '단체 사진', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', share: (o, n) => `${n}명 중 ${o}명이 눈을 뜬 단체 사진을 찍었다 #集合写真ゲーム` },
+      en: { title: 'Group Photo', back: '← Back to top', again: 'Play again', post: 'Post on X', share: (o, n) => `Took a group photo with ${o} of ${n} people's eyes open #集合写真ゲーム` },
+      th: { title: 'ถ่ายรูปหมู่', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', share: (o, n) => `ถ่ายรูปหมู่ได้ ลืมตา ${o} จาก ${n} คน #集合写真ゲーム` },
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -119,7 +117,7 @@
       document.title = t('title');
       document.getElementById('back').textContent = t('back');
       renderControls();
-      if (state === 'result') { showCount(); shareCache = null; prepareShare(); }
+      if (state === 'result') { shareCache = null; prepareShare(); }
     }
 
     // ---------- 音 ----------
@@ -597,7 +595,7 @@
     // ---------- ゲーム ----------
     let state = 'play', roundT = 0, shotT = 0, shotOk = false, closedOnes = [], score = 0, total = 0, flown = false;
     const print = document.getElementById('print'), printCv = print.querySelector('canvas');
-    const flash = document.getElementById('flash'), countEl = document.getElementById('count');
+    const flash = document.getElementById('flash');
     let photo = null, printTilt = 0;
 
     function pickKind(n) {
@@ -615,7 +613,7 @@
       arrange(true);
       for (const p of persons) p.prevPos.copy(p.pos);
       state = 'play'; roundT = 0; score = 0;
-      print.style.display = 'none'; countEl.style.display = 'none';
+      print.style.display = 'none';
       finder.style.display = '';
       renderControls(); resize();
     }
@@ -742,27 +740,13 @@
       });
       controls.append(a);
     }
-    function showCount() { countEl.textContent = t('count')(score, total); }
     function layoutResult() {
-      // 写真を大きく、その下（背の低い横長では右）に人数
+      // 撮った写真を大きく真ん中に
       const top = 8, bottom = btnReserve() + 8, aw = W - 24, ah = Math.max(100, H - top - bottom);
       const a = photo.width / photo.height;
-      const fs = Math.round(THREE.MathUtils.clamp(Math.min(W, H) * 0.11, 40, 100));
-      countEl.style.fontSize = fs + 'px';
       const ratio = w => (w * 0.92) / a + w * 0.16; // プリントの高さ（余白込み）
-      const side = H <= 520 && W / H >= 4 / 3;
-      if (side) {
-        const w = Math.min(aw * 0.62, ah / ratio(1), 900), h = ratio(w);
-        const x = 12 + (aw * 0.66 - w) / 2;
-        placePrint(x, top + (ah - h) / 2, w, -2);
-        Object.assign(countEl.style, { left: (x + w + 12) + 'px', width: (W - x - w - 24) + 'px', top: top + 'px', height: ah + 'px' });
-      } else {
-        const ch = fs * 1.4;
-        const w = Math.min(aw * 0.92, (ah - ch) / ratio(1), 760), h = ratio(w);
-        const y = top + (ah - ch - h) / 2;
-        placePrint((W - w) / 2, y, w, -2);
-        Object.assign(countEl.style, { left: '0px', width: W + 'px', top: (y + h + 6) + 'px', height: ch + 'px' });
-      }
+      const w = Math.min(aw * 0.92, ah / ratio(1), 900), h = ratio(w);
+      placePrint((W - w) / 2, top + (ah - h) / 2, w, -2);
     }
     function finish() {
       state = 'result';
@@ -770,7 +754,6 @@
       print.className = 'print move';
       print.style.display = 'block';
       layoutResult();
-      showCount(); countEl.style.display = 'flex';
       renderControls();
       shareCache = null; prepareShare();
     }
@@ -786,9 +769,9 @@
       const s = Math.max(1080 / photo.width, 1080 / photo.height);
       g.globalAlpha = 0.35; g.drawImage(photo, (1080 - photo.width * s) / 2, (1080 - photo.height * s) / 2, photo.width * s, photo.height * s); g.globalAlpha = 1;
       const a = photo.width / photo.height;
-      let pw = 820, ph = pw / a; if (ph > 640) { ph = 640; pw = ph * a; }
+      let pw = 900, ph = pw / a; if (ph > 760) { ph = 760; pw = ph * a; }
       const pad = pw * 0.04;
-      g.save(); g.translate(540, 130 + (ph + pad * 4) / 2); g.rotate(-0.03);
+      g.save(); g.translate(540, 590); g.rotate(-0.03);
       g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 30; g.shadowOffsetY = 10;
       g.fillStyle = '#fbfaf6'; g.fillRect(-pw / 2 - pad, -(ph + pad * 4) / 2, pw + pad * 2, ph + pad * 4);
       g.shadowColor = 'transparent';
@@ -801,7 +784,6 @@
         const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
         g.lineWidth = px * .16; g.strokeStyle = '#6b3d1c'; g.strokeText(str, 540, y); g.fillText(str, 540, y);
       };
-      text(t('count')(score, total), 1030, 150, 960);
       text(t('title'), 80, 52, 900);
       return c;
     }
