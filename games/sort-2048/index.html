@@ -107,94 +107,24 @@
     const SHARE_URL = 'https://keifurukawafunnych.com/games/sort-2048/';
     const NT = 16, CAP = 4, GOAL = 11; // 試験管16本・1本に4個・2^11 = 2048
 
-    // ---------- 問題づくりと最短手数（Web Worker で計算） ----------
-    // 試験管は文字列で表す（下から上へ、1文字 = 2^n の n）
-    const SOLVER_SRC = `
-      const A0 = 96;
-      // 下限: (1) 空でない試験管は最後の1本以外ぜんぶ空にする必要があり、下の玉より大きい玉はいずれ外へ出す必要がある
-      //       (2) 1手で起きる合体は「各段に1回まで・連続した段」なので、段ごとに必要な合体回数の増え方の合計
-      function h(s) {
-        let ne = 0, asc = 0; const c = new Int32Array(13);
-        for (const t of s) { if (t.length) ne++; let p = 0; for (let i = 0; i < t.length; i++) { const e = t.charCodeAt(i) - A0; c[e]++; if (i && e > p) asc++; p = e; } }
-        let carry = 0, prev = 0, sum = 0;
-        for (let e = 1; e < 11; e++) { const m = (c[e] + carry) >> 1; if (m > prev) sum += m - prev; prev = m; carry = m; }
-        return Math.max(ne - 1 + asc, sum);
-      }
-      const key = s => s.slice().sort().join('/');
-      function apply(s, a, b) {
-        const A = s[a], B = s[b]; let x = A.charCodeAt(A.length - 1), nb = B;
-        while (nb.length && nb.charCodeAt(nb.length - 1) === x) { nb = nb.slice(0, -1); x++; }
-        const n = s.slice(); n[a] = A.slice(0, -1); n[b] = nb + String.fromCharCode(x); return n;
-      }
-      // A* 探索（試験管の並びは入れ替えても同じなので、並べ替えた形で同じ盤面をまとめる）
-      function solve(start, limit) {
-        const open = [], g = new Map(); g.set(key(start), 0);
-        const push = (f, it) => { (open[f] || (open[f] = [])).push(it); };
-        push(h(start), [start, 0]); let f = 0, exp = 0;
-        for (;;) {
-          while (f < open.length && !(open[f] && open[f].length)) f++;
-          if (f >= open.length) return -1;
-          const [s, gs] = open[f].pop();
-          let tiles = 0; for (const t of s) tiles += t.length;
-          if (tiles === 1) return gs;
-          if (g.get(key(s)) < gs) continue;
-          if (++exp > limit) return -2;
-          const ei = s.indexOf('');
-          for (let a = 0; a < s.length; a++) {
-            const A = s[a]; if (!A.length) continue; const top = A.charCodeAt(A.length - 1);
-            for (let b = 0; b < s.length; b++) {
-              if (b === a) continue; const B = s[b];
-              if (!B.length) { if (b !== ei || A.length === 1) continue; } else if (B.charCodeAt(B.length - 1) !== top) continue;
-              const n = apply(s, a, b), nk = key(n), ng = gs + 1, old = g.get(nk);
-              if (old !== undefined && old <= ng) continue;
-              g.set(nk, ng); push(ng + h(n), [n, ng]);
-            }
-          }
-        }
-      }
-      // 2048 をランダムに半分ずつ割って N 個の玉にし、空き E 本を残してばらばらに詰める（同じ数字は隣に置かない）
-      function gen(N, E, tubes, cap) {
-        for (;;) {
-          const tl = [11];
-          while (tl.length < N) { const cand = []; tl.forEach((e, i) => { if (e > 1) cand.push(i); }); const i = cand[Math.floor(Math.random() * cand.length)]; const e = tl[i]; tl.splice(i, 1, e - 1, e - 1); }
-          for (let i = tl.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [tl[i], tl[j]] = [tl[j], tl[i]]; }
-          const s = Array.from({ length: tubes }, () => []), use = tubes - E; let ok = true;
-          for (const e of tl) {
-            const best = [];
-            for (let i = 0; i < use; i++) { const t = s[i]; if (t.length < cap && !(t.length && t[t.length - 1] === e)) best.push(i); }
-            if (!best.length) { ok = false; break; }
-            s[best[Math.floor(Math.random() * best.length)]].push(e);
-          }
-          if (!ok) continue;
-          const r = s.map(t => t.map(e => String.fromCharCode(A0 + e)).join(''));
-          for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; }
-          return r;
-        }
-      }
-      function makePuzzle() {
-        for (;;) {
-          const s = gen(20 + Math.floor(Math.random() * 3), 2, ${NT}, ${CAP});
-          const opt = solve(s, 25000);
-          if (opt > 0) return { tubes: s.map(t => [...t].map(c => c.charCodeAt(0) - A0)), opt };
-        }
-      }
-    `;
-    let worker = null, makeSync = null;
-    const puzzleWaiters = [], puzzleReady = [];
-    try {
-      worker = new Worker(URL.createObjectURL(new Blob([SOLVER_SRC + 'onmessage = () => postMessage(makePuzzle());'], { type: 'text/javascript' })));
-      worker.onmessage = e => { const w = puzzleWaiters.shift(); if (w) w(e.data); else puzzleReady.push(e.data); };
-      worker.onerror = () => { worker = null; };
-    } catch { worker = null; }
+    // ---------- 問題集 ----------
+    // 玉 28〜36 個（合計 2048）を試験管に詰めた問題と、その最短手数。
+    // 最短手数は重いので事前に A* 探索で計算しておき（試験管の並びを入れ替えても同じ盤面として数える）、
+    // ここから毎回ランダムに選んで、試験管の並びもシャッフルする。
+    // 1問 = "最短手数:試験管1,試験管2,..."（下から上へ、1文字 = 2^n の n。a=2, b=4, … j=1024。空の試験管は空文字）
+    const PUZZLES = `/*PUZZLES*/`.trim().split(/\s+/);
     function requestPuzzle() {
-      return new Promise(res => {
-        if (puzzleReady.length) { res(puzzleReady.shift()); return; }
-        if (worker) { puzzleWaiters.push(res); worker.postMessage(0); return; }
-        makeSync ||= new Function(SOLVER_SRC + 'return makePuzzle;')();
-        setTimeout(() => res(makeSync()), 0);
-      });
+      // 最近出た問題は避ける
+      const recent = store.get('recent', []);
+      let idx;
+      for (let k = 0; k < 20; k++) { idx = Math.floor(Math.random() * PUZZLES.length); if (!recent.includes(idx)) break; }
+      store.set('recent', [idx, ...recent].slice(0, Math.min(50, PUZZLES.length >> 1)));
+      const [opt, body] = PUZZLES[idx].split(':');
+      const tubes = body.split(',').map(t => [...t].map(c => c.charCodeAt(0) - 96));
+      while (tubes.length < NT) tubes.push([]);
+      for (let i = tubes.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [tubes[i], tubes[j]] = [tubes[j], tubes[i]]; }
+      return Promise.resolve({ tubes, opt: +opt });
     }
-    function prefetch() { if (worker && !puzzleReady.length && !puzzleWaiters.length) { worker.postMessage(0); puzzleWaiters.push(p => puzzleReady.push(p)); } }
 
     // ---------- 言語 ----------
     const store = {
@@ -815,7 +745,6 @@
       state = 'play';
       updatePips(false);
       dropIn();
-      prefetch();
     }
     function startClear() {
       // 2048 の玉（猫の顔）が手前に飛び出してくる
