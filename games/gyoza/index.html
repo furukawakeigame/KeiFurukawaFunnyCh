@@ -45,6 +45,12 @@
       #result b { font-size: 44px; }
       #result span { font-size: 18px; }
     }
+    #catch { position: absolute; left: 0; right: 0; top: 48px; margin: 0; text-align: center; pointer-events: none; z-index: 1; padding: 0 8px;
+      font-size: clamp(24px, 6vmin, 52px); font-weight: 900; color: #fff; line-height: 1.2;
+      text-shadow: 0 3px 0 #7a1a10, 0 0 14px rgba(0,0,0,.4); }
+    #catch.hide { display: none; }
+    /* 背の低い横長では、ヘッダーと同じ高さに置いて円卓を大きく見せる */
+    @media (max-height: 520px) and (min-aspect-ratio: 4/3) { #catch { top: 8px; font-size: 26px; left: 140px; right: 140px; } }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; color: #fff; }
     /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
     #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; z-index: 2; }
@@ -59,7 +65,7 @@
   </style>
 </head>
 <body>
-  <div id="stage"><div id="result"><b></b><span></span></div><div id="msg"></div></div>
+  <div id="stage"><p id="catch"></p><div id="result"><b></b><span></span></div><div id="msg"></div></div>
   <header>
     <a id="back" href="../../">← トップへ戻る</a>
     <button id="sound" aria-label="sound"></button>
@@ -86,16 +92,16 @@
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
-      ja: { title: '餃子', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', win: '勝ち', lose: '負け',
+      ja: { title: '餃子', catch: '餃子にトドメを刺せ！', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', win: '勝ち', lose: '負け',
             ate: n => `食べた餃子 ${n}個`,
             share: (w, n) => w ? `餃子ゲームで最後の1個を食べた（${n}個）` : `餃子ゲームで最後の1個を取られた（${n}個）` },
-      ko: { title: '교자', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', win: '승리', lose: '패배',
+      ko: { title: '교자', catch: '교자에 마지막 일격을!', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', win: '승리', lose: '패배',
             ate: n => `먹은 교자 ${n}개`,
             share: (w, n) => w ? `교자 게임에서 마지막 1개를 먹었다 (${n}개)` : `교자 게임에서 마지막 1개를 빼앗겼다 (${n}개)` },
-      en: { title: 'Gyoza', back: '← Back to top', again: 'Play again', post: 'Post on X', win: 'You win', lose: 'You lose',
+      en: { title: 'Gyoza', catch: 'Finish off the gyoza!', back: '← Back to top', again: 'Play again', post: 'Post on X', win: 'You win', lose: 'You lose',
             ate: n => `Gyoza eaten: ${n}`,
             share: (w, n) => w ? `I ate the last gyoza in Gyoza Game (${n} eaten)` : `Someone else got the last gyoza in Gyoza Game (I ate ${n})` },
-      th: { title: 'เกี๊ยวซ่า', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', win: 'ชนะ', lose: 'แพ้',
+      th: { title: 'เกี๊ยวซ่า', catch: 'ปิดฉากเกี๊ยวซ่าชิ้นสุดท้าย!', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', win: 'ชนะ', lose: 'แพ้',
             ate: n => `กินเกี๊ยวซ่าไป ${n} ชิ้น`,
             share: (w, n) => w ? `กินเกี๊ยวซ่าชิ้นสุดท้ายได้ในเกมเกี๊ยวซ่า (กินไป ${n} ชิ้น)` : `โดนแย่งเกี๊ยวซ่าชิ้นสุดท้ายในเกมเกี๊ยวซ่า (กินไป ${n} ชิ้น)` },
     };
@@ -109,7 +115,9 @@
       document.documentElement.lang = lang;
       document.title = t('title');
       document.getElementById('back').textContent = t('back');
+      catchEl.textContent = t('catch');
       renderControls();
+      resize();
       if (state === 'result') { showResult(); prepareShare(); }
     }
 
@@ -521,12 +529,14 @@
     const CENTER = new THREE.Vector3(0, 0.15, 0.25);
     const camDef = { pos: new THREE.Vector3(), look: CENTER.clone() }, camWin = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
     let fitVf = 1, fitHf = 1;
-    const controls = document.getElementById('controls');
+    const controls = document.getElementById('controls'), catchEl = document.getElementById('catch');
     function resize() {
       const w = stage.clientWidth, H = stage.clientHeight;
       renderer.setSize(w, H, false);
       // 上はヘッダー、下はXの投稿文とボタンの所。その間の範囲に円卓を収める（描画は上下とも端まで）
-      const TOP = 48;
+      // 結果の時は上の言葉を消して結果の文字を出す
+      catchEl.classList.toggle('hide', state === 'result' || state === 'win');
+      const TOP = catchEl.classList.contains('hide') ? 48 : Math.max(48, catchEl.offsetTop + catchEl.offsetHeight + 4);
       const btnH = Math.min(72, Math.max(56, 0.08 * Math.min(innerWidth, innerHeight))) + 12;
       // プレイ中はボタンがないので、下の空白だけ空ける
       const reserve = Math.max(0, stage.getBoundingClientRect().bottom - controls.getBoundingClientRect().bottom) + (state === 'result' || state === 'win' ? btnH : 8);
