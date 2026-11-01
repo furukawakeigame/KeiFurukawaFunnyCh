@@ -62,16 +62,9 @@
       text-shadow: .09em 0 #fff, -.09em 0 #fff, 0 .09em #fff, 0 -.09em #fff, .065em .065em #fff, -.065em .065em #fff, .065em -.065em #fff, -.065em -.065em #fff, 0 .14em .1em rgba(0,0,0,.35); }
     #telop .a { color: #2563d9; }
     #telop .b { color: #1f9e3a; font-size: 1.22em; }
-    /* いつもの猫のワイプ（右下）と吹き出し */
-    #wipe { position: absolute; right: clamp(8px, 2vmin, 20px); bottom: calc(var(--gap, 80px) + 10px); width: clamp(72px, 17vmin, 150px); height: clamp(72px, 17vmin, 150px); pointer-events: none; z-index: 1;
-      border-radius: 18%; background: linear-gradient(160deg, #fff6c8, #ffd44d 45%, #f08a1c); box-shadow: 0 0 0 .2em #c0392b, 0 .3em .8em rgba(0,0,0,.5); transition: bottom .3s; }
-    #wipe img { position: absolute; inset: 6%; width: 88%; height: 88%; object-fit: cover; border-radius: 14%; background: radial-gradient(circle at 50% 40%, #bfe6ff, #5aa9e6); display: block; transform-origin: 50% 90%; }
-    #wipe.talk img { animation: talk .22s ease-in-out infinite alternate; }
-    #wipe.wow img { animation: wow .5s ease-out; }
-    @keyframes talk { from { transform: translateY(0) rotate(-3deg) scale(1); } to { transform: translateY(-4%) rotate(3deg) scale(1.04, .97); } }
-    @keyframes wow { 0% { transform: scale(1); } 30% { transform: translateY(-14%) scale(1.12); } 100% { transform: scale(1); } }
-    #wipe.up, #telop.up { bottom: calc(var(--reserve, 160px) + 10px); }
-    #bubble { position: absolute; right: clamp(8px, 2vmin, 20px); bottom: calc(var(--reserve, 160px) + 24px + clamp(72px, 17vmin, 150px)); max-width: min(78vw, 520px); display: none; pointer-events: none; z-index: 2;
+    /* 投げた本人（猫）の吹き出し。位置は猫の頭に合わせて JS で決める */
+    #telop.up { bottom: calc(var(--reserve, 160px) + 10px); }
+    #bubble { position: absolute; left: 0; top: 0; transform: translate(-88%, -100%); max-width: min(70vw, 520px); width: max-content; display: none; pointer-events: none; z-index: 2;
       background: #fff; color: #222; border-radius: 1em; padding: .5em .8em; font-size: clamp(16px, 3.8vmin, 30px); font-weight: 900; line-height: 1.3; box-shadow: 0 .2em .6em rgba(0,0,0,.45); }
     #bubble::after { content: ''; position: absolute; right: 1.6em; bottom: -.55em; border: .6em solid transparent; border-top-color: #fff; border-bottom: 0; }
     #bubble.show { display: block; animation: pop .25s ease-out; }
@@ -103,7 +96,6 @@
     <div id="hint"><svg viewBox="0 0 64 120"><g class="h"><path d="M32 6 L32 70" stroke="rgba(255,255,255,.85)" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 10"/><path d="M20 20 L32 6 L44 20" fill="none" stroke="rgba(255,255,255,.95)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><g transform="translate(18 66)"><path d="M10 2 a5 5 0 0 1 10 0 v18 l6 -3 a5 5 0 0 1 6 7 l-9 14 h-16 l-5 -16 v-10 a4 4 0 0 1 8 0z" fill="#fff" stroke="#5a3a1a" stroke-width="2.5" stroke-linejoin="round"/></g></g></svg></div>
     <div id="card"><small></small><b></b></div>
     <div id="telop"><span class="a"></span><span class="b"></span></div>
-    <div id="wipe"><img alt=""></div>
     <div id="bubble"></div>
     <div id="msg"></div>
   </div>
@@ -147,7 +139,8 @@
     const t = k => DICT[lang][k];
     const langSel = document.getElementById('lang');
     const telop = document.getElementById('telop');
-    const wipe = document.getElementById('wipe'), wipeImg = wipe.querySelector('img'), bubble = document.getElementById('bubble');
+    const bubble = document.getElementById('bubble');
+    let catTalk = false, catJump = 0;
     langSel.value = lang;
     langSel.addEventListener('change', () => { lang = langSel.value; store.set('lang', lang); applyLang(); });
     function applyLang() {
@@ -213,12 +206,12 @@
         const u = new SpeechSynthesisUtterance(text);
         u.lang = 'ja-JP'; u.pitch = 1.5; u.rate = 1.05; u.volume = 1;
         const v = jaVoice(); if (v) u.voice = v;
-        u.onstart = () => wipe.classList.add('talk');
-        u.onend = u.onerror = () => wipe.classList.remove('talk');
+        u.onstart = () => { catTalk = true; };
+        u.onend = u.onerror = () => { catTalk = false; };
         speechSynthesis.speak(u);
       } catch {}
     }
-    function hush() { try { speechSynthesis.cancel(); } catch {} wipe.classList.remove('talk'); }
+    function hush() { try { speechSynthesis.cancel(); } catch {} catTalk = false; }
     addEventListener('pointerdown', primeSpeech, { capture: true });
     addEventListener('pointerdown', initAudio, { capture: true });
     addEventListener('keydown', initAudio, { capture: true });
@@ -495,7 +488,35 @@
       flightTex.needsUpdate = true;
     }
     drawFlight();
-    wipeImg.src = catImg.src;
+    const catTex = new THREE.Texture(catImg); catTex.colorSpace = THREE.SRGBColorSpace;
+    catImg.onload = () => { catTex.needsUpdate = true; };
+    if (catImg.complete) catTex.needsUpdate = true;
+
+    // ---------- 投げる本人: いつもの猫（カメラの右下に立つ） ----------
+    const furTex = canvasTex(256, 256, (g, w, h) => {
+      // やわらかいキジトラ（まだら）
+      g.fillStyle = '#9a8670'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(${Math.random() < 0.6 ? '60,45,32' : '200,185,160'},${rnd(0.06, 0.16)})`; g.beginPath(); g.ellipse(rnd(0, w), rnd(0, h), rnd(6, 18), rnd(3, 8), rnd(0, 3), 0, Math.PI * 2); g.fill(); }
+      for (let i = 0; i < 6000; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '40,30,20' : '230,220,200'},${rnd(0.05, 0.15)})`; g.fillRect(rnd(0, w), rnd(0, h), 1, rnd(2, 5)); }
+    });
+    const furMat = new THREE.MeshStandardMaterial({ map: furTex, roughness: 0.95 });
+    const bellyMat = new THREE.MeshStandardMaterial({ color: '#f1ebe0', roughness: 0.9 });
+    const catFig = new THREE.Group(); scene.add(catFig);
+    const catHead = new THREE.Group(); catFig.add(catHead);
+    { const head = new THREE.Mesh(new THREE.SphereGeometry(0.075, 24, 16), furMat); head.scale.set(1, 0.7, 0.8); head.position.set(0, -0.02, -0.025); catHead.add(head);
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2), new THREE.MeshStandardMaterial({ map: catTex, transparent: true, roughness: 0.7, alphaTest: 0.05 }));
+      face.position.set(0, -0.005, 0.071); catHead.add(face); }
+    { const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.13, 6, 16), furMat); body.position.y = -0.2; body.scale.set(1.1, 1, 0.85); catFig.add(body);
+      const belly = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 12), bellyMat); belly.position.set(0, -0.19, 0.045); belly.scale.set(1, 1.5, 0.6); catFig.add(belly);
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.05, 16), furMat); neck.position.y = -0.085; catFig.add(neck);
+      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.018, 0.11, 4, 8), furMat); arm.position.set(0.085, -0.19, 0.02); arm.rotation.z = 0.25; catFig.add(arm);
+      const paw = new THREE.Mesh(new THREE.SphereGeometry(0.024, 12, 8), bellyMat); paw.position.set(0.1, -0.26, 0.03); catFig.add(paw); }
+    // 投げる腕（肩から手まで毎フレーム伸ばす）
+    const throwArmGeo = new THREE.CylinderGeometry(0.015, 0.015, 1, 10); throwArmGeo.translate(0, 0.5, 0);
+    const throwArm = new THREE.Mesh(throwArmGeo, furMat); scene.add(throwArm);
+    const throwPaw = new THREE.Mesh(new THREE.SphereGeometry(0.016, 12, 8), bellyMat); scene.add(throwPaw);
+    const SHOULDER = new THREE.Vector3(-0.08, -0.12, 0.02);
+    let swing = 1; // 投げたあとの腕の振り（0→1）
 
 
     // ---------- ダーツの矢（先端が原点、-Z を向く） ----------
@@ -550,7 +571,7 @@
     const G = 9.8;
 
     // ---------- 画面の大きさ ----------
-    let W = 1, H = 1, reserve = 160, gap = 80, holdPx = [0, 0];
+    let W = 1, H = 1, reserve = 160, gap = 80, holdPx = [0, 0], catPx = [0, 0];
     function layout() {
       W = stage.clientWidth; H = stage.clientHeight;
       renderer.setSize(W, H, false);
@@ -594,7 +615,9 @@
       camera.updateProjectionMatrix();
       camera.updateMatrixWorld();
       // 手に持つ矢の位置（画面の下の方）
-      holdPx = [s.side + rw / 2, s.band + rh + (s.hold || 0) * 0.3];
+      holdPx = [s.side + rw * 0.64, s.band + rh + (s.hold || 0) * 0.3];
+      // 猫の立ち位置（画面の右下、ボタンや下の空白の上）
+      catPx = [s.side + rw * 0.84, Math.min(H - gap, s.band + rh + (s.hold || 0)) - Math.min(rw, rh + (s.hold || 0)) * 0.2];
     }
     addEventListener('resize', layout);
 
@@ -626,6 +649,44 @@
         hint.style.display = held.userData.grab ? 'none' : 'block';
         hint.style.left = ((v.x + 1) / 2 * W) + 'px';
         hint.style.top = ((1 - v.y) / 2 * H - 130) + 'px';
+      }
+    }
+
+    // 猫はカメラに付いて動く。投げる前は少しボードの方を向き、結果ではこちらを向いてしゃべる
+    const tmpV = new THREE.Vector3(), tmpQ2 = new THREE.Quaternion(), UP = new THREE.Vector3(0, 1, 0);
+    let catYaw = 0.45, catT = 0, lastBubble = '';
+    function placeCat(dt) {
+      catT += dt;
+      const camDist = camera.position.distanceTo(camState.target);
+      // 画面の大きさに対して猫が大きくなりすぎないよう、縦長では小さめに
+      const dist = Math.min(0.78, camDist * 0.6), sc = dist / 0.78 * 0.72 * THREE.MathUtils.clamp(camera.aspect, 0.55, 1);
+      const p = screenAt(catPx[0], catPx[1], dist);
+      catJump = Math.max(0, catJump - dt);
+      p.y += Math.sin((0.5 - catJump) / 0.5 * Math.PI) * (catJump > 0 ? 0.05 : 0) * sc;
+      catFig.position.copy(p); catFig.scale.setScalar(sc);
+      const yawGoal = state === 'result' ? 0.1 : 0.45;
+      catYaw += (yawGoal - catYaw) * (1 - Math.exp(-dt * 5));
+      catFig.quaternion.copy(camera.quaternion).multiply(tmpQ2.setFromAxisAngle(UP, -catYaw));
+      catHead.rotation.set(catTalk ? Math.sin(catT * 16) * 0.06 : 0, 0, catTalk ? Math.sin(catT * 9) * 0.08 : Math.sin(catT * 1.5) * 0.03);
+      // 投げる腕: 持っている矢の所へ。投げたら前へ振ってから下ろす
+      const sh = catFig.localToWorld(tmpV.copy(SHOULDER));
+      let hand;
+      if (held) hand = held.position.clone().addScaledVector(FWD.clone().applyQuaternion(held.quaternion), -0.07);
+      else {
+        swing = Math.min(1, swing + dt * 2.2);
+        const rest = catFig.localToWorld(new THREE.Vector3(-0.1, -0.26, 0.05));
+        const fwd = catFig.localToWorld(new THREE.Vector3(-0.15, 0.05, -0.25));
+        hand = swing < 0.35 ? swingFrom.clone().lerp(fwd, swing / 0.35) : fwd.lerp(rest, (swing - 0.35) / 0.65);
+      }
+      const d = hand.clone().sub(sh), len = Math.min(d.length(), 0.36 * sc);
+      d.setLength(len);
+      throwArm.position.copy(sh); throwArm.quaternion.setFromUnitVectors(UP, d.clone().normalize()); throwArm.scale.set(sc, Math.max(0.01, len), sc);
+      throwPaw.position.copy(sh).add(d); throwPaw.scale.setScalar(sc);
+      // 吹き出しは猫の頭の左上から
+      if (bubble.classList.contains('show')) {
+        const hp = catHead.localToWorld(new THREE.Vector3(-0.05, 0.09, 0)).project(camera);
+        const key = Math.round((hp.x + 1) / 2 * W) + 'px,' + Math.round((1 - hp.y) / 2 * H) + 'px';
+        if (key !== lastBubble) { lastBubble = key; const [bx, by] = key.split(','); bubble.style.left = bx; bubble.style.top = by; }
       }
     }
 
@@ -691,6 +752,7 @@
     });
 
     const S0 = 4.2;
+    const swingFrom = new THREE.Vector3();
     function throwDart(r, speed) {
       const p = held.position.clone();
       // 狙った点（ボードの面 z=0）
@@ -704,6 +766,7 @@
       v.y += 0.5 * G * dist / S0;
       fly = { d: held, p, v, prev: p.clone(), spin: 0 };
       held.userData.grab = null; held = null;
+      swing = 0; swingFrom.copy(throwPaw.position);
       state = 'flying';
       if (!thrown) { thrown = true; hint.style.display = 'none'; }
       sfx.whoosh(speed);
@@ -775,7 +838,7 @@
       hit = { kind: 'land', lon, lat, pref, local: new THREE.Vector3(lx, ly, 0), info: null, t: 0 };
       burst(q, 8, chipMat, 0.6, 0.004);
       setTimeout(() => crowd('land'), 250);
-      wipe.classList.remove('wow'); void wipe.offsetWidth; wipe.classList.add('wow');
+      catJump = 0.5;
       state = 'result';
       snap = null; shareCache = null; needSnap = false;
       showCard(); renderControls(); updateGoal(false);
@@ -907,7 +970,6 @@
       controls.innerHTML = '';
       controls.classList.toggle('hide', state !== 'result');
       telop.classList.toggle('up', state === 'result');
-      wipe.classList.toggle('up', state === 'result');
       showBubble();
       if (state !== 'result') return;
       const coarse = matchMedia('(pointer: coarse)').matches;
@@ -1013,6 +1075,7 @@
       }
       applyCamera();
       placeHeld(dt);
+      placeCat(dt);
       if (fly) { fly.d.position.lerpVectors(fly.prev, fly.p, k); fly.d.quaternion.copy(dartQuat(fly)); }
       // 刺さった直後のぷるぷる
       for (const d of stuck) {
