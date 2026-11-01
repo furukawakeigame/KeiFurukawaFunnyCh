@@ -437,14 +437,15 @@
     let dishes = [];
     function buildDishes() {
       for (const d of dishes) if (d) d.g.parent?.remove(d.g);
-      dishes = DISHES.map((make, k) => {
+      dishes = DISHES.map((make, k) => makeDish(make, k));
+    }
+    function makeDish(make, k) {
         const g = new THREE.Group(); const d = make(g) || {};
         g.position.copy(polar(k * SLOT, RING, 0.09)); g.rotation.y = k * SLOT; turn.add(shade(g));
         d.g = g; d.k = k;
         // 1口取る（ふつうの料理は、残っている物を1つ消して、その複製を飛ばす）
         if (!d.take) d.take = () => { const it = d.items.pop(); it.visible = false; const f = it.clone(); f.visible = true; it.getWorldScale(f.scale); return f; };
         return d;
-      });
     }
     const gyozaDish = () => dishes[0];
     const left = () => gyozaDish().items.length;
@@ -664,13 +665,13 @@
       return { g, legs, hold };
     }
     let waiters = [];
-    const WALK = 3.4;
+    const WALK = 7.5;
     // 空いた皿の所へウェイターが歩いてきて、皿を持って帰る
     function sendWaiter(d) {
       let a = d.k * SLOT + theta;
       // 皿が誰かの前なら、その人の横に立つ
       if (((slotOf(a) % 2) + 2) % 2 === 0) a += (Math.random() < 0.5 ? -1 : 1) * 0.42;
-      const w = makeWaiter(), from = polar(a, 10.5, 0.4), to = polar(a, 2.55, 0.4);
+      const w = makeWaiter(), from = polar(a, 7.5, 0.4), to = polar(a, 2.55, 0.4);
       w.g.position.copy(from); w.g.lookAt(to.x, 0.4, to.z);
       scene.add(shade(w.g));
       Object.assign(w, { d, from, to, phase: 'in', t: 0, walk: 0, plateFrom: new THREE.Vector3() });
@@ -685,7 +686,7 @@
           hv.subVectors(dst, w.g.position); hv.y = 0;
           const dist = hv.length(), mv = Math.min(dist, WALK * dt);
           w.g.position.addScaledVector(hv.normalize(), mv);
-          w.walk += mv * 4.2;
+          w.walk += mv * 3;
           w.legs[0].rotation.x = Math.sin(w.walk) * 0.5; w.legs[1].rotation.x = -Math.sin(w.walk) * 0.5;
           w.g.position.y = 0.4 + Math.abs(Math.cos(w.walk)) * 0.04;
           if (dist - mv < 0.01) {
@@ -698,7 +699,7 @@
           }
         } else if (w.phase === 'pick') {
           // 手をのばして皿を受け取る
-          const q = Math.min(1, w.t / 0.45);
+          const q = Math.min(1, w.t / 0.25);
           w.hold.position.z = 0.38 + Math.sin(q * Math.PI) * 0.35;
           w.hold.getWorldPosition(hv); hv.y += 0.02;
           w.d.g.position.lerpVectors(w.plateFrom, hv, q * q * (3 - 2 * q));
@@ -716,7 +717,7 @@
     const slotOf = a => Math.round(a / SLOT);
     const mod8 = n => ((n % 8) + 8) % 8;
     function reset() {
-      state = 'wait'; cur = 0; timer = 0; omega = 0; winner = -1; camK = 0; eats.forEach(e => scene.remove(e.f)); eats = []; lastBy = -1;
+      state = 'wait'; cur = 0; timer = 0; omega = 0; winner = -1; camK = 0; eats.forEach(e => scene.remove(e.f)); eats = []; lastBy = -1; moves = []; fresh = [];
       theta = prevTheta = (Math.floor(Math.random() * 4) * 2 + 1) * SLOT; // 最初は餃子が誰の前にもない位置
       lastSlot = slotOf(theta);
       eaten.fill(0); bites.fill(0);
@@ -732,8 +733,14 @@
     function nextTurn() { cur = (cur + 1) % 4; beginTurn(); }
     // 席 i の前に、テーブルが位置 sl の時に皿があるか
     const hasDish = (i, sl) => { const d = dishes[mod8(Math.round(SEAT_A[i] / SLOT) - sl)]; return d && !d.gone; };
+    // 4人全員の前に皿がある位置か
+    const fullAt = sl => SEAT_A.every((a, i) => hasDish(i, sl));
+    // 止まってよい位置: 全員の前に皿がある位置。もうそんな位置がなければ、回した人の前に皿がある位置
+    let stopFull = true;
+    const validStop = sl => stopFull ? fullAt(sl) : hasDish(cur, sl);
     let spinDir = 1;
     function startSpin(w) {
+      stopFull = fullAt(0) || fullAt(1);
       omega = w; spinDir = Math.sign(w) || 1; fric = rnd(0.85, 1.15); state = 'spin'; timer = 0; spins++;
       sWhoosh(w);
     }
@@ -754,6 +761,30 @@
       if (!eats.length) { state = 'none'; nobodySigh = Math.random() < 0.6; return; }
       state = 'eat';
       tone('sine', 500, 820, 0.08, 0.08);
+    }
+    // 皿を並べ替える: 餃子と同じ列（1つおきの4か所）に空きができたら、もう一方の列の皿をそこへ動かす
+    let moves = [], fresh = [];
+    function planArrange() {
+      moves = [];
+      const donors = dishes.filter(d => !d.gone && d.k % 2 === 1);
+      for (let k = 0; k < 8; k += 2) {
+        if (!dishes[k].gone || !donors.length) continue;
+        // いちばん近い皿を、近い向きに回して持ってくる
+        donors.sort((x, y) => Math.abs(((x.k - k + 12) % 8) - 4) - Math.abs(((y.k - k + 12) % 8) - 4));
+        const d = donors.shift();
+        const diff = ((k - d.k + 12) % 8) - 4;
+        moves.push({ d, from: d.k, from8: d.k, to: d.k + diff });
+      }
+      // それでも餃子の列に空きが残る（皿が4枚より少ない）時は、新しい料理が出てくる
+      fresh = [];
+      for (let k = 0; k < 8; k += 2) {
+        if (!dishes[k].gone || moves.some(m => mod8(m.to) === k)) continue;
+        const d = makeDish(DISHES[1 + Math.floor(Math.random() * 7)], k);
+        d.g.scale.setScalar(0.001);
+        scene.remove(dishes[k].g); dishes[k] = d; fresh.push(d);
+      }
+      if (moves.length) tone('sine', 300, 380, 0.15, 0.05);
+      if (fresh.length) { tone('sine', 420, 700, 0.1, 0.08, 0.2); noise(0.06, 0.08, 2500, 'bandpass', 3, 0.2); }
     }
     function win(i) {
       state = 'win'; timer = 0; winner = i; camK = 0;
@@ -778,7 +809,7 @@
         const sub = 4, h = dt / sub;
         for (let s = 0; s < sub; s++) {
           // 回した人の前が空き（皿を下げた所）になる位置では止まらず、次の皿までゆっくり進む
-          if (!hasDish(cur, slotOf(theta))) {
+          if (!validStop(slotOf(theta))) {
             if (Math.abs(omega) < 1.3) omega = spinDir * 1.3;
             theta += omega * h; continue;
           }
@@ -823,7 +854,22 @@
         }
       }
       else if (state === 'waiter') {
-        if (waiters.every(w => w.phase === 'out')) nextTurn();
+        if (waiters.every(w => w.phase === 'out')) { planArrange(); state = 'arrange'; timer = 0; }
+      }
+      else if (state === 'arrange') {
+        const k = Math.min(1, timer / 0.45), e = k * k * (3 - 2 * k);
+        for (const m of moves) {
+          const a = (m.from + (m.to - m.from) * e) * SLOT;
+          m.d.g.position.copy(polar(a, RING, 0.09 + Math.sin(k * Math.PI) * 0.15)); m.d.g.rotation.y = a;
+        }
+        for (const d of fresh) d.g.scale.setScalar(Math.max(0.001, Math.min(1, (timer - 0.15) / 0.3)));
+        if (k >= 1) {
+          for (const d of fresh) d.g.scale.setScalar(1);
+          fresh = [];
+          for (const m of moves) { const t2 = dishes[mod8(m.to)]; dishes[mod8(m.to)] = m.d; dishes[m.from8] = t2; m.d.k = mod8(m.to); }
+          moves = [];
+          nextTurn();
+        }
       }
       else if (state === 'none') {
         if (nobodySigh && timer >= 0.15 && timer - dt < 0.15) sSigh(chars[cur]);
