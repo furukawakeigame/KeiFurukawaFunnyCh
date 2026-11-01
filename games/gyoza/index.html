@@ -54,7 +54,7 @@
     /* セリフの吹き出し（頭の上に出る） */
     .bubble { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; background: #fff; color: #3a1a0e; border: 2px solid #3a1a0e; border-radius: 14px;
       padding: 2px 10px; font-weight: 800; font-size: clamp(13px, 2.6vmin, 22px); white-space: nowrap; will-change: transform; }
-    .bubble::before, .bubble::after { content: ''; position: absolute; left: 50%; border: solid transparent; }
+    .bubble::before, .bubble::after { content: ''; position: absolute; left: var(--tail, 50%); border: solid transparent; }
     .bubble::before { bottom: -10px; margin-left: -7px; border-width: 10px 7px 0; border-top-color: #3a1a0e; }
     .bubble::after { bottom: -6px; margin-left: -5px; border-width: 7px 5px 0; border-top-color: #fff; }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; color: #fff; }
@@ -130,7 +130,7 @@
       document.title = t('title');
       document.getElementById('back').textContent = t('back');
       catchEl.textContent = t('catch');
-      bubbles.forEach(b => b.el.textContent = lineText(b));
+      bubbles.forEach(b => { b.el.textContent = lineText(b); b.w = 0; });
       renderControls();
       resize();
       if (state === 'result') { showResult(); prepareShare(); }
@@ -258,9 +258,16 @@
         const r = renderer.domElement;
         const x = (bv.x + 1) / 2 * r.clientWidth, y = (1 - bv.y) / 2 * r.clientHeight;
         const pop = b.t < 0.15 ? 0.6 + 0.5 * Math.sin(b.t / 0.15 * Math.PI / 2) * 1.1 : 1;
+        // 画面の端からはみ出さないように横にずらし、しっぽだけ頭の方を指す
+        if (!b.w) { b.w = b.el.offsetWidth; b.h = b.el.offsetHeight; }
+        const W = r.clientWidth, left = Math.max(6, Math.min(W - b.w - 6, x - b.w / 2));
+        const top = Math.max(4, y - b.h - 10);
+        const tail = Math.max(12, Math.min(b.w - 12, x - left));
         b.el.style.visibility = bv.z < 1 ? 'visible' : 'hidden';
         b.el.style.opacity = Math.min(1, (b.dur - b.t) / 0.2);
-        b.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%) scale(${pop.toFixed(3)})`;
+        b.el.style.setProperty('--tail', tail.toFixed(0) + 'px');
+        b.el.style.transformOrigin = `${tail.toFixed(0)}px 100%`;
+        b.el.style.transform = `translate(${left.toFixed(1)}px, ${top.toFixed(1)}px) scale(${pop.toFixed(3)})`;
       }
     }
     // もぐもぐ: 口を閉じた短い声＋羽根のパリッとした音
