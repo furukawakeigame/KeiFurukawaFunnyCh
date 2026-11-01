@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>2048ソート</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="2048ソート">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/sort-2048/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/sort-2048/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #dfe8e6; color: #23312f;
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif;
+      display: flex; flex-direction: column; overflow: hidden;
+      -webkit-user-select: none; user-select: none;
+    }
+    header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; position: relative; z-index: 5; }
+    header a { color: #23312f; font-size: 14px; text-decoration: none; margin-right: auto; }
+    header button, header select {
+      background: #fff; border: 1px solid #9fb5b1; border-radius: 8px;
+      height: 34px; min-width: 40px; padding: 0 10px; font-size: 13px; color: #23312f; cursor: pointer;
+    }
+    header svg { width: 18px; height: 18px; display: block; }
+    #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; }
+    #stage canvas { display: block; width: 100%; height: 100%; }
+    #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+    /* ゲーム画面は下まで描き、操作は下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
+    #bar, #controls {
+      position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom));
+      display: flex; gap: 10px; align-items: center; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; z-index: 4;
+    }
+    #bar .round {
+      flex: 0 0 auto; width: clamp(48px, 7vmin, 60px); height: clamp(48px, 7vmin, 60px); border-radius: 50%;
+      border: none; background: #fff; color: #2b4a46; box-shadow: 0 3px 0 #8fa7a2; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; touch-action: manipulation;
+    }
+    #bar .round svg { width: 55%; height: 55%; }
+    #bar .round:active { transform: translateY(3px); box-shadow: none; }
+    #bar .round.pulse { animation: pulse .9s ease-in-out infinite; background: #ffe7a8; }
+    @keyframes pulse { 50% { transform: scale(1.12); } }
+    #pips { flex: 1; display: flex; flex-wrap: wrap; justify-content: center; align-content: center; gap: 4px; min-height: 20px; }
+    #pips i { display: block; border-radius: 50%; border: 2px solid rgba(43,74,70,.45); background: rgba(255,255,255,.55); }
+    #pips i.on { background: #3fbf7f; border-color: #2a8f5c; }
+    #pips i.over { background: #e8495b; border-color: #a92a3a; }
+    #pips i.pop { animation: pip .25s ease-out; }
+    @keyframes pip { from { transform: scale(1.7); } }
+    #controls button, #controls a {
+      flex: 1; height: clamp(56px, 8vmin, 72px); border: none; border-radius: 14px; font-size: clamp(18px, 3vmin, 24px); font-weight: 800;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; touch-action: manipulation;
+    }
+    .go { background: #2fa36b; color: #fff; box-shadow: 0 4px 0 #1b6a44; }
+    .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 34% !important; font-size: clamp(16px, 2.6vmin, 20px) !important; }
+    #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
+    .hide { visibility: hidden; }
+    #result {
+      position: absolute; display: none; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; pointer-events: none; color: #fff; text-shadow: 0 3px 0 rgba(20,40,38,.55), 0 0 18px rgba(20,40,38,.45);
+    }
+    #result.show { display: flex; animation: rin .4s ease-out; }
+    @keyframes rin { from { opacity: 0; transform: translateY(-14px); } }
+    #result .score { font-size: clamp(54px, 13vmin, 120px); font-weight: 900; line-height: 1; }
+    #result .moves { font-size: clamp(18px, 3.8vmin, 32px); font-weight: 800; margin-top: .35em; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="stage">
+    <div id="result"><div class="score"></div><div class="moves"></div></div>
+    <div id="msg"></div>
+  </div>
+  <div id="bar">
+    <button class="round" id="undo" aria-label="undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+    <div id="pips"></div>
+    <button class="round" id="restart" aria-label="restart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg></button>
+  </div>
+  <div id="controls" class="hide"></div>
+
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
+  <script>
+    // CDN が読めないときの一言
+    setTimeout(() => { if (!window.GAME_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 8000);
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+    window.GAME_READY = true;
+
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/sort-2048/';
+    const NT = 16, CAP = 4, GOAL = 11; // 試験管16本・1本に4個・2^11 = 2048
+
+    // ---------- 問題づくりと最短手数（Web Worker で計算） ----------
+    // 試験管は文字列で表す（下から上へ、1文字 = 2^n の n）
+    const SOLVER_SRC = `
+      const A0 = 96;
+      // 下限: (1) 空でない試験管は最後の1本以外ぜんぶ空にする必要があり、下の玉より大きい玉はいずれ外へ出す必要がある
+      //       (2) 1手で起きる合体は「各段に1回まで・連続した段」なので、段ごとに必要な合体回数の増え方の合計
+      function h(s) {
+        let ne = 0, asc = 0; const c = new Int32Array(13);
+        for (const t of s) { if (t.length) ne++; let p = 0; for (let i = 0; i < t.length; i++) { const e = t.charCodeAt(i) - A0; c[e]++; if (i && e > p) asc++; p = e; } }
+        let carry = 0, prev = 0, sum = 0;
+        for (let e = 1; e < 11; e++) { const m = (c[e] + carry) >> 1; if (m > prev) sum += m - prev; prev = m; carry = m; }
+        return Math.max(ne - 1 + asc, sum);
+      }
+      const key = s => s.slice().sort().join('/');
+      function apply(s, a, b) {
+        const A = s[a], B = s[b]; let x = A.charCodeAt(A.length - 1), nb = B;
+        while (nb.length && nb.charCodeAt(nb.length - 1) === x) { nb = nb.slice(0, -1); x++; }
+        const n = s.slice(); n[a] = A.slice(0, -1); n[b] = nb + String.fromCharCode(x); return n;
+      }
+      // A* 探索（試験管の並びは入れ替えても同じなので、並べ替えた形で同じ盤面をまとめる）
+      function solve(start, limit) {
+        const open = [], g = new Map(); g.set(key(start), 0);
+        const push = (f, it) => { (open[f] || (open[f] = [])).push(it); };
+        push(h(start), [start, 0]); let f = 0, exp = 0;
+        for (;;) {
+          while (f < open.length && !(open[f] && open[f].length)) f++;
+          if (f >= open.length) return -1;
+          const [s, gs] = open[f].pop();
+          let tiles = 0; for (const t of s) tiles += t.length;
+          if (tiles === 1) return gs;
+          if (g.get(key(s)) < gs) continue;
+          if (++exp > limit) return -2;
+          const ei = s.indexOf('');
+          for (let a = 0; a < s.length; a++) {
+            const A = s[a]; if (!A.length) continue; const top = A.charCodeAt(A.length - 1);
+            for (let b = 0; b < s.length; b++) {
+              if (b === a) continue; const B = s[b];
+              if (!B.length) { if (b !== ei || A.length === 1) continue; } else if (B.charCodeAt(B.length - 1) !== top) continue;
+              const n = apply(s, a, b), nk = key(n), ng = gs + 1, old = g.get(nk);
+              if (old !== undefined && old <= ng) continue;
+              g.set(nk, ng); push(ng + h(n), [n, ng]);
+            }
+          }
+        }
+      }
+      // 2048 をランダムに半分ずつ割って N 個の玉にし、空き E 本を残してばらばらに詰める（同じ数字は隣に置かない）
+      function gen(N, E, tubes, cap) {
+        for (;;) {
+          const tl = [11];
+          while (tl.length < N) { const cand = []; tl.forEach((e, i) => { if (e > 1) cand.push(i); }); const i = cand[Math.floor(Math.random() * cand.length)]; const e = tl[i]; tl.splice(i, 1, e - 1, e - 1); }
+          for (let i = tl.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [tl[i], tl[j]] = [tl[j], tl[i]]; }
+          const s = Array.from({ length: tubes }, () => []), use = tubes - E; let ok = true;
+          for (const e of tl) {
+            const best = [];
+            for (let i = 0; i < use; i++) { const t = s[i]; if (t.length < cap && !(t.length && t[t.length - 1] === e)) best.push(i); }
+            if (!best.length) { ok = false; break; }
+            s[best[Math.floor(Math.random() * best.length)]].push(e);
+          }
+          if (!ok) continue;
+          const r = s.map(t => t.map(e => String.fromCharCode(A0 + e)).join(''));
+          for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; }
+          return r;
+        }
+      }
+      function makePuzzle() {
+        for (;;) {
+          const s = gen(20 + Math.floor(Math.random() * 3), 2, ${NT}, ${CAP});
+          const opt = solve(s, 25000);
+          if (opt > 0) return { tubes: s.map(t => [...t].map(c => c.charCodeAt(0) - A0)), opt };
+        }
+      }
+    `;
+    let worker = null, makeSync = null;
+    const puzzleWaiters = [], puzzleReady = [];
+    try {
+      worker = new Worker(URL.createObjectURL(new Blob([SOLVER_SRC + 'onmessage = () => postMessage(makePuzzle());'], { type: 'text/javascript' })));
+      worker.onmessage = e => { const w = puzzleWaiters.shift(); if (w) w(e.data); else puzzleReady.push(e.data); };
+      worker.onerror = () => { worker = null; };
+    } catch { worker = null; }
+    function requestPuzzle() {
+      return new Promise(res => {
+        if (puzzleReady.length) { res(puzzleReady.shift()); return; }
+        if (worker) { puzzleWaiters.push(res); worker.postMessage(0); return; }
+        makeSync ||= new Function(SOLVER_SRC + 'return makePuzzle;')();
+        setTimeout(() => res(makeSync()), 0);
+      });
+    }
+    function prefetch() { if (worker && !puzzleReady.length && !puzzleWaiters.length) { worker.postMessage(0); puzzleWaiters.push(p => puzzleReady.push(p)); } }
+
+    // ---------- 言語 ----------
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('sort-2048:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('sort-2048:' + k, JSON.stringify(v)); } catch {} },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
+    const DICT = {
+      ja: { title: '2048ソート', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', undo: '1手戻す', restart: '最初から',
+        score: s => `${s}点`, moves: (m, o) => `${m}手 ／ 最短${o}手`,
+        share: (s, m, o) => `2048ソートで${s}点（${m}手／最短${o}手） #2048ソートゲーム` },
+      ko: { title: '2048 소트', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', undo: '한 수 되돌리기', restart: '처음부터',
+        score: s => `${s}점`, moves: (m, o) => `${m}수 ／ 최단 ${o}수`,
+        share: (s, m, o) => `2048 소트 ${s}점 (${m}수 / 최단 ${o}수) #2048ソートゲーム` },
+      en: { title: '2048 Sort', back: '← Back to top', again: 'Play again', post: 'Post on X', undo: 'Undo', restart: 'Restart',
+        score: s => `${s} pts`, moves: (m, o) => `${m} moves / best ${o}`,
+        share: (s, m, o) => `I scored ${s} pts in 2048 Sort (${m} moves / best ${o}) #2048ソートゲーム` },
+      th: { title: '2048 ซอร์ต', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', undo: 'ย้อนกลับ', restart: 'เริ่มใหม่',
+        score: s => `${s} คะแนน`, moves: (m, o) => `${m} ตา / สั้นสุด ${o} ตา`,
+        share: (s, m, o) => `ได้ ${s} คะแนนใน 2048 ซอร์ต (${m} ตา / สั้นสุด ${o} ตา) #2048ソートゲーム` },
+    };
+    let lang = store.get('lang', null) || autoLang();
+    const t = k => DICT[lang][k];
+    const langSel = document.getElementById('lang');
+    langSel.value = lang;
+    langSel.addEventListener('change', () => { lang = langSel.value; store.set('lang', lang); applyLang(); });
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      document.getElementById('undo').setAttribute('aria-label', t('undo'));
+      document.getElementById('restart').setAttribute('aria-label', t('restart'));
+      renderControls();
+      if (state === 'result') { fillResult(); shareCache = null; prepareShare(); }
+    }
+
+    // ---------- 音 ----------
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const drawSoundBtn = () => {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${soundOn ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>'}</svg>`;
+    };
+    drawSoundBtn();
+    soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); });
+    let ac = null, master = null;
+    // iPhone の消音モードでも鳴らす: 音の種類を「再生」にし、対応していない端末では無音の <audio> をループ再生する
+    function unmuteIOS() {
+      try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch {}
+      try {
+        const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+        const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+        w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+        v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+        const a = document.createElement('audio');
+        a.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })); a.loop = true; a.setAttribute('playsinline', '');
+        a.play().catch(() => {});
+      } catch {}
+    }
+    function initAudio() {
+      if (ac) return;
+      unmuteIOS();
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        master = ac.createGain(); master.gain.value = 0.9; master.connect(ac.destination);
+        const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
+        o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.05);
+      } catch { ac = null; }
+    }
+    addEventListener('pointerdown', initAudio, { capture: true });
+    addEventListener('keydown', initAudio, { capture: true });
+    const on = () => soundOn && ac && !silent;
+    let silent = false; // 早送り中は鳴らさない
+    function tone(type, f0, f1, dur, vol, delay = 0, attack = 0.004) {
+      if (!on()) return;
+      const now = ac.currentTime + delay;
+      const o = ac.createOscillator(); o.type = type;
+      o.frequency.setValueAtTime(f0, now); o.frequency.exponentialRampToValueAtTime(f1, now + dur);
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(vol, now + attack); g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      o.connect(g).connect(master); o.start(now); o.stop(now + dur + 0.02);
+    }
+    // 短いノイズを複数の共鳴に通す（ガラスのカチン・コトン など）
+    function hit(delay, len, decay, bands, vol) {
+      if (!on()) return;
+      const now = ac.currentTime + delay;
+      const buf = ac.createBuffer(1, Math.floor(ac.sampleRate * len), ac.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ac.sampleRate * decay));
+      const s = ac.createBufferSource(); s.buffer = buf;
+      for (const [f, q, g0] of bands) {
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * (0.95 + Math.random() * 0.1); bp.Q.value = q;
+        const g = ac.createGain(); g.gain.value = g0 * vol; s.connect(bp).connect(g).connect(master);
+      }
+      s.start(now);
+    }
+    // ガラス: 細い共鳴がいくつも長く残る「チン」
+    function sGlass(vol = 1, delay = 0) {
+      const k = 0.92 + Math.random() * 0.16;
+      hit(delay, 0.5, 0.09, [[2650 * k, 60, 2.2], [4300 * k, 70, 1.4], [6900 * k, 80, 0.8], [1400 * k, 30, 0.5]], 0.5 * vol);
+    }
+    // 玉が試験管の底に当たる「コトン」: ガラスの響き＋玉の胴鳴り
+    function sLand(vol = 1, delay = 0) {
+      hit(delay, 0.06, 0.006, [[1800, 4, 1], [3600, 6, 0.5], [700, 3, 0.7]], 0.9 * vol);
+      tone('sine', 330, 180, 0.09, 0.22 * vol, delay);
+      sGlass(0.35 * vol, delay + 0.005);
+    }
+    // 合体の「ポン」: 連鎖するほど高くなる
+    function sMerge(level, delay = 0) {
+      const f = 330 * Math.pow(1.19, level);
+      tone('sine', f * 0.7, f * 1.5, 0.12, 0.35, delay);
+      tone('triangle', f * 2, f * 2.4, 0.18, 0.12, delay + 0.03);
+      hit(delay, 0.05, 0.008, [[f * 4, 8, 0.8]], 0.6);
+    }
+    // 注げない: 鈍い「ゴツ」
+    function sBonk() { hit(0, 0.07, 0.01, [[420, 4, 1.2], [900, 5, 0.5]], 0.9); tone('sine', 160, 110, 0.12, 0.25); }
+    // 声: 声帯の振動（のこぎり波＋息のノイズ）を、母音ごとの共鳴（フォルマント）に通す
+    const VOWEL = { a: [800, 1200, 2600], i: [300, 2300, 3000], u: [350, 1250, 2500], e: [500, 1900, 2600], o: [500, 850, 2500] };
+    function voice(f0, seq, dur, vol = 0.5, delay = 0) {
+      if (!on()) return;
+      const now = ac.currentTime + delay;
+      const o = ac.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0 * 0.9, now);
+      o.frequency.linearRampToValueAtTime(f0 * 1.35, now + dur * 0.3);
+      o.frequency.exponentialRampToValueAtTime(f0 * 0.75, now + dur);
+      const vib = ac.createOscillator(), vg = ac.createGain(); vib.frequency.value = 6.5; vg.gain.value = f0 * 0.03; vib.connect(vg).connect(o.frequency);
+      const nb = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate), nd = nb.getChannelData(0);
+      for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+      const ns = ac.createBufferSource(); ns.buffer = nb;
+      const src = ac.createGain(); o.connect(src);
+      const ng = ac.createGain(); ng.gain.value = 0.15; ns.connect(ng).connect(src);
+      const env = ac.createGain();
+      env.gain.setValueAtTime(0.0001, now); env.gain.exponentialRampToValueAtTime(vol, now + 0.04);
+      env.gain.setValueAtTime(vol, now + dur * 0.7); env.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      VOWEL[seq[0]].forEach((f, k) => {
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 9; bp.frequency.setValueAtTime(f, now);
+        seq.forEach((v, j) => { if (j) bp.frequency.linearRampToValueAtTime(VOWEL[v][k], now + dur * j / (seq.length - 1)); });
+        const g = ac.createGain(); g.gain.value = [1, 0.6, 0.3][k]; src.connect(bp).connect(g).connect(env);
+      });
+      env.connect(master);
+      o.start(now); o.stop(now + dur + 0.05); vib.start(now); vib.stop(now + dur + 0.05); ns.start(now);
+    }
+    // 猫の「ニャーオ」: 毎回すこし違う
+    function sMeow(delay = 0) {
+      const seqs = [['i', 'a', 'o'], ['i', 'a', 'u'], ['e', 'a', 'o', 'u']];
+      voice(560 + Math.random() * 120, seqs[Math.floor(Math.random() * seqs.length)], 0.55 + Math.random() * 0.2, 0.45, delay);
+    }
+    function sClear() {
+      [0, 4, 7, 12, 16].forEach((n, i) => { const f = 523 * Math.pow(2, n / 12); tone('triangle', f, f, 0.5, 0.16, i * 0.07); sGlass(0.4, i * 0.07); });
+      sMeow(0.5);
+    }
+
+    // ---------- 3D ----------
+    const stage = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    stage.prepend(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#cfdcd9');
+    scene.fog = new THREE.Fog('#cfdcd9', 28, 60);
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.5, 120);
+
+    scene.add(new THREE.HemisphereLight('#cfe8ff', '#8a6a4a', 0.9));
+    const sun = new THREE.DirectionalLight('#ffe2b8', 2.0);
+    sun.position.set(6, 16, 10);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 14, bottom: -6, near: 1, far: 50 });
+    sun.shadow.bias = -0.0005;
+    sun.shadow.radius = 4;
+    scene.add(sun, sun.target);
+    sun.target.position.set(0, 4, -3);
+
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    function canvasTex(w, h, draw, repeat) {
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      draw(c.getContext('2d'), w, h);
+      const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 4;
+      if (repeat) { tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(...repeat); }
+      return tx;
+    }
+    // 木目
+    function woodTex(base, dark, repeat) {
+      return canvasTex(512, 512, (g, w, h) => {
+        g.fillStyle = base; g.fillRect(0, 0, w, h);
+        for (let i = 0; i < 90; i++) {
+          const y = Math.random() * h, a = rnd(0.04, 0.16);
+          g.strokeStyle = `rgba(${dark},${a})`; g.lineWidth = rnd(1, 5);
+          g.beginPath(); g.moveTo(0, y);
+          for (let x = 0; x <= w; x += 32) g.lineTo(x, y + Math.sin(x * 0.01 + i) * 6 + rnd(-2, 2));
+          g.stroke();
+        }
+        for (let i = 0; i < 6; i++) { // 節
+          const x = Math.random() * w, y = Math.random() * h;
+          for (let r = 18; r > 2; r -= 4) { g.strokeStyle = `rgba(${dark},0.18)`; g.lineWidth = 2; g.beginPath(); g.ellipse(x, y, r * 1.8, r * 0.6, 0, 0, Math.PI * 2); g.stroke(); }
+        }
+      }, repeat);
+    }
+    const deskTex = woodTex('#b98a5a', '70,40,15', [3, 2]);
+    const rackTex = woodTex('#d9b07a', '110,70,30', [1, 1]);
+    // 壁のタイル
+    const wallTex = canvasTex(512, 512, (g, w, h) => {
+      const n = 8, s = w / n;
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        const l = 92 + Math.random() * 4;
+        g.fillStyle = `hsl(165, 18%, ${l}%)`; g.fillRect(x * s, y * s, s, s);
+        const gr = g.createLinearGradient(x * s, y * s, x * s + s, y * s + s);
+        gr.addColorStop(0, 'rgba(255,255,255,.35)'); gr.addColorStop(1, 'rgba(0,0,0,.04)');
+        g.fillStyle = gr; g.fillRect(x * s + 2, y * s + 2, s - 4, s - 4);
+      }
+      g.strokeStyle = '#a9bbb7'; g.lineWidth = 3;
+      for (let i = 0; i <= n; i++) { g.beginPath(); g.moveTo(i * s, 0); g.lineTo(i * s, h); g.stroke(); g.beginPath(); g.moveTo(0, i * s); g.lineTo(w, i * s); g.stroke(); }
+    }, [8, 5]);
+
+    const desk = new THREE.Mesh(new THREE.BoxGeometry(90, 1, 50), new THREE.MeshStandardMaterial({ map: deskTex, roughness: 0.55 }));
+    desk.position.set(0, -0.5, -9); desk.receiveShadow = true; scene.add(desk);
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(80, 50), new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.35 }));
+    wall.position.set(0, 20, -16); wall.receiveShadow = true; scene.add(wall);
+
+    // ---------- 試験管立て（ひな壇） ----------
+    const PITCH = 1.3, TR = 0.5, TH = 2.5;          // 試験管の間隔・半径・高さ
+    const PR = 0.44, PH = 0.46, PSTEP = 0.52, PY0 = 0.07; // 玉（円盤）の半径・高さ・積む間隔・底からの位置
+    const ROW_RISE = 2.75, ROW_BACK = 1.55;
+    const rackMat = new THREE.MeshStandardMaterial({ map: rackTex, roughness: 0.6 });
+    // ふだんは 4列×4段。背の低い横長画面だけ 8列×2段に並べ替える
+    const tubePos = Array.from({ length: NT }, () => new THREE.Vector3());
+    const rackGroup = new THREE.Group(); scene.add(rackGroup);
+    const rackSize = (cols, rows) => ({
+      w: cols * PITCH + 0.6, top: (rows - 1) * ROW_RISE + TH + 0.5 + PH, back: (rows - 1) * ROW_BACK,
+    });
+    let layout = '', RACK_TOP = 0;
+    function buildRack(cols, rows) {
+      layout = cols + 'x' + rows;
+      for (const m of [...rackGroup.children]) { rackGroup.remove(m); m.geometry.dispose(); }
+      const sz = rackSize(cols, rows); RACK_TOP = sz.top;
+      for (let i = 0; i < NT; i++) {
+        const row = rows - 1 - Math.floor(i / cols), col = i % cols; // 上の段から読む順
+        tubePos[i].set((col - (cols - 1) / 2) * PITCH, row * ROW_RISE, -row * ROW_BACK);
+        if (tubes[i]) tubes[i].g.position.copy(tubePos[i]);
+      }
+      for (let row = 0; row < rows; row++) {
+        const y = row * ROW_RISE, z = -row * ROW_BACK;
+        // 段（下まで続く木の箱）
+        const h = y + 0.25;
+        const step = new THREE.Mesh(new THREE.BoxGeometry(sz.w, h, ROW_BACK + 0.02), rackMat);
+        step.position.set(0, h / 2 - 0.25, z); step.castShadow = step.receiveShadow = true; rackGroup.add(step);
+        // 試験管を支える後ろの横木と柱
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(sz.w, 0.18, 0.22), rackMat);
+        rail.position.set(0, y + 0.95, z - 0.62); rail.castShadow = rail.receiveShadow = true; rackGroup.add(rail);
+        for (const sx of [-1, 1]) {
+          const post = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.0, 0.22), rackMat);
+          post.position.set(sx * (sz.w / 2 - 0.11), y + 0.5, z - 0.62); post.castShadow = true; rackGroup.add(post);
+        }
+      }
+    }
+    const tubes = [];
+    buildRack(4, 4);
+
+    // 試験管（ガラス）: 底の角が丸い筒
+    const tubeGeo = (() => {
+      const pts = [];
+      const r = TR, c = 0.16;
+      pts.push(new THREE.Vector2(0.001, 0));
+      for (let k = 0; k <= 8; k++) { const a = -Math.PI / 2 + (k / 8) * Math.PI / 2; pts.push(new THREE.Vector2(r - c + Math.cos(a) * c, c + Math.sin(a) * c)); }
+      pts.push(new THREE.Vector2(r, TH));
+      return new THREE.LatheGeometry(pts, 40);
+    })();
+    const glassMat = new THREE.MeshPhysicalMaterial({
+      color: '#eaf8ff', transparent: true, opacity: 0.2, roughness: 0.04, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05,
+      side: THREE.DoubleSide, depthWrite: false, envMapIntensity: 1.6,
+    });
+    const rimGeo = new THREE.TorusGeometry(TR, 0.035, 8, 40);
+    const rimMat = new THREE.MeshPhysicalMaterial({ color: '#ffffff', transparent: true, opacity: 0.55, roughness: 0.05, clearcoat: 1 });
+    const selMat = new THREE.MeshBasicMaterial({ color: '#ffe36b', transparent: true, opacity: 0.9 });
+    const shineGeo = new THREE.PlaneGeometry(0.07, TH * 0.82);
+    const shineMat = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.28, depthWrite: false });
+    const holderGeo = new THREE.CylinderGeometry(TR + 0.08, TR + 0.12, 0.16, 32);
+    const holderMat = new THREE.MeshStandardMaterial({ color: '#7b5a3a', roughness: 0.7 });
+    for (let i = 0; i < NT; i++) {
+      const g = new THREE.Group(); g.position.copy(tubePos[i]); scene.add(g);
+      const holder = new THREE.Mesh(holderGeo, holderMat); holder.position.y = 0.06; holder.receiveShadow = true; holder.castShadow = true; g.add(holder);
+      const inner = new THREE.Group(); g.add(inner); // ぷるっと揺らす部分
+      const glass = new THREE.Mesh(tubeGeo, glassMat); glass.renderOrder = 2; inner.add(glass);
+      const rim = new THREE.Mesh(rimGeo, rimMat); rim.rotation.x = Math.PI / 2; rim.position.y = TH; rim.renderOrder = 3; inner.add(rim);
+      const shine = new THREE.Mesh(shineGeo, shineMat); shine.position.set(-TR * 0.55, TH * 0.5, TR * 0.84); shine.rotation.y = -0.55; shine.renderOrder = 4; inner.add(shine);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(TR + 0.08, 0.05, 8, 40), selMat); ring.rotation.x = Math.PI / 2; ring.position.y = TH; ring.visible = false; inner.add(ring);
+      const hitBox = new THREE.Mesh(new THREE.BoxGeometry(PITCH * 0.96, TH + 1.2, 1.3), new THREE.MeshBasicMaterial({ visible: false }));
+      hitBox.position.y = TH / 2 + 0.3; hitBox.userData.tube = i; g.add(hitBox);
+      tubes.push({ g, inner, ring, hitBox, wob: 0 });
+    }
+
+    // ---------- 玉（数字の円盤） ----------
+    const COLORS = [null, '#f6d7a0', '#f5a95c', '#f0703f', '#e8455a', '#d84a9e', '#9455d2', '#4a74e0', '#28aecf', '#30bd7e', '#93cc2e', '#ffd34a'];
+    const puckGeo = (() => {
+      const pts = [], b = 0.1;
+      pts.push(new THREE.Vector2(0.001, 0));
+      for (let k = 0; k <= 6; k++) { const a = -Math.PI / 2 + (k / 6) * Math.PI / 2; pts.push(new THREE.Vector2(PR - b + Math.cos(a) * b, b + Math.sin(a) * b)); }
+      for (let k = 0; k <= 6; k++) { const a = (k / 6) * Math.PI / 2; pts.push(new THREE.Vector2(PR - b + Math.cos(a) * b, PH - b + Math.sin(a) * b)); }
+      pts.push(new THREE.Vector2(0.001, PH));
+      return new THREE.LatheGeometry(pts, 36);
+    })();
+    const LABEL_A = 1.9;
+    const labelGeo = new THREE.CylinderGeometry(PR + 0.004, PR + 0.004, PH - 0.16, 24, 1, true, -LABEL_A / 2, LABEL_A);
+    labelGeo.translate(0, PH / 2, 0);
+    const bodyMats = [], labelMats = [];
+        function drawLabel(e) {
+      const c = document.createElement('canvas'); c.width = 384; c.height = 128;
+      const g = c.getContext('2d');
+      {
+        const s = String(2 ** e);
+        let px = 104; g.font = `900 ${px}px system-ui, -apple-system, "Hiragino Sans", sans-serif`;
+        const w = g.measureText(s).width; if (w > 300) { px *= 300 / w; g.font = `900 ${px}px system-ui, -apple-system, "Hiragino Sans", sans-serif`; }
+        g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+        g.lineWidth = px * 0.2; g.strokeStyle = 'rgba(40,20,10,.55)'; g.strokeText(s, 192, 70);
+        g.fillStyle = '#fff'; g.fillText(s, 192, 70);
+      }
+      return c;
+    }
+    for (let e = 1; e <= GOAL; e++) {
+      bodyMats[e] = new THREE.MeshStandardMaterial({ color: COLORS[e], roughness: 0.22, metalness: 0.05, envMapIntensity: 0.9 });
+      const tx = new THREE.CanvasTexture(drawLabel(e)); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 4;
+      labelMats[e] = new THREE.MeshStandardMaterial({ map: tx, transparent: true, roughness: 0.3, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+    }
+    bodyMats[GOAL].emissive = new THREE.Color('#ffb020'); bodyMats[GOAL].emissiveIntensity = 0.25;
+    // 2048 の玉の上の面は、いつもの猫の顔
+    const catTopTex = new THREE.TextureLoader().load('cat.png'); catTopTex.colorSpace = THREE.SRGBColorSpace;
+    const catTopGeo = new THREE.CircleGeometry(PR - 0.05, 40); catTopGeo.rotateX(-Math.PI / 2); catTopGeo.translate(0, PH + 0.004, 0);
+    const catTopMat = new THREE.MeshStandardMaterial({ map: catTopTex, transparent: true, roughness: 0.4, polygonOffset: true, polygonOffsetFactor: -2 });
+    function makePuck(e) {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(puckGeo, bodyMats[e]); body.castShadow = true; g.add(body);
+      const label = new THREE.Mesh(labelGeo, labelMats[e]); label.renderOrder = 1; g.add(label);
+      g.userData = { e, body, label };
+      if (e >= GOAL) setPuck(g, e);
+      scene.add(g);
+      return g;
+    }
+    function setPuck(p, e) {
+      p.userData.e = e; p.userData.body.material = bodyMats[e]; p.userData.label.material = labelMats[e];
+      if (e >= GOAL && !p.userData.cat) { const c = new THREE.Mesh(catTopGeo, catTopMat); p.add(c); p.userData.cat = c; }
+    }
+    const slotPos = (i, k) => new THREE.Vector3(tubePos[i].x, tubePos[i].y + PY0 + k * PSTEP, tubePos[i].z);
+    const liftPos = i => new THREE.Vector3(tubePos[i].x, tubePos[i].y + TH + 0.35, tubePos[i].z);
+
+    // ---------- 壁の小物（いつもの猫の額縁・棚のフラスコ） ----------
+    {
+      const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
+      const frame = new THREE.Group();
+      const fm = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.4, 0.2), new THREE.MeshStandardMaterial({ color: '#6b4a2b', roughness: 0.5 }));
+      fm.castShadow = true; frame.add(fm);
+      const paper = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 2.9), new THREE.MeshStandardMaterial({ color: '#fbf6ea', roughness: 0.9 })); paper.position.z = 0.11; frame.add(paper);
+      const pic = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 2.5), new THREE.MeshStandardMaterial({ map: catTex, transparent: true, roughness: 0.8 })); pic.position.z = 0.12; frame.add(pic);
+      frame.position.set(-7.2, 9.5, -15.85); frame.rotation.z = 0.04; scene.add(frame);
+      // 棚
+      const shelfMat = new THREE.MeshStandardMaterial({ map: rackTex, roughness: 0.6 });
+      const liquids = ['#4fc3f7', '#f06292', '#aed581', '#ffb74d', '#9575cd'];
+      const flaskGeo = new THREE.LatheGeometry([[0.001, 0], [0.8, 0], [0.85, 0.1], [0.5, 1.1], [0.22, 1.5], [0.22, 2.1], [0.28, 2.15]].map(p => new THREE.Vector2(...p)), 28);
+      const liquidGeo = new THREE.LatheGeometry([[0.001, 0.02], [0.76, 0.02], [0.8, 0.1], [0.56, 0.75], [0.001, 0.75]].map(p => new THREE.Vector2(...p)), 28);
+      const beakerGeo = new THREE.CylinderGeometry(0.55, 0.55, 1.3, 28, 1, true);
+      const beakerLiq = new THREE.CylinderGeometry(0.52, 0.52, 0.7, 28);
+      for (const sx of [-1, 1]) {
+        for (const sy of [5.5, 11]) {
+          const sh = new THREE.Mesh(new THREE.BoxGeometry(7, 0.25, 2.2), shelfMat);
+          sh.position.set(sx * 9.5, sy, -14.8); sh.castShadow = sh.receiveShadow = true; scene.add(sh);
+          for (let k = 0; k < 3; k++) {
+            const x = sx * (7.2 + k * 2.1 + rnd(-0.2, 0.2)), y = sy + 0.13, z = -14.6 + rnd(-0.3, 0.3);
+            const col = liquids[Math.floor(Math.random() * liquids.length)];
+            const lm = new THREE.MeshStandardMaterial({ color: col, roughness: 0.15, emissive: col, emissiveIntensity: 0.15 });
+            if ((k + (sy > 6 ? 1 : 0)) % 2) {
+              const f = new THREE.Mesh(flaskGeo, glassMat); f.position.set(x, y, z); f.renderOrder = 2; scene.add(f);
+              const l = new THREE.Mesh(liquidGeo, lm); l.position.set(x, y, z); scene.add(l);
+            } else {
+              const b = new THREE.Mesh(beakerGeo, glassMat); b.position.set(x, y + 0.65, z); b.renderOrder = 2; scene.add(b);
+              const l = new THREE.Mesh(beakerLiq, lm); l.position.set(x, y + 0.37, z); scene.add(l);
+            }
+          }
+        }
+      }
+      // 机の上のノートとペン
+      const note = new THREE.Mesh(new THREE.BoxGeometry(3, 0.08, 4), new THREE.MeshStandardMaterial({ color: '#fbfbf4', roughness: 0.9 }));
+      note.position.set(9, 0.04, 1.2); note.rotation.y = 0.35; note.receiveShadow = note.castShadow = true; scene.add(note);
+      const pen = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3, 12), new THREE.MeshStandardMaterial({ color: '#2a5bd7', roughness: 0.3 }));
+      pen.rotation.z = Math.PI / 2; pen.rotation.y = 0.9; pen.position.set(8.6, 0.15, 3.2); pen.castShadow = true; scene.add(pen);
+    }
+
+    // ---------- 粒（合体の火花） ----------
+    const sparkGeo = new THREE.SphereGeometry(0.07, 8, 6);
+    const sparks = [];
+    function burst(pos, e, n = 14, power = 1) {
+      for (let k = 0; k < n; k++) {
+        const m = new THREE.Mesh(sparkGeo, bodyMats[e]);
+        m.position.copy(pos);
+        const a = Math.random() * Math.PI * 2, up = rnd(0.5, 1.5);
+        const v = new THREE.Vector3(Math.cos(a) * rnd(1, 2.6), up * 2.4, Math.sin(a) * rnd(1, 2.6)).multiplyScalar(power);
+        m.userData = { v, life: rnd(0.45, 0.8), t: 0 };
+        scene.add(m); sparks.push(m);
+      }
+    }
+    function stepSparks(dt) {
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const m = sparks[i], u = m.userData;
+        u.t += dt; u.v.y -= 9 * dt; m.position.addScaledVector(u.v, dt);
+        const s = Math.max(0, 1 - u.t / u.life); m.scale.setScalar(s);
+        if (u.t >= u.life) { scene.remove(m); sparks.splice(i, 1); }
+      }
+    }
+
+    // ---------- ゲームの状態 ----------
+    let state = 'wait';      // wait（問題待ち）/ play / clear（2048ができた演出）/ result
+    let puzzle = null;       // { tubes, opt }
+    let board = [];          // 16本 × 下から上の指数
+    let history = [];
+    let vis = Array.from({ length: NT }, () => []); // 見た目の玉
+    let selected = -1, stuck = false, catPuck = null, clearT = 0;
+    const anims = [];        // { t, dur, step(p), end() }
+    const clone = b => b.map(s => s.slice());
+    const moves = () => history.length;
+
+    function legal(a, b) {
+      if (a === b || !board[a].length) return false;
+      const B = board[b]; if (!B.length) return true;
+      return B[B.length - 1] === board[a][board[a].length - 1];
+    }
+    const anyLegal = () => { for (let a = 0; a < NT; a++) for (let b = 0; b < NT; b++) if (legal(a, b)) return true; return false; };
+
+    function rebuild() {
+      for (const col of vis) for (const p of col) scene.remove(p);
+      vis = board.map((col, i) => col.map((e, k) => { const p = makePuck(e); p.position.copy(slotPos(i, k)); return p; }));
+      if (selected >= 0 && vis[selected].length) vis[selected][vis[selected].length - 1].position.copy(liftPos(selected));
+    }
+    // アニメーション中に次の操作が来たら、途中を飛ばして今の盤面に合わせる
+    function flush() {
+      if (!anims.length) return;
+      silent = true;
+      while (anims.length) { const a = anims.shift(); a.step?.(1); a.end?.(); }
+      silent = false;
+      rebuild();
+    }
+    function queue(dur, step, end) { anims.push({ t: 0, dur, step, end }); }
+    function stepAnims(dt) {
+      let left = dt;
+      while (anims.length && left > 0) {
+        const a = anims[0];
+        const use = Math.min(left, a.dur - a.t); a.t += use; left -= use;
+        a.step?.(a.dur ? Math.min(1, a.t / a.dur) : 1);
+        if (a.t >= a.dur) { anims.shift(); a.end?.(); } else break;
+      }
+    }
+    const ease = x => x * x * (3 - 2 * x);
+
+    function setSelected(i) {
+      if (selected >= 0) tubes[selected].ring.visible = false;
+      selected = i;
+      if (i >= 0) tubes[i].ring.visible = true;
+    }
+    function liftTop(i) {
+      const p = vis[i][vis[i].length - 1]; if (!p) return;
+      const from = p.position.clone(), to = liftPos(i);
+      queue(0.12, k => p.position.lerpVectors(from, to, ease(k)));
+    }
+    function dropTop(i) {
+      const p = vis[i][vis[i].length - 1]; if (!p) return;
+      const from = p.position.clone(), to = slotPos(i, vis[i].length - 1);
+      queue(0.12, k => p.position.lerpVectors(from, to, k * k), () => sLand(0.5));
+    }
+    function wobble(i) { tubes[i].wob = 1; }
+
+    function tapTube(i) {
+      if (state !== 'play') return;
+      flush();
+      if (selected < 0) {
+        if (!board[i].length) { wobble(i); sBonk(); return; }
+        setSelected(i); liftTop(i); sGlass(0.8);
+        return;
+      }
+      const a = selected;
+      if (i === a) { setSelected(-1); dropTop(a); return; }
+      if (!legal(a, i)) {
+        wobble(i); sBonk();
+        setSelected(-1); dropTop(a);
+        return;
+      }
+      // 注ぐ
+      setSelected(-1);
+      history.push(clone(board));
+      const v = board[a].pop();
+      const B = board[i]; let x = v; const chain = [];
+      while (B.length && B[B.length - 1] === x) { B.pop(); x++; chain.push(x); }
+      B.push(x);
+      animatePour(a, i, v, chain);
+      updatePips(true);
+      afterMove();
+    }
+    function animatePour(a, b, v, chain) {
+      const p = vis[a].pop();
+      const from = p.position.clone();
+      const startK = vis[b].length;
+      const to = slotPos(b, startK);
+      const top = Math.max(from.y, liftPos(b).y) + 0.9;
+      const mid = liftPos(b);
+      const dist = from.distanceTo(mid);
+      // 弧を描いて試験管の口へ → 落ちる
+      queue(0.16 + Math.min(0.2, dist * 0.03), k => {
+        const e = ease(k);
+        p.position.set(from.x + (mid.x - from.x) * e, from.y + (mid.y - from.y) * e + Math.sin(Math.PI * k) * (top - Math.max(from.y, mid.y)), from.z + (mid.z - from.z) * e);
+        p.rotation.z = Math.sin(Math.PI * k) * 0.5 * Math.sign(mid.x - from.x || 1);
+      }, () => { p.rotation.z = 0; });
+      queue(0.08 + (mid.y - to.y) * 0.03, k => p.position.lerpVectors(mid, to, k * k), () => {
+        sLand(1); tubes[b].wob = 0.35;
+        vis[b].push(p);
+      });
+      // 合体（上の玉が下の玉に吸い込まれ、下の玉が倍の数字になる）
+      chain.forEach((e, n) => {
+        let upper, lower, from2, to2;
+        queue(0.13, k => {
+          if (!upper) { upper = vis[b][vis[b].length - 1]; lower = vis[b][vis[b].length - 2]; from2 = upper.position.clone(); to2 = lower.position.clone(); }
+          upper.position.lerpVectors(from2, to2, k * k);
+          upper.scale.setScalar(1 - 0.4 * k);
+        }, () => {
+          scene.remove(upper); vis[b].pop();
+          setPuck(lower, e);
+          sMerge(n + e * 0.35);
+          burst(lower.position.clone().add(new THREE.Vector3(0, PH / 2, 0.3)), e, 10 + n * 4, 1 + n * 0.15);
+          tubes[b].wob = 0.5;
+          // 膨らむ動き（次の合体はこれが終わってから）
+          anims.unshift({ t: 0, dur: 0.16, step: k => { const s = 1 + Math.sin(Math.PI * k) * 0.22; lower.scale.set(s, 1 + Math.sin(Math.PI * k) * 0.12, s); }, end: () => lower.scale.set(1, 1, 1) });
+        });
+      });
+    }
+    function afterMove() {
+      let tiles = 0; for (const c of board) tiles += c.length;
+      if (tiles === 1) {
+        state = 'clear';
+        queue(0.25, null, () => startClear());
+        return;
+      }
+      setStuck(!anyLegal());
+    }
+    function setStuck(v) {
+      if (stuck === v) return;
+      stuck = v;
+      glassMat.color.set(v ? '#9aa3a6' : '#eaf8ff'); glassMat.opacity = v ? 0.5 : 0.2;
+      document.getElementById('undo').classList.toggle('pulse', v);
+    }
+    function undo() {
+      if (state !== 'play' || !history.length) return;
+      flush();
+      setSelected(-1);
+      board = history.pop();
+      rebuild(); setStuck(!anyLegal()); updatePips(false);
+      sGlass(0.5);
+    }
+    function restart() {
+      if (state !== 'play' || !history.length) return;
+      flush();
+      setSelected(-1);
+      board = clone(puzzle.tubes); history = [];
+      setStuck(false); updatePips(false);
+      dropIn();
+    }
+    // 玉が上から試験管に落ちてくる
+    function dropIn() {
+      for (const col of vis) for (const p of col) scene.remove(p);
+      vis = board.map(() => []);
+      const order = [];
+      board.forEach((col, i) => col.forEach((e, k) => order.push([i, k, e])));
+      order.sort((p, q) => p[1] - q[1] || Math.random() - 0.5);
+      const items = order.map(([i, k, e], n) => {
+        const p = makePuck(e); const to = slotPos(i, k); const from = to.clone(); from.y = RACK_TOP + 2 + k * 0.6;
+        p.position.copy(from); p.visible = false;
+        return { p, i, k, from, to, delay: n * 0.035, landed: false };
+      });
+      const total = items.length ? items[items.length - 1].delay + 0.45 : 0;
+      let landedSounds = 0;
+      queue(total, k => {
+        const tt = k * total;
+        for (const it of items) {
+          const u = Math.max(0, Math.min(1, (tt - it.delay) / 0.4));
+          it.p.visible = tt >= it.delay;
+          it.p.position.lerpVectors(it.from, it.to, u * u);
+          if (u >= 1 && !it.landed) { it.landed = true; vis[it.i][it.k] = it.p; if (landedSounds++ < 14) sLand(0.35); }
+        }
+      }, () => { for (const it of items) { it.p.visible = true; it.p.position.copy(it.to); vis[it.i][it.k] = it.p; } });
+    }
+
+    // ---------- 手数の目盛り ----------
+    const pipsEl = document.getElementById('pips');
+    function updatePips(pop) {
+      if (!puzzle) { pipsEl.innerHTML = ''; return; }
+      const opt = puzzle.opt, m = moves(), n = Math.max(opt, m);
+      const w = pipsEl.clientWidth || 200;
+      const size = Math.max(7, Math.min(18, Math.floor(w / n) - 4));
+      let html = '';
+      for (let k = 0; k < n; k++) {
+        const cls = k < m ? (k < opt ? 'on' : 'over') : '';
+        html += `<i class="${cls}${pop && k === m - 1 ? ' pop' : ''}" style="width:${size}px;height:${size}px"></i>`;
+      }
+      pipsEl.innerHTML = html;
+    }
+
+    // ---------- 開始・クリア ----------
+    async function start() {
+      state = 'wait';
+      document.getElementById('result').className = '';
+      renderControls();
+      setSelected(-1); setStuck(false);
+      if (catPuck) { scene.remove(catPuck); catPuck = null; }
+      snapshot = null; shareCache = null;
+      for (const col of vis) for (const p of col) scene.remove(p);
+      vis = board.map(() => []);
+      pipsEl.innerHTML = '';
+      const p = await requestPuzzle();
+      puzzle = p; board = clone(p.tubes); history = [];
+      state = 'play';
+      updatePips(false);
+      dropIn();
+      prefetch();
+    }
+    function startClear() {
+      // 2048 の玉（猫の顔）が手前に飛び出してくる
+      const b = board.findIndex(c => c.length);
+      catPuck = vis[b][0];
+      vis[b] = [];
+      catPuck.userData.from = catPuck.position.clone();
+      clearT = 0; captured = false;
+      sClear();
+      burst(catPuck.position.clone().add(new THREE.Vector3(0, 0.3, 0.3)), GOAL, 40, 1.6);
+      for (let k = 1; k <= 9; k++) burst(catPuck.position.clone(), k, 4, 1.2);
+      setTimeout(() => { if (state === 'clear') finish(); }, 1100);
+    }
+    // 結果の時に猫の玉を置く画面上の位置（全体のキャンバスに対する 0〜1）
+    let catScreen = { x: 0.5, y: 0.55, size: 0.3 };
+    function catTarget() {
+      const v = new THREE.Vector3((catScreen.x) * 2 - 1, -(catScreen.y) * 2 + 1, 0.5).unproject(camera);
+      const dir = v.sub(camera.position).normalize();
+      return camera.position.clone().addScaledVector(dir, 9);
+    }
+    function stepCat(dt) {
+      if (!catPuck) return;
+      clearT += dt;
+      const k = ease(Math.min(1, clearT / 0.9));
+      const to = catTarget();
+      // 猫の玉の見かけの大きさ: 距離 9 で画面の catScreen.size の高さ
+      const vf = THREE.MathUtils.degToRad(camera.fov);
+      const fullH = 2 * Math.tan(vf / 2) * 9 * (camera.view ? camera.view.height / camera.view.fullHeight : 1);
+      const s = Math.max(1, (catScreen.size * fullH) / (PR * 2));
+      // 上の面（猫の顔）をこちらに向けて起こす
+      const sc = 1 + (s - 1) * k;
+      catPuck.rotation.set((1.2 + Math.sin(clearT * 2.1) * 0.08) * k, 0, Math.sin(clearT * 1.6) * 0.12 * k);
+      const half = new THREE.Vector3(0, PH * sc / 2, 0).applyEuler(catPuck.rotation);
+      catPuck.position.lerpVectors(catPuck.userData.from, to.clone().sub(half), k);
+      catPuck.position.y += Math.sin(Math.PI * k) * 1.5;
+      catPuck.scale.setScalar(sc);
+      // 飛び終わって少ししたら、Xに付ける画像用に画面を写す
+      if (state === 'result' && !captured && clearT > 1.3) { captured = true; captureNext = true; }
+    }
+    function finish() {
+      state = 'result';
+      fillResult();
+      layoutResult();
+      document.getElementById('result').className = 'show';
+      renderControls();
+    }
+    const score = () => puzzle ? Math.round((puzzle.opt / Math.max(1, moves())) * 100) : 0;
+    function fillResult() {
+      const r = document.getElementById('result');
+      r.querySelector('.score').textContent = t('score')(score());
+      r.querySelector('.moves').textContent = t('moves')(moves(), puzzle.opt);
+    }
+
+    // ---------- 画面 ----------
+    const controls = document.getElementById('controls');
+    const bar = document.getElementById('bar');
+    function renderControls() {
+      controls.innerHTML = '';
+      const res = state === 'result';
+      controls.classList.toggle('hide', !res);
+      bar.classList.toggle('hide', res);
+      if (!res) return;
+      const b = document.createElement('button');
+      b.className = 'go'; b.textContent = t('again');
+      b.addEventListener('click', start);
+      controls.append(b);
+      const a = document.createElement('a');
+      a.className = 'post'; a.textContent = t('post');
+      const text = t('share')(score(), moves(), puzzle.opt);
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SHARE_URL)}`;
+      const coarse = matchMedia('(pointer: coarse)').matches;
+      if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
+      // スマホは画像ごと共有シートへ。PCは画像を保存してから投稿画面を開く
+      a.addEventListener('click', e => {
+        if (coarse && navigator.share) {
+          e.preventDefault();
+          const file = shareFile();
+          const data = file && navigator.canShare?.({ files: [file] }) ? { files: [file], text: `${text}\n${SHARE_URL}` } : { text: `${text}\n${SHARE_URL}` };
+          navigator.share(data).catch(() => {});
+          return;
+        }
+        const img = resultImage();
+        if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'sort-2048.png'; d.click(); }
+      });
+      controls.append(a);
+    }
+
+    // ---------- 画面サイズ ----------
+    let frame = { x: 0, y: 0, w: 1, h: 1 }, W = 1, H = 1;
+    const resultEl = document.getElementById('result');
+    function bottomReserve() {
+      const el = state === 'result' ? controls : bar;
+      return Math.max(0, stage.getBoundingClientRect().bottom - el.getBoundingClientRect().top) + 8;
+    }
+    function resize() {
+      W = stage.clientWidth; H = stage.clientHeight;
+      renderer.setSize(W, H, false);
+      // 下の80px（Xの投稿文が重なる所）と操作バーを除いた範囲に試験管立てを収める
+      const bottom = Math.max(0, stage.getBoundingClientRect().bottom - bar.getBoundingClientRect().top) + 6;
+      const aw = W - 16, ah = Math.max(120, H - bottom - 6);
+      frame = { x: 8, y: 4, w: aw, h: ah };
+      updateCamera();
+      updatePips(false);
+      if (state === 'result') layoutResult();
+    }
+    // 試験管立ての箱が frame の中にちょうど入る距離を探す
+    const VIEW_DIR = new THREE.Vector3(), camCenter = new THREE.Vector3();
+    function placeCamera(d) { camera.position.copy(camCenter).addScaledVector(VIEW_DIR, d); camera.lookAt(camCenter); camera.updateMatrixWorld(); camera.updateProjectionMatrix(); }
+    function fitDistance(cols, rows) {
+      const sz = rackSize(cols, rows);
+      const corners = [];
+      for (let k = 0; k < 8; k++) corners.push(new THREE.Vector3((k & 1 ? 1 : -1) * (sz.w / 2 + 0.1), k & 2 ? sz.top : -0.1, k & 4 ? 0.9 : -sz.back - 0.8));
+      camCenter.set(0, sz.top * 0.47, -sz.back / 2 - 0.05);
+      const fits = d => {
+        placeCamera(d);
+        // setViewOffset 中は投影が全体のキャンバス基準になるので、frame の範囲に直して判定する
+        for (const c of corners) {
+          const p = c.clone().project(camera);
+          const sx = (p.x + 1) / 2 * W, sy = (1 - p.y) / 2 * H;
+          if (sx < frame.x || sx > frame.x + frame.w || sy < frame.y || sy > frame.y + frame.h) return false;
+        }
+        return true;
+      };
+      let lo = 3, hi = 300;
+      for (let k = 0; k < 24; k++) { const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; }
+      return hi;
+    }
+    function updateCamera() {
+      // 横長の画面では上から見下ろして段を詰め、試験管立てを大きく見せる
+      camera.aspect = frame.w / frame.h;
+      const tilt = THREE.MathUtils.lerp(0.3, 0.62, THREE.MathUtils.clamp((camera.aspect - 0.6) / 0.9, 0, 1));
+      VIEW_DIR.set(0, Math.sin(tilt), Math.cos(tilt));
+      camera.setViewOffset(frame.w, frame.h, -frame.x, -frame.y, W, H);
+      // 4×4 より 8×2 の方がずっと大きく見える画面だけ並べ替える
+      const wide = fitDistance(8, 2) * 1.3 < fitDistance(4, 4);
+      const [cols, rows] = wide ? [8, 2] : [4, 4];
+      if (layout !== cols + 'x' + rows) {
+        flush();
+        buildRack(cols, rows);
+        if (state === 'play') rebuild();
+      }
+      placeCamera(fitDistance(cols, rows));
+    }
+    function layoutResult() {
+      // 点数は上、猫の玉はその下。背の低い横長画面では横に並べる
+      const top = frame.y, ah = H - bottomReserve() - top;
+      const wide = W / Math.max(1, ah) > 1.5 && ah < 520;
+      if (wide) {
+        Object.assign(resultEl.style, { left: '4%', top: top + 'px', width: '46%', height: ah + 'px' });
+        catScreen = { x: 0.72, y: (top + ah * 0.5) / H, size: Math.min(ah * 0.55, W * 0.3) / H };
+      } else {
+        const rh = Math.min(ah * 0.36, 260);
+        Object.assign(resultEl.style, { left: '0', top: top + 'px', width: '100%', height: rh + 'px' });
+        catScreen = { x: 0.5, y: (top + rh + (ah - rh) * 0.48) / H, size: Math.min((ah - rh) * 0.62, W * 0.55) / H };
+      }
+    }
+    addEventListener('resize', resize);
+
+    // ---------- 入力 ----------
+    const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+    const hitBoxes = tubes.map(tb => tb.hitBox);
+    stage.addEventListener('pointerdown', e => {
+      if (e.button > 0) return;
+      const r = renderer.domElement.getBoundingClientRect();
+      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      const h = ray.intersectObjects(hitBoxes, false)[0];
+      if (h) tapTube(h.object.userData.tube);
+      else if (state === 'play' && selected >= 0) { flush(); const a = selected; setSelected(-1); dropTop(a); }
+    });
+    document.getElementById('undo').addEventListener('click', undo);
+    document.getElementById('restart').addEventListener('click', restart);
+    addEventListener('keydown', e => {
+      if (e.key === 'z' || e.key === 'Z' || e.key === 'Backspace') undo();
+      else if (e.key === 'r' || e.key === 'R') restart();
+    });
+
+    // ---------- 結果画像（Xに付ける） ----------
+    let captureNext = false, captured = false, snapshot = null, shareCache = null;
+    function capture() {
+      // 画面に描いたばかりのキャンバスから、試験管立てと猫が入る正方形を切り抜く
+      const c = renderer.domElement, sx = c.width / W, sy = c.height / H;
+      // 猫の玉を真ん中にする
+      const side = Math.min(W, H, Math.max(catScreen.size * H * 2.2, Math.min(W, H) * 0.6));
+      const cx = catScreen.x * W, cy = catScreen.y * H + side * 0.1; // 猫は少し上、下に点数
+      const x = Math.max(0, Math.min(W - side, cx - side / 2)), y = Math.max(0, Math.min(H - side, cy - side / 2));
+      snapshot = document.createElement('canvas'); snapshot.width = snapshot.height = 1080;
+      snapshot.getContext('2d').drawImage(c, x * sx, y * sy, side * sx, side * sy, 0, 0, 1080, 1080);
+      shareCache = null; prepareShare();
+    }
+    function resultImage() {
+      if (!snapshot || !puzzle) return null;
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      g.drawImage(snapshot, 0, 0);
+      const gr = g.createLinearGradient(0, 0, 0, 1080);
+      gr.addColorStop(0, 'rgba(20,40,38,.55)'); gr.addColorStop(0.3, 'rgba(20,40,38,0)'); gr.addColorStop(0.62, 'rgba(20,40,38,0)'); gr.addColorStop(1, 'rgba(20,40,38,.7)');
+      g.fillStyle = gr; g.fillRect(0, 0, 1080, 1080);
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.lineJoin = 'round';
+      const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
+      const text = (str, y, px, max) => {
+        g.font = font(px);
+        const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
+        g.lineWidth = px * .16; g.strokeStyle = '#1d3a36'; g.strokeText(str, 540, y); g.fillText(str, 540, y);
+      };
+      text(t('title'), 86, 56, 900);
+      text(t('score')(score()), 930, 170, 960);
+      text(t('moves')(moves(), puzzle.opt), 1030, 60, 960);
+      return c;
+    }
+    function prepareShare() {
+      if (!snapshot) return;
+      const key = lang;
+      if (shareCache?.key === key) return;
+      shareCache = { key, file: null };
+      resultImage().toBlob(b => { if (b && shareCache?.key === key) shareCache.file = new File([b], 'sort-2048.png', { type: 'image/png' }); }, 'image/png');
+    }
+    const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
+
+    // ---------- ループ ----------
+    let last = performance.now();
+    function frameLoop(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      stepAnims(dt);
+      stepSparks(dt);
+      stepCat(dt);
+      for (const tb of tubes) {
+        if (tb.wob > 0) { tb.wob = Math.max(0, tb.wob - dt * 2.2); tb.inner.rotation.z = Math.sin(tb.wob * 40) * 0.07 * tb.wob; }
+        else tb.inner.rotation.z = 0;
+      }
+      if (selected >= 0) tubes[selected].ring.material.opacity = 0.65 + Math.sin(now * 0.008) * 0.3;
+      renderer.render(scene, camera);
+      if (captureNext) { captureNext = false; capture(); }
+      requestAnimationFrame(frameLoop);
+    }
+    applyLang();
+    resize();
+    renderer.compile(scene, camera);
+    renderer.render(scene, camera);
+    requestAnimationFrame(frameLoop);
+    start();
+  </script>
+</body>
+</html>
