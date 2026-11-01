@@ -45,7 +45,7 @@
       #result b { font-size: 44px; }
       #result span { font-size: 18px; }
     }
-    #catch { position: absolute; left: 0; right: 0; top: 48px; margin: 0; text-align: center; pointer-events: none; z-index: 1; padding: 0 8px;
+    #catch { position: absolute; left: 0; right: 0; top: calc(64px + 3vh); margin: 0; text-align: center; pointer-events: none; z-index: 1; padding: 0 8px;
       font-size: clamp(24px, 6vmin, 52px); font-weight: 900; color: #fff; line-height: 1.2;
       text-shadow: 0 3px 0 #7a1a10, 0 0 14px rgba(0,0,0,.4); }
     #catch.hide { display: none; }
@@ -381,48 +381,73 @@
       for (let k = -2; k <= 2; k++) part(SPH, PLEAT, 0, 0.06 - Math.abs(k) * 0.006, k * 0.035, 0.012, 0.014, 0.022, g);
       return g;
     }
-    const gyozas = [];
-    let gyozaPlate;
+    // 料理ごとの材質・模様は1回だけ作って使い回す
+    const WING = new THREE.MeshStandardMaterial({ roughness: 0.4, transparent: true, alphaTest: 0.3, map: canvasTex(256, 256, (c) => {
+      for (let i = 0; i < 260; i++) { const x = rnd(30, 226), y = rnd(30, 226); if (Math.hypot(x - 128, y - 128) > 98) continue; c.fillStyle = `hsla(${32 + Math.random() * 8},70%,${45 + Math.random() * 20}%,.9)`; c.beginPath(); c.arc(x, y, rnd(4, 12), 0, 7); c.fill(); }
+    }) });
+    const BAMBOO = (() => { const tx = canvasTex(128, 32, (c, w, h) => { c.fillStyle = '#c9a46a'; c.fillRect(0, 0, w, h); for (let x = 0; x < w; x += 6) { c.fillStyle = 'rgba(90,60,20,.3)'; c.fillRect(x, 0, 2, h); } }); tx.wrapS = THREE.RepeatWrapping; tx.repeat.set(6, 1); return new THREE.MeshStandardMaterial({ map: tx, roughness: 0.8, side: THREE.DoubleSide }); })();
+    const RICE = new THREE.MeshStandardMaterial({ roughness: 0.8, map: canvasTex(128, 128, (c, w, h) => { c.fillStyle = '#e8c86a'; c.fillRect(0, 0, w, h); for (let i = 0; i < 500; i++) { c.fillStyle = pick(['#f5dc8a', '#d9b252', '#f8e8b0']); c.fillRect(Math.random() * w, Math.random() * h, 3, 2); } for (let i = 0; i < 40; i++) { c.fillStyle = pick(['#4f9a35', '#e85a6a', '#f5e070']); c.fillRect(Math.random() * w, Math.random() * h, 4, 4); } }) });
+    const GLASS = new THREE.MeshStandardMaterial({ color: '#e8f4f8', roughness: 0.05, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+    const M = { lettuce: mat('#5aa33a', 0.6), roll: mat('#d38a2a', 0.45), steamBase: mat('#a07a40', 0.8), bun: mat('#faf5ea', 0.55), sauce: mat('#d8401e', 0.25), shrimp: mat('#f2803a', 0.4), green: mat('#6abf3a', 0.5),
+      shumai: mat('#f1d9a0', 0.55), carrot: mat('#e8742a', 0.4), pudding: mat('#fffdf6', 0.3), goji: mat('#d8261a', 0.3), leaf: mat('#3e8f2e', 0.3) };
+    const G = { open: new THREE.CylinderGeometry(1, 1, 1, 32, 1, true), bowl: new THREE.CylinderGeometry(1, 0.7, 1, 32, 1, true), cone: new THREE.ConeGeometry(1, 1, 8), shrimp: new THREE.TorusGeometry(0.045, 0.022, 8, 12, 3.8), wing: new THREE.CircleGeometry(0.32, 32) };
+    const grp = (parent, ...kids) => { const g = new THREE.Group(); kids.forEach(k => g.add(k)); parent.add(g); return g; };
+    // 1皿ずつ: items は1口ごとに減っていく物。take() は1口ぶん取って、口まで飛ばす物を返す
     const DISHES = [
-      // 0: 餃子の大皿（羽根つき）
+      // 0: 餃子の大皿（羽根つき、6個）
       g => {
         plate(g, 0.36, 1.1);
-        const wing = canvasTex(256, 256, (c, w, h) => {
-          for (let i = 0; i < 260; i++) { const x = rnd(30, 226), y = rnd(30, 226); if (Math.hypot(x - 128, y - 128) > 98) continue; c.fillStyle = `hsla(${32 + Math.random() * 8},${70}%,${45 + Math.random() * 20}%,.9)`; c.beginPath(); c.arc(x, y, rnd(4, 12), 0, 7); c.fill(); }
-        });
-        const wm = new THREE.Mesh(new THREE.CircleGeometry(0.32, 32), new THREE.MeshStandardMaterial({ map: wing, transparent: true, alphaTest: 0.3, roughness: 0.4 }));
-        wm.rotation.x = -Math.PI / 2; wm.position.y = 0.036; wm.scale.x = 1.12; g.add(wm);
-        for (let k = 0; k < 6; k++) { const gz = makeGyoza(); gz.position.set((k - 2.5) * 0.095, 0.036, 0); gz.rotation.y = rnd(-0.08, 0.08); g.add(gz); gyozas.push(gz); }
-        gyozaPlate = g;
+        const wm = new THREE.Mesh(G.wing, WING); wm.rotation.x = -Math.PI / 2; wm.position.y = 0.036; wm.scale.x = 1.12; g.add(wm);
+        const items = [];
+        for (let k = 0; k < 6; k++) { const gz = makeGyoza(); gz.position.set((k - 2.5) * 0.095, 0.036, 0); gz.rotation.y = rnd(-0.08, 0.08); g.add(gz); items.push(gz); }
+        return { items, gyoza: true };
       },
-      // 春巻き
-      g => { plate(g, 0.27); part(SPH, mat('#5aa33a', 0.6), 0.02, 0.04, 0.05, 0.17, 0.02, 0.12, g);
-        const m = mat('#d38a2a', 0.45); for (let k = 0; k < 3; k++) { const c = part(TORSO, m, (k - 1) * 0.085, 0.075, 0, 0.038, 0.07, 0.038, g); c.rotation.x = Math.PI / 2; c.rotation.z = rnd(-0.1, 0.1); } },
-      // 小籠包（せいろ）
-      g => { const bam = canvasTex(128, 32, (c, w, h) => { c.fillStyle = '#c9a46a'; c.fillRect(0, 0, w, h); for (let x = 0; x < w; x += 6) { c.fillStyle = 'rgba(90,60,20,.3)'; c.fillRect(x, 0, 2, h); } });
-        bam.wrapS = THREE.RepeatWrapping; bam.repeat.set(6, 1);
-        part(new THREE.CylinderGeometry(1, 1, 1, 32, 1, true), new THREE.MeshStandardMaterial({ map: bam, roughness: 0.8, side: THREE.DoubleSide }), 0, 0.06, 0, 0.27, 0.12, 0.27, g);
-        part(CYL, mat('#a07a40', 0.8), 0, 0.01, 0, 0.26, 0.02, 0.26, g);
-        const wm = mat('#faf5ea', 0.55); for (let k = 0; k < 4; k++) { const p = polar(k * Math.PI / 2 + 0.4, 0.12, 0.02); part(DOME, wm, p.x, p.y, p.z, 0.085, 0.075, 0.085, g); part(new THREE.ConeGeometry(1, 1, 8), wm, p.x, p.y + 0.085, p.z, 0.02, 0.03, 0.02, g); }
-        g.userData.steam = true; },
-      // エビチリ
-      g => { plate(g, 0.27); part(CYL, mat('#d8401e', 0.25), 0, 0.035, 0, 0.21, 0.012, 0.21, g);
-        const sm = mat('#f2803a', 0.4), sg = new THREE.TorusGeometry(0.045, 0.022, 8, 12, 3.8); for (let k = 0; k < 5; k++) { const p = polar(k * 1.26, k ? 0.11 : 0, 0.06); const s = part(sg, sm, p.x, p.y, p.z, 1, 1, 1, g); s.rotation.set(Math.PI / 2, 0, rnd(0, 6)); }
-        for (let k = 0; k < 6; k++) { const p = polar(rnd(0, 6), rnd(0, 0.18), 0.05); part(SPH, mat('#6abf3a', 0.5), p.x, p.y, p.z, 0.012, 0.006, 0.012, g); } },
-      // チャーハン
-      g => { plate(g, 0.27); const rice = canvasTex(128, 128, (c, w, h) => { c.fillStyle = '#e8c86a'; c.fillRect(0, 0, w, h); for (let i = 0; i < 500; i++) { c.fillStyle = pick(['#f5dc8a', '#d9b252', '#f8e8b0']); c.fillRect(Math.random() * w, Math.random() * h, 3, 2); } for (let i = 0; i < 40; i++) { c.fillStyle = pick(['#4f9a35', '#e85a6a', '#f5e070']); c.fillRect(Math.random() * w, Math.random() * h, 4, 4); } });
-        part(DOME, new THREE.MeshStandardMaterial({ map: rice, roughness: 0.8 }), 0, 0.03, 0, 0.2, 0.12, 0.2, g); },
-      // 焼売
-      g => { plate(g, 0.27); const m = mat('#f1d9a0', 0.55), pea = mat('#e8742a', 0.4); for (let k = 0; k < 4; k++) { const p = polar(k * Math.PI / 2 + 0.78, 0.11, 0.07); part(CYL, m, p.x, p.y, p.z, 0.055, 0.075, 0.055, g); part(SPH, pea, p.x, p.y + 0.045, p.z, 0.02, 0.015, 0.02, g); } },
-      // 杏仁豆腐
-      g => { part(new THREE.CylinderGeometry(1, 0.7, 1, 32, 1, true), new THREE.MeshStandardMaterial({ color: '#e8f4f8', roughness: 0.05, transparent: true, opacity: 0.45, side: THREE.DoubleSide }), 0, 0.07, 0, 0.2, 0.14, 0.2, g);
-        part(CYL, mat('#fffdf6', 0.3), 0, 0.06, 0, 0.17, 0.08, 0.17, g);
-        for (let k = 0; k < 3; k++) { const p = polar(k * 2.1, 0.07, 0.105); part(SPH, mat('#d8261a', 0.3), p.x, p.y, p.z, 0.02, 0.014, 0.014, g); } },
-      // 青菜炒め
-      g => { plate(g, 0.27); const m = mat('#3e8f2e', 0.3); for (let k = 0; k < 9; k++) { const p = polar(rnd(0, 6.3), rnd(0, 0.15), 0.05); const l = part(SPH, m, p.x, p.y, p.z, 0.07, 0.015, 0.035, g); l.rotation.y = rnd(0, 6); } },
+      // 春巻き（3本）
+      g => { plate(g, 0.27); part(SPH, M.lettuce, 0.02, 0.04, 0.05, 0.17, 0.02, 0.12, g);
+        const items = []; for (let k = 0; k < 3; k++) { const c = part(TORSO, M.roll, (k - 1) * 0.085, 0.075, 0, 0.038, 0.07, 0.038, g); c.rotation.x = Math.PI / 2; c.rotation.z = rnd(-0.1, 0.1); items.push(c); }
+        return { items }; },
+      // 小籠包（せいろに4個）
+      g => { part(G.open, BAMBOO, 0, 0.06, 0, 0.27, 0.12, 0.27, g); part(CYL, M.steamBase, 0, 0.01, 0, 0.26, 0.02, 0.26, g);
+        const items = []; for (let k = 0; k < 4; k++) { const p = polar(k * Math.PI / 2 + 0.4, 0.12, 0.02); const b = grp(g, part(DOME, M.bun, 0, 0, 0, 0.085, 0.075, 0.085), part(G.cone, M.bun, 0, 0.085, 0, 0.02, 0.03, 0.02)); b.position.copy(p); items.push(b); }
+        return { items, steam: true }; },
+      // エビチリ（5尾）
+      g => { plate(g, 0.27); part(CYL, M.sauce, 0, 0.035, 0, 0.21, 0.012, 0.21, g);
+        const items = []; for (let k = 0; k < 5; k++) { const p = polar(k * 1.26, k ? 0.11 : 0, 0.06); const s = part(G.shrimp, M.shrimp, p.x, p.y, p.z, 1, 1, 1, g); s.rotation.set(Math.PI / 2, 0, rnd(0, 6)); items.push(s); }
+        for (let k = 0; k < 6; k++) { const p = polar(rnd(0, 6), rnd(0, 0.18), 0.05); part(SPH, M.green, p.x, p.y, p.z, 0.012, 0.006, 0.012, g); }
+        return { items }; },
+      // チャーハン（山が4口で小さくなる）
+      g => { plate(g, 0.27); const mound = part(DOME, RICE, 0, 0.03, 0, 0.2, 0.12, 0.2, g);
+        let n = 4;
+        return { items: { get length() { return n; } }, take() { n--; const k = Math.sqrt(n / 4); mound.scale.set(0.2 * Math.max(0.35, k), 0.12 * k, 0.2 * Math.max(0.35, k)); mound.visible = n > 0; return part(SPH, RICE, 0, 0, 0, 0.06, 0.045, 0.06); } }; },
+      // 焼売（4個）
+      g => { plate(g, 0.27);
+        const items = []; for (let k = 0; k < 4; k++) { const p = polar(k * Math.PI / 2 + 0.78, 0.11, 0.07); const b = grp(g, part(CYL, M.shumai, 0, 0, 0, 0.055, 0.075, 0.055), part(SPH, M.carrot, 0, 0.045, 0, 0.02, 0.015, 0.02)); b.position.copy(p); items.push(b); }
+        return { items }; },
+      // 杏仁豆腐（3口で減っていく）
+      g => { part(G.bowl, GLASS, 0, 0.07, 0, 0.2, 0.14, 0.2, g);
+        const pud = part(CYL, M.pudding, 0, 0.06, 0, 0.17, 0.08, 0.17, g);
+        const goji = []; for (let k = 0; k < 3; k++) { const p = polar(k * 2.1, 0.07, 0.105); goji.push(part(SPH, M.goji, p.x, p.y, p.z, 0.02, 0.014, 0.014, g)); }
+        let n = 3;
+        return { items: { get length() { return n; } }, take() { n--; goji[n].visible = false; pud.scale.y = 0.08 * n / 3; pud.position.y = 0.02 + 0.04 * n / 3; pud.visible = n > 0; return part(BOX, M.pudding, 0, 0, 0, 0.07, 0.05, 0.07); } }; },
+      // 青菜炒め（3口）
+      g => { plate(g, 0.27);
+        const items = []; for (let k = 0; k < 3; k++) { const b = new THREE.Group(); g.add(b); for (let j = 0; j < 3; j++) { const p = polar(rnd(0, 6.3), rnd(0, 0.15), 0.05 + j * 0.008); const l = part(SPH, M.leaf, p.x, p.y, p.z, 0.07, 0.015, 0.035, b); l.rotation.y = rnd(0, 6); } items.push(b); }
+        return { items }; },
     ];
-    DISHES.forEach((make, k) => { const g = new THREE.Group(); make(g); g.position.copy(polar(k * SLOT, RING, 0.09)); g.rotation.y = k * SLOT; turn.add(shade(g)); g.userData.k = k; });
-    const steamy = []; turn.children.forEach(g => { if (g.userData.steam) steamy.push(g); });
+    let dishes = [];
+    function buildDishes() {
+      for (const d of dishes) if (d) d.g.parent?.remove(d.g);
+      dishes = DISHES.map((make, k) => {
+        const g = new THREE.Group(); const d = make(g) || {};
+        g.position.copy(polar(k * SLOT, RING, 0.09)); g.rotation.y = k * SLOT; turn.add(shade(g));
+        d.g = g; d.k = k;
+        // 1口取る（ふつうの料理は、残っている物を1つ消して、その複製を飛ばす）
+        if (!d.take) d.take = () => { const it = d.items.pop(); it.visible = false; const f = it.clone(); f.visible = true; it.getWorldScale(f.scale); return f; };
+        return d;
+      });
+    }
+    const gyozaDish = () => dishes[0];
+    const left = () => gyozaDish().items.length;
     // 餃子の大皿の上に立てた矢印（テーブルと一緒に回り、上下にふわふわ動く）
     const arrow = new THREE.Group();
     {
@@ -508,6 +533,48 @@
       scene.add(hint);
     }
 
+    // 最初の操作の見本: 指がテーブルのふちをなぞってスワイプする
+    const finger = new THREE.Sprite(new THREE.SpriteMaterial({ depthTest: false, depthWrite: false, transparent: true, map: canvasTex(256, 256, (g) => {
+      const shapes = () => {
+        g.beginPath();
+        g.roundRect(86, 14, 42, 140, 21);          // 人さし指
+        g.roundRect(124, 104, 34, 70, 17);         // 中指
+        g.roundRect(152, 114, 32, 62, 16);         // 薬指
+        g.roundRect(178, 126, 28, 52, 14);         // 小指
+        g.roundRect(78, 120, 128, 112, 40);        // 手のひら
+        g.ellipse(76, 170, 22, 44, -0.6, 0, 7);    // 親指
+      };
+      g.lineJoin = 'round'; g.lineWidth = 18; g.strokeStyle = '#3a1a0e'; shapes(); g.stroke();
+      g.fillStyle = '#ffffff'; shapes(); g.fill();
+      g.strokeStyle = 'rgba(58,26,14,.35)'; g.lineWidth = 4;
+      for (const x of [128, 156, 182]) { g.beginPath(); g.moveTo(x, 130); g.lineTo(x, 168); g.stroke(); }
+    }) }));
+    finger.center.set(107 / 256, 1 - 22 / 256); // 指先を基準にする
+    finger.scale.set(0.75, 0.75, 1); finger.renderOrder = 10; finger.visible = false;
+    scene.add(finger);
+    const ripple = new THREE.Mesh(new THREE.RingGeometry(0.08, 0.12, 32), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, depthTest: false, depthWrite: false }));
+    ripple.rotation.x = -Math.PI / 2; ripple.renderOrder = 9; ripple.visible = false; scene.add(ripple);
+    let idleT = 0;
+    function drawFinger(now) {
+      // 自分の番で、まだ回していない時か、しばらく何もしない時に見せる
+      const show = state === 'wait' && (spins === 0 || idleT > 4);
+      finger.visible = ripple.visible = show;
+      if (!show) return;
+      const CYC = 2.2, q = (now % CYC) / CYC;
+      // 0〜0.15 指を置く → 0.15〜0.6 なぞる → 0.6〜0.75 離す → 休み
+      const move = Math.min(1, Math.max(0, (q - 0.15) / 0.45)), e = move * move * (3 - 2 * move);
+      const a = 0.85 - 1.7 * e;
+      const press = q < 0.15 ? q / 0.15 : q < 0.6 ? 1 : Math.max(0, 1 - (q - 0.6) / 0.15);
+      const p = polar(a, TT_R - 0.15, 0.1 + (1 - press) * 0.25);
+      finger.position.copy(p);
+      finger.material.opacity = Math.min(1, press * 1.5);
+      finger.scale.set(1 - press * 0.1, 1 - press * 0.1, 1);
+      ripple.position.set(p.x, 0.1, p.z);
+      ripple.material.opacity = press * 0.6;
+      ripple.scale.setScalar(1 + (q < 0.15 ? 0 : (q - 0.15) * 2));
+      ripple.visible = q > 0.08 && q < 0.75;
+    }
+
     // 湯気・食べかす（時間で消える小さな粒）
     const fx = [], fxG = new THREE.SphereGeometry(1, 8, 6);
     function puff(pos, color, v, size, life, opacity, grow, grav) {
@@ -528,8 +595,9 @@
     const tmpV = new THREE.Vector3();
     function emitSteam(dt) {
       steamT -= dt; if (steamT > 0) return; steamT = 0.12;
-      const srcs = [...steamy]; if (left > 0) srcs.push(gyozaPlate);
-      const g = pick(srcs); g.getWorldPosition(tmpV);
+      const srcs = dishes.filter(d => (d.steam || d.gyoza) && !d.gone && d.items.length > 0);
+      if (!srcs.length) return;
+      pick(srcs).g.getWorldPosition(tmpV);
       tmpV.x += rnd(-0.12, 0.12); tmpV.z += rnd(-0.12, 0.12); tmpV.y += 0.12;
       puff(tmpV, '#ffffff', new THREE.Vector3(rnd(-0.05, 0.05), rnd(0.25, 0.4), rnd(-0.05, 0.05)), rnd(0.04, 0.07), rnd(1.4, 2), 0.22, 2.5, -0.05);
     }
@@ -573,42 +641,115 @@
     }
     addEventListener('resize', () => resize());
 
+    // ---------- ウェイター ----------
+    const WSHIRT = mat('#ffffff', 0.7), WVEST = mat('#1e1a20', 0.6), WSKIN = mat('#f0c09a', 0.6), WHAIR = mat('#2a1a10', 0.7), WTIE = mat('#c81e1e', 0.4);
+    const LEG = new THREE.CylinderGeometry(0.09, 0.08, 1, 12); LEG.translate(0, -0.5, 0);
+    function makeWaiter() {
+      const g = new THREE.Group();
+      const legs = [-1, 1].map(s => { const l = new THREE.Group(); l.position.set(s * 0.13, -0.55, 0); part(LEG, WVEST, 0, 0, 0, 1, 1.3, 1, l); part(SPH, BLACK, 0, -1.3, 0.06, 0.1, 0.06, 0.15, l); g.add(l); return l; });
+      part(TORSO, WSHIRT, 0, -0.05, 0, 0.34, 0.3, 0.26, g);
+      part(TORSO, WVEST, 0, -0.17, 0, 0.35, 0.24, 0.27, g);
+      for (const s of [-1, 1]) { const c = part(new THREE.ConeGeometry(0.05, 0.09, 8), WTIE, s * 0.045, 0.36, 0.2, 1, 1, 1, g); c.rotation.z = s * Math.PI / 2; }
+      part(CYL, WSKIN, 0, 0.45, 0, 0.1, 0.14, 0.1, g);
+      const head = new THREE.Group(); head.position.y = 0.78; g.add(head);
+      part(SPH, WSKIN, 0, 0, 0, 0.3, 0.32, 0.29, head);
+      for (const s of [-1, 1]) { const e = part(SPH, BLACK, s * 0.1, 0.04, 0.26, 0.035, 0.045, 0.025, head); part(SPH, SHINE, 0.3, 0.35, 0.75, 0.32, 0.28, 0.3, e); }
+      part(BOX, WHAIR, 0, -0.08, 0.28, 0.14, 0.03, 0.03, head);
+      part(CAP, WHAIR, 0, 0.03, -0.03, 0.32, 0.32, 0.32, head).rotation.x = -0.6;
+      part(SPH, WHAIR, 0, -0.04, -0.1, 0.3, 0.27, 0.25, head);
+      const hold = new THREE.Group(); hold.position.set(0.28, 0.12, 0.38); g.add(hold);
+      part(SPH, WSKIN, 0, -0.04, 0, 0.08, 0.06, 0.09, hold);
+      part(SPH, WSKIN, -0.36, -0.2, 0.05, 0.08, 0.06, 0.09, g);
+      g.position.y = 0.4;
+      return { g, legs, hold };
+    }
+    let waiters = [];
+    const WALK = 3.4;
+    // 空いた皿の所へウェイターが歩いてきて、皿を持って帰る
+    function sendWaiter(d) {
+      let a = d.k * SLOT + theta;
+      // 皿が誰かの前なら、その人の横に立つ
+      if (((slotOf(a) % 2) + 2) % 2 === 0) a += (Math.random() < 0.5 ? -1 : 1) * 0.42;
+      const w = makeWaiter(), from = polar(a, 10.5, 0.4), to = polar(a, 2.55, 0.4);
+      w.g.position.copy(from); w.g.lookAt(to.x, 0.4, to.z);
+      scene.add(shade(w.g));
+      Object.assign(w, { d, from, to, phase: 'in', t: 0, walk: 0, plateFrom: new THREE.Vector3() });
+      waiters.push(w);
+    }
+    const hv = new THREE.Vector3();
+    function stepWaiters(dt) {
+      for (let k = waiters.length - 1; k >= 0; k--) {
+        const w = waiters[k]; w.t += dt;
+        if (w.phase === 'in' || w.phase === 'out') {
+          const dst = w.phase === 'in' ? w.to : w.from;
+          hv.subVectors(dst, w.g.position); hv.y = 0;
+          const dist = hv.length(), mv = Math.min(dist, WALK * dt);
+          w.g.position.addScaledVector(hv.normalize(), mv);
+          w.walk += mv * 4.2;
+          w.legs[0].rotation.x = Math.sin(w.walk) * 0.5; w.legs[1].rotation.x = -Math.sin(w.walk) * 0.5;
+          w.g.position.y = 0.4 + Math.abs(Math.cos(w.walk)) * 0.04;
+          if (dist - mv < 0.01) {
+            if (w.phase === 'in') {
+              w.phase = 'pick'; w.t = 0; w.legs.forEach(l => l.rotation.x = 0);
+              w.g.lookAt(0, w.g.position.y, 0);
+              scene.attach(w.d.g); w.plateFrom.copy(w.d.g.position); w.d.gone = true;
+              voice(150, ['a', 'i'], 0.25, 0.18, 0.03, 0.2); // 「はい」
+            } else { scene.remove(w.g); waiters.splice(k, 1); }
+          }
+        } else if (w.phase === 'pick') {
+          // 手をのばして皿を受け取る
+          const q = Math.min(1, w.t / 0.45);
+          w.hold.position.z = 0.38 + Math.sin(q * Math.PI) * 0.35;
+          w.hold.getWorldPosition(hv); hv.y += 0.02;
+          w.d.g.position.lerpVectors(w.plateFrom, hv, q * q * (3 - 2 * q));
+          w.d.g.position.y += Math.sin(q * Math.PI) * 0.25;
+          if (q >= 1) { w.hold.attach(w.d.g); w.phase = 'out'; w.g.lookAt(w.from.x, w.g.position.y, w.from.z); noise(0.06, 0.08, 2500, 'bandpass', 3); }
+        }
+      }
+    }
+
     // ---------- ゲーム ----------
-    // state: wait（自分の番・操作待ち）/ drag / ret（弱すぎて戻る）/ cpu / spin / settle / eat / none / win / result
-    let state = 'wait', cur = 0, timer = 0, theta = 0, prevTheta = 0, omega = 0, fric = 1, left = 6, winner = -1, camK = 0, eater = -1, needSnap = false;
-    let retFrom = 0, retTo = 0, settleFrom = 0, settleTo = 0, cpuW = 0, lastSlot = 0, nobodySigh = false;
-    const eaten = [0, 0, 0, 0];
-    const flyer = makeGyoza(); flyer.visible = false; scene.add(shade(flyer));
-    const flyFrom = new THREE.Vector3(), flyTo = new THREE.Vector3();
+    // state: wait（自分の番・操作待ち）/ drag / ret（弱すぎて戻る）/ cpu / spin / settle / eat / waiter / none / win / result
+    let state = 'wait', cur = 0, timer = 0, theta = 0, prevTheta = 0, omega = 0, fric = 1, winner = -1, camK = 0, needSnap = false, spins = 0;
+    let retFrom = 0, retTo = 0, settleFrom = 0, settleTo = 0, cpuW = 0, lastSlot = 0, nobodySigh = false, eats = [], lastBy = -1;
+    const eaten = [0, 0, 0, 0], bites = [0, 0, 0, 0];
     const slotOf = a => Math.round(a / SLOT);
+    const mod8 = n => ((n % 8) + 8) % 8;
     function reset() {
-      state = 'wait'; cur = 0; timer = 0; omega = 0; left = 6; winner = -1; camK = 0; eater = -1;
-      theta = prevTheta = (Math.floor(Math.random() * 4) * 2 + 1) * SLOT; // 最初は誰の前にもない位置
+      state = 'wait'; cur = 0; timer = 0; omega = 0; winner = -1; camK = 0; eats.forEach(e => scene.remove(e.f)); eats = []; lastBy = -1;
+      theta = prevTheta = (Math.floor(Math.random() * 4) * 2 + 1) * SLOT; // 最初は餃子が誰の前にもない位置
       lastSlot = slotOf(theta);
-      eaten.fill(0);
-      gyozas.forEach(g => g.visible = true); flyer.visible = false;
-      chars.forEach(c => { c.mood = null; c.g.position.y = 0; c.mouth?.scale.set(0.06, 0.02, 0.03); c.body.scale.copy(c.bodyScale); c.head.rotation.set(0, 0, 0); c.hands.forEach((h, k) => h.position.copy(c.rest[k])); c.eyes.forEach(e => e.scale.y = 0.055); });
+      eaten.fill(0); bites.fill(0);
+      waiters.forEach(w => scene.remove(w.g)); waiters = [];
+      buildDishes();
+      chars.forEach(c => { c.mood = null; c.chewT = -1; c.g.position.y = 0; c.mouth?.scale.set(0.06, 0.02, 0.03); c.body.scale.copy(c.bodyScale); c.head.rotation.set(0, 0, 0); c.hands.forEach((h, k) => h.position.copy(c.rest[k])); c.eyes.forEach(e => e.scale.y = 0.055); });
     }
     function beginTurn() {
       timer = 0;
       if (cur === 0) { state = 'wait'; return; }
       state = 'cpu'; cpuW = (Math.random() < 0.5 ? -1 : 1) * rnd(6, 14);
     }
+    function nextTurn() { cur = (cur + 1) % 4; beginTurn(); }
     function startSpin(w) {
-      omega = w; fric = rnd(0.85, 1.15); state = 'spin'; timer = 0;
+      omega = w; fric = rnd(0.85, 1.15); state = 'spin'; timer = 0; spins++;
       sWhoosh(w);
     }
-    // 止まった位置で、餃子の大皿が前にある人を探す
+    // 止まったら、4人がそれぞれ目の前の皿から1口ずつ食べる
     function land() {
-      const k = ((slotOf(theta) % 8) + 8) % 8;
-      const who = { 0: 0, 6: 1, 4: 2, 2: 3 }[k];
-      timer = 0;
-      if (who === undefined || left <= 0) { state = 'none'; nobodySigh = Math.random() < 0.6; return; }
-      eater = who; state = 'eat';
-      left--;
-      gyozas[left].getWorldPosition(flyFrom); gyozas[left].visible = false;
-      chars[who].head.localToWorld(flyTo.set(0, -0.12, chars[who].cat ? 0.2 : 0.36));
-      flyer.position.copy(flyFrom); flyer.visible = true;
+      timer = 0; eats = [];
+      const s0 = slotOf(theta);
+      SEAT_A.forEach((a, i) => {
+        const d = dishes[mod8(Math.round(a / SLOT) - s0)];
+        if (!d || d.gone || d.items.length === 0) return;
+        const f = d.take();
+        const from = d.g.localToWorld(f.position.clone()); from.y += 0.03;
+        f.position.copy(from); f.visible = false; scene.add(f);
+        const to = chars[i].head.localToWorld(new THREE.Vector3(0, -0.12, chars[i].cat ? 0.2 : 0.36));
+        if (d.gyoza && d.items.length === 0) lastBy = i;
+        eats.push({ i, d, f, from, to, delay: eats.length * 0.14, done: false });
+      });
+      if (!eats.length) { state = 'none'; nobodySigh = Math.random() < 0.6; return; }
+      state = 'eat';
       tone('sine', 500, 820, 0.08, 0.08);
     }
     function win(i) {
@@ -623,6 +764,7 @@
     function step(dt) {
       prevTheta = theta;
       timer += dt;
+      idleT = state === 'wait' ? idleT + dt : 0;
       if (state === 'ret') { const k = Math.min(1, timer / 0.3); theta = retFrom + (retTo - retFrom) * (1 - (1 - k) ** 3); if (k >= 1) { state = 'wait'; timer = 0; } }
       else if (state === 'cpu') {
         if (timer >= 0.75 && timer - dt < 0.75) sHeave(chars[cur]);
@@ -644,23 +786,40 @@
       }
       else if (state === 'settle') { const k = Math.min(1, timer / 0.2); theta = settleFrom + (settleTo - settleFrom) * k; if (k >= 1) land(); }
       else if (state === 'eat') {
-        const c = chars[eater], FLY = 0.55;
-        if (timer < FLY) {
-          const k = timer / FLY;
-          flyer.position.lerpVectors(flyFrom, flyTo, k); flyer.position.y += Math.sin(k * Math.PI) * 0.6;
-          flyer.rotation.y = k * 4; flyer.scale.setScalar(1 + k * 0.4);
-        } else if (flyer.visible) {
-          flyer.visible = false; eaten[eater]++;
-          for (let k = 0; k < 7; k++) puff(flyTo, pick(['#e8b860', '#f2e2bf']), new THREE.Vector3(rnd(-0.6, 0.6), rnd(0.2, 1), rnd(-0.6, 0.6)), 0.02, 0.5, 1, 0, 4);
-          sChew(c);
-          const n = eaten[eater];
-          c.body.scale.set(c.bodyScale.x * (1 + 0.07 * n), c.bodyScale.y, c.bodyScale.z * (1 + 0.1 * n));
+        const FLY = 0.55;
+        for (const e of eats) {
+          const tt = timer - e.delay;
+          if (tt < 0 || e.done) continue;
+          if (tt < FLY) {
+            const k = tt / FLY; e.f.visible = true;
+            e.f.position.lerpVectors(e.from, e.to, k); e.f.position.y += Math.sin(k * Math.PI) * 0.6;
+            e.f.rotation.y = k * 4;
+          } else {
+            e.done = true; scene.remove(e.f);
+            const c = chars[e.i];
+            if (e.d.gyoza) eaten[e.i]++;
+            bites[e.i]++;
+            for (let k = 0; k < 6; k++) puff(e.to, pick(['#e8b860', '#f2e2bf']), new THREE.Vector3(rnd(-0.6, 0.6), rnd(0.2, 1), rnd(-0.6, 0.6)), 0.02, 0.5, 1, 0, 4);
+            sChew(c); c.chewT = 0;
+            const g = Math.min(1.7, 1 + 0.06 * bites[e.i]);
+            c.body.scale.set(c.bodyScale.x * g, c.bodyScale.y, c.bodyScale.z * (1 + (g - 1) * 1.3));
+          }
         }
-        if (timer >= 1.5) { if (left === 0) win(eater); else { cur = (cur + 1) % 4; beginTurn(); } }
+        if (timer >= 1.5 + eats[eats.length - 1].delay) {
+          if (lastBy >= 0) win(lastBy);
+          else {
+            const empty = dishes.filter(d => !d.gone && !d.gyoza && d.items.length === 0);
+            if (empty.length) { empty.forEach(sendWaiter); state = 'waiter'; timer = 0; }
+            else nextTurn();
+          }
+        }
+      }
+      else if (state === 'waiter') {
+        if (waiters.every(w => w.phase === 'out')) nextTurn();
       }
       else if (state === 'none') {
         if (nobodySigh && timer >= 0.15 && timer - dt < 0.15) sSigh(chars[cur]);
-        if (timer >= 0.75) { cur = (cur + 1) % 4; beginTurn(); }
+        if (timer >= 0.75) nextTurn();
       }
       else if (state === 'win') {
         camK = Math.min(1, camK + dt / 1.1);
@@ -671,6 +830,7 @@
       if (sl !== lastSlot) { lastSlot = sl; click(Math.min(0.9, 0.25 + Math.abs(omega) * 0.05) || 0.3); }
       if (rumbleG && ac) rumbleG.gain.setTargetAtTime(soundOn ? Math.min(0.22, Math.abs(state === 'drag' ? dragW : omega) * 0.018) : 0, ac.currentTime, 0.05);
       animChars(dt);
+      stepWaiters(dt);
       emitSteam(dt);
       stepFx(dt);
     }
@@ -687,7 +847,8 @@
         const dir = Math.sign(cpuW) || 1;
         hand.position.set(rest.x + (-0.2 - rest.x) * reach * 0 + reach * (-0.15) + swipe * dir * 0.45 * reach, rest.y + reach * 0.08, rest.z + reach * 0.55);
         // 食べている人
-        const chew = state === 'eat' && eater === i && timer > 0.55 ? timer - 0.55 : -1;
+        if (c.chewT >= 0) { c.chewT += dt; if (c.chewT > 0.85) c.chewT = -1; }
+        const chew = c.chewT;
         if (c.mouth) c.mouth.scale.y = chew >= 0 && chew < 0.85 ? 0.02 + 0.03 * Math.abs(Math.sin(chew * 16)) : 0.02;
         let bob = chew >= 0 && chew < 0.85 ? Math.abs(Math.sin(chew * 16)) * 0.03 : 0;
         // 待っている間も少し体をゆらす
@@ -858,9 +1019,10 @@
       camera.lookAt(tmpV);
       // 自分の番の矢印と、番の人の針を光らせる
       const now = performance.now() / 1000;
-      arrow.visible = left > 0 && state !== 'win' && state !== 'result';
+      arrow.visible = left() > 0 && state !== 'win' && state !== 'result';
       arrow.position.y = 0.32 + Math.abs(Math.sin(now * 3)) * 0.15;
       arrow.rotation.y = now * 1.5;
+      drawFinger(now);
       hint.visible = state === 'wait';
       if (hint.visible) { hint.userData.m.opacity = 0.55 + 0.4 * Math.sin(now * 5); hint.rotation.y = Math.sin(now * 2.2) * 0.12; }
       markers.forEach((m, i) => { const act = i === cur && ['wait', 'drag', 'ret', 'cpu', 'spin', 'settle'].includes(state); m.material.emissiveIntensity = act ? 0.6 + 0.4 * Math.sin(now * 6) : 0; m.scale.setScalar(act ? 1.25 : 1); m.scale.y = 0.4; });
@@ -880,7 +1042,7 @@
     resize();
     applyLang();
     // 最初の1回が重くならないように、全部の形を一度描いておく
-    flyer.visible = true; renderer.compile(scene, camera); render(1); flyer.visible = false;
+    { const w = makeWaiter(); scene.add(shade(w.g)); finger.visible = true; renderer.compile(scene, camera); render(1); scene.remove(w.g); }
     requestAnimationFrame(t0 => { last = t0; loop(t0); });
   </script>
 </body>
