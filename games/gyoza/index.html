@@ -662,21 +662,54 @@
       camera.aspect = w / fh;
       camera.setViewOffset(w, fh, 0, -TOP, w, H);
       fitVf = THREE.MathUtils.degToRad(camera.fov); fitHf = 2 * Math.atan(Math.tan(fitVf / 2) * camera.aspect);
-      // 横は両わきの人まで、縦は奥の人の頭から手前の自分まで入る距離
-      const d = Math.min(Math.max(3.1 / Math.tan(fitHf / 2), 2.6 / Math.tan(fitVf / 2)), 30);
+      // 縦長の画面ほど上から見下ろして、縦の空きを円卓で埋める
+      const tall = THREE.MathUtils.clamp((1.3 - camera.aspect) / 0.75, 0, 1);
+      const dir = new THREE.Vector3(0, 0.9 + tall * 1.55, 1).normalize();
+      camera.updateProjectionMatrix();
+      // 円卓と4人がちょうど入る距離を探し、真ん中に来るようにずらす
+      camDef.look.copy(CENTER);
+      for (let pass = 0; pass < 2; pass++) {
+        let lo = 3, hi = 40;
+        for (let it = 0; it < 18; it++) { const m = (lo + hi) / 2; if (fits(dir, m)) hi = m; else lo = m; }
+        const b = bounds(dir, hi);
+        // 縦横のずれを直す（カメラの上・右の向きに動かす）
+        const hgt = hi * Math.tan(fitVf / 2), wid = hgt * camera.aspect;
+        camera.updateMatrixWorld();
+        const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1), rt = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+        camDef.look.addScaledVector(up, (b.y0 + b.y1) / 2 * hgt).addScaledVector(rt, (b.x0 + b.x1) / 2 * wid);
+        camDef.pos.copy(camDef.look).addScaledVector(dir, hi);
+      }
       // 背の低い横長では、結果の文字を左に出すので少し右へ
       const side = ((state === 'result' || state === 'win') && fh <= 520 && w / fh >= 4 / 3) ? 1 : 0;
-      camDef.pos.copy(CENTER).addScaledVector(new THREE.Vector3(0, 1.15, 1).normalize(), d);
-      camera.updateProjectionMatrix();
       if (winner >= 0) placeWinCam(side);
     }
+    // 画面に収めたい点: テーブルのふち、4人の頭・肩・ひじ、椅子の背もたれ
+    const FIT_PTS = [];
+    for (let k = 0; k < 24; k++) FIT_PTS.push(polar(k * Math.PI / 12, TABLE_R + 0.05, 0));
+    SEAT_A.forEach((a, i) => {
+      const c = polar(a, SEAT_R, 0), r = new THREE.Vector3(Math.cos(a), 0, -Math.sin(a));
+      for (const [sx, y] of [[0, 1.3], [0.42, 0.95], [-0.42, 0.95], [0.5, 0.2], [-0.5, 0.2]]) FIT_PTS.push(c.clone().addScaledVector(r, sx).setY(y));
+      // 手前の自分は頭と肩まで入ればよい（背中と椅子は下の空白にかかってもよい）
+      if (i === 0) FIT_PTS.splice(-2, 2); else FIT_PTS.push(polar(a, SEAT_R + 0.45, 0.55));
+    });
+    const fp = new THREE.Vector3();
+    function bounds(dir, d) {
+      camera.position.copy(camDef.look).addScaledVector(dir, d); camera.lookAt(camDef.look); camera.updateMatrixWorld();
+      // setViewOffset の分を除いた、元の枠（fh）での位置で調べる
+      const vo = camera.view; camera.view = null; camera.updateProjectionMatrix();
+      const b = { x0: 9, x1: -9, y0: 9, y1: -9 };
+      for (const p of FIT_PTS) { fp.copy(p).project(camera); b.x0 = Math.min(b.x0, fp.x); b.x1 = Math.max(b.x1, fp.x); b.y0 = Math.min(b.y0, fp.y); b.y1 = Math.max(b.y1, fp.y); }
+      camera.view = vo; camera.updateProjectionMatrix();
+      return b;
+    }
+    const fits = (dir, d) => { const b = bounds(dir, d), M = 0.94; return b.x0 > -M && b.x1 < M && b.y0 > -M && b.y1 < M; };
     // 勝った人の顔を、テーブルの中心側から写す
     function placeWinCam(side = 0) {
       const c = chars[winner];
-      c.head.getWorldPosition(camWin.look); camWin.look.y += 0.2; // 頭を少し下に写し、上に結果の文字を置く
+      c.head.getWorldPosition(camWin.look); camWin.look.y += 0.45; // 頭を下の方に写し、上に結果の文字を置く
       const inward = polar(SEAT_A[winner], -1, 0);
       const right = new THREE.Vector3(inward.z, 0, -inward.x);
-      const d = THREE.MathUtils.clamp(0.95 / Math.sin(Math.min(fitVf, fitHf) / 2), 2.2, 6);
+      const d = THREE.MathUtils.clamp(1.1 / Math.sin(Math.min(fitVf, fitHf) / 2), 2.4, 7);
       camWin.pos.copy(camWin.look).addScaledVector(inward, d).add(new THREE.Vector3(0, d * 0.5, 0));
       if (side) { camWin.pos.addScaledVector(right, -d * 0.35); camWin.look.addScaledVector(right, -d * 0.35); }
     }
