@@ -250,9 +250,18 @@
 
     // ---------- 地図データ（出典: 地球地図日本） ----------
     const PREFS = JSON.parse(document.getElementById('jp').textContent);
-    const LON0 = 136.7, LAT0 = 34.9, SPAN = 11.9, KX = Math.cos(LAT0 * Math.PI / 180);
-    const toUV = (lon, lat) => [(lon - LON0) * KX / SPAN, (lat - LAT0) / SPAN];
-    const fromUV = (u, v) => [LON0 + u * SPAN / KX, LAT0 + v * SPAN];
+    // 地図の円の半径を 1 とした座標 (u, v)。本土は大きく、沖縄・小笠原は枠の中に縮めて置く
+    const LON0 = 137.2, LAT0 = 37.8, SPAN = 9.6, KX = Math.cos(LAT0 * Math.PI / 180);
+    const INSETS = [
+      { lo: [122.9, 24.0], hi: [130.3, 29.0], at: [-0.82, 0.0], k: 0.9 },  // 沖縄・奄美（左上の海）
+      { lo: [141.0, 24.6], hi: [142.5, 27.9], at: [0.5, -0.7], k: 1.2 }, // 小笠原（右下の海）
+    ];
+    for (const b of INSETS) b.size = [(b.hi[0] - b.lo[0]) * KX / SPAN * b.k, (b.hi[1] - b.lo[1]) / SPAN * b.k];
+    const toUV = (lon, lat, b) => b ? [b.at[0] + (lon - b.lo[0]) * KX / SPAN * b.k, b.at[1] + (lat - b.lo[1]) / SPAN * b.k] : [(lon - LON0) * KX / SPAN, (lat - LAT0) / SPAN];
+    const fromUV = (u, v) => {
+      for (const b of INSETS) if (u >= b.at[0] && u <= b.at[0] + b.size[0] && v >= b.at[1] && v <= b.at[1] + b.size[1]) return [b.lo[0] + (u - b.at[0]) * SPAN / KX / b.k, b.lo[1] + (v - b.at[1]) * SPAN / b.k];
+      return [LON0 + u * SPAN / KX, LAT0 + v * SPAN];
+    };
     function prefAt(lon, lat) {
       const X = lon * 100, Y = lat * 100;
       for (const p of PREFS) {
@@ -340,56 +349,88 @@
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 8), new THREE.MeshStandardMaterial({ map: tatamiTex, roughness: 0.9 }));
     floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0, 3.9); floor.receiveShadow = true; scene.add(floor);
 
-    // ---------- 日本地図のボード ----------
-    const C = new THREE.Vector3(0, 1.45, 0), R = 0.62;
-    const PREF_COLORS = ['#f4d27a', '#f2a7a0', '#a9d59a', '#f6bd7c', '#b8c9ef', '#e7b8e0', '#cfe39a'];
+    // ---------- 日本地図のダーツボード（壁の釘にひもで吊るす。回さない） ----------
+    const C = new THREE.Vector3(0, 1.42, 0), R = 0.55, RING = 0.05, RB = 0.74; // R: 地図の円、RING: 赤緑の輪、RB: ボード全体
     const mapTex = canvasTex(2048, 2048, (g, w) => {
-      const P = (lon, lat) => { const [u, v] = toUV(lon, lat); return [(u + 1) / 2 * w, (1 - v) / 2 * w]; };
-      // 海: 中心ほど明るい青
-      const sea = g.createRadialGradient(w * 0.45, w * 0.42, w * 0.05, w / 2, w / 2, w * 0.72);
-      sea.addColorStop(0, '#7fc6e8'); sea.addColorStop(1, '#2f7fb6');
+      const S = w / 2 / RB, cx = w / 2;           // 1m あたりのピクセル
+      let inset = null;
+      const P = (lon, lat) => { const [u, v] = toUV(lon, lat, inset); return [cx + u * R * S, cx - v * R * S]; };
+      // 黒いボード（サイザル麻のざらざら）
+      g.fillStyle = '#151515'; g.fillRect(0, 0, w, w);
+      for (let i = 0; i < 40000; i++) { g.fillStyle = `rgba(255,255,255,${rnd(0.01, 0.05)})`; g.fillRect(rnd(0, w), rnd(0, w), rnd(1, 3), rnd(1, 3)); }
+      // 赤と緑の輪（20分割、20が真上）
+      for (let k = 0; k < 20; k++) {
+        const a0 = -Math.PI / 2 - Math.PI / 20 + k * Math.PI / 10, a1 = a0 + Math.PI / 10;
+        g.beginPath(); g.arc(cx, cx, (R + RING) * S, a0, a1); g.arc(cx, cx, R * S, a1, a0, true); g.closePath();
+        g.fillStyle = k % 2 ? '#1f8a3c' : '#e2442c'; g.fill();
+      }
+      // 海と陸
+      g.save(); g.beginPath(); g.arc(cx, cx, R * S, 0, Math.PI * 2); g.clip();
+      const sea = g.createRadialGradient(cx, cx * 0.9, 0, cx, cx, R * S);
+      sea.addColorStop(0, '#8fd6ff'); sea.addColorStop(1, '#6cc0f4');
       g.fillStyle = sea; g.fillRect(0, 0, w, w);
-      // 波の模様
-      g.strokeStyle = "rgba(255,255,255,.14)"; g.lineWidth = 3;
-      for (let i = 0; i < 220; i++) { const x = rnd(0, w), y = rnd(0, w), L = rnd(40, 90), A = rnd(3, 5); g.lineWidth = 2.5; g.beginPath(); for (let k = 0; k <= L; k += 3) { const yy = y + Math.sin(k / L * Math.PI * 3) * A; k ? g.lineTo(x + k, yy) : g.moveTo(x, yy); } g.stroke(); }
-      // 経緯線
-      g.strokeStyle = 'rgba(255,255,255,.22)'; g.lineWidth = 2; g.setLineDash([10, 10]);
-      for (let lon = 120; lon <= 152; lon += 5) { g.beginPath(); let [x, y] = P(lon, 15); g.moveTo(x, y); [x, y] = P(lon, 56); g.lineTo(x, y); g.stroke(); }
-      for (let lat = 20; lat <= 52; lat += 5) { g.beginPath(); let [x, y] = P(110, lat); g.moveTo(x, y); [x, y] = P(162, lat); g.lineTo(x, y); g.stroke(); }
-      g.setLineDash([]);
-      const path = p => { g.beginPath(); for (const r of p.r) { for (let i = 0; i < r.length; i += 2) { const [x, y] = P(r[i] / 100, r[i + 1] / 100); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); } };
-      // 浅瀬（陸のまわりの明るい縁）と影
-      g.save(); g.shadowColor = 'rgba(10,40,70,.45)'; g.shadowBlur = 18; g.shadowOffsetX = 6; g.shadowOffsetY = 8;
-      g.strokeStyle = 'rgba(190,235,250,.9)'; g.lineWidth = 16; g.lineJoin = 'round';
-      for (const p of PREFS) { path(p); g.stroke(); }
+      const drawMap = () => {
+      const land = () => { g.beginPath(); for (const p of PREFS) for (const r of p.r) { for (let i = 0; i < r.length; i += 2) { const [x, y] = P(r[i] / 100, r[i + 1] / 100); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); } };
+      land(); g.fillStyle = '#ff9a55'; g.fill('evenodd');
+      // 陸の上だけ方眼（0.5度ごと）
+      g.save(); land(); g.clip('evenodd');
+      for (let i = 0; i < 1600; i++) { g.fillStyle = `rgba(255,${200 + Math.random() * 40 | 0},120,${rnd(0.05, 0.18)})`; g.beginPath(); g.arc(rnd(0, w), rnd(0, w), rnd(6, 20), 0, Math.PI * 2); g.fill(); }
+      g.strokeStyle = 'rgba(70,120,190,.55)'; g.lineWidth = 1.6;
+      for (let lon = 122; lon <= 150; lon += 0.5) { g.beginPath(); let [x, y] = P(lon, 20); g.moveTo(x, y); [x, y] = P(lon, 48); g.lineTo(x, y); g.stroke(); }
+      for (let lat = 20; lat <= 48; lat += 0.5 * 0.67) { g.beginPath(); let [x, y] = P(120, lat); g.moveTo(x, y); [x, y] = P(152, lat); g.lineTo(x, y); g.stroke(); }
       g.restore();
-      for (const p of PREFS) { path(p); g.fillStyle = PREF_COLORS[(p.id * 3) % PREF_COLORS.length]; g.fill('evenodd'); }
-      // 山っぽいまだら
-      g.save(); g.beginPath(); for (const p of PREFS) for (const r of p.r) { for (let i = 0; i < r.length; i += 2) { const [x, y] = P(r[i] / 100, r[i + 1] / 100); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); } g.clip('evenodd');
-      for (let i = 0; i < 2500; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '90,70,30' : '255,255,255'},${rnd(0.03, 0.08)})`; g.beginPath(); g.arc(rnd(0, w), rnd(0, w), rnd(3, 14), 0, Math.PI * 2); g.fill(); }
+      for (const p of PREFS) { g.beginPath(); for (const r of p.r) { for (let i = 0; i < r.length; i += 2) { const [x, y] = P(r[i] / 100, r[i + 1] / 100); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); } g.strokeStyle = 'rgba(190,95,45,.55)'; g.lineWidth = 1.4; g.stroke(); }
+      };
+      drawMap();
+      // 枠の中の島々
+      for (const b of INSETS) {
+        const x0 = cx + b.at[0] * R * S, y1 = cx - b.at[1] * R * S, bw = b.size[0] * R * S, bh = b.size[1] * R * S;
+        g.save(); g.beginPath(); g.rect(x0, y1 - bh, bw, bh); g.clip();
+        g.fillStyle = '#7ccbf8'; g.fillRect(x0, y1 - bh, bw, bh);
+        inset = b; drawMap(); inset = null;
+        g.restore();
+        g.strokeStyle = 'rgba(60,100,150,.7)'; g.lineWidth = 3; g.strokeRect(x0, y1 - bh, bw, bh);
+      }
       g.restore();
-      g.lineJoin = 'round';
-      for (const p of PREFS) { path(p); g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2.5; g.stroke(); }
-      for (const p of PREFS) { path(p); g.strokeStyle = 'rgba(70,45,20,.7)'; g.lineWidth = 1.2; g.stroke(); }
-      // 方位
-      const cx = w * 0.82, cy = w * 0.8, s = w * 0.05;
-      g.fillStyle = 'rgba(255,255,255,.85)'; g.strokeStyle = 'rgba(40,60,90,.8)'; g.lineWidth = 3;
-      g.beginPath(); g.moveTo(cx, cy - s); g.lineTo(cx + s * 0.25, cy); g.lineTo(cx, cy + s); g.lineTo(cx - s * 0.25, cy); g.closePath(); g.fill(); g.stroke();
-      g.beginPath(); g.moveTo(cx - s, cy); g.lineTo(cx, cy + s * 0.25); g.lineTo(cx + s, cy); g.lineTo(cx, cy - s * 0.25); g.closePath(); g.fill(); g.stroke();
-      g.fillStyle = '#c0392b'; g.beginPath(); g.moveTo(cx, cy - s); g.lineTo(cx + s * 0.25, cy); g.lineTo(cx - s * 0.25, cy); g.closePath(); g.fill();
+      // 金色の針金（輪の境目・放射線・数字）
+      const gold = 'rgba(214,180,96,.95)';
+      g.strokeStyle = gold; g.lineWidth = 4;
+      for (const rr of [R, R + RING]) { g.beginPath(); g.arc(cx, cx, rr * S, 0, Math.PI * 2); g.stroke(); }
+      for (let k = 0; k < 20; k++) {
+        const a = -Math.PI / 2 - Math.PI / 20 + k * Math.PI / 10;
+        g.beginPath(); g.moveTo(cx + Math.cos(a) * R * S, cx + Math.sin(a) * R * S); g.lineTo(cx + Math.cos(a) * (RB - 0.035) * S, cx + Math.sin(a) * (RB - 0.035) * S); g.stroke();
+      }
+      const NUM = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
+      g.font = `400 ${0.085 * S}px Georgia, "Times New Roman", serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.lineWidth = 5; g.strokeStyle = gold;
+      NUM.forEach((n, k) => {
+        const a = -Math.PI / 2 + k * Math.PI / 10, rr = (R + RING + RB - 0.02) / 2 * S;
+        g.save(); g.translate(cx + Math.cos(a) * rr, cx + Math.sin(a) * rr); g.rotate(a + Math.PI / 2);
+        g.strokeText(String(n), 0, 0); g.restore();
+      });
     });
     mapTex.anisotropy = 8;
     const boardSpin = new THREE.Group(); boardSpin.position.copy(C); scene.add(boardSpin);
-    const face = new THREE.Mesh(new THREE.CircleGeometry(R, 96), new THREE.MeshStandardMaterial({ map: mapTex, roughness: 0.75 }));
+    const face = new THREE.Mesh(new THREE.CircleGeometry(RB, 128), new THREE.MeshStandardMaterial({ map: mapTex, roughness: 0.85 }));
     face.receiveShadow = true; boardSpin.add(face);
-    const back = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 0.04, 96), new THREE.MeshStandardMaterial({ color: '#d9c49a', roughness: 0.8 }));
-    back.rotation.x = Math.PI / 2; back.position.z = -0.021; back.castShadow = true; boardSpin.add(back);
-    const rimTex = woodTex('#9a6334', '60,30,10', [6, 1]);
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(R + 0.022, 0.03, 16, 96), new THREE.MeshStandardMaterial({ map: rimTex, roughness: 0.45 }));
-    rim.position.copy(C); rim.castShadow = true; rim.receiveShadow = true; scene.add(rim);
-    // 回転の目印（ボルト）
-    const boltGeo = new THREE.SphereGeometry(0.009, 12, 8), boltMat = new THREE.MeshStandardMaterial({ color: '#c9b37a', metalness: 0.8, roughness: 0.3 });
-    for (let i = 0; i < 12; i++) { const b = new THREE.Mesh(boltGeo, boltMat); const a = i / 12 * Math.PI * 2; b.position.set(Math.cos(a) * (R + 0.022), Math.sin(a) * (R + 0.022), 0.028); rim.add(b); }
+    const back = new THREE.Mesh(new THREE.CylinderGeometry(RB, RB, 0.04, 128), new THREE.MeshStandardMaterial({ color: '#1c1c1c', roughness: 0.7 }));
+    back.rotation.x = Math.PI / 2; back.position.z = -0.0205; back.castShadow = true; back.receiveShadow = true; boardSpin.add(back);
+    // 針金は少し浮かせて立体に
+    const wireMat = new THREE.MeshStandardMaterial({ color: '#d8b864', metalness: 0.85, roughness: 0.3 });
+    for (const rr of [R, R + RING]) { const t = new THREE.Mesh(new THREE.TorusGeometry(rr, 0.0022, 6, 160), wireMat); t.position.z = 0.002; boardSpin.add(t); }
+    // 釘とひも
+    const NAIL = new THREE.Vector3(0, C.y + RB + 0.26, -0.06);
+    const nail = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.006, 16), new THREE.MeshStandardMaterial({ color: '#8a8a8a', metalness: 0.9, roughness: 0.35 }));
+    nail.rotation.x = Math.PI / 2; nail.position.copy(NAIL).add(new THREE.Vector3(0, 0, 0.03)); nail.castShadow = true; scene.add(nail);
+    const nailPin = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.03, 8), nail.material); nailPin.rotation.x = Math.PI / 2; nailPin.position.copy(NAIL).add(new THREE.Vector3(0, 0, 0.015)); scene.add(nailPin);
+    const cordMat = new THREE.MeshStandardMaterial({ color: '#c9a66b', roughness: 0.95 });
+    for (const sx of [-1, 1]) {
+      const a = new THREE.Vector3(sx * 0.34, C.y + Math.sqrt(RB * RB - 0.34 * 0.34) - 0.015, -0.03), b = NAIL.clone().add(new THREE.Vector3(0, 0.004, 0.022));
+      const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, a.distanceTo(b), 6), cordMat);
+      cord.position.copy(a).add(b).multiplyScalar(0.5); cord.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+      cord.castShadow = true; scene.add(cord);
+      const eye = new THREE.Mesh(new THREE.TorusGeometry(0.009, 0.0025, 6, 12), nail.material); eye.position.copy(a); scene.add(eye);
+    }
 
     // いつもの猫: 壁の額縁の写真とダーツの羽根
     const catImg = new Image(); catImg.src = 'cat.png';
@@ -526,7 +567,7 @@
         card.style.setProperty('--band', band + 'px');
       } else {
         // 下の方は手に持った矢の場所
-        g = { band: 0, side: 0, fit: 0.72, target: C.clone(), hold: Math.round(Math.min(h * 0.22, 150)), h };
+        g = { band: 0, side: 0, fit: 0.9, target: C.clone().add(new THREE.Vector3(0, 0.1, 0)), hold: Math.round(Math.min(h * 0.22, 150)), h };
       }
       camGoal = g;
       if (snapNow) { camState = { band: g.band, side: g.side, fit: g.fit, target: g.target.clone(), hold: g.hold || 0, h: g.h, tilt: g.tilt || 0 }; }
@@ -685,11 +726,7 @@
         const k = f.p.z / (f.p.z - np.z);
         const q = f.p.clone().lerp(np, k);
         const r = Math.hypot(q.x - C.x, q.y - C.y);
-        if (r <= R) { stickBoard(q); return; }
-        if (r <= R + 0.055) { // 枠に当たって跳ね返る
-          f.p.copy(q); f.p.z = 0.01; f.v.set(f.v.x * 0.3 + rnd(-0.4, 0.4), rnd(0, 0.8), Math.abs(f.v.z) * 0.18); f.fall = true; f.spin = rnd(-14, 14);
-          sfx.rim(); return;
-        }
+        if (r <= RB) { stickBoard(q); return; }
       }
       // 壁
       if (np.z <= -0.08 && f.p.z > -0.08) {
@@ -727,6 +764,8 @@
       boardSpin.attach(f.d);
       f.d.userData.baseQ = f.d.quaternion.clone(); f.d.userData.wob = 0;
       stuck.push(f.d);
+      // 赤緑の輪や数字の所は地図の外: 外れ扱い
+      if (Math.hypot(lx, ly) > R) { sfx.thunk(); burst(q, 6, chipMat, 0.5, 0.004); setTimeout(() => crowd("miss"), 200); state = "miss"; missT = 0.9; return; }
       const [lon, lat] = fromUV(lx / R, ly / R);
       const pref = prefAt(lon, lat);
       hit = { kind: pref ? 'land' : 'sea', lon, lat, pref, local: new THREE.Vector3(lx, ly, 0), info: null, t: 0 };
