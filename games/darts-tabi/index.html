@@ -870,6 +870,33 @@
       } catch {}
       return null;
     }
+    // 大字・町名（なければ区）の Wikipedia 記事を探す。記事名は「中土 (小谷村)」の形が多い
+    async function areaArticle(h, muni, ward, areas) {
+      if (!muni) return null;
+      const cands = [];
+      for (const a of areas) {
+        const base = a.replace(/[0-9０-９一二三四五六七八九十]+丁目$/, '');
+        for (const n of new Set([a, base])) {
+          if (!n) continue;
+          if (ward) cands.push(`${n} (${muni}${ward})`, `${n} (${ward})`);
+          cands.push(`${n} (${muni})`, `${muni}${n}`, `${n} (${h.pref.ja}${muni})`, `${n} (${h.pref.ja})`);
+        }
+      }
+      if (ward) cands.push(`${ward} (${muni})`, `${muni}${ward}`);
+      if (cands.length) {
+        const j = await getJSON(`https://ja.wikipedia.org/w/api.php?action=query&format=json&origin=*&redirects=1&prop=pageprops&ppprop=disambiguation&titles=${encodeURIComponent(cands.slice(0, 50).join('|'))}`);
+        const q = j.query || {}, to = {};
+        for (const m of [...(q.normalized || []), ...(q.redirects || [])]) to[m.from] = m.to;
+        const ok = new Set(Object.values(q.pages || {}).filter(p => p.missing === undefined && !(p.pageprops && 'disambiguation' in p.pageprops)).map(p => p.title));
+        for (const c of cands) { let t = c; for (let i = 0; i < 3 && to[t]; i++) t = to[t]; if (ok.has(t)) return t; }
+      }
+      // 近くの記事から同じ地名のものを探す
+      if (areas.length) {
+        const g = await getJSON(`https://ja.wikipedia.org/w/api.php?action=query&list=geosearch&gscoord=${h.lat.toFixed(5)}|${h.lon.toFixed(5)}&gsradius=5000&gslimit=50&format=json&origin=*`);
+        for (const a of areas) { const hitp = (g.query?.geosearch || []).find(p => p.title === a || p.title.startsWith(a + ' (')); if (hitp) return hitp.title; }
+      }
+      return null;
+    }
     async function detailOf(h) {
       try {
         const j = await getJSON(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${h.lat.toFixed(5)}&lon=${h.lon.toFixed(5)}&zoom=16&accept-language=ja`);
@@ -877,8 +904,9 @@
         const clean = v => (v && v !== muni && v !== h.pref.ja) ? String(v) : '';
         const county = /郡$/.test(a.county || '') ? a.county : '';
         const ward = /区$/.test(a.city_district || '') && !muni.endsWith(a.city_district) ? a.city_district : '';
-        const area = [a.suburb, a.quarter, a.neighbourhood, a.hamlet].map(clean).filter((v, i, l) => v && l.indexOf(v) === i).slice(0, 2).join(' ');
-        h.detail = { county, sub: [ward, area].filter(Boolean).join(' ') };
+        const areas = [a.suburb, a.quarter, a.neighbourhood, a.hamlet].map(clean).filter((v, i, l) => v && l.indexOf(v) === i).slice(0, 2);
+        h.detail = { county, sub: [ward, ...areas].filter(Boolean).join(' ') };
+        h.detail.link = await areaArticle(h, muni, ward, areas).catch(() => null);
       } catch { return; }
       if (hit !== h) return;
       showCard(); renderControls();
@@ -913,6 +941,8 @@
     const fullName = () => { const n = names(); if (!n) return ''; if (lang === 'ja') return [n[0], n[1] + (n[2] ? ' ' + n[2] : '')].filter(Boolean).join(' '); return n[0] ? (lang === 'en' ? `${n[1]}, ${n[0]}` : `${n[0]} ${n[1]}`) : n[1]; };
     function wikiURL() {
       if (!hit?.info) return null;
+      // 日本語のときは、表示している細かい地名の記事があればそれを開く
+      if (lang === 'ja' && hit.detail?.link) return `https://ja.wikipedia.org/wiki/${encodeURIComponent(hit.detail.link.replace(/ /g, '_'))}`;
       const e = hit.info.muni && Object.keys(hit.info.muni.links).length ? hit.info.muni : hit.info.pref;
       for (const l of [lang, 'en', 'ja']) if (e.links[l]) return `https://${l}.wikipedia.org/wiki/${encodeURIComponent(e.links[l].replace(/ /g, '_'))}`;
       return null;
