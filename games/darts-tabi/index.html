@@ -45,6 +45,7 @@
     @keyframes swipe { 0% { transform: translateY(70px); opacity: 0; } 15% { opacity: 1; } 65% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(-10px); opacity: 0; } }
     #card { position: absolute; left: 0; right: 0; top: 0; height: var(--band, 120px); display: none; flex-direction: column; align-items: center; justify-content: center; padding: 0 14px; pointer-events: none; text-align: center; }
     #card small { font-size: clamp(16px, 3.6vmin, 28px); font-weight: 800; color: #fff; text-shadow: 0 2px 0 #5a3a1a, 0 0 10px rgba(0,0,0,.3); }
+    #card i { font-style: normal; font-size: clamp(15px, 3.4vmin, 26px); font-weight: 800; color: #fff; text-shadow: 0 2px 0 #5a3a1a, 0 0 10px rgba(0,0,0,.3); }
     #card b { font-size: clamp(30px, 8vmin, 72px); font-weight: 900; color: #fff; line-height: 1.15; text-shadow: 0 4px 0 #5a3a1a, 0 0 16px rgba(0,0,0,.3); word-break: keep-all; overflow-wrap: anywhere; }
     #card b.wait::after { content: ''; display: inline-block; width: .9em; height: .9em; border: .12em solid #fff; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -94,7 +95,7 @@
   <div id="stage">
     <div id="credit">地図: 地球地図日本 / © OpenStreetMap contributors / Wikipedia</div>
     <div id="hint"><svg viewBox="0 0 64 120"><g class="h"><path d="M32 6 L32 70" stroke="rgba(255,255,255,.85)" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 10"/><path d="M20 20 L32 6 L44 20" fill="none" stroke="rgba(255,255,255,.95)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><g transform="translate(18 66)"><path d="M10 2 a5 5 0 0 1 10 0 v18 l6 -3 a5 5 0 0 1 6 7 l-9 14 h-16 l-5 -16 v-10 a4 4 0 0 1 8 0z" fill="#fff" stroke="#5a3a1a" stroke-width="2.5" stroke-linejoin="round"/></g></g></svg></div>
-    <div id="card"><small></small><b></b></div>
+    <div id="card"><small></small><b></b><i></i></div>
     <div id="telop"><span class="a"></span><span class="b"></span></div>
     <div id="bubble"></div>
     <div id="msg"></div>
@@ -906,6 +907,20 @@
       } catch {}
       return null;
     }
+    async function detailOf(h) {
+      try {
+        const j = await getJSON(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${h.lat.toFixed(5)}&lon=${h.lon.toFixed(5)}&zoom=16&accept-language=ja`);
+        const a = j.address || {}, muni = h.info?.muni?.labels.ja || a.city || a.town || a.village || '';
+        const clean = v => (v && v !== muni && v !== h.pref.ja) ? String(v) : '';
+        const county = /郡$/.test(a.county || '') ? a.county : '';
+        const ward = /区$/.test(a.city_district || '') && !muni.endsWith(a.city_district) ? a.city_district : '';
+        const area = [a.suburb, a.quarter, a.neighbourhood, a.hamlet].map(clean).filter((v, i, l) => v && l.indexOf(v) === i).slice(0, 2).join(' ');
+        h.detail = { county, sub: [ward, area].filter(Boolean).join(' ') };
+      } catch { return; }
+      if (hit !== h) return;
+      showCard(); renderControls();
+      if (snap) { shareCache = null; prepareShare(); }
+    }
     async function resolve(h) {
       try {
         {
@@ -922,6 +937,8 @@
       if (!h.pun) h.pun = punFor(h.pref, []);
       if (hit !== h) return;
       showCard(); renderControls(); needSnap = true;
+      // 郡や大字・町名まで細かく（OpenStreetMap は1秒に1回までなので少し待ってから）
+      setTimeout(() => detailOf(h), 1100);
     }
     // ---------- ダジャレ（全市区町村ぶん、日本語だけ） ----------
     const PUNS = JSON.parse(document.getElementById('puns').textContent);
@@ -940,9 +957,12 @@
     function names() {
       if (!hit?.info) return null;
       const p = label(hit.info.pref), m = label(hit.info.muni);
-      return t('place')(p, m && m !== p ? m : '');
+      const n = t('place')(p, m && m !== p ? m : '');
+      // 日本語のときは郡と大字・町名も（[小さい行, 大きい行, 下の小さい行]）
+      if (lang === 'ja' && hit.detail) { if (n[0] && hit.detail.county) n[0] += ' ' + hit.detail.county; n[2] = hit.detail.sub; }
+      return n;
     }
-    const fullName = () => { const n = names(); if (!n) return ''; return n[0] ? (lang === 'en' ? `${n[1]}, ${n[0]}` : `${n[0]} ${n[1]}`) : n[1]; };
+    const fullName = () => { const n = names(); if (!n) return ''; if (lang === 'ja') return [n[0], n[1] + (n[2] ? ' ' + n[2] : '')].filter(Boolean).join(' '); return n[0] ? (lang === 'en' ? `${n[1]}, ${n[0]}` : `${n[0]} ${n[1]}`) : n[1]; };
     function wikiURL() {
       if (!hit?.info) return null;
       const e = hit.info.muni && Object.keys(hit.info.muni.links).length ? hit.info.muni : hit.info.pref;
@@ -954,11 +974,11 @@
     function showCard() {
       if (state !== 'result' || !hit) { card.style.display = 'none'; return; }
       card.style.display = 'flex';
-      const [sm, bg] = [card.children[0], card.children[1]];
+      const [sm, bg, sub] = [card.children[0], card.children[1], card.children[2]];
       const n = names();
-      if (!n) { sm.textContent = ''; bg.textContent = ''; bg.className = 'wait'; return; }
+      if (!n) { sm.textContent = ''; bg.textContent = ''; sub.textContent = ''; bg.className = 'wait'; return; }
       bg.className = '';
-      sm.textContent = n[0]; bg.textContent = n[1];
+      sm.textContent = n[0]; bg.textContent = n[1]; sub.textContent = n[2] || '';
     }
     // 吹き出し: 陸に当たって、ダジャレが決まっていて、日本語のときだけ
     function showBubble() {
@@ -1041,7 +1061,8 @@
       const n = names() || ['', ''];
       text(n[0], 120, 64, 960);
       text(n[1], 270, 150, 980);
-      if (lang === 'ja' && hit.pun) text(`「${hit.pun}」`, 380, 58, 980);
+      if (n[2]) text(n[2], 340, 52, 960);
+      if (lang === 'ja' && hit.pun) text(`「${hit.pun}」`, n[2] ? 420 : 380, 58, 980);
       text(t('title'), 1035, 48, 900);
       return c;
     }
