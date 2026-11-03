@@ -853,7 +853,10 @@
       // 1) Nominatim で市区町村を調べる
       try {
         const j = await getJSON(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}&zoom=10&extratags=1&namedetails=1&accept-language=ja`);
-        { const a = j.address || {}; cands.push(j.name, a.city, a.town, a.village, a.municipality, a.county); }
+        { const a = j.address || {}; cands.push(j.name, a.city, a.town, a.village, a.municipality, a.county);
+          // 都道府県は OpenStreetMap の答えを優先する（手元の地図は大まかなので県境で食い違うことがある）
+          const iso = /^JP-(\d\d)$/.exec(a['ISO3166-2-lvl4'] || '');
+          cands.pref = (iso && PREFS.find(p => p.id === +iso[1])) || PREFS.find(p => p.ja === (a.province || a.state)) || null; }
         const qid = j.extratags?.wikidata;
         if (qid && /^Q\d+$/.test(qid)) { const e = await byId(qid); if (e) return e; }
         const wp = j.extratags?.wikipedia;
@@ -916,7 +919,8 @@
       try {
         {
           const cands = [];
-          const [pref, muni] = await Promise.all([byTitle(h.pref.ja).catch(() => null), muniOf(h.lat, h.lon, cands)]);
+          let [pref, muni] = await Promise.all([byTitle(h.pref.ja).catch(() => null), muniOf(h.lat, h.lon, cands)]);
+          if (cands.pref && cands.pref !== h.pref) { h.pref = cands.pref; pref = await byTitle(h.pref.ja).catch(() => null); }
           h.info = { pref: pref || { labels: { ja: h.pref.ja, en: h.pref.en }, links: { ja: h.pref.ja } }, muni };
           // 市区町村が都道府県と同じ（東京都など）なら1つにする
           if (muni && pref && muni.links.ja && muni.links.ja === pref.links.ja) h.info.muni = null;
