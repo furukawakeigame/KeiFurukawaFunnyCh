@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>落ちもの勇者</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="落ちもの勇者">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/ochimono-yuusha/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/ochimono-yuusha/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #a8d4f2; color: #23202c;
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans KR", "Noto Sans Thai", sans-serif;
+      display: flex; flex-direction: column; overflow: hidden;
+      -webkit-user-select: none; user-select: none;
+    }
+    header { display: flex; align-items: center; gap: 8px; padding: 6px 10px; position: relative; z-index: 2; }
+    header a { color: #23202c; font-size: 14px; text-decoration: none; margin-right: auto; }
+    header button, header select {
+      background: rgba(255,255,255,.9); border: 1px solid #8a95b0; border-radius: 8px;
+      height: 32px; min-width: 40px; padding: 0 10px; font-size: 13px; color: #23202c; cursor: pointer;
+    }
+    header svg { width: 18px; height: 18px; display: block; }
+    #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    #floor { position: absolute; transform: translate(-50%, -100%); pointer-events: none; white-space: nowrap;
+      font-size: clamp(18px, 3.4vmin, 34px); font-weight: 900; color: #fff;
+      text-shadow: 0 2px 0 #2b3a68, 0 0 10px rgba(0,0,0,.25); }
+    #floor.boss { color: #ffd84a; }
+    #result { position: absolute; display: none; align-items: center; justify-content: center; pointer-events: none; }
+    #result b { font-size: clamp(44px, 13vmin, 130px); font-weight: 900; color: #fff; white-space: nowrap;
+      text-shadow: 0 5px 0 #2b3a68, 0 0 20px rgba(0,0,0,.35); }
+    #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+    /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
+    #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; z-index: 2; }
+    #controls button, #controls a {
+      flex: 1; height: clamp(54px, 8vmin, 72px); border: none; border-radius: 14px; font-size: clamp(18px, 3vmin, 24px); font-weight: 800;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none;
+      touch-action: manipulation;
+    }
+    .go { background: #e0603a; color: #fff; box-shadow: 0 4px 0 #8f3518; }
+    .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 36% !important; font-size: clamp(16px, 2.6vmin, 20px) !important; }
+    #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
+    #controls.hide { visibility: hidden; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="stage"><div id="floor"></div><div id="result"><b></b></div><div id="msg"></div></div>
+  <div id="controls" class="hide"></div>
+
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
+  <script>
+    // CDN が読めないときの一言
+    setTimeout(() => { if (!window.GAME_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 8000);
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+    window.GAME_READY = true;
+
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/ochimono-yuusha/';
+    const KEY = 'ochimono-yuusha:';
+
+    // ---------- 言語 ----------
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem(KEY + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem(KEY + k, JSON.stringify(v)); } catch {} },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
+    const DICT = {
+      ja: { title: '落ちもの勇者', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', floor: n => `${n}階`, share: n => `落ちもの勇者で塔の${n}階までたどり着いた #落ちもの勇者ゲーム` },
+      ko: { title: '낙하 블록 용사', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', floor: n => `${n}층`, share: n => `낙하 블록 용사로 탑 ${n}층까지 올라갔다 #落ちもの勇者ゲーム` },
+      en: { title: 'Falling Block Hero', back: '← Back to top', again: 'Play again', post: 'Post on X', floor: n => `Floor ${n}`, share: n => `I reached floor ${n} of the tower in Falling Block Hero #落ちもの勇者ゲーム` },
+      th: { title: 'ผู้กล้าบล็อกตก', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', floor: n => `ชั้น ${n}`, share: n => `ไปถึงชั้น ${n} ของหอคอยในผู้กล้าบล็อกตก #落ちもの勇者ゲーム` },
+    };
+    let lang = store.get('lang', null) || autoLang();
+    const t = k => DICT[lang][k];
+    const langSel = document.getElementById('lang');
+    langSel.value = lang;
+    langSel.addEventListener('change', () => { lang = langSel.value; store.set('lang', lang); applyLang(); langSel.blur(); });
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      drawFloor();
+      renderControls();
+      if (state === 'result') { showResult(); prepareShare(); }
+    }
+
+    // ---------- 音 ----------
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const drawSoundBtn = () => {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${soundOn ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>'}</svg>`;
+    };
+    drawSoundBtn();
+    soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); soundBtn.blur(); });
+    let ac = null, master = null;
+    // iPhone の消音モードでも鳴るようにする
+    function unmuteIOS() {
+      try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch {}
+      try {
+        const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+        const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+        w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+        v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+        const a = document.createElement('audio');
+        a.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })); a.loop = true; a.setAttribute('playsinline', '');
+        a.play().catch(() => {});
+      } catch {}
+    }
+    function initAudio() {
+      if (ac) return;
+      unmuteIOS();
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        master = ac.createDynamicsCompressor(); master.connect(ac.destination);
+        const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
+        o.connect(g).connect(master); o.start(); o.stop(ac.currentTime + 0.05);
+      } catch { ac = null; }
+    }
+    addEventListener('pointerdown', initAudio, { capture: true });
+    addEventListener('keydown', initAudio, { capture: true });
+    const ok = () => soundOn && ac;
+    function tone(type, f0, f1, dur, vol, delay = 0) {
+      if (!ok()) return;
+      const now = ac.currentTime + delay;
+      const o = ac.createOscillator(); o.type = type;
+      o.frequency.setValueAtTime(f0, now); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), now + dur);
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(vol, now + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      o.connect(g).connect(master); o.start(now); o.stop(now + dur + 0.02);
+    }
+    const noiseBuf = {};
+    function nbuf(dur) { const k = Math.round(dur * 100); if (!noiseBuf[k]) { const b = ac.createBuffer(1, Math.max(1, Math.floor(ac.sampleRate * dur)), ac.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; noiseBuf[k] = b; } return noiseBuf[k]; }
+    // ノイズを1つのフィルターに通す（f1 へ周波数を動かせる）
+    function nz(dur, vol, type, f0, f1 = f0, q = 1, delay = 0, attack = 0.004) {
+      if (!ok()) return;
+      const now = ac.currentTime + delay;
+      const s = ac.createBufferSource(); s.buffer = nbuf(dur);
+      const fl = ac.createBiquadFilter(); fl.type = type; fl.Q.value = q;
+      fl.frequency.setValueAtTime(f0, now); fl.frequency.exponentialRampToValueAtTime(f1, now + dur);
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(vol, now + attack); g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      s.connect(fl).connect(g).connect(master); s.start(now); s.stop(now + dur);
+    }
+    // 声: のこぎり波（声帯）＋息のノイズを、母音ごとの共鳴（フォルマント）に通す
+    const VOWEL = { a: [800, 1200, 2600], i: [300, 2300, 3000], u: [350, 1250, 2500], e: [500, 1900, 2600], o: [500, 850, 2500], g: [450, 1100, 2400] };
+    function voice(f0, seq, dur, vol = 0.5, shake = 0.04, breath = 0.15, delay = 0) {
+      if (!ok()) return;
+      const now = ac.currentTime + delay;
+      const o = ac.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0 * 1.2, now);
+      o.frequency.linearRampToValueAtTime(f0 * 1.35, now + dur * 0.15);
+      o.frequency.exponentialRampToValueAtTime(f0 * 0.72, now + dur);
+      const vib = ac.createOscillator(); vib.frequency.value = 5.5 + Math.random() * 3;
+      const vg = ac.createGain(); vg.gain.value = f0 * shake; vib.connect(vg).connect(o.frequency);
+      const ns = ac.createBufferSource(); ns.buffer = nbuf(dur);
+      const ng = ac.createGain(); ng.gain.value = breath;
+      const src = ac.createGain();
+      o.connect(src); ns.connect(ng).connect(src);
+      const out = ac.createGain();
+      out.gain.setValueAtTime(0, now);
+      out.gain.linearRampToValueAtTime(vol, now + 0.02);
+      out.gain.setValueAtTime(vol, now + dur * 0.55);
+      out.gain.exponentialRampToValueAtTime(0.001, now + dur);
+      const k = f0 > 300 ? 1.2 : 1;
+      [1, 0.6, 0.25].forEach((amp, fi) => {
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = fi === 0 ? 6 : 9;
+        seq.forEach((v, si) => { const tt = now + dur * si / Math.max(1, seq.length - 1) * 0.7; bp.frequency[si ? 'linearRampToValueAtTime' : 'setValueAtTime'](VOWEL[v][fi] * k, tt); });
+        const g = ac.createGain(); g.gain.value = amp * 3;
+        src.connect(bp).connect(g).connect(out);
+      });
+      out.connect(master);
+      o.start(now); vib.start(now); ns.start(now);
+      o.stop(now + dur); vib.stop(now + dur); ns.stop(now + dur);
+    }
+    const pick = a => a[Math.floor(Math.random() * a.length)];
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    // 石がぶつかる「コツ」: 短いノイズを複数の共鳴に通す＋低い胴鳴り
+    function knock(vol = 1, pitch = 1) {
+      if (!ok()) return;
+      const now = ac.currentTime;
+      const len = 0.06, buf = ac.createBuffer(1, Math.floor(ac.sampleRate * len), ac.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ac.sampleRate * 0.007));
+      const s = ac.createBufferSource(); s.buffer = buf;
+      for (const [f, q, g0] of [[480, 7, 1.1], [1150, 9, 0.55], [2600, 6, 0.25]]) {
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * pitch * rnd(0.93, 1.07); bp.Q.value = q;
+        const g = ac.createGain(); g.gain.value = g0 * vol; s.connect(bp).connect(g).connect(master);
+      }
+      s.start(now);
+      tone('sine', 140 * pitch, 55, 0.14, 0.3 * vol);
+    }
+    const sMove = () => { if (!ok()) return; nz(0.03, 0.08, 'bandpass', 2400, 2000, 3); };
+    const sRot = () => { if (!ok()) return; nz(0.05, 0.09, 'bandpass', 1500, 3000, 4); tone('sine', 900, 1100, 0.04, 0.03); };
+    const sLand = () => knock(0.7, 1);
+    const sHard = () => { knock(1.1, 0.8); nz(0.15, 0.12, 'lowpass', 600, 200); };
+    function sClear(n) {
+      if (!ok()) return;
+      // 石が崩れる音と、きらっとした響き
+      for (let i = 0; i < 4 + n * 2; i++) setTimeout(() => knock(0.35, rnd(1.2, 1.8)), i * 30 + Math.random() * 20);
+      nz(0.5, 0.18, 'bandpass', 3000, 800, 1.2);
+      [880, 1175, 1568].slice(0, n + 0).forEach((f, i) => { tone('sine', f, f * 1.01, 0.5, 0.06, 0.05 + i * 0.07); tone('sine', f * 2.01, f * 2, 0.3, 0.02, 0.05 + i * 0.07); });
+    }
+    const HERO_F0 = 230;
+    const sSlash = () => { if (!ok()) return; nz(0.16, 0.25, 'bandpass', 900, 5000, 2, 0, 0.06); voice(HERO_F0 * rnd(0.95, 1.08), pick([['e', 'a'], ['a', 'a'], ['o', 'a']]), rnd(0.18, 0.26), 0.35, 0.03); };
+    function sImpact(el, strong) {
+      if (!ok()) return;
+      const v = strong === 2 ? 1.3 : strong === 0.5 ? 0.5 : 1;
+      if (el === 1) { // 炎: ぼっと燃え上がり、ぱちぱち
+        nz(0.45, 0.4 * v, 'lowpass', 1800, 300, 0.7, 0, 0.02);
+        for (let i = 0; i < 6; i++) nz(0.02, 0.2 * v, 'highpass', 3000, 3000, 1, 0.05 + Math.random() * 0.35);
+        tone('sine', 180, 60, 0.3, 0.3 * v);
+      } else if (el === 2) { // 水: ざばっ、と泡
+        nz(0.5, 0.4 * v, 'bandpass', 2500, 500, 1.5, 0, 0.01);
+        for (let i = 0; i < 4; i++) { const f = rnd(500, 1100); tone('sine', f, f * 2.2, 0.06, 0.08 * v, 0.08 + i * 0.06); }
+        tone('sine', 150, 70, 0.25, 0.25 * v);
+      } else if (el === 3) { // 草: 葉がざわっと舞う
+        nz(0.5, 0.3 * v, 'highpass', 2500, 4500, 0.7, 0, 0.05);
+        nz(0.3, 0.2 * v, 'bandpass', 1200, 700, 2, 0.05);
+        tone('sine', 200, 80, 0.2, 0.25 * v);
+      }
+      knock(0.9 * v, 0.7);
+      if (strong === 0.5) tone('triangle', 400, 300, 0.15, 0.08);
+    }
+    const sHurtEnemy = e => { if (e.boss) { sMeow(0.9); return; } voice(e.f0 * rnd(0.92, 1.1), pick([['a', 'u'], ['g', 'a'], ['o', 'u'], ['e', 'o']]), rnd(0.28, 0.4), 0.45, 0.08, 0.3); };
+    const sMeow = (k = 1) => { voice(rnd(480, 560) * k, pick([['i', 'a', 'u'], ['e', 'a', 'o'], ['i', 'a', 'o']]), rnd(0.5, 0.7), 0.45, 0.06, 0.12); };
+    const sEnemyAtk = e => { if (e.boss) { sMeow(0.8); } else voice(e.f0 * 0.8, ['g', 'a', 'o'], 0.5, 0.5, 0.18, 0.5); nz(0.3, 0.15, 'lowpass', 500, 150, 1, 0.1); };
+    const sHeroHurt = () => { voice(HERO_F0 * rnd(0.95, 1.05), pick([['u', 'o'], ['o', 'u'], ['a', 'u']]), rnd(0.22, 0.3), 0.4, 0.05, 0.25); tone('sine', 120, 50, 0.25, 0.35); };
+    const sRise = () => { if (!ok()) return; nz(0.45, 0.3, 'lowpass', 300, 90, 1, 0, 0.05); for (let i = 0; i < 3; i++) setTimeout(() => knock(0.3, 0.6), 60 + i * 90); };
+    const sWin = () => { if (!ok()) return; [523, 659, 784, 1046].forEach((f, i) => { tone('triangle', f, f, 0.22, 0.12, i * 0.09); tone('sine', f * 2, f * 2, 0.15, 0.03, i * 0.09); }); voice(HERO_F0 * 1.1, ['a', 'a'], 0.35, 0.3, 0.02, 0.1, 0.3); };
+    const sOver = () => { voice(HERO_F0 * 0.95, ['a', 'o', 'u'], 0.9, 0.45, 0.06, 0.25); tone('triangle', 330, 110, 1.0, 0.12, 0.2); };
+
+    // ---------- 3D ----------
+    const stage = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    stage.prepend(renderer.domElement);
+    const scene = new THREE.Scene();
+    const canvasTex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 4; return tx; };
+    scene.background = canvasTex(4, 256, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#4f8fe0'); gr.addColorStop(0.55, '#a8d4f2'); gr.addColorStop(1, '#f6e8cc'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+    scene.fog = new THREE.Fog('#d8e8f0', 40, 110);
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.5, 300);
+    scene.add(new THREE.HemisphereLight('#dceeff', '#6a7a4a', 1.15));
+    const sun = new THREE.DirectionalLight('#fff0d8', 2.3);
+    sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.radius = 4; sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.02;
+    scene.add(sun, sun.target);
+
+    const mat = (c, rough = 0.75, extra = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, ...extra });
+    const shade = o => { o.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } }); return o; };
+    const SPH = new THREE.SphereGeometry(1, 28, 18), CYL = new THREE.CylinderGeometry(1, 1, 1, 24), CAP = new THREE.CapsuleGeometry(1, 1, 8, 20);
+    const BOX = new THREE.BoxGeometry(1, 1, 1), CONE = new THREE.ConeGeometry(1, 1, 16), HALF = new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    const RBOX = new RoundedBoxGeometry(1, 1, 1, 3, 0.18);
+    const part = (geo, m, x, y, z, sx, sy = sx, sz = sx, parent) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.scale.set(sx, sy, sz); parent?.add(o); return o; };
+    const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
+
+    // ---------- 盤面 ----------
+    const COLS = 8, ROWS = 14;
+    const EL_COLOR = { 1: '#ff5a2a', 2: '#2f8cff', 3: '#3cc24a', 4: '#8a8c94' };
+    // ブロックの模様（属性の印）
+    function blockTex(el) {
+      return canvasTex(128, 128, (g, w, h) => {
+        const base = { 1: ['#ffb070', '#e8401c', '#a01e0a'], 2: ['#a8d8ff', '#2f7ee8', '#123f9a'], 3: ['#b8f0a0', '#34b040', '#16661e'], 4: ['#b4b6bc', '#86888e', '#55575e'] }[el];
+        const gr = g.createRadialGradient(44, 40, 6, 64, 64, 90); gr.addColorStop(0, base[0]); gr.addColorStop(0.55, base[1]); gr.addColorStop(1, base[2]);
+        g.fillStyle = gr; g.fillRect(0, 0, w, h);
+        if (el === 4) { // ひびの入った石
+          for (let i = 0; i < 500; i++) { g.fillStyle = `rgba(${Math.random() < .5 ? '255,255,255' : '0,0,0'},${Math.random() * 0.12})`; g.fillRect(Math.random() * w, Math.random() * h, 3, 3); }
+          g.strokeStyle = 'rgba(40,40,46,.7)'; g.lineWidth = 3;
+          g.beginPath(); g.moveTo(30, 20); g.lineTo(52, 50); g.lineTo(46, 74); g.lineTo(70, 100); g.moveTo(52, 50); g.lineTo(88, 44); g.lineTo(104, 62); g.stroke();
+          return;
+        }
+        g.save(); g.translate(64, 66);
+        g.fillStyle = 'rgba(255,255,255,.78)'; g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 4; g.lineJoin = 'round';
+        g.beginPath();
+        if (el === 1) { // 炎
+          g.moveTo(0, -42); g.bezierCurveTo(14, -22, 32, -12, 28, 12); g.bezierCurveTo(26, 30, 12, 38, 0, 38);
+          g.bezierCurveTo(-14, 38, -28, 30, -28, 12); g.bezierCurveTo(-28, -4, -16, -8, -12, -24); g.bezierCurveTo(-6, -12, -2, -14, 0, -42);
+          g.fill();
+          g.fillStyle = base[1]; g.beginPath(); g.moveTo(0, -4); g.bezierCurveTo(8, 6, 14, 14, 12, 22); g.bezierCurveTo(10, 32, -10, 32, -12, 22); g.bezierCurveTo(-12, 12, -4, 8, 0, -4); g.fill();
+        } else if (el === 2) { // しずく
+          g.moveTo(0, -42); g.bezierCurveTo(16, -14, 32, 2, 32, 16); g.bezierCurveTo(32, 34, 16, 42, 0, 42);
+          g.bezierCurveTo(-16, 42, -32, 34, -32, 16); g.bezierCurveTo(-32, 2, -16, -14, 0, -42); g.fill();
+          g.fillStyle = base[1]; g.beginPath(); g.ellipse(-12, 14, 5, 10, -0.4, 0, Math.PI * 2); g.fill();
+        } else { // 葉っぱ
+          g.rotate(-0.6);
+          g.moveTo(0, -44); g.bezierCurveTo(30, -24, 30, 22, 0, 44); g.bezierCurveTo(-30, 22, -30, -24, 0, -44); g.fill();
+          g.strokeStyle = base[1]; g.lineWidth = 4; g.beginPath(); g.moveTo(0, -36); g.lineTo(0, 40);
+          for (const y of [-16, 0, 16]) { g.moveTo(0, y + 8); g.lineTo(14, y - 4); g.moveTo(0, y + 8); g.lineTo(-14, y - 4); } g.stroke();
+        }
+        g.restore();
+        // 縁のハイライト
+        g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 6; g.strokeRect(6, 6, w - 12, h - 12);
+      });
+    }
+    const BMAT = {};
+    for (const el of [1, 2, 3, 4]) BMAT[el] = new THREE.MeshStandardMaterial({ map: blockTex(el), roughness: el === 4 ? 0.9 : 0.28, metalness: 0.0 });
+    const GHOST = {};
+    for (const el of [1, 2, 3]) GHOST[el] = new THREE.MeshBasicMaterial({ color: EL_COLOR[el], transparent: true, opacity: 0.25, depthWrite: false });
+    const CELLG = new RoundedBoxGeometry(0.94, 0.94, 0.94, 3, 0.13);
+
+    const world = new THREE.Group(); scene.add(world);
+    const boardG = new THREE.Group(); world.add(boardG);
+    const cellPos = (c, r) => [c - (COLS - 1) / 2, r + 0.5];
+    const cellMeshes = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const m = new THREE.Mesh(CELLG, BMAT[1]); const [x, y] = cellPos(c, r); m.position.set(x, y, 0); m.castShadow = m.receiveShadow = true; m.visible = false; boardG.add(m); cellMeshes.push(m);
+    }
+    const pieceMeshes = [], ghostMeshes = [];
+    for (let i = 0; i < 3; i++) {
+      const m = new THREE.Mesh(CELLG, BMAT[1]); m.castShadow = m.receiveShadow = true; m.visible = false; boardG.add(m); pieceMeshes.push(m);
+      const gm = new THREE.Mesh(CELLG, GHOST[1]); gm.visible = false; gm.scale.setScalar(0.9); boardG.add(gm); ghostMeshes.push(gm);
+    }
+    // 消える段の光
+    const flashMat = new THREE.MeshBasicMaterial({ color: '#fff8e0', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+    const flashes = [];
+    for (let i = 0; i < 4; i++) { const f = new THREE.Mesh(new THREE.PlaneGeometry(COLS + 0.4, 1.1), flashMat.clone()); f.position.z = 0.55; f.visible = false; boardG.add(f); flashes.push(f); }
+
+    // 塔: 盤面の後ろの石壁と柱
+    {
+      const tile = canvasTex(64, 64, (g, w, h) => {
+        g.fillStyle = '#3d4150'; g.fillRect(0, 0, w, h);
+        for (let i = 0; i < 160; i++) { g.fillStyle = `rgba(${Math.random() < .5 ? '255,255,255' : '0,0,0'},${Math.random() * 0.08})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+        g.strokeStyle = '#2a2d38'; g.lineWidth = 4; g.strokeRect(2, 2, w - 4, h - 4);
+        g.strokeStyle = 'rgba(255,255,255,.07)'; g.lineWidth = 2; g.strokeRect(5, 5, w - 10, h - 10);
+      });
+      tile.wrapS = tile.wrapT = THREE.RepeatWrapping; tile.repeat.set(COLS, ROWS);
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(COLS, ROWS), new THREE.MeshStandardMaterial({ map: tile, roughness: 0.95 }));
+      wall.position.set(0, ROWS / 2, -0.5); wall.receiveShadow = true; boardG.add(wall);
+      const stoneT = canvasTex(128, 256, (g, w, h) => {
+        g.fillStyle = '#b3aa98'; g.fillRect(0, 0, w, h);
+        for (let y = 0, i = 0; y < h; y += 32, i++) for (let x = (i % 2) * -32; x < w; x += 64) {
+          g.fillStyle = `hsl(38,${10 + Math.random() * 10}%,${58 + Math.random() * 14}%)`; g.fillRect(x + 2, y + 2, 60, 28);
+        }
+        for (let i = 0; i < 600; i++) { g.fillStyle = `rgba(0,0,0,${Math.random() * 0.08})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+      });
+      stoneT.wrapS = stoneT.wrapT = THREE.RepeatWrapping;
+      const pillarT = stoneT.clone(); pillarT.repeat.set(0.4, 4); pillarT.needsUpdate = true;
+      const stoneM = new THREE.MeshStandardMaterial({ map: pillarT, roughness: 0.9 });
+      for (const s of [-1, 1]) { const p = part(BOX, stoneM, s * (COLS / 2 + 0.35), ROWS / 2 + 0.1, -0.1, 0.7, ROWS + 0.6, 1.4, boardG); p.castShadow = p.receiveShadow = true;
+        const cap = part(BOX, stoneM, s * (COLS / 2 + 0.35), ROWS + 0.55, -0.1, 0.95, 0.3, 1.6, boardG); cap.castShadow = true; }
+      const baseT = stoneT.clone(); baseT.repeat.set(3, 0.4); baseT.needsUpdate = true;
+      const base = part(BOX, new THREE.MeshStandardMaterial({ map: baseT, roughness: 0.9 }), 0, -0.3, -0.1, COLS + 1.8, 0.6, 1.8, boardG); base.receiveShadow = base.castShadow = true;
+      // 塔の上の小さな旗
+      for (const s of [-1, 1]) {
+        part(CYL, mat('#5a4030'), s * (COLS / 2 + 0.35), ROWS + 1.3, -0.1, 0.04, 1.2, 0.04, boardG);
+        const f = part(BOX, mat(s < 0 ? '#e0503a' : '#3a7be0', 0.8), s * (COLS / 2 + 0.35) + 0.28, ROWS + 1.6, -0.1, 0.5, 0.32, 0.02, boardG); f.castShadow = true;
+      }
+    }
+
+    // 次のブロックの枠
+    const nextG = new THREE.Group(); world.add(nextG);
+    const nextMeshes = [];
+    {
+      const fr = new THREE.Mesh(RBOX, mat('#3d4150', 0.9)); fr.scale.set(2.3, 2.3, 0.4); fr.position.z = -0.4; fr.receiveShadow = true; nextG.add(fr);
+      const rim = new THREE.Mesh(RBOX, mat('#b3aa98', 0.85)); rim.scale.set(2.6, 2.6, 0.3); rim.position.z = -0.55; nextG.add(rim);
+      for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(CELLG, BMAT[1]); m.scale.setScalar(0.62); m.castShadow = true; nextG.add(m); nextMeshes.push(m); }
+    }
+
+    // 地面と遠くの景色
+    {
+      const grassT = canvasTex(256, 256, (c, w, h) => { c.fillStyle = '#74b850'; c.fillRect(0, 0, w, h); for (let i = 0; i < 2600; i++) { c.fillStyle = `hsl(${92 + Math.random() * 22},${40 + Math.random() * 20}%,${32 + Math.random() * 22}%)`; c.fillRect(Math.random() * w, Math.random() * h, 1.5, 3 + Math.random() * 3); } });
+      grassT.wrapS = grassT.wrapT = THREE.RepeatWrapping; grassT.repeat.set(30, 30);
+      const ground = new THREE.Mesh(new THREE.CircleGeometry(160, 48), new THREE.MeshStandardMaterial({ map: grassT, roughness: 1 }));
+      ground.rotation.x = -Math.PI / 2; ground.position.y = -0.6; ground.receiveShadow = true; world.add(ground);
+      const mtM = mat('#8094b8', 1, { flatShading: true }), snowM = mat('#f4f6fa', 0.9, { flatShading: true });
+      for (let i = 0; i < 16; i++) {
+        const x = (i - 7.5) * 14 + rnd(-4, 4), hgt = rnd(14, 30), r = rnd(9, 15), z = rnd(-85, -65);
+        const m = new THREE.Mesh(new THREE.ConeGeometry(r, hgt, 6), mtM); m.position.set(x, hgt / 2 - 0.6, z); m.rotation.y = Math.random(); world.add(m);
+        const s = new THREE.Mesh(new THREE.ConeGeometry(r * 0.3, hgt * 0.3, 6), snowM); s.position.set(x, hgt * 0.85 - 0.6, z); s.rotation.y = m.rotation.y; world.add(s);
+      }
+      const leaf = mat('#3f8f3a'), leaf2 = mat('#55a845'), trunk = mat('#7a4a28');
+      for (let i = 0; i < 26; i++) {
+        const side = i % 2 ? 1 : -1, x = side * rnd(7, 34) + 6, z = rnd(-30, -6);
+        const tr = new THREE.Group(); tr.position.set(x, -0.6, z); tr.scale.setScalar(rnd(1.2, 2.2));
+        part(CYL, trunk, 0, 0.8, 0, 0.22, 1.6, 0.22, tr);
+        const lm = Math.random() < .5 ? leaf : leaf2;
+        part(SPH, lm, 0, 2.2, 0, 1.2, 1.1, 1.2, tr); part(SPH, lm, 0.55, 1.8, 0.3, 0.75, 0.7, 0.75, tr); part(SPH, lm, -0.55, 1.9, -0.2, 0.85, 0.75, 0.85, tr);
+        world.add(shade(tr));
+      }
+      const rockM = mat('#9a9488', 0.95, { flatShading: true }), rockG = new THREE.DodecahedronGeometry(1, 0);
+      for (let i = 0; i < 12; i++) { const m = part(rockG, rockM, rnd(-14, 22), -0.5, rnd(-5, 2.5), rnd(0.3, 0.8), rnd(0.25, 0.5), rnd(0.3, 0.7), world); if (Math.abs(m.position.x) < 6.5 && m.position.z > -2) m.position.x += 8; m.rotation.y = Math.random() * 6; m.castShadow = m.receiveShadow = true; }
+      const tuft = new THREE.ConeGeometry(0.06, 0.4, 5), tuftM = mat('#4f9a35');
+      for (let i = 0; i < 90; i++) { const x = rnd(-20, 30), z = rnd(-6, 3); if (Math.abs(x) < 5.5 && z > -1.5) continue; const m = part(tuft, tuftM, x, -0.42, z, 1, rnd(0.7, 1.4), 1, world); m.rotation.z = rnd(-.4, .4); }
+      const cloudM = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, emissive: '#ffffff', emissiveIntensity: 0.25 });
+      for (let i = 0; i < 8; i++) {
+        const cg = new THREE.Group(); cg.position.set(rnd(-50, 60), rnd(16, 34), rnd(-60, -35));
+        for (let k = 0; k < 5; k++) part(SPH, cloudM, (k - 2) * 1.6 + rnd(-.4, .4), rnd(-.3, .6) * (k % 2 ? 1 : 0.5), rnd(-.5, .5), rnd(1.4, 2.4), rnd(1.0, 1.6), rnd(1.2, 1.8), cg);
+        cg.scale.setScalar(rnd(1, 1.8)); world.add(cg);
+      }
+    }
+
+    // ---------- 戦いの舞台（浮島） ----------
+    const arena = new THREE.Group(); world.add(arena);
+    const HERO_X = -2.3, FOE_X = 2.3;
+    {
+      const grassT = canvasTex(256, 128, (c, w, h) => { c.fillStyle = '#6cbf4a'; c.fillRect(0, 0, w, h); for (let i = 0; i < 1800; i++) { c.fillStyle = `hsl(${95 + Math.random() * 20},${45 + Math.random() * 20}%,${36 + Math.random() * 22}%)`; c.fillRect(Math.random() * w, Math.random() * h, 1.5, 3 + Math.random() * 3); } });
+      const soilT = canvasTex(256, 64, (c, w, h) => { const gr = c.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#5ea43e'); gr.addColorStop(0.18, '#8a5a34'); gr.addColorStop(1, '#5a3a20'); c.fillStyle = gr; c.fillRect(0, 0, w, h); for (let i = 0; i < 400; i++) { c.fillStyle = `rgba(0,0,0,${Math.random() * 0.15})`; c.fillRect(Math.random() * w, 12 + Math.random() * h, 3, 2); } });
+      soilT.wrapS = THREE.RepeatWrapping; soilT.repeat.set(3, 1);
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 40), [new THREE.MeshStandardMaterial({ map: soilT, roughness: 1 }), new THREE.MeshStandardMaterial({ map: grassT, roughness: 0.95 }), new THREE.MeshStandardMaterial({ color: '#5a3a20' })]);
+      top.scale.set(4.4, 0.5, 1.8); top.position.y = -0.25; top.receiveShadow = true; top.castShadow = true; arena.add(top);
+      const under = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 9), mat('#6a5040', 1, { flatShading: true }));
+      under.scale.set(4.2, 1.7, 1.7); under.rotation.x = Math.PI; under.position.y = -1.35; under.castShadow = true; arena.add(under);
+      for (let i = 0; i < 4; i++) { const r = part(new THREE.DodecahedronGeometry(1, 0), mat('#7a6050', 1, { flatShading: true }), rnd(-2.5, 2.5), -0.9 - Math.random() * 0.5, 1.0, rnd(0.3, 0.6), rnd(0.3, 0.5), 0.4, arena); r.rotation.set(Math.random(), Math.random(), 0); }
+      const tuft = new THREE.ConeGeometry(0.05, 0.32, 5), tuftM = mat('#4f9a35');
+      const petal = new THREE.SphereGeometry(0.08, 8, 6);
+      for (let i = 0; i < 46; i++) {
+        const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * 0.95;
+        const x = Math.cos(a) * rr * 4.2, z = Math.sin(a) * rr * 1.7;
+        if (Math.abs(x - HERO_X) < 0.8 && Math.abs(z) < 0.7 || Math.abs(x - FOE_X) < 1.2 && Math.abs(z) < 0.9) continue;
+        if (Math.random() < 0.25) {
+          const fc = mat(pick(['#ffffff', '#ffd23a', '#ff8ab0', '#b08aff']));
+          for (let k = 0; k < 5; k++) part(petal, fc, x + Math.cos(k * 1.26) * 0.07, 0.2, z + Math.sin(k * 1.26) * 0.07, 1, 0.5, 1, arena);
+          part(petal, mat('#ffcf3a'), x, 0.22, z, 0.5, 0.5, 0.5, arena);
+          part(CYL, tuftM, x, 0.1, z, 0.015, 0.2, 0.015, arena);
+        } else { const m = part(tuft, tuftM, x, 0.14, z, 1, rnd(0.7, 1.3), 1, arena); m.rotation.z = rnd(-.4, .4); }
+      }
+    }
+
+    // ゲージ（体力・敵の攻撃までの時間）: 島の正面に置く
+    const barG = new THREE.PlaneGeometry(1, 1); barG.translate(0.5, 0, 0);
+    function makeBar(x, y, w, h, color) {
+      const g = new THREE.Group(); g.position.set(x, y, 1.95); arena.add(g);
+      const back = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.12, h + 0.12), new THREE.MeshBasicMaterial({ color: '#1c1a24' })); back.position.x = w / 2; g.add(back);
+      const under = new THREE.Mesh(barG, new THREE.MeshBasicMaterial({ color: '#ffffff' })); under.scale.set(w, h, 1); under.position.z = 0.005; g.add(under);
+      const fill = new THREE.Mesh(barG, new THREE.MeshBasicMaterial({ color })); fill.scale.set(w, h, 1); fill.position.z = 0.01; g.add(fill);
+      return { g, fill, under, w, h, shown: 1, lag: 1, set(v) { this.v = Math.max(0, Math.min(1, v)); } , v: 1 };
+    }
+    const heroBar = makeBar(HERO_X - 1.0, -0.45, 2.0, 0.22, '#46d060');
+    const foeBar = makeBar(FOE_X - 1.1, -0.38, 2.2, 0.2, '#e8344a');
+    const atkBar = makeBar(FOE_X - 1.1, -0.66, 2.2, 0.1, '#ffb020');
+    atkBar.under.visible = false;
+    function stepBar(b, dt) {
+      b.shown += (b.v - b.shown) * Math.min(1, dt * 18);
+      if (b.v < b.lag) b.lag = Math.max(b.v, b.lag - dt * 0.6); else b.lag = b.v;
+      b.fill.scale.x = Math.max(0.0001, b.w * b.shown); b.under.scale.x = Math.max(0.0001, b.w * b.lag);
+    }
+
+    // ---------- 勇者 ----------
+    function makeHero() {
+      const g = new THREE.Group();
+      const skin = mat('#f6cfae', 0.6), tunic = mat('#3a6ad8', 0.85), metal = mat('#d4dae4', 0.25, { metalness: 0.85 }), gold = mat('#e8b830', 0.3, { metalness: 0.8 });
+      const brown = mat('#6b4423', 0.8), boots = mat('#4a3020', 0.7), red = mat('#d0342a', 0.85), black = mat('#141018', 0.25), white = new THREE.MeshBasicMaterial({ color: '#fff' });
+      const mats = [skin, tunic, metal, gold, brown, boots, red];
+      const body = new THREE.Group(); g.add(body);
+      for (const s of [-1, 1]) part(CAP, boots, s * 0.15, 0.3, 0, 0.12, 0.2, 0.13, body);
+      part(CAP, tunic, 0, 0.98, 0, 0.32, 0.2, 0.26, body);
+      part(CYL, brown, 0, 0.75, 0, 0.33, 0.08, 0.27, body);
+      part(BOX, gold, 0, 0.75, 0.27, 0.1, 0.08, 0.02, body);
+      const cape = part(BOX, red, 0, 0.98, -0.3, 0.5, 0.85, 0.04, body); cape.rotation.x = 0.15;
+      part(CYL, skin, 0, 1.28, 0, 0.12, 0.15, 0.12, body);
+      const head = new THREE.Group(); head.position.y = 1.62; body.add(head);
+      part(SPH, skin, 0, 0, 0, 0.34, 0.35, 0.32, head);
+      for (const s of [-1, 1]) {
+        const e = part(SPH, black, s * 0.12, 0.02, 0.28, 0.05, 0.065, 0.035, head); part(SPH, white, 0.35, 0.35, 0.8, 0.35, 0.3, 0.3, e);
+        part(SPH, mat('#f0a0a0', 0.6), s * 0.2, -0.08, 0.25, 0.05, 0.03, 0.02, head);
+        part(SPH, skin, s * 0.33, 0, 0, 0.06, 0.09, 0.05, head);
+      }
+      part(SPH, skin, 0, -0.04, 0.32, 0.04, 0.04, 0.04, head);
+      const helm = part(HALF, metal, 0, 0.05, -0.01, 0.37, 0.36, 0.35, head); helm.rotation.x = -0.2;
+      part(BOX, metal, 0, 0.1, 0.3, 0.06, 0.3, 0.06, head).rotation.x = -0.2;
+      for (let k = 0; k < 4; k++) part(SPH, red, 0, 0.42 - k * 0.02, -0.06 - k * 0.12, 0.08, 0.1, 0.1, head);
+      // 剣の腕（奥側）
+      const armS = new THREE.Group(); armS.position.set(0.36, 1.18, 0); body.add(armS);
+      part(CAP, tunic, 0, -0.18, 0, 0.09, 0.12, 0.09, armS); part(SPH, skin, 0, -0.42, 0, 0.09, 0.09, 0.09, armS);
+      const sword = new THREE.Group(); sword.position.set(0, -0.42, 0); armS.add(sword);
+      part(CYL, brown, 0, 0, 0, 0.035, 0.22, 0.035, sword).rotation.x = Math.PI / 2;
+      part(BOX, gold, 0, 0, 0.13, 0.32, 0.06, 0.06, sword);
+      part(BOX, metal, 0, 0, 0.62, 0.14, 0.035, 0.9, sword);
+      const tip = part(CONE, metal, 0, 0, 1.1, 0.07, 0.14, 0.0175, sword); tip.rotation.x = Math.PI / 2;
+      // 盾の腕（手前側）: 盾にはいつもの猫の顔
+      const armH = new THREE.Group(); armH.position.set(-0.36, 1.18, 0); body.add(armH);
+      part(CAP, tunic, 0, -0.18, 0, 0.09, 0.12, 0.09, armH); part(SPH, skin, 0, -0.42, 0, 0.09, 0.09, 0.09, armH);
+      const shield = new THREE.Group(); shield.position.set(-0.06, -0.3, 0.2); armH.add(shield);
+      part(CYL, gold, 0, 0, 0, 0.36, 0.06, 0.36, shield).rotation.x = Math.PI / 2;
+      part(CYL, mat('#f4efe4', 0.6), 0, 0, 0.032, 0.31, 0.01, 0.31, shield).rotation.x = Math.PI / 2;
+      const face = new THREE.Mesh(new THREE.CircleGeometry(0.3, 32), new THREE.MeshStandardMaterial({ map: catTex, roughness: 0.6, alphaTest: 0.4, transparent: false }));
+      face.position.z = 0.04; shield.add(face);
+      shield.rotation.y = -0.5;
+      shade(g); face.castShadow = false;
+      return { g, body, head, armS, armH, sword, mats };
+    }
+    const hero = makeHero();
+    hero.g.position.set(HERO_X, 0, 0.1);
+    hero.g.rotation.y = Math.PI / 2 - 0.55;
+    arena.add(hero.g);
+
+    // ---------- 敵 ----------
+    const EYE_W = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.3 }), EYE_B = new THREE.MeshStandardMaterial({ color: '#141018', roughness: 0.2 }), SHINE = new THREE.MeshBasicMaterial({ color: '#fff' });
+    const FANG = mat('#fffaf0', 0.4);
+    const tint = (hex, k) => new THREE.Color(hex).lerp(new THREE.Color(k > 0 ? '#ffffff' : '#000000'), Math.abs(k));
+    function addFoeEyes(p, y, gap, r, z, angry) {
+      for (const s of [-1, 1]) {
+        part(SPH, EYE_W, s * gap, y, z, r, r * 1.1, r * 0.6, p);
+        const b = part(SPH, EYE_B, s * gap + 0, y - r * 0.1, z + r * 0.4, r * 0.55, r * 0.65, r * 0.35, p);
+        part(SPH, SHINE, 0.35, 0.35, 0.8, 0.35, 0.3, 0.3, b);
+        if (angry) { const br = part(BOX, EYE_B, s * gap, y + r * 1.2, z + r * 0.2, r * 1.6, r * 0.35, r * 0.4, p); br.rotation.z = s * -0.45; }
+      }
+    }
+    function addElementDeco(p, el, y, mats) {
+      if (el === 1) { const fm = new THREE.MeshStandardMaterial({ color: '#ffb030', emissive: '#ff6010', emissiveIntensity: 1.2, roughness: 0.5 }); for (let k = -1; k <= 1; k++) part(CONE, fm, k * 0.2, y + 0.18 - Math.abs(k) * 0.06, 0, 0.12, 0.4 - Math.abs(k) * 0.12, 0.12, p).rotation.z = -k * 0.4; }
+      if (el === 2) { const wm = mat('#9ad4ff', 0.15, { transparent: true, opacity: 0.85 }); mats.push(wm); const d = part(SPH, wm, 0, y + 0.18, 0, 0.16, 0.16, 0.16, p); part(CONE, wm, 0, y + 0.4, 0, 0.11, 0.3, 0.11, p); }
+      if (el === 3) { const lm = mat('#58d040', 0.6); mats.push(lm); part(CYL, mat('#3a8a2a'), 0, y + 0.12, 0, 0.025, 0.25, 0.025, p); for (const s of [-1, 1]) { const l = part(SPH, lm, s * 0.14, y + 0.27, 0, 0.16, 0.04, 0.08, p); l.rotation.z = s * 0.4; } }
+    }
+    function makeFoe(type, el) {
+      const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+      const col = EL_COLOR[el], mats = [];
+      const m0 = mat(col, type === 0 ? 0.18 : 0.6); mats.push(m0);
+      const m1 = mat(tint(col, -0.35), 0.7); mats.push(m1);
+      const m2 = mat(tint(col, 0.45), 0.5); mats.push(m2);
+      if (type === 0) { // スライム
+        part(SPH, m0, 0, 0.62, 0, 0.88, 0.66, 0.82, body);
+        part(SPH, m2, -0.3, 0.95, 0.4, 0.18, 0.1, 0.1, body);
+        addFoeEyes(body, 0.72, 0.28, 0.17, 0.62, false);
+        const mo = part(new THREE.TorusGeometry(0.14, 0.035, 6, 14, Math.PI), EYE_B, 0, 0.42, 0.76, 1, 1, 1, body); mo.rotation.z = Math.PI;
+        addElementDeco(body, el, 1.2, mats);
+      } else if (type === 1) { // 小鬼
+        for (const s of [-1, 1]) part(CAP, m1, s * 0.22, 0.32, 0, 0.13, 0.2, 0.14, body);
+        part(CAP, m0, 0, 0.95, 0, 0.42, 0.25, 0.36, body);
+        part(SPH, m2, 0, 0.88, 0.22, 0.28, 0.32, 0.18, body);
+        for (const s of [-1, 1]) { const w = part(BOX, m1, s * 0.55, 1.2, -0.35, 0.7, 0.45, 0.04, body); w.rotation.set(0, s * 0.5, s * 0.3); }
+        for (const s of [-1, 1]) { const a = part(CAP, m0, s * 0.5, 0.95, 0.1, 0.1, 0.16, 0.1, body); a.rotation.z = s * 0.6; part(SPH, m1, s * 0.66, 0.72, 0.18, 0.12, 0.12, 0.12, body); }
+        const head = new THREE.Group(); head.position.y = 1.62; body.add(head);
+        part(SPH, m0, 0, 0, 0, 0.44, 0.4, 0.4, head);
+        for (const s of [-1, 1]) { const h = part(CONE, m2, s * 0.24, 0.38, 0, 0.09, 0.32, 0.09, head); h.rotation.z = -s * 0.4; const e = part(CONE, m0, s * 0.44, 0.05, 0, 0.08, 0.25, 0.05, head); e.rotation.z = -s * 1.3; }
+        addFoeEyes(head, 0.04, 0.15, 0.11, 0.32, true);
+        for (const s of [-1, 1]) { const f = part(CONE, FANG, s * 0.09, -0.2, 0.36, 0.035, 0.1, 0.035, head); f.rotation.x = Math.PI; }
+        part(BOX, EYE_B, 0, -0.17, 0.36, 0.26, 0.04, 0.03, head);
+        addElementDeco(head, el, 0.42, mats);
+      } else { // 岩の巨人
+        const rock = mat(tint('#8a8070', 0), 0.95, { flatShading: true }); mats.push(rock);
+        const glow = new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 1.1, roughness: 0.4 }); mats.push(glow);
+        for (const s of [-1, 1]) { part(RBOX, rock, s * 0.3, 0.3, 0, 0.36, 0.6, 0.4, body); }
+        part(RBOX, rock, 0, 1.05, 0, 1.15, 0.95, 0.75, body);
+        part(BOX, glow, 0, 1.1, 0.38, 0.5, 0.06, 0.02, body); part(BOX, glow, -0.15, 0.95, 0.38, 0.06, 0.4, 0.02, body).rotation.z = 0.5;
+        for (const s of [-1, 1]) { part(RBOX, rock, s * 0.78, 1.25, 0, 0.42, 0.42, 0.42, body); part(RBOX, m1, s * 0.82, 0.78, 0.08, 0.36, 0.6, 0.36, body); }
+        const head = new THREE.Group(); head.position.y = 1.78; body.add(head);
+        part(RBOX, rock, 0, 0, 0, 0.6, 0.5, 0.5, head);
+        for (const s of [-1, 1]) part(BOX, glow, s * 0.14, 0.03, 0.26, 0.12, 0.08, 0.02, head);
+        part(RBOX, m0, 0, 0.3, 0, 0.66, 0.14, 0.56, head);
+        addElementDeco(head, el, 0.35, mats);
+      }
+      shade(g);
+      return { g, body, mats, f0: [380, 230, 95][type] * rnd(0.9, 1.1) };
+    }
+    // ボス: 巨大な「いつもの猫」の顔
+    const boss = (() => {
+      const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+      const faceM = new THREE.MeshStandardMaterial({ map: catTex, roughness: 0.8, alphaTest: 0.45, side: THREE.DoubleSide });
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), faceM); face.scale.setScalar(3.8); face.position.set(0, 1.85, 0.3); face.castShadow = true; body.add(face);
+      const auraM = new THREE.MeshBasicMaterial({ color: '#ff5a2a', transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false });
+      const aura = new THREE.Mesh(new THREE.TorusGeometry(1.75, 0.12, 10, 48), auraM); aura.position.set(0, 1.75, -0.1); body.add(aura);
+      const halo = new THREE.Mesh(new THREE.CircleGeometry(1.9, 40), new THREE.MeshBasicMaterial({ color: '#ff5a2a', transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false })); halo.position.set(0, 1.75, -0.2); body.add(halo);
+      const orbs = [];
+      const orbM = new THREE.MeshStandardMaterial({ color: '#ff5a2a', emissive: '#ff5a2a', emissiveIntensity: 1.2, roughness: 0.3 });
+      for (let i = 0; i < 3; i++) { const o = part(SPH, orbM, 0, 0, 0, 0.16, 0.16, 0.16, body); orbs.push(o); }
+      return { g, body, face, aura, halo, orbs, orbM, mats: [faceM, orbM], boss: true, f0: 520 };
+    })();
+    function setBossEl(el) {
+      const c = new THREE.Color(EL_COLOR[el]);
+      boss.aura.material.color.copy(c); boss.halo.material.color.copy(c); boss.orbM.color.copy(c); boss.orbM.emissive.copy(c);
+    }
+
+    // ---------- 粒の演出（時間で消える） ----------
+    const fx = [];
+    const LEAFG = new THREE.PlaneGeometry(1, 0.5), DROPG = new THREE.SphereGeometry(1, 8, 6), CUBEG = new THREE.BoxGeometry(1, 1, 1);
+    const fxMats = {};
+    const fxMat = (color, add) => { const k = color + (add ? 'a' : ''); return (fxMats[k] ||= new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending })); };
+    function burst(parent, pos, n, o) {
+      for (let k = 0; k < n; k++) {
+        const color = Array.isArray(o.color) ? pick(o.color) : o.color;
+        const m = new THREE.Mesh(o.geo || DROPG, fxMat(color, o.add).clone());
+        const a = Math.random() * Math.PI * 2, b = rnd(-1, 1), sp = o.speed * rnd(0.4, 1.1);
+        m.position.copy(pos); m.position.x += rnd(-1, 1) * (o.spread || 0); m.position.y += rnd(-1, 1) * (o.spreadY ?? o.spread ?? 0);
+        m.scale.setScalar(o.size * rnd(0.6, 1.3));
+        if (o.geo === LEAFG) m.rotation.set(Math.random() * 6, Math.random() * 6, 0);
+        parent.add(m);
+        const dir = o.dir || new THREE.Vector3();
+        fx.push({ m, parent, v: new THREE.Vector3(Math.cos(a) * sp + dir.x, (o.up ?? 0) * rnd(0.5, 1.2) + Math.sin(a) * sp * 0.6 + dir.y, b * sp * 0.5 + dir.z), t: 0, life: o.life * rnd(0.7, 1.2), s0: m.scale.x, grav: o.grav ?? 6, spin: o.geo === LEAFG ? rnd(-8, 8) : 0, grow: o.grow ?? 0.5, drag: o.drag ?? 0 });
+      }
+    }
+    function stepFx(dt) {
+      for (let k = fx.length - 1; k >= 0; k--) {
+        const f = fx[k]; f.t += dt;
+        f.v.y -= dt * f.grav; if (f.drag) f.v.multiplyScalar(Math.max(0, 1 - f.drag * dt));
+        f.m.position.addScaledVector(f.v, dt);
+        if (f.spin) { f.m.rotation.x += f.spin * dt; f.m.rotation.y += f.spin * 0.7 * dt; }
+        const q = f.t / f.life;
+        f.m.material.opacity = Math.max(0, 1 - q * q); f.m.scale.setScalar(f.s0 * (1 + q * f.grow));
+        if (q >= 1) { f.parent.remove(f.m); f.m.material.dispose(); fx.splice(k, 1); }
+      }
+    }
+    // 属性ごとの攻撃の粒
+    function elementBurst(el, pos, power) {
+      const n = Math.round(14 * power);
+      if (el === 1) { burst(arena, pos, n, { color: ['#ffd040', '#ff8020', '#ff4010'], add: true, speed: 2.6, size: 0.14, life: 0.7, up: 2.5, grav: -1.5, spread: 0.4, grow: -0.6 }); burst(arena, pos, Math.round(n / 3), { color: '#a09890', speed: 0.8, size: 0.12, life: 0.8, up: 1.2, grav: -1, spread: 0.3, grow: 1.2 }); }
+      else if (el === 2) { burst(arena, pos, n, { color: ['#bfe6ff', '#5aa8ff', '#ffffff'], speed: 3.2, size: 0.1, life: 0.8, up: 3.2, grav: 9, spread: 0.3 }); burst(arena, pos, Math.round(n / 2), { color: '#ffffff', add: true, speed: 1.2, size: 0.25, life: 0.4, up: 0.5, grav: 0, spread: 0.3, grow: 1.2 }); }
+      else if (el === 3) { burst(arena, pos, n, { geo: LEAFG, color: ['#4cc040', '#86e060', '#2f9a2a'], speed: 2.6, size: 0.22, life: 1.1, up: 2.2, grav: 2.5, spread: 0.4, drag: 2, grow: 0 }); }
+      else burst(arena, pos, n, { color: '#d0d0d0', speed: 2, size: 0.1, life: 0.5, up: 1, spread: 0.2 });
+    }
+    // 斬撃の弧
+    const slashM = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const slash = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.07, 6, 30, Math.PI * 0.9), slashM); slash.visible = false; arena.add(slash);
+    let slashT = 1;
+
+    // ---------- ゲームの状態 ----------
+    const SHAPES = [[[0, 0], [1, 0]], [[-1, 0], [0, 0], [1, 0]], [[0, 0], [1, 0], [0, 1]]];
+    const ADV = { 1: 3, 3: 2, 2: 1 }; // 火→草→水→火
+    const affinity = (a, d) => ADV[a] === d ? 2 : ADV[d] === a ? 0.5 : 1;
+    let grid, piece, next, state = 'play', armed = false, floorN = 1, heroHp = 1, foe = null, foeHp = 1, foeMax = 1, foeTimer = 0;
+    let fallT = 0, lockT = 0, resets = 0, softKey = false, clearing = null, pendingGarbage = 0, riseOff = 0, gridDirty = true;
+    let heroQueue = [], heroAct = null, foeAct = null, overT = 0, overGray = 0, shake = 0, bossElT = 0, foeEnter = 0, foeDying = -1, emitT = 0;
+    const randPiece = () => {
+      const s = Math.random(), shape = SHAPES[s < 0.28 ? 0 : s < 0.64 ? 1 : 2];
+      return { cells: shape.map(p => p.slice()), el: 1 + Math.floor(Math.random() * 3), x: 3, y: ROWS - 2, vx: 3, vy: ROWS - 2 };
+    };
+    const blocked = (c, r) => c < 0 || c >= COLS || r < 0 || (r < ROWS && grid[r][c] !== 0);
+    const fits = (p, dx = 0, dy = 0, cells = p.cells) => cells.every(([x, y]) => !blocked(p.x + x + dx, p.y + y + dy));
+    const gravity = () => Math.max(0.1, 0.85 * Math.pow(0.93, floorN - 1));
+    const foeInterval = () => Math.max(4.2, 12 - floorN * 0.45) * (foe?.boss ? 0.85 : 1);
+    const foeDamage = () => (10 + floorN * 1.2) / 100;
+    const foeHpFor = n => (28 + (n - 1) * 9) * (n % 10 === 0 ? 3 : 1);
+
+    function spawnPiece() {
+      piece = next; next = randPiece();
+      piece.x = 3; piece.y = ROWS - 2; piece.vx = piece.x; piece.vy = piece.y + 0.6;
+      fallT = 0; lockT = 0; resets = 0;
+      drawNext();
+      if (!fits(piece)) gameOver();
+    }
+    function drawNext() {
+      next.cells.forEach(([x, y], i) => { const m = nextMeshes[i]; m.visible = true; m.material = BMAT[next.el]; });
+      for (let i = next.cells.length; i < 3; i++) nextMeshes[i].visible = false;
+      const xs = next.cells.map(c => c[0]), ys = next.cells.map(c => c[1]);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      next.cells.forEach(([x, y], i) => nextMeshes[i].position.set((x - cx) * 0.66, (y - cy) * 0.66, 0.05));
+    }
+    function move(dx) {
+      if (!piece || state !== 'play') return false;
+      if (fits(piece, dx, 0)) { piece.x += dx; afterMove(); sMove(); return true; }
+      return false;
+    }
+    function afterMove() { if (!fits(piece, 0, -1) && resets < 14) { lockT = 0; resets++; } }
+    function rotate() {
+      if (!piece || state !== 'play') return;
+      const rc = piece.cells.map(([x, y]) => [y, -x]);
+      for (const [dx, dy] of [[0, 0], [-1, 0], [1, 0], [0, 1], [-2, 0], [2, 0], [0, -1]]) {
+        if (fits(piece, dx, dy, rc)) { piece.cells = rc; piece.x += dx; piece.y += dy; afterMove(); sRot(); return; }
+      }
+    }
+    function softStep() {
+      if (!piece || state !== 'play') return false;
+      if (fits(piece, 0, -1)) { piece.y--; fallT = 0; return true; }
+      return false;
+    }
+    function hardDrop() {
+      if (!piece || state !== 'play') return;
+      let n = 0; while (fits(piece, 0, -1)) { piece.y--; n++; }
+      sHard(); shake = Math.max(shake, 0.08);
+      // 落ちた跡の粒
+      for (const [x, y] of piece.cells) { const [px, py] = cellPos(piece.x + x, piece.y + y); burst(boardG, new THREE.Vector3(px, py - 0.4, 0.4), 2, { color: '#e8e0d0', speed: 1.4, size: 0.08, life: 0.35, up: 1, grav: 4 }); }
+      lock(true);
+    }
+    function lock(hard) {
+      let over = false;
+      for (const [x, y] of piece.cells) { const c = piece.x + x, r = piece.y + y; if (r >= ROWS) over = true; else grid[r][c] = piece.el; }
+      if (!hard) sLand();
+      piece = null; gridDirty = true;
+      if (over) { gameOver(); return; }
+      const rows = [];
+      for (let r = 0; r < ROWS; r++) if (grid[r].every(v => v !== 0)) rows.push(r);
+      if (rows.length) startClear(rows); else spawnPiece();
+    }
+    function startClear(rows) {
+      const count = { 1: 0, 2: 0, 3: 0 };
+      let pure = 0;
+      for (const r of rows) { const row = grid[r]; row.forEach(v => { if (v <= 3) count[v]++; }); if (row[0] <= 3 && row.every(v => v === row[0])) pure++; }
+      let el = 1; for (const e of [2, 3]) if (count[e] > count[el] || (count[e] === count[el] && Math.random() < 0.5)) el = e;
+      if (count[el] === 0) el = pick([1, 2, 3]);
+      const base = [0, 10, 24, 42][rows.length] + pure * 6;
+      clearing = { rows, t: 0 };
+      rows.forEach((r, i) => { const f = flashes[i]; f.visible = true; f.position.y = r + 0.5; f.material.color.set(pure && grid[r].every(v => v === grid[r][0]) ? EL_COLOR[grid[r][0]] : '#fff8e0'); });
+      for (const r of rows) for (let c = 0; c < COLS; c++) { const [x, y] = cellPos(c, r); const v = grid[r][c]; burst(boardG, new THREE.Vector3(x, y, 0.5), 2, { color: [EL_COLOR[v], '#ffffff'], add: true, speed: 2.5, size: 0.09, life: 0.6, up: 2, grav: 4 }); }
+      sClear(rows.length);
+      if (foe && foeDying < 0) heroQueue.push({ el, base, lines: rows.length });
+    }
+    function finishClear() {
+      const rows = clearing.rows.slice().sort((a, b) => b - a);
+      for (const r of rows) { grid.splice(r, 1); grid.push(new Array(COLS).fill(0)); }
+      clearing = null; gridDirty = true;
+      flashes.forEach(f => f.visible = false);
+      if (state !== 'play') return;
+      while (pendingGarbage > 0 && state === 'play') { pendingGarbage--; addGarbage(); }
+      if (state === 'play') spawnPiece();
+    }
+    function addGarbage() {
+      if (clearing) { pendingGarbage++; return; }
+      if (grid[ROWS - 1].some(v => v !== 0)) { gameOver(); return; }
+      grid.pop();
+      const gap = Math.floor(Math.random() * COLS);
+      grid.unshift(Array.from({ length: COLS }, (_, c) => c === gap ? 0 : 4));
+      riseOff = 1; gridDirty = true;
+      if (piece && !fits(piece)) { if (fits(piece, 0, 1)) { piece.y++; piece.vy++; } else { gameOver(); return; } }
+      sRise(); shake = Math.max(shake, 0.12);
+    }
+
+    // 敵を出す
+    function spawnFoe() {
+      if (foe && !foe.boss) arena.remove(foe.g);
+      if (foe?.boss) arena.remove(boss.g);
+      const isBoss = floorN % 10 === 0;
+      if (isBoss) { foe = boss; foe.el = pick([1, 2, 3]); setBossEl(foe.el); bossElT = 0; }
+      else { const el = pick([1, 2, 3]); foe = makeFoe((floorN - 1) % 3, el); foe.el = el; }
+      const sc = isBoss ? 1 : Math.min(1.35, 1 + (floorN - 1) * 0.025);
+      foe.scale = sc; foe.g.scale.setScalar(sc);
+      foe.g.position.set(FOE_X, 0, 0.1); foe.g.rotation.y = isBoss ? -0.25 : -(Math.PI / 2 - 0.55);
+      arena.add(foe.g);
+      foeMax = foeHpFor(floorN); foeHp = foeMax; foeBar.v = foeBar.shown = foeBar.lag = 1;
+      foeTimer = 0; foeEnter = 0; foeDying = -1;
+      for (const m of foe.mats) if (m.emissive && !m.userData.e0) m.userData.e0 = { c: m.emissive.clone(), i: m.emissiveIntensity };
+      drawFloor();
+      if (isBoss && armed) setTimeout(() => sMeow(), 300);
+    }
+    function flash(o, k) {
+      for (const m of o.mats) {
+        if (!m.emissive) continue;
+        const e0 = m.userData.e0 || { c: new THREE.Color('#000'), i: 1 };
+        if (k <= 0) { m.emissive.copy(e0.c); m.emissiveIntensity = e0.i; }
+        else { m.emissive.copy(e0.c).lerp(new THREE.Color(o === hero ? '#ff3020' : '#ffffff'), k); m.emissiveIntensity = Math.max(e0.i, k * 1.2); }
+      }
+    }
+    hero.mats.forEach(m => m.userData.e0 = { c: m.emissive.clone(), i: m.emissiveIntensity });
+    let heroFlash = 0, foeFlash = 0;
+
+    // ---------- 入力 ----------
+    const held = { l: 0, r: 0 };
+    let das = { dir: 0, t: 0 };
+    function arm() { if (!armed && state === 'play') { armed = true; } }
+    addEventListener('keydown', e => {
+      if (e.target === langSel) return;
+      const k = e.code;
+      if (['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', 'Space'].includes(k)) e.preventDefault();
+      if (state === 'result') { if ((k === 'Space' || k === 'Enter') && resultT > 0.6) start(); return; }
+      if (state !== 'play' || e.repeat) return;
+      arm();
+      if (k === 'ArrowLeft' || k === 'KeyA') { move(-1); das = { dir: -1, t: 0 }; held.l = 1; }
+      else if (k === 'ArrowRight' || k === 'KeyD') { move(1); das = { dir: 1, t: 0 }; held.r = 1; }
+      else if (k === 'ArrowUp' || k === 'KeyZ' || k === 'KeyX' || k === 'KeyW') rotate();
+      else if (k === 'ArrowDown' || k === 'KeyS') { softKey = true; softStep(); }
+      else if (k === 'Space') hardDrop();
+    });
+    addEventListener('keyup', e => {
+      const k = e.code;
+      if (k === 'ArrowLeft' || k === 'KeyA') { held.l = 0; if (das.dir < 0) das = { dir: held.r ? 1 : 0, t: 0 }; }
+      if (k === 'ArrowRight' || k === 'KeyD') { held.r = 0; if (das.dir > 0) das = { dir: held.l ? -1 : 0, t: 0 }; }
+      if (k === 'ArrowDown' || k === 'KeyS') softKey = false;
+    });
+    addEventListener('blur', () => { held.l = held.r = 0; das.dir = 0; softKey = false; });
+    // タッチ・マウス: 左右にドラッグで移動、タップで回転、下にフリックで一気に落とす
+    let pt = null, pxPerUnit = 30;
+    renderer.domElement.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (state !== 'play') return;
+      arm();
+      renderer.domElement.setPointerCapture?.(e.pointerId);
+      pt = { id: e.pointerId, x0: e.clientX, y0: e.clientY, ax: e.clientX, ay: e.clientY, t0: performance.now(), moved: false, hist: [[performance.now(), e.clientY]], drops: 0 };
+    }, { passive: false });
+    renderer.domElement.addEventListener('pointermove', e => {
+      if (!pt || e.pointerId !== pt.id || state !== 'play') return;
+      const step = Math.max(14, pxPerUnit * 0.85);
+      const now = performance.now();
+      pt.hist.push([now, e.clientY]); while (pt.hist.length > 2 && now - pt.hist[0][0] > 90) pt.hist.shift();
+      const ddx = e.clientX - pt.x0, ddy = e.clientY - pt.y0;
+      if (Math.hypot(ddx, ddy) > 12) pt.moved = true;
+      // 最初に大きく動いた向きで、横移動か下方向かを決める（下フリック中に横へずれないように）
+      if (!pt.axis && Math.hypot(ddx, ddy) > 14) pt.axis = Math.abs(ddx) > Math.abs(ddy) * 1.1 ? 'h' : 'v';
+      if (pt.axis === 'h') {
+        while (e.clientX - pt.ax > step) { move(1); pt.ax += step; }
+        while (pt.ax - e.clientX > step) { move(-1); pt.ax -= step; }
+      } else if (pt.axis === 'v') {
+        // 下へゆっくり: 1段ずつ
+        while (e.clientY - pt.ay > step) { softStep(); pt.ay += step; pt.drops++; }
+        if (e.clientY - pt.ay < -step) pt.ay = e.clientY;
+      }
+    });
+    const endPt = e => {
+      if (!pt || e.pointerId !== pt.id) return;
+      const now = performance.now(), dt = now - pt.t0;
+      const h0 = pt.hist[0], vy = (e.clientY - h0[1]) / Math.max(1, now - h0[0]);
+      const tdx = e.clientX - pt.x0, tdy = e.clientY - pt.y0;
+      if (state === 'play') {
+        if (!pt.moved && dt < 400) rotate();
+        else if (pt.axis === 'v' && vy > 0.9 && tdy > 30) hardDrop();
+      }
+      pt = null;
+    };
+    renderer.domElement.addEventListener('pointerup', endPt);
+    renderer.domElement.addEventListener('pointercancel', e => { pt = null; });
+    stage.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+    renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
+    // ---------- 進行 ----------
+    function reset() {
+      grid = Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
+      floorN = 1; heroHp = 1; heroBar.v = heroBar.shown = heroBar.lag = 1;
+      armed = false; clearing = null; pendingGarbage = 0; riseOff = 0; gridDirty = true;
+      heroQueue = []; heroAct = null; foeAct = null; overT = 0; overGray = 0; shake = 0;
+      flashes.forEach(f => f.visible = false);
+      hero.g.rotation.z = 0; hero.g.position.set(HERO_X, 0, 0.1); hero.body.rotation.set(0, 0, 0); hero.g.rotation.x = 0;
+      heroFlash = 0; foeFlash = 0; flash(hero, 0);
+      next = randPiece();
+      spawnFoe();
+      spawnPiece();
+    }
+    function gameOver() {
+      if (state !== 'play') return;
+      state = 'over'; overT = 0; piece = null;
+      sOver();
+    }
+    function heroHit() {
+      // 攻撃が当たった瞬間
+      const a = heroAct;
+      const mult = affinity(a.el, foe.el);
+      const dmg = a.base * mult;
+      foeHp = Math.max(0, foeHp - dmg); foeBar.v = foeHp / foeMax;
+      foeFlash = 1;
+      const pos = new THREE.Vector3(FOE_X - 0.2, 1.1 * foe.scale + (foe.boss ? 0.8 : 0), 0.6);
+      elementBurst(a.el, pos, (mult === 2 ? 2.2 : mult === 0.5 ? 0.5 : 1.2) * (0.8 + a.lines * 0.3));
+      if (mult === 2) { burst(arena, pos, 10, { color: '#ffffff', add: true, speed: 5, size: 0.08, life: 0.35, up: 0, grav: 0, grow: -0.5 }); shake = Math.max(shake, 0.22); }
+      slash.visible = true; slashT = 0; slashM.color.set(EL_COLOR[a.el]);
+      slash.position.copy(pos); slash.rotation.set(0, 0, -0.8 + Math.random() * 0.4); slash.scale.setScalar((mult === 2 ? 1.5 : mult === 0.5 ? 0.8 : 1.15) * (foe.boss ? 1.5 : 1));
+      sImpact(a.el, mult);
+      setTimeout(() => sHurtEnemy(foe), 60);
+      if (foeHp <= 0 && foeDying < 0) { foeDying = 0; setTimeout(sWin, 350); }
+    }
+    function foeHit() {
+      heroHp = Math.max(0, heroHp - foeDamage()); heroBar.v = heroHp;
+      heroFlash = 1; shake = Math.max(shake, 0.18);
+      burst(arena, new THREE.Vector3(HERO_X + 0.2, 1.2, 0.6), 12, { color: foe.boss ? EL_COLOR[foe.el] : ['#ffffff', '#ffd040'], add: true, speed: 3, size: 0.08, life: 0.4, up: 1.5, grav: 3 });
+      sHeroHurt();
+      addGarbage();
+      if (heroHp <= 0) gameOver();
+    }
+    const STEP = 1 / 60;
+    let time = 0, resultT = 0;
+    function step(dt) {
+      time += dt;
+      if (state === 'play' && armed) {
+        // 横移動のキーリピート
+        if (das.dir) { das.t += dt; if (das.t > 0.16) { das.t -= 0.05; move(das.dir); } }
+        if (piece) {
+          if (fits(piece, 0, -1)) {
+            lockT = 0;
+            fallT += dt;
+            const iv = softKey ? Math.min(gravity(), 0.035) : gravity();
+            while (fallT >= iv && piece) { fallT -= iv; if (fits(piece, 0, -1)) piece.y--; else break; }
+          } else { lockT += dt; fallT = 0; if (lockT >= 0.5) lock(false); }
+        }
+        // 敵の攻撃ゲージ
+        if (foe && foeDying < 0 && foeEnter >= 1 && !foeAct) {
+          foeTimer += dt;
+          if (foeTimer >= foeInterval()) { foeTimer = 0; foeAct = { t: 0, hit: false }; sEnemyAtk(foe); }
+        }
+        if (foe?.boss && foeDying < 0) { bossElT += dt; if (bossElT > 9) { bossElT = 0; let e; do e = pick([1, 2, 3]); while (e === foe.el); foe.el = e; setBossEl(e); foeFlash = 0.6; burst(arena, new THREE.Vector3(FOE_X, 1.8, 0.5), 16, { color: EL_COLOR[e], add: true, speed: 3, size: 0.12, life: 0.6, up: 0, grav: 0 }); sMeow(1.1); } }
+      }
+      atkBar.v = foeTimer / foeInterval();
+      if (clearing) { clearing.t += dt; if (clearing.t >= 0.32) finishClear(); }
+      riseOff = Math.max(0, riseOff - dt * 6);
+
+      // 勇者の攻撃
+      if (!heroAct && heroQueue.length && foe && foeDying < 0 && foeEnter >= 1) { heroAct = { ...heroQueue.shift(), t: 0, hit: false }; sSlash(); }
+      if (heroAct) {
+        const a = heroAct; a.t += dt;
+        if (!a.hit && a.t >= 0.14) { a.hit = true; heroHit(); }
+        if (a.t >= 0.5) heroAct = null;
+      }
+      if (foeAct) {
+        foeAct.t += dt;
+        if (!foeAct.hit && foeAct.t >= 0.22) { foeAct.hit = true; if (state === 'play') foeHit(); }
+        if (foeAct.t >= 0.6) foeAct = null;
+      }
+      // 敵の登場と退場
+      if (foeEnter < 1) foeEnter = Math.min(1, foeEnter + dt / 0.6);
+      if (foeDying >= 0) {
+        foeDying += dt;
+        if (foeDying - dt < 0.45 && foeDying >= 0.45) { const p = new THREE.Vector3(FOE_X, 1, 0.3); burst(arena, p, 26, { color: [EL_COLOR[foe.el], '#ffffff', '#ffe080'], add: true, speed: 4, size: 0.12, life: 0.8, up: 2, grav: 3, spread: 0.5 }); }
+        if (foeDying >= 1.1 && state === 'play') { floorN++; heroHp = Math.min(1, heroHp + 0.18); heroBar.v = heroHp; heroQueue = []; spawnFoe(); }
+      }
+      // 敵の属性の粒（見ただけで属性が分かる）
+      if (foe && foeDying < 0) {
+        emitT -= dt;
+        if (emitT <= 0) {
+          emitT = foe.boss ? 0.08 : 0.22;
+          const p = new THREE.Vector3(FOE_X + rnd(-0.7, 0.7) * (foe.boss ? 2 : 1), rnd(0.3, 1.8) * (foe.boss ? 1.6 : foe.scale), rnd(-0.3, 0.5));
+          if (foe.el === 1) burst(arena, p, 1, { color: ['#ffb030', '#ff6020'], add: true, speed: 0.2, size: 0.06, life: 0.9, up: 0.8, grav: -0.8, grow: -0.7 });
+          else if (foe.el === 2) burst(arena, p, 1, { color: '#bfe6ff', speed: 0.2, size: 0.07, life: 0.9, up: 0.6, grav: -0.5, grow: 0 });
+          else burst(arena, p, 1, { geo: LEAFG, color: ['#4cc040', '#86e060'], speed: 0.4, size: 0.14, life: 1.2, up: 0.3, grav: 0.6, drag: 1, grow: 0 });
+        }
+      }
+      if (state === 'over') {
+        overT += dt;
+        const g = Math.min(ROWS, Math.floor(overT / 0.05)); if (g !== overGray) { overGray = g; gridDirty = true; }
+        if (overT > 1.6) finish();
+      }
+      if (state === 'result') resultT += dt;
+      heroFlash = Math.max(0, heroFlash - dt * 4); foeFlash = Math.max(0, foeFlash - dt * 4);
+      shake = Math.max(0, shake - dt * 0.8);
+      slashT = Math.min(1, slashT + dt * 3.5);
+      stepBar(heroBar, dt); stepBar(foeBar, dt); atkBar.shown = atkBar.v; stepBar(atkBar, dt);
+      stepFx(dt);
+      if (piece) { piece.vx = piece.x; piece.vy += (piece.y - piece.vy) * Math.min(1, dt * 30); if (Math.abs(piece.vy - piece.y) < 0.01) piece.vy = piece.y; }
+    }
+
+    // ---------- 描画の更新 ----------
+    function drawGrid() {
+      gridDirty = false;
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+        const m = cellMeshes[r * COLS + c], v = grid[r][c];
+        m.visible = v !== 0;
+        if (v) m.material = (state !== 'play' && r >= ROWS - overGray) ? BMAT[4] : BMAT[v];
+      }
+    }
+    function animate() {
+      if (gridDirty) drawGrid();
+      boardG.position.y = 0;
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) cellMeshes[r * COLS + c].position.y = r + 0.5 - riseOff;
+      if (clearing) {
+        const k = clearing.t / 0.32;
+        const s = k < 0.4 ? 1 + 0.18 * Math.sin(k / 0.4 * Math.PI) : Math.max(0.001, 1 - (k - 0.4) / 0.6);
+        for (const r of clearing.rows) for (let c = 0; c < COLS; c++) { const m = cellMeshes[r * COLS + c]; m.scale.setScalar(s); m.rotation.z = k > 0.4 ? (k - 0.4) * 3 * (c % 2 ? 1 : -1) : 0; }
+        clearing.rows.forEach((r, i) => { flashes[i].material.opacity = Math.sin(Math.min(1, k) * Math.PI) * 0.9; flashes[i].scale.y = 1 + k * 0.5; });
+      } else for (const m of cellMeshes) if (m.scale.x !== 1) { m.scale.setScalar(1); m.rotation.z = 0; }
+      // 落ちているブロックと着地点
+      const pc = piece ? piece.cells : [];
+      let gy = 0;
+      if (piece) { while (fits(piece, 0, gy - 1)) gy--; }
+      for (let i = 0; i < 3; i++) {
+        const m = pieceMeshes[i], gm = ghostMeshes[i];
+        if (i < pc.length && state === 'play') {
+          const [x, y] = pc[i]; const [px, py] = cellPos(piece.x + x, piece.vy + y);
+          m.visible = true; m.material = BMAT[piece.el]; m.position.set(px, py - riseOff, 0);
+          const [gx, gyy] = cellPos(piece.x + x, piece.y + gy + y);
+          gm.visible = gy < 0 || true; gm.material = GHOST[piece.el]; gm.position.set(gx, gyy - riseOff, 0);
+          if (piece.y + y >= ROWS) m.visible = (piece.vy + y) < ROWS + 0.5;
+        } else { m.visible = false; gm.visible = false; }
+      }
+      // 勇者
+      const breathe = Math.sin(time * 3) * 0.02;
+      let lunge = 0, swing = -0.5;
+      if (heroAct) {
+        const tt = heroAct.t;
+        lunge = tt < 0.14 ? tt / 0.14 : Math.max(0, 1 - (tt - 0.14) / 0.36);
+        lunge = lunge * lunge * (3 - 2 * lunge);
+        swing = tt < 0.07 ? -0.5 - 2.0 * (tt / 0.07) : tt < 0.18 ? -2.5 + 3.6 * ((tt - 0.07) / 0.11) : 1.1 - 1.6 * Math.min(1, (tt - 0.18) / 0.3);
+      }
+      let knockB = 0;
+      if (foeAct && foeAct.hit) knockB = Math.max(0, 1 - (foeAct.t - 0.22) / 0.3);
+      const dead = state !== 'play' && heroHp <= 0;
+      hero.g.position.x = HERO_X + lunge * 1.9 - knockB * 0.35;
+      hero.body.scale.y = 1 + breathe;
+      hero.armS.rotation.x = swing;
+      hero.armH.rotation.x = -0.2 + knockB * 0.4;
+      // 倒れる: 負けたら後ろにばったり、積み上がって負けたらひざをつく
+      const k = state !== 'play' ? Math.min(1, overT / 0.5) : 0, kk = k * k * (3 - 2 * k);
+      hero.body.rotation.x = -kk * (dead ? 1.5 : 0.5);
+      hero.g.position.y = state === 'play' ? Math.abs(Math.sin(lunge * Math.PI)) * 0.25 : kk * (dead ? 0.28 : 0);
+      if (heroFlash > 0 || hero._f) { flash(hero, heroFlash); hero._f = heroFlash > 0; }
+      // 敵
+      if (foe) {
+        const s = foe.scale;
+        let fl = 0;
+        if (foeAct) { const tt = foeAct.t; fl = tt < 0.22 ? (tt / 0.22) ** 2 : Math.max(0, 1 - (tt - 0.22) / 0.38); }
+        const enter = 1 - (1 - foeEnter) ** 3;
+        const hitBack = foeFlash * 0.3;
+        let x = FOE_X + (1 - enter) * 6 - fl * (foe.boss ? 1.2 : 1.6) + hitBack;
+        foe.g.position.x = x;
+        if (foe.boss) {
+          foe.body.position.y = Math.sin(time * 1.6) * 0.15;
+          foe.face.scale.setScalar(3.8 * (1 + fl * 0.15 + Math.sin(time * 2.2) * 0.02));
+          foe.aura.rotation.z = time * 0.8; foe.aura.scale.setScalar(1 + Math.sin(time * 3) * 0.05);
+          foe.orbs.forEach((o, i) => { const a = time * 1.5 + i * 2.094; o.position.set(Math.cos(a) * 2.1, 1.8 + Math.sin(a) * 2.0, 0.4 + Math.sin(a) * 0.3); });
+          foe.face.material.color.setRGB(1, 1 - foeFlash * 0.5, 1 - foeFlash * 0.5);
+        } else {
+          const bob = Math.sin(time * 4 + 1) * 0.04;
+          foe.body.scale.set(1 - bob * 0.5 + fl * 0.1, 1 + bob - fl * 0.08, 1);
+          if (foeFlash > 0 || foe._f) { flash(foe, foeFlash); foe._f = foeFlash > 0; }
+        }
+        if (foeDying >= 0) {
+          const k = Math.min(1, foeDying / 0.5);
+          foe.g.scale.setScalar(s * Math.max(0.001, 1 - k * k)); foe.g.rotation.z = -k * 0.6;
+          if (foe.boss) foe.g.scale.setScalar(Math.max(0.001, 1 - k * k));
+        } else { foe.g.scale.setScalar(s); foe.g.rotation.z = 0; }
+      }
+      // 斬撃
+      slash.visible = slashT < 1; slashM.opacity = (1 - slashT) * 0.95; slash.rotation.z -= 0.15;
+      // 画面の揺れ
+      world.position.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, 0);
+      atkBar.fill.material.color.set(atkBar.v > 0.8 && Math.sin(time * 30) > 0 ? '#ff4020' : '#ffb020');
+    }
+
+    // ---------- 画面サイズ ----------
+    const floorEl = document.getElementById('floor'), resultEl = document.getElementById('result');
+    const controls = document.getElementById('controls');
+    let layout = null;
+    function resize() {
+      const w = Math.max(1, stage.clientWidth), H = Math.max(1, stage.clientHeight);
+      renderer.setSize(w, H, false);
+      // 下の80pxには大事な物を置かない（描画は下まで）
+      const reserve = Math.max(0, stage.getBoundingClientRect().bottom - controls.getBoundingClientRect().bottom) + 4;
+      const h = Math.max(120, H - reserve), A = w / h;
+      // 縦並び（舞台が上、盤面が下）と横並び（盤面が左、舞台が右）の、ブロックが大きく見える方を選ぶ
+      const LOC_B = -2.3, LOC_T = 4.5; // 舞台の上下（ゲージ〜ボスの頭と階数）
+      const sp = THREE.MathUtils.clamp((14.8 / A - 15.9) / (LOC_T - LOC_B), 1.15, 1.6);
+      const P = { mode: 'p', s: sp, ax: 0, ay: 15.2 - LOC_B * sp, x0: -7.7, x1: 7.7, y0: -0.7 };
+      P.y1 = P.ay + LOC_T * sp; P.nx = 6.4; P.ny = 12.4;
+      P.x1 = Math.max(P.x1, 4.7 * sp); P.x0 = -P.x1;
+      const sl = THREE.MathUtils.clamp((A * 15.6 - 12.9) / 9.2, 1.0, 2.2);
+      const L = { mode: 'l', s: sl, x0: -7.7, y0: -0.7, y1: 14.9 + 0.2 };
+      L.ax = 5.0 + 4.6 * sl; L.x1 = 5.0 + 9.2 * sl; L.ay = 7.2 - ((LOC_T + LOC_B) / 2) * sl; L.nx = -6.4; L.ny = 12.4;
+      L.y1 = Math.max(L.y1, L.ay + LOC_T * sl);
+      const px = o => Math.min(w / (o.x1 - o.x0), h / (o.y1 - o.y0));
+      layout = px(P) >= px(L) * 0.97 ? P : L;
+      arena.position.set(layout.ax, layout.ay, 0); arena.scale.setScalar(layout.s);
+      nextG.position.set(layout.nx, layout.ny, 0);
+      const cx = (layout.x0 + layout.x1) / 2, cy = (layout.y0 + layout.y1) / 2;
+      const rw = layout.x1 - layout.x0, rh = layout.y1 - layout.y0;
+      camera.aspect = w / h;
+      camera.setViewOffset(w, h, 0, 0, w, H);
+      const tf = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+      const d = Math.max(rh / 2 / tf, rw / 2 / (tf * camera.aspect)) * 1.06 + 1;
+      camera.position.set(cx, cy + d * 0.09, d);
+      camera.lookAt(cx, cy, 0);
+      camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+      pxPerUnit = h / (2 * d * tf);
+      // 影の範囲
+      sun.position.set(cx - 12, cy + 22, 18); sun.target.position.set(cx, cy, 0);
+      const sr = Math.max(rw, rh) * 0.65;
+      Object.assign(sun.shadow.camera, { left: -sr, right: sr, top: sr, bottom: -sr, near: 1, far: 80 }); sun.shadow.camera.updateProjectionMatrix();
+      placeHud(w, H);
+    }
+    const toScreen = (v, W, H) => { const p = v.clone().project(camera); return [(p.x + 1) / 2 * W, (1 - p.y) / 2 * H]; };
+    function placeHud(W = stage.clientWidth, H = stage.clientHeight) {
+      if (!layout) return;
+      const [fx, fy] = toScreen(new THREE.Vector3(layout.ax, layout.ay + 4.25 * layout.s, 0), W, H);
+      floorEl.style.left = fx + 'px'; floorEl.style.top = Math.max(26, fy) + 'px';
+      // 結果は盤面の上に重ねる（倒れた勇者にかぶらない）
+      const [x0, y0] = toScreen(new THREE.Vector3(-COLS / 2, ROWS * 0.85, 0.5), W, H), [x1, y1] = toScreen(new THREE.Vector3(COLS / 2, ROWS * 0.35, 0.5), W, H);
+      const midX = (x0 + x1) / 2, bw = Math.max(x1 - x0, Math.min(W * 0.9, 320));
+      Object.assign(resultEl.style, { left: (midX - bw / 2) + 'px', width: bw + 'px', top: y0 + 'px', height: Math.max(60, y1 - y0) + 'px' });
+    }
+    addEventListener('resize', resize);
+
+    // ---------- 画面 ----------
+    let shownFloor = '';
+    function drawFloor() {
+      const s = t('floor')(floorN);
+      if (s !== shownFloor) { shownFloor = s; floorEl.textContent = s; }
+      floorEl.style.visibility = state === 'result' ? 'hidden' : '';
+      floorEl.classList.toggle('boss', floorN % 10 === 0);
+    }
+    function renderControls() {
+      controls.innerHTML = '';
+      controls.classList.toggle('hide', state !== 'result');
+      if (state !== 'result') return;
+      const b = document.createElement('button');
+      b.className = 'go'; b.textContent = t('again');
+      b.addEventListener('click', start);
+      controls.append(b);
+      const a = document.createElement('a');
+      a.className = 'post'; a.textContent = t('post');
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(floorN))}&url=${encodeURIComponent(SHARE_URL)}`;
+      const coarse = matchMedia('(pointer: coarse)').matches;
+      if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
+      // スマホは画像ごと共有シートへ。PCは画像を保存してから投稿画面を開く
+      a.addEventListener('click', e => {
+        const text = t('share')(floorN);
+        if (coarse && navigator.share) {
+          e.preventDefault();
+          const file = shareFile();
+          const data = file && navigator.canShare?.({ files: [file] }) ? { files: [file], text: `${text}\n${SHARE_URL}` } : { text: `${text}\n${SHARE_URL}` };
+          navigator.share(data).catch(() => {});
+          return;
+        }
+        const img = resultImage();
+        if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'ochimono-yuusha.png'; d.click(); }
+      });
+      controls.append(a);
+    }
+    // 結果画像: 倒れた勇者と敵の舞台を中心に切り抜き、到達階を重ねる
+    let snap = null, shareCache = null, needSnap = false;
+    function takeSnap() {
+      const src = renderer.domElement;
+      const focus = new THREE.Vector3(layout.ax, layout.ay + 1.2 * layout.s, 0).project(camera);
+      const fxp = (focus.x + 1) / 2 * src.width, fyp = (1 - focus.y) / 2 * src.height;
+      const side = Math.min(src.width, src.height);
+      const sx = THREE.MathUtils.clamp(fxp - side / 2, 0, src.width - side), sy = THREE.MathUtils.clamp(fyp - side / 2, 0, src.height - side);
+      snap = document.createElement('canvas'); snap.width = snap.height = 1080;
+      snap.getContext('2d').drawImage(src, sx, sy, side, side, 0, 0, 1080, 1080);
+      shareCache = null;
+    }
+    function resultImage() {
+      if (!snap) return null;
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      g.drawImage(snap, 0, 0);
+      const gr = g.createLinearGradient(0, 700, 0, 1080); gr.addColorStop(0, 'rgba(20,24,50,0)'); gr.addColorStop(1, 'rgba(20,24,50,.55)'); g.fillStyle = gr; g.fillRect(0, 700, 1080, 380);
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.lineJoin = 'round';
+      const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans KR", "Noto Sans Thai", sans-serif`;
+      const text = (str, y, px, max) => {
+        g.font = font(px);
+        const tw = g.measureText(str).width; if (tw > max) { px *= max / tw; g.font = font(px); }
+        g.lineWidth = px * .16; g.strokeStyle = '#2b3a68'; g.strokeText(str, 540, y); g.fillText(str, 540, y);
+      };
+      text(t('floor')(floorN), 960, 190, 980);
+      text(t('title'), 92, 58, 900);
+      return c;
+    }
+    function prepareShare() {
+      if (!snap) return;
+      const key = lang;
+      if (shareCache?.key === key) return;
+      shareCache = { key, file: null };
+      resultImage().toBlob(b => { if (b && shareCache?.key === key) shareCache.file = new File([b], 'ochimono-yuusha.png', { type: 'image/png' }); }, 'image/png');
+    }
+    const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
+    function showResult() { resultEl.children[0].textContent = t('floor')(floorN); }
+    function start() {
+      state = 'play';
+      reset();
+      resultEl.style.display = 'none';
+      drawFloor();
+      renderControls(); resize();
+    }
+    function finish() {
+      state = 'result'; resultT = 0;
+      showResult();
+      resultEl.style.display = 'flex';
+      drawFloor();
+      snap = null; needSnap = true;
+      renderControls(); resize();
+    }
+
+    // ---------- ループ ----------
+    let last = performance.now(), acc = 0;
+    function loop(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      acc += dt;
+      while (acc >= STEP) { step(STEP); acc -= STEP; }
+      animate();
+      renderer.render(scene, camera);
+      if (needSnap) { needSnap = false; takeSnap(); prepareShare(); }
+      requestAnimationFrame(loop);
+    }
+
+    reset();
+    resize();
+    applyLang();
+    // 最初の1回が重くならないように、使う形と質感を一度描いておく
+    {
+      const tmp = [makeFoe(1, 1), makeFoe(2, 2), makeFoe(0, 3)];
+      tmp.forEach((f, i) => { f.g.position.set(i * 2 - 2, 0, 0); arena.add(f.g); });
+      boss.g.position.set(FOE_X, 0, -2); arena.add(boss.g);
+      for (const el of [1, 2, 3, 4]) cellMeshes[el - 1].visible = true, cellMeshes[el - 1].material = BMAT[el];
+      elementBurst(1, new THREE.Vector3(0, 1, 0), 0.3); elementBurst(2, new THREE.Vector3(0, 1, 0), 0.3); elementBurst(3, new THREE.Vector3(0, 1, 0), 0.3);
+      flashes[0].visible = true; slash.visible = true;
+      renderer.compile(scene, camera); renderer.render(scene, camera);
+      tmp.forEach(f => arena.remove(f.g)); arena.remove(boss.g); flashes[0].visible = false;
+      for (const f of fx) f.parent.remove(f.m); fx.length = 0;
+      gridDirty = true;
+    }
+    requestAnimationFrame(t0 => { last = t0; loop(t0); });
+  </script>
+</body>
+</html>
