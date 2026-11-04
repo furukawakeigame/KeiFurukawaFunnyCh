@@ -791,13 +791,18 @@
       const step = Math.max(14, pxPerUnit * 0.85);
       const now = performance.now();
       pt.hist.push([now, e.clientY]); while (pt.hist.length > 2 && now - pt.hist[0][0] > 90) pt.hist.shift();
-      if (Math.hypot(e.clientX - pt.x0, e.clientY - pt.y0) > 12) pt.moved = true;
-      while (e.clientX - pt.ax > step) { move(1); pt.ax += step; }
-      while (pt.ax - e.clientX > step) { move(-1); pt.ax -= step; }
-      // 下へゆっくり: 1段ずつ。横の動きが大きいときは無視
-      const dy = e.clientY - pt.ay;
-      if (dy > step && Math.abs(e.clientY - pt.y0) > Math.abs(e.clientX - pt.x0) * 0.8) { while (e.clientY - pt.ay > step) { softStep(); pt.ay += step; pt.drops++; } }
-      else if (dy < -step) pt.ay = e.clientY + 0;
+      const ddx = e.clientX - pt.x0, ddy = e.clientY - pt.y0;
+      if (Math.hypot(ddx, ddy) > 12) pt.moved = true;
+      // 最初に大きく動いた向きで、横移動か下方向かを決める（下フリック中に横へずれないように）
+      if (!pt.axis && Math.hypot(ddx, ddy) > 14) pt.axis = Math.abs(ddx) > Math.abs(ddy) * 1.1 ? 'h' : 'v';
+      if (pt.axis === 'h') {
+        while (e.clientX - pt.ax > step) { move(1); pt.ax += step; }
+        while (pt.ax - e.clientX > step) { move(-1); pt.ax -= step; }
+      } else if (pt.axis === 'v') {
+        // 下へゆっくり: 1段ずつ
+        while (e.clientY - pt.ay > step) { softStep(); pt.ay += step; pt.drops++; }
+        if (e.clientY - pt.ay < -step) pt.ay = e.clientY;
+      }
     });
     const endPt = e => {
       if (!pt || e.pointerId !== pt.id) return;
@@ -806,7 +811,7 @@
       const tdx = e.clientX - pt.x0, tdy = e.clientY - pt.y0;
       if (state === 'play') {
         if (!pt.moved && dt < 400) rotate();
-        else if (vy > 0.9 && tdy > 30 && tdy > Math.abs(tdx) * 1.2) hardDrop();
+        else if (pt.axis === 'v' && vy > 0.9 && tdy > 30) hardDrop();
       }
       pt = null;
     };
