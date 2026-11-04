@@ -523,19 +523,21 @@
     const B = { x: 0, y: 0, a: 0, vx: 0, vy: 0, w: 0, px: 0, py: 0, pa: 0 };
     const thrown = [];
     let state = 'title', armed = false, maxX = 0, cool = 0, overT = 0, best = store.get('best', 0), lastThud = 0, airTaps = 0, grounded = false, hp = 1, broken = false;
-    const DMG_FROM = 5.5, DMG_K = 0.06, AIR_MAX = 1, SPIN = 7;
+    const DMG_FROM = 5.5, DMG_K = 0.06, AIR_DECAY = 0.72, SPIN = 8.5;
     function flip() {
       if (state !== 'play' || cool > 0) return;
       if (!armed) { armed = true; }
-      // 空中で押せるのは1回まで（床に着くと戻る）
-      if (!grounded) { if (airTaps >= AIR_MAX) return; airTaps++; }
-      cool = 0.12;
+      // 連打できるが、空中で続けて押すほど弱くなる（床に着くと戻る）
+      const pw = grounded ? 1 : AIR_DECAY ** (airTaps + 1);
+      if (!grounded) airTaps++;
+      cool = 0.07;
       // 天板の向き（上向きの法線）へ跳ね、前へ回る
       // 床の上で裏返っていても、床をけって上へ跳ぶ
       const nx = -Math.sin(B.a), ny = grounded ? Math.max(0.5, Math.abs(Math.cos(B.a))) : Math.cos(B.a);
-      B.vx = B.vx * 0.3 + nx * 7.2 + 0.8;
-      B.vy = B.vy * 0.3 + ny * 7.2;
-      B.w = Math.max(-SPIN * 1.4, B.w * 0.25 - SPIN);
+      const k = 1 - 0.7 * pw;
+      B.vx = B.vx * k + (nx * 7.2 + 0.8) * pw;
+      B.vy = B.vy * k + ny * 7.2 * pw;
+      B.w = Math.max(-SPIN * 1.4, B.w * k - SPIN * pw);
       // 最初に返した時だけ、乗っていた料理が全部飛び散る（遊びには関係ない演出）
       while (onTable.length) {
         const f = onTable.pop(); scene.attach(f);
