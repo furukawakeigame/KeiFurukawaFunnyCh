@@ -42,6 +42,7 @@
     #dots { display: flex; gap: 6px; }
     #dots i { width: 11px; height: 11px; border-radius: 50%; background: rgba(255,255,255,.75); box-shadow: inset 0 0 0 1.5px rgba(90,70,40,.25); transition: background .2s, box-shadow .2s; }
     #dots i.cur { background: #fff; box-shadow: 0 0 0 2.5px #6a9a2e; }
+    #dots i.done { background: #6a9a2e; box-shadow: none; }
     #dots i.ok { background: #3fae5a; box-shadow: none; }
     #dots i.ng { background: #e5484d; box-shadow: none; }
     .stamp { position: fixed; left: 0; top: 0; width: 80px; height: 80px; opacity: 0; pointer-events: none; z-index: 3;
@@ -49,8 +50,6 @@
     .stamp svg { width: 64%; height: 64%; }
     .nope { color: #e5484d; border-color: #e5484d; }
     .like { color: #2fa85a; border-color: #2fa85a; }
-    #mark { position: fixed; left: 0; top: 0; width: 100px; height: 100px; pointer-events: none; z-index: 3; opacity: 0; }
-    #mark svg { width: 100%; height: 100%; filter: drop-shadow(0 4px 8px rgba(0,0,0,.25)); }
     #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; justify-content: center; align-items: center;
       gap: clamp(28px, 12vw, 72px); z-index: 5; padding: 0 16px; pointer-events: none; }
     #controls > * { pointer-events: auto; }
@@ -85,7 +84,6 @@
   <div id="bar"><img id="me" src="cat.png" alt=""><div id="dots"></div></div>
   <div id="stampN" class="stamp nope"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
   <div id="stampL" class="stamp like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></div>
-  <div id="mark"></div>
   <div id="controls"></div>
   <div id="msg"></div>
 
@@ -197,14 +195,6 @@
       nz(0.025, 0.35, 'bandpass', r < 0.5 ? 5200 : 3000, 4, 0.012);
       osc('sine', r < 0.5 ? 210 : 150, 70, 0.16, 0.35, 0.01);
       nz(0.26, r > 0.55 ? 0.32 : 0.1, 'lowpass', r > 0.8 ? 700 : 1100, 0.8, 0.03, 260);
-    }
-    function sRight() {
-      osc('sine', 1046, 1046, 0.22, 0.2); osc('triangle', 2093, 2093, 0.12, 0.05);
-      osc('sine', 1568, 1568, 0.45, 0.2, 0.1); osc('triangle', 3136, 3136, 0.2, 0.04, 0.1);
-    }
-    function sWrong() {
-      osc('sawtooth', 180, 150, 0.22, 0.1, 0, 900);
-      osc('sawtooth', 150, 105, 0.32, 0.1, 0.16, 800);
     }
     const sPop = () => osc('sine', 420, 880, 0.07, 0.12);
     function sResult(perfect) {
@@ -599,16 +589,6 @@
     const parts = [];
     const dropGeo = new THREE.SphereGeometry(1, 8, 6);
     const confGeo = new THREE.PlaneGeometry(1, 0.6);
-    function burst(avo) {
-      const col = new THREE.Color(...[[200, 210, 140], [190, 210, 90], [170, 210, 60], [150, 130, 60]][avo.cls].map(v => v / 255));
-      const m = new THREE.MeshStandardMaterial({ color: col, roughness: 0.25 });
-      for (let i = 0; i < 14; i++) {
-        const p = new THREE.Mesh(dropGeo, m); const s = rnd(0.015, 0.04); p.scale.setScalar(s);
-        p.position.set(rnd(-0.08, 0.08), rnd(-0.3, 0.4), 0.95);
-        scene.add(p);
-        parts.push({ m: p, v: new THREE.Vector3(rnd(-1.6, 1.6), rnd(0.4, 2.2), rnd(0.2, 1.4)), life: rnd(0.5, 0.8), age: 0, s, g: 7, mat: i === 0 ? m : null });
-      }
-    }
     function confetti() {
       const cols = [0xef5a6f, 0x3fae5a, 0xf2cf3a, 0x5aa0e6, 0xffffff];
       for (let i = 0; i < 70; i++) {
@@ -662,7 +642,7 @@
     addEventListener('resize', resize);
     const v3 = new THREE.Vector3();
     const toScreen = (x, y, z) => { v3.set(x, y, z).project(camera); return [(v3.x + 1) / 2 * W, (1 - v3.y) / 2 * Hs]; };
-    const stampN = document.getElementById('stampN'), stampL = document.getElementById('stampL'), markEl = document.getElementById('mark');
+    const stampN = document.getElementById('stampN'), stampL = document.getElementById('stampL');
     function placeOverlays() {
       const s = Math.round(cardPx * 0.2);
       for (const [el, x, rot] of [[stampL, -0.62, -14], [stampN, 0.62, 14]]) {
@@ -671,22 +651,19 @@
         el.style.borderWidth = Math.max(3, s * 0.06) + 'px';
         el.style.transform = `translate(${px - s / 2}px, ${py - s / 2}px) rotate(${rot}deg)`;
       }
-      const ms = Math.round(cardPx * 0.24);
-      const [mx, my] = toScreen(0, -1.0, 0.8);
-      markEl.style.width = markEl.style.height = ms + 'px';
-      markEl.style.left = (mx - ms / 2) + 'px'; markEl.style.top = (my - ms / 2) + 'px';
     }
 
     // ---------- 進み具合 ----------
     const dotsEl = document.getElementById('dots');
     for (let i = 0; i < ROUNDS; i++) dotsEl.append(document.createElement('i'));
     function drawDots() {
-      [...dotsEl.children].forEach((d, i) => { d.className = i < answers.length ? (answers[i].ok ? 'ok' : 'ng') : i === idx && state !== 'result' ? 'cur' : ''; });
+      // 正解・不正解は結果画面で初めて見せる
+      [...dotsEl.children].forEach((d, i) => { d.className = i < answers.length ? (state === 'result' ? (answers[i].ok ? 'ok' : 'ng') : 'done') : i === idx ? 'cur' : ''; });
     }
 
     // ---------- ゲームの状態 ----------
     let deck = [], idx = 0, answers = [], state = 'play', resultReady = false;
-    let cardX = 0, spin = 0, splitK = 0, rt = 0, ft = 0, revealFrom = 0, spinFrom = 0, spinTo = 0, choice = false, cracked = false, marked = false;
+    let cardX = 0, spin = 0, splitK = 0, ft = 0, revealFrom = 0, choice = false;
     let popT = 1, resT = 0, needSnap = false, snapAt = -1, time = 0;
     let lastStampN = -1, lastStampL = -1;
     const results = []; // 結果画面に並べる半分
@@ -726,32 +703,18 @@
       placeAvo(front, makeAvocado(deck[0]));
       setBackContent(1);
       state = 'play'; cardX = 0; splitK = 0; spin = rnd(0, 6); popT = 0;
-      markEl.style.opacity = 0; setStamps(0, 0);
+      setStamps(0, 0);
       drawDots(); renderControls();
     }
 
     function commit(like) {
-      if (state !== 'play' || !front.avo || popT < 0.6) return;
-      state = 'reveal'; rt = 0; choice = like; cracked = false; marked = false;
-      revealFrom = cardX; spinFrom = spin; spinTo = Math.round(spin / (Math.PI * 2)) * Math.PI * 2;
+      if (state !== 'play' || !front.avo || popT < 0.3) return;
+      // その場では答えを見せず、すぐ次へ
+      choice = like;
+      answers.push({ ok: like === front.avo.ripe, avo: front.avo });
       setStamps(like ? 0 : 1, like ? 1 : 0);
+      state = 'fly'; ft = 0; revealFrom = cardX; sWhoosh();
       ensureBack();
-    }
-    function startFly() {
-      if (state !== 'reveal') return;
-      if (!marked) showMark();
-      state = 'fly'; ft = 0; sWhoosh();
-      ensureBack();
-    }
-    function showMark() {
-      marked = true;
-      const ok = choice === front.avo.ripe;
-      answers.push({ ok, avo: front.avo });
-      markEl.innerHTML = ok
-        ? '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="36" fill="none" stroke="#fff" stroke-width="22"/><circle cx="50" cy="50" r="36" fill="none" stroke="#3fae5a" stroke-width="13"/></svg>'
-        : '<svg viewBox="0 0 100 100" stroke-linecap="round"><path d="M20 20L80 80M80 20L20 80" stroke="#fff" stroke-width="24"/><path d="M20 20L80 80M80 20L20 80" stroke="#e5484d" stroke-width="14"/></svg>';
-      markEl.style.opacity = 1;
-      if (ok) sRight(); else sWrong();
       drawDots();
       if (answers.length === ROUNDS) drawResultCard();
     }
@@ -766,7 +729,7 @@
       const old = front; front = back; back = old;
       front.g.position.set(0, 0, 0); front.g.rotation.set(0, 0, 0); front.g.scale.setScalar(1);
       idx++;
-      markEl.style.opacity = 0; setStamps(0, 0);
+      setStamps(0, 0);
       cardX = 0; splitK = 0;
       if (idx >= ROUNDS) { showResult(); return; }
       ensureBackFor(front, idx);
@@ -887,7 +850,7 @@
     // ボタン: カードを少し動かしてから判定
     let btnAnim = null;
     function button(like) {
-      if (state !== 'play' || drag || btnAnim || !front.avo || popT < 0.6) return;
+      if (state !== 'play' || drag || btnAnim || !front.avo || popT < 0.3) return;
       btnAnim = { like, t: 0 };
     }
 
@@ -917,7 +880,6 @@
     let drag = null;
     cv.addEventListener('pointerdown', e => {
       e.preventDefault();
-      if (state === 'reveal' && rt > 0.75) { startFly(); return; }
       if (state !== 'play' || drag || btnAnim || !front.avo) return;
       cv.setPointerCapture(e.pointerId);
       drag = { id: e.pointerId, x0: e.clientX - cardX / wpp, lx: e.clientX, lt: performance.now(), vx: 0 };
@@ -941,7 +903,6 @@
       if (e.target === langSel) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); button(false); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); button(true); }
-      else if ((e.key === ' ' || e.key === 'Enter') && state === 'reveal' && rt > 0.75) { e.preventDefault(); startFly(); }
     });
 
     // ---------- 更新 ----------
@@ -951,36 +912,26 @@
       if (state === 'play') {
         if (btnAnim) {
           btnAnim.t += dt;
-          cardX = (btnAnim.like ? 1 : -1) * easeOut(clamp01(btnAnim.t / 0.16)) * 0.55;
-          if (btnAnim.t >= 0.16) { const l = btnAnim.like; btnAnim = null; commit(l); }
+          cardX = (btnAnim.like ? 1 : -1) * easeOut(clamp01(btnAnim.t / 0.08)) * 0.4;
+          if (btnAnim.t >= 0.08) { const l = btnAnim.like; btnAnim = null; commit(l); }
         } else if (!drag) cardX *= Math.exp(-dt * 14);
         if (state === 'play') { const k = cardX / 0.9; setStamps(clamp01(-k), clamp01(k)); }
         spin += dt * 0.75;
       }
-      if (state === 'reveal') {
-        rt += dt;
-        const a = easeOut(clamp01(rt / 0.24));
-        cardX = revealFrom * (1 - a);
-        spin = lerp(spinFrom, spinTo, a);
-        splitK = easeBack(clamp01((rt - 0.26) / 0.42));
-        if (!cracked && rt >= 0.26) { cracked = true; sCrack(front.avo.r); burst(front.avo); }
-        if (!marked && rt >= 0.62) showMark();
-        if (rt > 1.9) startFly();
-      }
       if (state === 'fly') {
         ft += dt;
-        const p = clamp01(ft / 0.42);
-        cardX = (choice ? 1 : -1) * flyDist * easeIn(p);
+        const p = clamp01(ft / 0.26);
+        cardX = revealFrom + ((choice ? 1 : -1) * flyDist - revealFrom) * easeIn(p);
         const q = easeOut(p);
         back.g.position.set(0, lerp(BACK.y, 0, q), lerp(BACK.z, 0, q)); back.g.scale.setScalar(lerp(BACK.s, 1, q));
         if (p >= 1) finishFly();
       }
-      if (state === 'play' || state === 'reveal' || state === 'fly') {
+      if (state === 'play' || state === 'fly') {
         front.g.position.set(cardX, -Math.abs(cardX) * 0.05, 0);
         front.g.rotation.z = -cardX * 0.1;
         const avo = front.avo;
         if (avo) {
-          popT = Math.min(1, popT + dt / 0.38);
+          popT = Math.min(1, popT + dt / 0.22);
           const s = easeBack(popT) * lerp(1, 0.88, splitK);
           avo.group.scale.setScalar(Math.max(0.0001, s));
           const intact = 1 - splitK;
@@ -993,9 +944,9 @@
       }
       if (state === 'result') {
         resT += dt;
-        results.forEach((a, i) => { const k = clamp01((resT - 0.25 - i * 0.07) / 0.35); a.right.scale.setScalar(Math.max(0.0001, easeBack(k) * 0.36)); });
+        results.forEach((a, i) => { const k = clamp01((resT - 0.25 - i * 0.1) / 0.35); a.right.scale.setScalar(Math.max(0.0001, easeBack(k) * 0.36)); });
         if (snapAt >= 0 && resT >= snapAt) { snapAt = -1; needSnap = true; }
-        for (let i = 0; i < results.length; i++) if (resT - 0.25 - i * 0.07 > 0 && !results[i].popped) { results[i].popped = true; sPop(); }
+        for (let i = 0; i < results.length; i++) if (resT - 0.25 - i * 0.1 > 0 && !results[i].popped) { results[i].popped = true; sCrack(results[i].r); }
       }
       updateParts(dt);
     }
