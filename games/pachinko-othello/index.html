@@ -437,7 +437,6 @@
     }
     const stones = [];
     for (let i = 0; i < 40; i++) stones.push({ mesh: stoneMesh(), live: false });
-    const board = new Array(64).fill(null);
     const cellX = i => ((i % 8) - 3.5) * S, cellZ = i => (Math.floor(i / 8) - 3.5) * S;
     function newStone(c) {
       const s = stones.find(s => !s.live);
@@ -446,7 +445,7 @@
       s.mesh.visible = true; s.mesh.scale.setScalar(1);
       return s;
     }
-    function putCell(s, i) { s.cell = i; s.mode = 'cell'; board[i] = s; s.x = cellX(i); s.z = cellZ(i); s.y = REST; s.vx = s.vy = s.vz = 0; s.air = false; }
+    function putCell(s, i) { s.cell = i; s.mode = 'cell'; s.x = cellX(i); s.z = cellZ(i); s.y = REST; s.vx = s.vy = s.vz = 0; s.air = false; }
 
     // 発射する前の石の山（残りの数）
     const piles = { 1: [], [-1]: [] };
@@ -550,13 +549,6 @@
       });
     }
 
-    // ---------- 着地点の目安 ----------
-    const ringM = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.7, depthWrite: false });
-    const ring = new THREE.Mesh(new THREE.RingGeometry(SR * 0.6, SR * 0.85, 32).rotateX(-Math.PI / 2), ringM);
-    ring.renderOrder = 2; ring.visible = false; scene.add(ring);
-    const dotM = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.5, depthWrite: false });
-    const dots = Array.from({ length: 7 }, () => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.006, 8, 6), dotM); m.visible = false; scene.add(m); return m; });
-
     // ---------- 粒（フェルトの粉・火花） ----------
     const FX_N = 400;
     const fxGeo = new THREE.BufferGeometry();
@@ -639,7 +631,7 @@
           if (d2 >= D2) continue;
           const d = Math.sqrt(d2) || 1e-6, nx = dx / d, nz = dz / d;
           const vr = (a.vx - b.vx) * nx + (a.vz - b.vz) * nz;
-          for (const s of [a, b]) if (s.mode === 'cell') { board[s.cell] = null; s.cell = -1; s.mode = 'free'; s.air = false; }
+          for (const s of [a, b]) if (s.mode === 'cell') { s.cell = -1; s.mode = 'free'; s.air = false; }
           if (vr < 0) {
             const jn = -(1 + 0.85) * vr / 2;
             a.vx += jn * nx; a.vz += jn * nz; b.vx -= jn * nx; b.vz -= jn * nz;
@@ -678,25 +670,40 @@
       return 1;
     }
 
-    // ---------- オセロ ----------
-    const DIRS = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
-    function flipsAt(i, col) {
-      const r0 = Math.floor(i / 8), c0 = i % 8, out = [];
-      for (const [dr, dc] of DIRS) {
-        const line = [];
-        let r = r0 + dr, c = c0 + dc;
-        while (r >= 0 && r < 8 && c >= 0 && c < 8 && board[r * 8 + c] && board[r * 8 + c].c === -col) { line.push(r * 8 + c); r += dr; c += dc; }
-        if (line.length && r >= 0 && r < 8 && c >= 0 && c < 8 && board[r * 8 + c] && board[r * 8 + c].c === col) out.push(...line);
+    // ---------- オセロ（マスに吸い付かないので、石の位置で判定する） ----------
+    // 新しい石と同じ色の石を結ぶまっすぐな線の上に、相手の石がすき間なく並んでいたら挟んだことにする
+    const LINE_W = SR * 0.9, GAP = 0.15;
+    const resting = () => stones.filter(s => s.live && s.mode === 'cell');
+    function flipsFrom(x, z, col, self = null) {
+      const pts = resting().filter(s => s !== self), out = new Set();
+      for (const c of pts) {
+        if (c.c !== col) continue;
+        const dx = c.x - x, dz = c.z - z, L = Math.hypot(dx, dz);
+        if (L < 1e-6) continue;
+        const ux = dx / L, uz = dz / L, mids = [];
+        let blocked = false;
+        for (const b of pts) {
+          if (b === c) continue;
+          const px = b.x - x, pz = b.z - z, tt = px * ux + pz * uz;
+          if (tt <= 0 || tt >= L || Math.abs(px * uz - pz * ux) > LINE_W) continue;
+          if (b.c === col) { blocked = true; break; }
+          mids.push({ b, tt });
+        }
+        if (blocked || !mids.length) continue;
+        mids.sort((a, b) => a.tt - b.tt);
+        let prev = 0, ok = true;
+        for (const m of mids) { if (m.tt - prev > GAP) { ok = false; break; } prev = m.tt; }
+        if (ok && L - prev <= GAP) for (const m of mids) out.add(m.b);
       }
-      return out;
+      return [...out];
     }
-    const isCorner = i => [0, 7, 56, 63].includes(i);
-    const isEdge = i => i % 8 === 0 || i % 8 === 7 || i < 8 || i >= 56;
-    const countColor = c => board.filter(s => s && s.c === c).length;
+    const nearCorner = (x, z) => Math.abs(x) > 0.3 && Math.abs(z) > 0.3;
+    const nearEdge = (x, z) => Math.abs(x) > 0.3 || Math.abs(z) > 0.3;
+    const countColor = c => resting().filter(s => s.c === c).length;
 
     // ---------- 進行 ----------
     let state = 'ready', clock = 0, turn = 1, shotsLeft = { 1: SHOTS, [-1]: SHOTS }, flyT = 0, settleT = 0, settleEnd = 0, catT = 0, catPlan = null, endT = 0, shotOnce = false;
-    let shot = null, lastFlips = 0, lostByTurn = { 1: 0, [-1]: 0 }, lastCell = -1;
+    let shot = null, lastFlips = 0, lostByTurn = { 1: 0, [-1]: 0 }, lastCorner = false;
     function updatePiles() {
       for (const who of [1, -1]) piles[who].forEach((m, k) => { m.visible = k < shotsLeft[who] - (slings[who].load ? 1 : 0); });
     }
@@ -708,7 +715,7 @@
     }
     function beginTurn(who) {
       turn = who;
-      if ((shotsLeft[1] <= 0 && shotsLeft[-1] <= 0) || board.every(Boolean)) { state = 'ending'; endT = 0; updatePiles(); return; }
+      if (shotsLeft[1] <= 0 && shotsLeft[-1] <= 0) { state = 'ending'; endT = 0; updatePiles(); return; }
       if (shotsLeft[who] <= 0) { beginTurn(-who); return; }
       loadSling(who);
       if (who === 1) { state = 'ready'; slings[1].yaw = 0; }
@@ -735,34 +742,21 @@
       state = 'fly'; flyT = 0; shotOnce = shotOnce || who === 1;
       updateHints(); updatePiles();
     }
-    // 止まったら、空いているいちばん近いマスに吸い付く
-    function nearestEmpty(x, z) {
-      let best = -1, bd = Infinity;
-      for (let i = 0; i < 64; i++) if (!board[i]) { const d = (cellX(i) - x) ** 2 + (cellZ(i) - z) ** 2; if (d < bd) { bd = d; best = i; } }
-      return best;
-    }
+    // 止まった石はその場に置く（マスには吸い付かない）
     function settle() {
       state = 'settle'; settleT = 0;
-      const free = stones.filter(s => s.live && s.mode === 'free');
-      const knocked = free.filter(s => s !== shot).sort((a, b) => Math.hypot(a.vx, a.vz) - Math.hypot(b.vx, b.vz));
-      let lost = { 1: 0, [-1]: 0 };
-      for (const s of [...knocked, ...(shot && shot.mode === 'free' ? [shot] : [])]) {
-        const i = nearestEmpty(s.x, s.z);
-        if (i < 0) { s.mode = 'floor'; s.floorT = 0.5; continue; }
-        s.snap = { fx: s.x, fz: s.z, t: 0 };
-        putCell(s, i); s.x = s.snap.fx; s.z = s.snap.fz;
-      }
+      for (const s of stones) if (s.live && s.mode === 'free') { s.mode = 'cell'; s.cell = -1; s.vx = s.vy = s.vz = 0; s.air = false; s.y = REST; }
+      const lost = { 1: 0, [-1]: 0 };
       // 盤から落ちた石
       for (const s of stones) if (s.live && s.mode === 'floor' && !s.counted) { s.counted = true; if (s !== shot) lost[s.c]++; }
       lostByTurn = lost;
-      lastFlips = 0; lastCell = -1;
+      lastFlips = 0; lastCorner = false;
       let maxDelay = 0.25;
       if (shot && shot.mode === 'cell') {
-        lastCell = shot.cell;
-        const fl = flipsAt(shot.cell, shot.c).sort((a, b) => Math.hypot(cellX(a) - shot.x, cellZ(a) - shot.z) - Math.hypot(cellX(b) - shot.x, cellZ(b) - shot.z));
+        lastCorner = nearCorner(shot.x, shot.z);
+        const fl = flipsFrom(shot.x, shot.z, shot.c, shot).sort((a, b) => Math.hypot(a.x - shot.x, a.z - shot.z) - Math.hypot(b.x - shot.x, b.z - shot.z));
         lastFlips = fl.length;
-        fl.forEach((i, k) => {
-          const s = board[i];
+        fl.forEach((s, k) => {
           s.c = shot.c;
           s.flip = { t: -(0.28 + k * 0.08), from: s.ang, to: s.ang + Math.PI, snd: false };
           maxDelay = 0.28 + k * 0.08 + 0.3;
@@ -775,28 +769,29 @@
     function reactCat() {
       // 猫の番でうまくいく／黒の番でやられる
       if (turn === -1) {
-        if (lastFlips >= 3 || (lastCell >= 0 && isCorner(lastCell)) || lostByTurn[1] > 0) { catFx.bounce = 0.001; setTimeout(meowHappy, 380); }
+        if (lastFlips >= 3 || lastCorner || lostByTurn[1] > 0) { catFx.bounce = 0.001; setTimeout(meowHappy, 380); }
       } else {
-        if (lastFlips >= 3 || (lastCell >= 0 && isCorner(lastCell)) || lostByTurn[-1] > 0) { catFx.shake = 1; setTimeout(meowAngry, 420); }
+        if (lastFlips >= 3 || lastCorner || lostByTurn[-1] > 0) { catFx.shake = 1; setTimeout(meowAngry, 420); }
       }
     }
     // 猫の狙い: いちばん多く返せるマス（角は優先）。ときどき黒い石を弾き出しにいく
     function planCat() {
       let best = null, bs = -Infinity;
-      for (let i = 0; i < 64; i++) {
-        if (board[i]) continue;
-        const f = flipsAt(i, -1).length;
+      const rs = resting();
+      for (let ix = -8; ix <= 8; ix++) for (let iz = -8; iz <= 8; iz++) {
+        const x = ix * 0.05, z = iz * 0.05;
+        if (rs.some(s => (s.x - x) ** 2 + (s.z - z) ** 2 < (2 * SR + 0.004) ** 2)) continue;
+        const f = flipsFrom(x, z, -1).length;
         let sc = f * 1.2 + Math.random() * 1.8;
-        if (f > 0 && isCorner(i)) sc += 6;
-        else if ([9, 14, 49, 54].includes(i)) sc -= 2;
-        else if (f > 0 && isEdge(i)) sc += 1;
-        if (f === 0) sc -= 3 + (Math.abs(cellX(i)) + Math.abs(cellZ(i))) * 4;
-        if (sc > bs) { bs = sc; best = { x: cellX(i), z: cellZ(i) }; }
+        if (f > 0 && nearCorner(x, z)) sc += 6;
+        else if (f > 0 && nearEdge(x, z)) sc += 1;
+        if (f === 0) sc -= 3 + (Math.abs(x) + Math.abs(z)) * 4;
+        if (sc > bs) { bs = sc; best = { x, z }; }
       }
-      const edgeBlack = board.map((s, i) => s && s.c === 1 && isEdge(i) ? i : -1).filter(i => i >= 0);
+      const edgeBlack = rs.filter(s => s.c === 1 && nearEdge(s.x, s.z));
       if (edgeBlack.length && Math.random() < 0.25) {
-        const i = pick(edgeBlack);
-        best = { x: cellX(i) * 1.05, z: cellZ(i) * 1.05 };
+        const e = pick(edgeBlack);
+        best = { x: e.x * 1.05, z: e.z * 1.05 };
       }
       if (!best) best = { x: 0, z: 0 };
       const ox = 0, oz = -SLING_Z;
@@ -1091,7 +1086,6 @@
     let resultStart = 0;
     function start() {
       for (const s of stones) { s.live = false; s.mesh.visible = false; }
-      board.fill(null);
       for (const [i, c] of [[27, -1], [28, 1], [35, 1], [36, -1]]) putCell(newStone(c), i);
       for (const s of stones) if (s.live) { s.px = s.x; s.py = s.y; s.pz = s.z; }
       shotsLeft = { 1: SHOTS, [-1]: SHOTS };
@@ -1124,21 +1118,6 @@
       }
       for (const who of [1, -1]) poseSling(slings[who]);
       poseCat(clock);
-      // 着地点の目安（引いている間だけ）
-      const showAim = state === 'aim' && aim.p > 0.03;
-      ring.visible = showAim;
-      dots.forEach(d => { d.visible = showAim; });
-      if (showAim) {
-        const sl = slings[1]; sl.g.rotation.y = sl.yaw; sl.g.updateMatrixWorld();
-        launchOrigin(sl, _p);
-        const dd = dirOf(aim.yaw), D = distOf(aim.p);
-        const lx = _p.x + dd.x * D, lz = _p.z + dd.z * D;
-        const on = Math.abs(lx) <= B && Math.abs(lz) <= B;
-        ring.position.set(lx, on ? 0.0015 : FLOOR + 0.0015, lz);
-        ringM.opacity = on ? 0.75 : 0.35;
-        const v = speedFor(D, _p.y - REST), vh = v * Math.cos(ELEV), vy = v * Math.sin(ELEV), T = D / vh;
-        dots.forEach((d, k) => { const tt = T * (k + 1) / (dots.length + 1); d.position.set(_p.x + dd.x * vh * tt, _p.y + vy * tt - G * tt * tt / 2, _p.z + dd.z * vh * tt); });
-      }
       updateCamera(dt);
       placeHint();
       if (pend.clack > 0.05) clack(Math.min(1, 0.2 + pend.clack / 2));
@@ -1158,7 +1137,7 @@
     }
 
     window.__po = {
-      stones, board, slings, get state() { return state; }, get turn() { return turn; }, shotsLeft: () => shotsLeft, camera, renderer,
+      stones, slings, get state() { return state; }, get turn() { return turn; }, shotsLeft: () => shotsLeft, camera, renderer,
       shoot: (yaw, p) => { if (state === 'ready') fire(1, yaw, p); },
       ff: sec => { for (let i = 0; i < sec / STEP; i++) step(STEP); },
       count: () => [countColor(1), countColor(-1)],
@@ -1167,10 +1146,9 @@
       // アイコン用: 石を並べて、好きな位置から 512×512 で写す
       iconShot: (cells, cam, look, fov = 30) => {
         for (const s of stones) { s.live = false; s.mesh.visible = false; }
-        board.fill(null);
         for (const [i, c] of cells) putCell(newStone(c), i);
         for (const s of stones) if (s.live) { s.mesh.position.set(s.x, s.y, s.z); s.mesh.rotation.set(s.ang, s.yaw, 0); }
-        for (const m of [...piles[1], ...piles[-1], ring, ...dots]) m.visible = false;
+        for (const m of [...piles[1], ...piles[-1]]) m.visible = false;
         for (const who of [1, -1]) { slings[who].load = null; slings[who].pull = who === -1 ? 0.55 : 0; slings[who].yaw = who === 1 ? 0 : Math.PI; slings[who].g.rotation.y = slings[who].yaw; slings[who].g.updateMatrixWorld(); poseSling(slings[who]); }
         { const sl = slings[-1], st = newStone(-1); sl.g.localToWorld(pouchLocal(sl, _p)); st.mesh.position.set(_p.x, _p.y + 0.012, _p.z); st.mesh.rotation.set(Math.PI, 0, 0); }
         poseCat(0);
