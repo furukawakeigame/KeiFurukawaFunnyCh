@@ -56,16 +56,32 @@
     .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 32% !important; font-size: clamp(16px, 2.6vmin, 20px) !important; }
     #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
     #controls.hide { visibility: hidden; }
+    /* 型を選ぶ */
+    #shapes { position: absolute; z-index: 4; top: 52px; right: 12px; display: grid; grid-template-columns: repeat(3, auto); gap: 8px; padding: 10px; border-radius: 14px; background: rgba(20,12,24,.88); border: 1px solid rgba(255,220,180,.3); }
+    #shapes[hidden] { display: none; }
+    #shapes button { width: clamp(52px, 8vmin, 64px); height: clamp(52px, 8vmin, 64px); border-radius: 10px; border: none; background: #e2a24a; color: #5a2a08; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 6px; touch-action: manipulation; }
+    #shapes button svg { width: 100%; height: 100%; fill: #5a2a08; stroke: #5a2a08; }
+    #shapes button[data-s="file"] svg { fill: none; }
+    #shapes button img { width: 100%; height: 100%; object-fit: contain; }
+    #shapes button.on { outline: 3px solid #fff3e6; }
   </style>
 </head>
 <body>
   <div id="stage"><div id="result"><b></b></div><div id="msg"></div></div>
   <header>
     <a id="back" href="../../">← トップへ戻る</a>
-    <button id="pick" aria-label="image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8" fill="currentColor"/><path d="M4 18l5-5 3 3 3-4 5 6"/></svg></button>
+    <button id="pick" aria-label="shape"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><circle cx="8" cy="15" r="5"/><path d="M15 3l6.5 11h-13z"/></svg></button>
     <button id="sound" aria-label="sound"></button>
     <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
   </header>
+  <div id="shapes" hidden>
+    <button data-s="circle" aria-label="circle"><svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="14"/></svg></button>
+    <button data-s="triangle" aria-label="triangle"><svg viewBox="0 0 40 40"><path d="M20 5l16 28H4z"/></svg></button>
+    <button data-s="star" aria-label="star"><svg viewBox="0 0 40 40"><path d="M20 3l4.9 10.6 11.6 1.3-8.6 7.9 2.4 11.4L20 28.4 9.7 34.2l2.4-11.4-8.6-7.9 11.6-1.3z"/></svg></button>
+    <button data-s="umbrella" aria-label="umbrella"><svg viewBox="0 0 40 40"><path d="M4 19A16 16 0 0 1 36 19a4 4 0 0 0-8 0 4 4 0 0 0-8 0 4 4 0 0 0-8 0 4 4 0 0 0-8 0z"/><path d="M20 19v12a3.5 3.5 0 0 1-7 0" fill="none" stroke-width="3" stroke-linecap="round"/></svg></button>
+    <button data-s="cat" aria-label="cat"><img src="cat.png" alt=""></button>
+    <button data-s="file" aria-label="image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8" fill="currentColor"/><path d="M4 18l5-5 3 3 3-4 5 6"/></svg></button>
+  </div>
   <div id="controls" class="hide"></div>
   <input type="file" id="file" accept="image/*" hidden>
 
@@ -276,11 +292,11 @@
       });
       wood.wrapS = wood.wrapT = THREE.RepeatWrapping; wood.repeat.set(3, 3); wood.anisotropy = 4;
       const table = new THREE.Mesh(new THREE.PlaneGeometry(36, 36), new THREE.MeshStandardMaterial({ map: wood, roughness: 0.7 }));
-      table.rotation.x = -Math.PI / 2; table.receiveShadow = true; scene.add(table);
+      table.rotation.x = -Math.PI / 2; table.position.y = -0.013; table.receiveShadow = true; scene.add(table);
     }
 
     // ---------- 型抜きの板（データ） ----------
-    const N = 220, S = 4, TH = 0.14, TEX = 1024, GW = 3;
+    const N = 220, S = 4, TH = 0.14, TEX = 1024, GW = 3, DR = N / 2 - 1;
     const NN = N * N;
     let mask = new Uint8Array(NN), type = new Uint8Array(NN), dIn = new Float32Array(NN), dOut = new Float32Array(NN);
     const th = new Float32Array(NN), stress = new Float32Array(NN);
@@ -331,7 +347,7 @@
       const out = new Uint8Array(W * H); for (let i = 0; i < W * H; i++) out[i] = a[i] > 0.5 ? 1 : 0; return out;
     }
     // 画像から型の形を取り出す（透明部分があればそれで、なければ明るさで2つに分ける）
-    function shapeFromImage(img) {
+    function shapeFromImage(img, frac = 0.54) {
       const P = 360, c = document.createElement('canvas'); c.width = c.height = P;
       const g = c.getContext('2d', { willReadFrequently: true });
       const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
@@ -364,7 +380,7 @@
       // 板の真ん中に、決まった大きさで収める
       let x0 = P, y0 = P, x1 = 0, y1 = 0;
       for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) if (m[y * P + x]) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
-      const bw = x1 - x0 + 1, bh = y1 - y0 + 1, T = N * 0.64, k = T / Math.max(bw, bh);
+      const bw = x1 - x0 + 1, bh = y1 - y0 + 1, T = N * frac, k = T / Math.max(bw, bh);
       const ox = (N - bw * k) / 2, oy = (N - bh * k) / 2;
       let gm = new Uint8Array(NN);
       for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
@@ -433,17 +449,23 @@
     function drawBase() {
       const g = baseC.getContext('2d');
       g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
-      g.fillStyle = '#f6d2d8'; g.fillRect(0, 0, TEX, TEX);
-      // でんぷん菓子のざらざら
-      for (let i = 0; i < 26000; i++) {
-        const l = Math.random() < 0.5;
-        g.fillStyle = l ? `rgba(255,250,245,${Math.random() * 0.5})` : `rgba(190,120,130,${Math.random() * 0.22})`;
-        g.fillRect(Math.random() * TEX, Math.random() * TEX, 1 + Math.random() * 2.5, 1 + Math.random() * 2.5);
-      }
-      // ふちの少し焼けた色
-      const gr = g.createRadialGradient(TEX / 2, TEX / 2, TEX * 0.35, TEX / 2, TEX / 2, TEX * 0.75);
-      gr.addColorStop(0, 'rgba(200,120,120,0)'); gr.addColorStop(1, 'rgba(200,120,120,.25)');
+      // 砂糖を焦がして膨らませたカラメル: 真ん中は明るく、ふちは焦げて濃い
+      const C = TEX / 2, gr = g.createRadialGradient(C, C, 0, C, C, C);
+      gr.addColorStop(0, '#f0b45a'); gr.addColorStop(0.6, '#e09a3c'); gr.addColorStop(0.86, '#c47624'); gr.addColorStop(0.97, '#8a4612'); gr.addColorStop(1, '#6a3008');
       g.fillStyle = gr; g.fillRect(0, 0, TEX, TEX);
+      // 細かい気泡
+      for (let i = 0; i < 5200; i++) {
+        const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * C * 0.99, x = C + Math.cos(a) * r, y = C + Math.sin(a) * r;
+        const br = 1 + Math.random() ** 2 * 6;
+        g.fillStyle = `rgba(110,50,8,${0.08 + Math.random() * 0.18})`; g.beginPath(); g.arc(x, y, br, 0, 7); g.fill();
+        g.fillStyle = `rgba(255,225,160,${0.1 + Math.random() * 0.25})`; g.beginPath(); g.arc(x - br * 0.3, y - br * 0.3, br * 0.45, 0, 7); g.fill();
+      }
+      // ふちの焼きムラ
+      for (let i = 0; i < 40; i++) {
+        const a = Math.random() * Math.PI * 2, x = C + Math.cos(a) * C * 0.9, y = C + Math.sin(a) * C * 0.9, rr = 20 + Math.random() * 50;
+        const sg = g.createRadialGradient(x, y, 0, x, y, rr); sg.addColorStop(0, 'rgba(90,40,5,.25)'); sg.addColorStop(1, 'rgba(90,40,5,0)');
+        g.fillStyle = sg; g.fillRect(x - rr, y - rr, rr * 2, rr * 2);
+      }
       // 型の中に、元の画像をうっすら刻印
       if (engrave?.img) {
         const e = mk(TEX, TEX), eg = e.getContext('2d');
@@ -459,16 +481,16 @@
       }
     }
     function cellPaint(i) {
-      const v = th[i], o = i * 4;
-      if (v <= 0) { ovImg.data[o] = 58; ovImg.data[o + 1] = 30; ovImg.data[o + 2] = 30; bumpImg.data[o] = bumpImg.data[o + 1] = bumpImg.data[o + 2] = 0; }
+      const v = type[i] === 3 ? 1 : th[i], o = i * 4;
+      if (v <= 0) { const hole = holeCells; ovImg.data[o] = hole ? 120 : 52; ovImg.data[o + 1] = hole ? 112 : 26; ovImg.data[o + 2] = hole ? 110 : 10; bumpImg.data[o] = bumpImg.data[o + 1] = bumpImg.data[o + 2] = 0; }
       else {
         const s = 0.5 + 0.5 * v;
-        ovImg.data[o] = 255 * s; ovImg.data[o + 1] = 250 * s; ovImg.data[o + 2] = 250 * s;
+        ovImg.data[o] = 255 * s; ovImg.data[o + 1] = 238 * s; ovImg.data[o + 2] = 215 * s;
         bumpImg.data[o] = bumpImg.data[o + 1] = bumpImg.data[o + 2] = 30 + 225 * v;
       }
       ovImg.data[o + 3] = bumpImg.data[o + 3] = 255;
     }
-    let texDirty = true;
+    let texDirty = true, holeCells = false;
     function compose() {
       ovCtx.putImageData(ovImg, 0, 0); bumpCtx.putImageData(bumpImg, 0, 0);
       colCtx.globalCompositeOperation = 'source-over';
@@ -483,11 +505,21 @@
 
     // 板の3D
     const boardG = new THREE.Group(); scene.add(boardG);
-    const candySide = mat('#ecc2ca', 0.85);
-    const body = new THREE.Mesh(new THREE.BoxGeometry(S, TH, S), candySide);
+    const candySide = mat('#a85a14', 0.45);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(S / 2, S / 2 * 0.985, TH, 96), candySide);
     body.position.y = TH / 2; body.castShadow = body.receiveShadow = true; boardG.add(body);
-    const topMat = new THREE.MeshStandardMaterial({ map: colTex, bumpMap: bumpTex, bumpScale: 3, roughness: 0.85 });
-    const top = new THREE.Mesh(new THREE.PlaneGeometry(S, S), topMat);
+    const topMat = new THREE.MeshStandardMaterial({ map: colTex, bumpMap: bumpTex, bumpScale: 3, roughness: 0.5 });
+    const top = new THREE.Mesh(new THREE.CircleGeometry(S / 2, 96), topMat);
+    // 下に敷いた丸いブリキの缶
+    {
+      const tin = mat('#c9cdd3', 0.32, { metalness: 0.55 });
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(S / 2 * 1.13, S / 2 * 1.13, 0.012, 96), tin);
+      base.position.y = -0.006; base.receiveShadow = true; scene.add(base);
+      const rimG = new THREE.TorusGeometry(S / 2 * 1.13, 0.035, 10, 96); rimG.rotateX(Math.PI / 2);
+      const rim = new THREE.Mesh(rimG, tin); rim.position.y = 0.025; rim.castShadow = rim.receiveShadow = true; scene.add(rim);
+      const ringG = new THREE.RingGeometry(S / 2 * 1.04, S / 2 * 1.06, 96); ringG.rotateX(-Math.PI / 2);
+      const ring = new THREE.Mesh(ringG, mat('#9a9ea6', 0.4, { metalness: 0.5 })); ring.position.y = 0.0015; scene.add(ring);
+    }
     top.rotation.x = -Math.PI / 2; top.position.y = TH + 0.001; top.receiveShadow = true; boardG.add(top);
 
     function setShape(sh) {
@@ -495,7 +527,8 @@
       dIn = distMap(mask); dOut = distMap(mask.map(v => 1 - v));
       grooveCount = 0;
       for (let i = 0; i < NN; i++) {
-        if (mask[i] && dIn[i] <= GW || !mask[i] && dOut[i] <= GW) { type[i] = 1; grooveCount++; }
+        if (Math.hypot(i % N + 0.5 - N / 2, ((i / N) | 0) + 0.5 - N / 2) > DR) type[i] = 3; // 丸い菓子の外
+        else if (mask[i] && dIn[i] <= GW || !mask[i] && dOut[i] <= GW) { type[i] = 1; grooveCount++; }
         else type[i] = mask[i] ? 2 : 0;
       }
       contour = traceContour(mask);
@@ -505,11 +538,11 @@
       for (let i = 0; i < NN; i++) {
         stress[i] = 0;
         if (type[i] === 1) { const d = mask[i] ? dIn[i] : dOut[i]; th[i] = 0.34 + 0.24 * Math.min(1, (d - 0.5) / GW); }
-        else th[i] = 1;
+        else th[i] = type[i] === 3 ? 0 : 1;
         cellPaint(i);
       }
       crackCtx.clearRect(0, 0, TEX, TEX);
-      cracks.length = 0;
+      cracks.length = 0; holeCells = false;
       compose();
     }
 
@@ -562,7 +595,7 @@
       for (let k = 0; k < len && c.alive && state === 'play'; k++) {
         c.ang += rnd(-0.38, 0.38);
         const p = c.pts[c.pts.length - 1], nx = p[0] + Math.cos(c.ang), ny = p[1] + Math.sin(c.ang);
-        if (nx < 1 || ny < 1 || nx > N - 1 || ny > N - 1) { c.pts.push([Math.max(0, Math.min(N, nx)), Math.max(0, Math.min(N, ny))]); drawCrack(c); lose(c); return; }
+        if (Math.hypot(nx - N / 2, ny - N / 2) > DR - 1) { c.pts.push([nx, ny]); drawCrack(c); lose(c); return; }
         const cell = Math.floor(ny) * N + Math.floor(nx);
         c.pts.push([nx, ny]);
         // 削って抜けた溝でヒビは止まる
@@ -576,9 +609,9 @@
       const s = TEX / N, g = crackCtx;
       g.lineJoin = g.lineCap = 'round';
       g.beginPath(); c.pts.forEach(([x, y], k) => g[k ? 'lineTo' : 'moveTo'](x * s + 1.2, y * s + 1.2));
-      g.strokeStyle = 'rgba(255,245,245,.55)'; g.lineWidth = 2; g.stroke();
+      g.strokeStyle = 'rgba(255,230,170,.55)'; g.lineWidth = 2; g.stroke();
       g.beginPath(); c.pts.forEach(([x, y], k) => g[k ? 'lineTo' : 'moveTo'](x * s, y * s));
-      g.strokeStyle = 'rgba(90,30,40,.95)'; g.lineWidth = 1.8; g.stroke();
+      g.strokeStyle = 'rgba(70,30,5,.95)'; g.lineWidth = 1.8; g.stroke();
       texDirty = true;
     }
     // 型が板から離れたか（型の中から、削れていないマスだけを通って外へ行けるか）
@@ -614,8 +647,8 @@
 
     // ---------- 粉・かけら ----------
     const fx = [];
-    const powderG = new THREE.IcosahedronGeometry(0.011, 0), powderM = mat('#fff0f2', 0.9);
-    const chipG = new THREE.TetrahedronGeometry(0.025, 0), chipM = mat('#f0c6ce', 0.8);
+    const powderG = new THREE.IcosahedronGeometry(0.011, 0), powderM = mat('#f6d49a', 0.7);
+    const chipG = new THREE.TetrahedronGeometry(0.025, 0), chipM = mat('#d08a34', 0.45);
     function particle(geo, m, x, y, z, vx, vy, vz, life, s) {
       if (fx.length > 260) { const o = fx.shift(); scene.remove(o.m); }
       const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.scale.setScalar(s); o.rotation.set(Math.random() * 6, Math.random() * 6, 0);
@@ -634,7 +667,7 @@
       for (let k = fx.length - 1; k >= 0; k--) {
         const f = fx[k]; f.t += dt;
         const p = f.m.position;
-        const inBoard = Math.abs(p.x) < S / 2 && Math.abs(p.z) < S / 2 && boardG.visible;
+        const inBoard = Math.hypot(p.x, p.z) < S / 2 && boardG.visible;
         const floor = (inBoard ? TH : 0) + 0.006;
         if (p.y > floor || f.v.y > 0) {
           f.v.y -= dt * 6; p.addScaledVector(f.v, dt); f.m.rotation.x += f.spin * dt;
@@ -707,7 +740,7 @@
       camera.aspect = w / fh;
       camera.setViewOffset(w, fh, 0, -(band + topBar), w, H);
       const vf = THREE.MathUtils.degToRad(camera.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
-      const Rv = S * 0.58, Rh = S * 0.62; // 縦は奥行きの縮みを見込む
+      const Rv = S * 0.55, Rh = S * 0.58; // 縦は奥行きの縮みを見込む
       const d = Math.min(Math.max(Rv / Math.tan(vf / 2) * 0.86, Rh / Math.tan(hf / 2)) , 30);
       const dir = new THREE.Vector3(0, 1.45, 1).normalize();
       const side = (state === 'result' && wide) ? -S * 0.42 : 0;
@@ -799,7 +832,42 @@
 
     // 画像の読み込み
     const fileIn = document.getElementById('file');
-    document.getElementById('pick').addEventListener('click', () => fileIn.click());
+    const shapesEl = document.getElementById('shapes');
+    let curShape = null;
+    const openShapes = () => { shapesEl.hidden = !shapesEl.hidden; shapesEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.s === curShape)); };
+    document.getElementById('pick').addEventListener('click', e => { e.stopPropagation(); openShapes(); });
+    addEventListener('pointerdown', e => { if (!shapesEl.hidden && !shapesEl.contains(e.target) && !e.target.closest('#pick, .pic')) shapesEl.hidden = true; });
+    shapesEl.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      shapesEl.hidden = true;
+      if (b.dataset.s === 'file') { fileIn.click(); return; }
+      useShape(b.dataset.s);
+    });
+    // 定番の型（○・△・☆・傘）は、Canvas に描いてから同じ方法で取り出す
+    function presetCanvas(kind) {
+      const c = mk(360, 360), g = c.getContext('2d');
+      g.fillStyle = g.strokeStyle = '#000';
+      g.beginPath();
+      if (kind === 'circle') g.arc(180, 180, 150, 0, Math.PI * 2);
+      else if (kind === 'triangle') { g.moveTo(180, 40); g.lineTo(340, 317); g.lineTo(20, 317); g.closePath(); }
+      else if (kind === 'star') for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, r = k % 2 ? 66 : 165; g[k ? 'lineTo' : 'moveTo'](180 + Math.cos(a) * r, 190 + Math.sin(a) * r); }
+      else if (kind === 'umbrella') {
+        g.moveTo(30, 175); g.arc(180, 175, 150, Math.PI, 0);
+        for (let k = 3; k >= 0; k--) g.arc(30 + 37.5 * (2 * k + 1), 175, 37.5, 0, Math.PI, true);
+        g.fill();
+        g.beginPath(); g.arc(180, 24, 12, 0, Math.PI * 2); g.fill();
+        g.lineWidth = 24; g.lineCap = 'round'; g.beginPath(); g.moveTo(180, 170); g.lineTo(180, 295); g.arc(148, 295, 32, 0, Math.PI); g.stroke();
+        return c;
+      }
+      g.fill();
+      return c;
+    }
+    function useShape(kind) {
+      const sh = kind === 'cat' ? shapeFromImage(catImg, 0.56) : shapeFromImage(presetCanvas(kind), 0.5);
+      if (!sh) return;
+      if (kind !== 'cat') sh.eng = null;
+      curShape = kind; setShape(sh); start();
+    }
     fileIn.addEventListener('change', () => {
       const f = fileIn.files?.[0]; fileIn.value = '';
       if (!f) return;
@@ -807,7 +875,7 @@
       img.onload = () => {
         const sh = shapeFromImage(img);
         if (!sh) { toast(t('noShape')); return; }
-        setShape(sh); start();
+        curShape = 'file'; setShape(sh); start();
       };
       img.onerror = () => toast(t('noShape'));
       img.src = url;
@@ -856,7 +924,7 @@
       resultKind = 'ok'; resultVal = ((endT - startT) / 1000).toFixed(1);
       const tx = snapshotTex();
       // 板に穴をあける
-      for (let i = 0; i < NN; i++) if (mask[i]) { th[i] = 0; cellPaint(i); }
+      holeCells = true; for (let i = 0; i < NN; i++) if (mask[i]) { th[i] = 0; cellPaint(i); }
       compose();
       const pts = contour.map(([x, y]) => { const [wx, wz] = worldOf(x, y); return [wx, -wz]; });
       let cx = 0, cy = 0; for (const [x, y] of pts) { cx += x; cy += y; } cx /= pts.length; cy /= pts.length;
@@ -888,7 +956,7 @@
       const toS = ([x, y]) => { const [wx, wz] = worldOf(x, y); return [wx, -wz]; };
       const a = toS(c.pts[0]), b = toS(c.pts[c.pts.length - 1]);
       const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-      let polys = [[[-S / 2, -S / 2], [S / 2, -S / 2], [S / 2, S / 2], [-S / 2, S / 2]]];
+      let polys = [Array.from({ length: 64 }, (_, k) => [Math.cos(k / 64 * Math.PI * 2) * S / 2, Math.sin(k / 64 * Math.PI * 2) * S / 2])];
       const lines = [[mid, Math.atan2(b[1] - a[1], b[0] - a[0])]];
       for (let k = 0; k < 2; k++) lines.push([[mid[0] + rnd(-.8, .8), mid[1] + rnd(-.8, .8)], Math.random() * Math.PI]);
       for (const [[px, py], ang] of lines) {
@@ -957,7 +1025,7 @@
       b.className = 'go'; b.textContent = t('again'); b.addEventListener('click', start);
       const p = document.createElement('button');
       p.className = 'pic'; p.setAttribute('aria-label', 'image');
-      p.innerHTML = document.getElementById('pick').innerHTML; p.addEventListener('click', () => fileIn.click());
+      p.innerHTML = document.getElementById('pick').innerHTML; p.addEventListener('click', e => { e.stopPropagation(); openShapes(); });
       const a = document.createElement('a');
       a.className = 'post'; a.textContent = t('post');
       a.href = `https://x.com/intent/post?text=${encodeURIComponent(shareText())}&url=${encodeURIComponent(SHARE_URL)}`;
@@ -1046,9 +1114,7 @@
 
     // 最初は猫の顔の型
     function boot() {
-      const sh = shapeFromImage(catImg);
-      if (sh) setShape(sh);
-      start();
+      useShape(pick(['circle', 'triangle', 'star', 'umbrella']));
       applyLang();
       // 最初の1回が重くならないよう、型とかけらの材質も一度描いておく
       const dummy = slab([[0, 0], [0.1, 0], [0, 0.1]], 0, 0, new THREE.MeshStandardMaterial({ map: colTex, roughness: 0.85 }));
