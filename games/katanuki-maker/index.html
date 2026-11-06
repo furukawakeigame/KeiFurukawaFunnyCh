@@ -70,6 +70,7 @@
   <div id="stage"><div id="result"><b></b></div><div id="msg"></div></div>
   <header>
     <a id="back" href="../../">← トップへ戻る</a>
+    <button id="img" aria-label="image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8" fill="currentColor"/><path d="M4 18l5-5 3 3 3-4 5 6"/></svg></button>
     <button id="pick" aria-label="shape"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><circle cx="8" cy="15" r="5"/><path d="M15 3l6.5 11h-13z"/></svg></button>
     <button id="sound" aria-label="sound"></button>
     <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
@@ -361,17 +362,30 @@
       if (trans > tot * 0.03) {
         for (let i = 0; i < P * P; i++) m[i] = px[i * 4 + 3] >= 128 ? 1 : 0;
       } else {
-        const L = new Uint8Array(P * P), hist = new Float64Array(256);
-        for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) { const i = y * P + x; if (!inRect(x, y)) continue; const l = Math.round(px[i * 4] * 0.3 + px[i * 4 + 1] * 0.59 + px[i * 4 + 2] * 0.11); L[i] = l; hist[l]++; }
-        // 大津の方法でしきい値を決める
+        // ふちの色を背景とみなし、背景と色が違う所を型にする（大津の方法でしきい値を決める）
+        const edge = [];
+        for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) { if (!inRect(x, y)) continue; if (x < rx + 4 || x > rx + rw - 5 || y < ry + 4 || y > ry + rh - 5) edge.push((y * P + x) * 4); }
+        const med = [0, 1, 2].map(k => { const v = edge.map(o => px[o + k]).sort((p1, p2) => p1 - p2); return v[v.length >> 1]; });
+        const D = new Uint8Array(P * P), hist = new Float64Array(256);
+        for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) { const i = y * P + x; if (!inRect(x, y)) continue; const o = i * 4;
+          const dv = Math.min(255, Math.hypot(px[o] - med[0], px[o + 1] - med[1], px[o + 2] - med[2]) * 0.7); D[i] = dv; hist[D[i]]++; }
         let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
-        let wB = 0, sB = 0, bestV = -1, thr = 128;
+        let wB = 0, sB = 0, bestV = -1, thr = 40;
         for (let i = 0; i < 256; i++) { wB += hist[i]; if (!wB) continue; const wF = tot - wB; if (!wF) break; sB += i * hist[i]; const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) ** 2; if (v > bestV) { bestV = v; thr = i; } }
-        // ふちに多く触れている方を背景とみなす
-        let edgeDark = 0, edgeAll = 0;
-        for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) { if (!inRect(x, y)) continue; if (x < rx + 4 || x > rx + rw - 5 || y < ry + 4 || y > ry + rh - 5) { edgeAll++; if (L[y * P + x] <= thr) edgeDark++; } }
-        const fgDark = edgeDark < edgeAll / 2;
-        for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) { const i = y * P + x; if (inRect(x, y)) m[i] = (L[i] <= thr) === fgDark ? 1 : 0; }
+        thr = Math.max(thr, 18);
+        let on = 0;
+        for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) { const i = y * P + x; if (inRect(x, y)) { m[i] = D[i] > thr ? 1 : 0; on += m[i]; } }
+        // 画像いっぱいに広がってしまったら（背景が一色でない写真など）、明るさで2つに分け、ふちに少ない方を型にする
+        if (on > tot * 0.7) {
+          const L = new Uint8Array(P * P), h2 = new Float64Array(256);
+          for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) { const i = y * P + x; if (!inRect(x, y)) continue; const o = i * 4; L[i] = Math.round(px[o] * 0.3 + px[o + 1] * 0.59 + px[o + 2] * 0.11); h2[L[i]]++; }
+          let s2 = 0; for (let i = 0; i < 256; i++) s2 += i * h2[i];
+          let w2 = 0, b2 = 0, bv = -1, t2 = 128;
+          for (let i = 0; i < 256; i++) { w2 += h2[i]; if (!w2) continue; const wF = tot - w2; if (!wF) break; b2 += i * h2[i]; const mB = b2 / w2, mF = (s2 - b2) / wF, v = w2 * wF * (mB - mF) ** 2; if (v > bv) { bv = v; t2 = i; } }
+          let darkEdge = 0; for (const o of edge) if (L[o / 4] <= t2) darkEdge++;
+          const fgDark = darkEdge < edge.length / 2;
+          for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) { const i = y * P + x; if (inRect(x, y)) m[i] = (L[i] <= t2) === fgDark ? 1 : 0; }
+        }
       }
       m = blurThreshold(m, P, P, 2);
       let r = keepLargest(m, P, P);
@@ -391,7 +405,8 @@
       const di = distMap(gm), er = new Uint8Array(NN);
       for (let i = 0; i < NN; i++) er[i] = di[i] > 2.5 ? 1 : 0;
       const de = distMap(er.map(v => 1 - v));
-      for (let i = 0; i < NN; i++) gm[i] = de[i] <= 2.6 ? 1 : 0;
+      if (!er.some(v => v)) return null;
+      for (let i = 0; i < NN; i++) gm[i] = gm[i] && de[i] <= 2.6 ? 1 : 0;
       gm = blurThreshold(gm, N, N, 1);
       r = keepLargest(gm, N, N);
       if (r.area < 200) return null;
@@ -836,7 +851,8 @@
     let curShape = null;
     const openShapes = () => { shapesEl.hidden = !shapesEl.hidden; shapesEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.s === curShape)); };
     document.getElementById('pick').addEventListener('click', e => { e.stopPropagation(); openShapes(); });
-    addEventListener('pointerdown', e => { if (!shapesEl.hidden && !shapesEl.contains(e.target) && !e.target.closest('#pick, .pic')) shapesEl.hidden = true; });
+    document.getElementById('img').addEventListener('click', () => { shapesEl.hidden = true; fileIn.click(); });
+    addEventListener('pointerdown', e => { if (!shapesEl.hidden && !shapesEl.contains(e.target) && !e.target.closest('#pick')) shapesEl.hidden = true; });
     shapesEl.addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
       shapesEl.hidden = true;
@@ -1025,7 +1041,7 @@
       b.className = 'go'; b.textContent = t('again'); b.addEventListener('click', start);
       const p = document.createElement('button');
       p.className = 'pic'; p.setAttribute('aria-label', 'image');
-      p.innerHTML = document.getElementById('pick').innerHTML; p.addEventListener('click', e => { e.stopPropagation(); openShapes(); });
+      p.innerHTML = document.getElementById('img').innerHTML; p.addEventListener('click', () => fileIn.click());
       const a = document.createElement('a');
       a.className = 'post'; a.textContent = t('post');
       a.href = `https://x.com/intent/post?text=${encodeURIComponent(shareText())}&url=${encodeURIComponent(SHARE_URL)}`;
@@ -1114,7 +1130,7 @@
 
     // 最初は猫の顔の型
     function boot() {
-      useShape(pick(['circle', 'triangle', 'star', 'umbrella']));
+      useShape('cat');
       applyLang();
       // 最初の1回が重くならないよう、型とかけらの材質も一度描いておく
       const dummy = slab([[0, 0], [0.1, 0], [0, 0.1]], 0, 0, new THREE.MeshStandardMaterial({ map: colTex, roughness: 0.85 }));
@@ -1127,6 +1143,7 @@
     window.KATA = {
       screenContour() { const r = cv.getBoundingClientRect(); return contour.map(([x, y]) => { const [wx, wz] = worldOf(x, y); const v = new THREE.Vector3(wx, TH, wz).project(camera); return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height]; }); },
       cheat(k) { if (k === "ng") { const c = { pts: [[N * 0.2, N * 0.5]], ang: 0.3, alive: true, inLen: 0 }; cracks.push(c); grow(c, 60); return; } for (let i = 0; i < NN; i++) if (type[i] === 1) { th[i] = 0; cellPaint(i); } cutSince = true; texDirty = true; },
+      info() { let x0 = N, x1 = 0, y0 = N, y1 = 0, c = [0, 0, 0, 0]; for (let i = 0; i < NN; i++) { c[type[i]]++; if (mask[i]) { const x = i % N, y = (i / N) | 0; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } } return { x0, x1, y0, y1, c, contour: contour.length }; },
       get state() { return state; }, get cracks() { return cracks.length; }, pct: () => cutPercent(), get vMax() { return vMax; }, maxStress() { let m = 0; for (const v of stress) m = Math.max(m, v); return m; },
     };
     resize();
