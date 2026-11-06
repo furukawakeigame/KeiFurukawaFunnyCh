@@ -645,8 +645,7 @@
         select(st); sPick();
         if (st.isCat) sMeow();
         st.vax += 1.2 * (Math.random() < 0.5 ? -1 : 1);
-        const p = onDesk(e) || new THREE.Vector3(st.x, 0, st.z);
-        drag = { st, ox: st.x - p.x, oz: st.z - p.z, sx: e.clientX, sy: e.clientY, moved: false };
+        drag = { st, x0: st.x, z0: st.z, sx: e.clientX, sy: e.clientY, moved: false };
       } else {
         if (ray.intersectObject(window.__posterFace, false).length) sMeow();
         orbit = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false };
@@ -661,8 +660,17 @@
         return;
       }
       if (drag) {
-        if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 5) drag.moved = true;
-        if (drag.moved) { const p = onDesk(e); if (p) { drag.st.tx = p.x + drag.ox; drag.st.tz = p.z + drag.oz; } }
+        if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 8) { drag.moved = true; drag.sx = e.clientX; drag.sy = e.clientY; }
+        if (drag.moved) {
+          // 指の動いた量をそのまま机の上の距離に直す（奥行き方向も同じ割合で、動きすぎないように）
+          const st = drag.st, vf = THREE.MathUtils.degToRad(camera.fov);
+          const dist = camera.position.distanceTo(new THREE.Vector3(st.x, 0.6, st.z));
+          const wpp = 2 * dist * Math.tan(vf / 2) / fh * 0.8;
+          const dx = (e.clientX - drag.sx) * wpp, dz = (e.clientY - drag.sy) * wpp;
+          const c = Math.cos(cam.yaw), sn = Math.sin(cam.yaw);
+          st.tx = drag.x0 + dx * c + dz * sn;
+          st.tz = drag.z0 - dx * sn + dz * c;
+        }
       } else if (orbit) {
         const dx = e.clientX - orbit.x, dy = e.clientY - orbit.y; orbit.x = e.clientX; orbit.y = e.clientY;
         if (Math.hypot(e.clientX - orbit.sx, e.clientY - orbit.sy) > 5) orbit.moved = true;
@@ -944,7 +952,7 @@
         const dragging = drag && drag.st === s && drag.moved;
         if (dragging) {
           const nx = THREE.MathUtils.clamp(s.tx, X0 + s.bw / 2, X1 - s.bw / 2), nz = THREE.MathUtils.clamp(s.tz, Z0 + s.bd / 2, Z1 - s.bd / 2);
-          const k = Math.min(1, dt * 22), vx = (nx - s.x) * k / dt, vz = (nz - s.z) * k / dt;
+          const k = Math.min(1, dt * 14), vx = (nx - s.x) * k / dt, vz = (nz - s.z) * k / dt;
           s.x += (nx - s.x) * k; s.z += (nz - s.z) * k;
           s.lift += (0.28 - s.lift) * Math.min(1, dt * 12);
           // 動かす向きに少し傾く
