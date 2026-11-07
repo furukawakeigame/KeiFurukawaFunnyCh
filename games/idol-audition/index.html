@@ -143,7 +143,7 @@
       soundBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${soundOn ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>'}</svg>`;
     };
     drawSoundBtn();
-    soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); if (master) master.gain.value = soundOn ? 1 : 0; });
+    soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); if (master) master.gain.value = soundOn ? 1 : 0; if (!soundOn && cand) stopSpeech(cand); });
     let ac = null, master = null, noiseBuf = null;
     // iPhone の消音モード（マナーモード）でも鳴らす
     function unmuteIOS() {
@@ -169,6 +169,8 @@
         const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
         const o = ac.createOscillator(), z = ac.createGain(); z.gain.value = 0;
         o.connect(z).connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.05);
+        // iPhone は最初の読み上げをタップの中で行う必要があるので、無音で一度読ませておく
+        try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch {}
       } catch { ac = null; return false; }
       return true;
     }
@@ -291,11 +293,11 @@
         if (b % 2 === 0) { const ci = (b / 2) % 4; ev.push({ k: 'pad', t: tb, d: BEAT * 2, fs: CHORDS[ci].map(s => semi(s - 12)), v: 0.022 * loud }); ev.push({ k: 'bass', t: tb, d: BEAT * 0.9, f: semi(ROOTS[ci] - 24), v: 0.2 * loud }); ev.push({ k: 'bass', t: tb + BEAT, d: BEAT * 0.9, f: semi(ROOTS[ci] - 24), v: 0.16 * loud }); }
       }
     }
-    function playEvents(list, dest, fromT, voice) {
+    function playEvents(list, dest, fromT, voice, toT = Infinity) {
       if (!ac) return;
       const base = ac.currentTime + 0.04;
       for (const e of list) {
-        if (e.t < fromT - 0.001) continue;
+        if (e.t < fromT - 0.001 || e.t >= toT) continue;
         const at = base + e.t - fromT;
         switch (e.k) {
           case 'syl': vnote(dest, at, e.d, e.f, e.f2, e.v1, e.v2, e.vol, { k: voice.k, breath: voice.breath, vib: e.vib ?? 0.012 }); break;
@@ -362,6 +364,69 @@
     };
     const lineText = (lg, ln) => ln.bucket === 'f' ? LINES[lg].f[TYPES[ln.type].name][ln.idx] : LINES[lg][ln.bucket][ln.idx];
 
+    // ---------- 読み上げ（ブラウザ標準の音声合成） ----------
+    const TALK_START = 1.55, TALK_END = 3.75;
+    const SPEECH_LANG = { ja: 'ja-JP', ko: 'ko-KR', en: 'en-US', th: 'th-TH' };
+    const CPS = { ja: 7.5, ko: 6.5, en: 14, th: 12 }; // 境界イベントが来ない端末用の、1秒あたりの文字数の目安
+    const FEMALE = /female|woman|kyoko|haruka|nanami|ayumi|mizuki|o-ren|sayaka|yuna|sora|heami|sunhi|seoyeon|samantha|zira|aria|jenny|karen|moira|tessa|victoria|allison|ava|kanya|premwadee|achara|narisa/i;
+    let voices = [];
+    const loadVoices = () => { try { voices = speechSynthesis.getVoices(); } catch {} };
+    if ('speechSynthesis' in window) { loadVoices(); try { speechSynthesis.addEventListener('voiceschanged', loadVoices); } catch {} }
+    const speechOK = () => soundOn && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+    function pickVoice(lg) {
+      const vs = voices.filter(v => (v.lang || '').toLowerCase().replace('_', '-').startsWith(lg));
+      if (!vs.length) return null;
+      return vs.find(v => FEMALE.test(v.name) && !/\bmale\b/i.test(v.name)) || vs.find(v => /google/i.test(v.name)) || vs[0];
+    }
+    // 「……」や「...」は読まずに間をあける（文字数を変えずに置き換える）
+    const forSpeech = (str, lg) => str.replace(/…/g, lg === 'en' || lg === 'th' ? ' ' : '、').replace(/\.\.\./g, lg === 'en' ? ',  ' : '   ');
+    function startSpeech(c) {
+      const T = c.st.talk, lg = lang;
+      const sp = { segs: lineText(lg, c.line).split('|').map(x => x.trim()), idx: -1, done: false, speaking: false, rev: [], t0: [], ended: [], utts: [], lg };
+      c.sp = sp;
+      const gap = [0, 650, 480, 300, 150, 150][T];
+      const v = pickVoice(lg);
+      const rate = [1, 0.72, 0.85, 1.0, 1.1, 1.15][T];
+      const next = () => {
+        if (c.sp !== sp || sp.done) return;
+        sp.idx++;
+        if (sp.idx >= sp.segs.length) { sp.done = true; sp.speaking = false; return; }
+        const i = sp.idx, text = sp.segs[i];
+        sp.t0[i] = now; sp.rev[i] = 0; sp.speaking = true;
+        let fin = false, guard = 0;
+        const end = () => { if (fin) return; fin = true; clearTimeout(guard); sp.ended[i] = true; sp.speaking = false; setTimeout(next, gap); };
+        if (!text.replace(/[….\s]/g, '')) { setTimeout(end, 700); return; } // 「……」だけの区切りは黙る
+        const u = new SpeechSynthesisUtterance(forSpeech(text, lg));
+        u.lang = SPEECH_LANG[lg]; if (v) u.voice = v;
+        u.pitch = clamp(1.15 + (c.f0 - 225) / 120 * 0.7, 1, 1.9);
+        u.rate = rate;
+        u.volume = T >= 3 ? 1 : T === 2 ? 0.7 : 0.5;
+        u.onboundary = e => { if (e.charIndex != null) sp.rev[i] = Math.max(sp.rev[i], (e.charIndex + (e.charLength || 1)) / Math.max(1, text.length)); };
+        u.onend = end; u.onerror = end;
+        guard = setTimeout(end, (graphemes(text).length / CPS[lg] / rate * 2 + 2) * 1000); // 終わりの合図が来ない端末の保険
+        sp.utts.push(u);
+        try { speechSynthesis.speak(u); } catch { end(); }
+      };
+      try { speechSynthesis.cancel(); } catch {}
+      setTimeout(next, 30);
+    }
+    function stopSpeech(c) {
+      if (!c || !c.sp) return;
+      c.sp.done = true; c.sp.speaking = false;
+      try { speechSynthesis.cancel(); } catch {}
+    }
+    // 吹き出しに出す文字数: 読み上げの位置（境界イベント）と、時間からの目安の大きい方
+    function spokenCount(sp, i, n) {
+      if (sp.ended[i]) return n;
+      if (sp.t0[i] == null) return 0;
+      const est = (now - sp.t0[i]) * CPS[sp.lg] * ([1, 0.72, 0.85, 1.0, 1.1, 1.15][cand?.st.talk || 3]);
+      return Math.min(n - 1, Math.max(0, Math.round(Math.max(sp.rev[i] * n, est))));
+    }
+    function talkMouth(c, tt) {
+      const speaking = c.sp ? c.sp.speaking : c.segs.some(z => tt >= z.t0 && tt < z.t1);
+      return speaking ? 0.3 + 0.6 * Math.abs(Math.sin(now * 17)) * (0.6 + 0.4 * Math.sin(now * 5.3)) : 0;
+    }
+
     // ---------- 候補者 ----------
     const rnd = (a, b) => a + Math.random() * (b - a);
     const pick = a => a[Math.floor(Math.random() * a.length)];
@@ -416,7 +481,7 @@
           const f = c.f0 * (1.18 - pr * 0.26) * (1 + (T <= 2 ? (Math.random() - 0.5) * 0.14 : 0));
           const last = i === counts[si] - 1 && /[！!？?]$/.test(sg);
           const f2 = last ? f * 1.25 : f * 0.97;
-          ev.push({ k: 'syl', t: tt, d, f, f2, v1: pick(VW), v2: pick(VW), vol: T >= 3 ? 0.5 : T === 2 ? 0.32 : 0.22, vib: T <= 2 ? 0.03 : 0.01 });
+          void f2; // セリフは読み上げ（speechSynthesis）で話すので、ここでは時間割りだけ作る
           tt += d + 0.02 * k;
         }
         c.segs.push({ t0, t1: tt });
@@ -862,7 +927,7 @@
         if (st.talk <= 2) { p.eyes = 'down'; }
       }
       if (blink && p.eyes === 'open') p.eyes = 'closed';
-      p.mouth = mouthAt(c.vocal, tt);
+      p.mouth = tt >= TALK_START - 0.05 && tt < SONG0 ? talkMouth(c, tt) : mouthAt(c.vocal, tt);
     }
 
     // ---------- 粒（エフェクト） ----------
@@ -1031,11 +1096,13 @@
       const tt = c.t;
       if (!c.segs || tt < c.segs[0].t0 - 0.1 || tt > SONG0 - 0.05) return;
       const alpha = clamp(Math.min((tt - c.segs[0].t0 + 0.1) / 0.12, (SONG0 - 0.05 - tt) / 0.15), 0, 1);
-      const segs = lineText(lang, c.line).split('|').map(x => x.trim());
+      const sp = c.sp;
+      const segs = sp ? sp.segs : lineText(lang, c.line).split('|').map(x => x.trim());
       let shown = 0;
       segs.forEach((sg, i) => {
-        const z = c.segs[i], n = graphemes(sg).length;
-        if (z) shown += Math.round(n * clamp((tt - z.t0) / Math.max(0.01, z.t1 - z.t0), 0, 1));
+        const n = graphemes(sg).length;
+        if (sp) shown += spokenCount(sp, i, n);
+        else { const z = c.segs[i]; if (z) shown += Math.round(n * clamp((tt - z.t0) / Math.max(0.01, z.t1 - z.t0), 0, 1)); }
       });
       const T = c.st.talk, s = L.s;
       let fs = R.side ? clamp(R.h * 0.055, 13, 20) : clamp(R.w * 0.05, 15, 24);
@@ -1231,7 +1298,7 @@
     let now = 0;
     function nextCandidate() {
       cand = makeCand();
-      if (ac) { cand.bus = newBus(); playEvents(cand.ev, cand.bus, 0, cand); cand.audio = true; }
+      if (ac) { cand.bus = newBus(); playEvents(cand.ev, cand.bus, 0, cand, TALK_END); cand.audio = true; }
       renderControls();
     }
     function start() {
@@ -1247,7 +1314,7 @@
       if (state !== 'aud' || !cand || cand.phase !== 'perf') return;
       if (!pass && !canFail()) return;
       cand.audio = true;
-      killBus(cand.bus);
+      killBus(cand.bus); stopSpeech(cand);
       cand.phase = pass ? 'pass' : 'fail'; cand.dt = 0;
       stamp = { kind: pass ? 'pass' : 'fail', t: 0, x: L.cx + (cand.lastDx || 0) * L.s, y: L.floor - 120 * L.s };
       stampSnd();
@@ -1260,6 +1327,10 @@
       if (state === 'aud' && cand) {
         if (cand.phase === 'perf') {
           const t0 = cand.t; cand.t += dt;
+          if (cand.audio && speechOK() && !cand.sp && t0 < TALK_START && cand.t >= TALK_START) startSpeech(cand);
+          // 読み上げが終わるまで、歌の前で時間を止めて待つ
+          if (cand.sp && !cand.sp.done && cand.t > TALK_END) cand.t = TALK_END;
+          if (cand.audio && !cand.rest && cand.t >= TALK_END) { cand.rest = true; playEvents(cand.ev, cand.bus, TALK_END, cand); }
           perfTriggers(cand, t0, cand.t, L.cx + (cand.lastDx || 0) * L.s, L.floor, L.s);
         } else {
           cand.dt += dt;
@@ -1383,8 +1454,9 @@
       restartWithVoice();
     }, { capture: true });
     function restartWithVoice() {
+      stopSpeech(cand); cand.sp = null; cand.rest = false;
       cand.t = 0; cand.lastDx = 0; parts.length = 0; cand.audio = true;
-      cand.bus = newBus(); playEvents(cand.ev, cand.bus, 0, cand);
+      cand.bus = newBus(); playEvents(cand.ev, cand.bus, 0, cand, TALK_END);
     }
     addEventListener('keydown', e => {
       if (e.target.tagName === 'SELECT') return;
