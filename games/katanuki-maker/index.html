@@ -56,6 +56,18 @@
     .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 32% !important; font-size: clamp(16px, 2.6vmin, 20px) !important; }
     #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
     #controls.hide { visibility: hidden; }
+    /* 画像の切り抜き（残したい所を塗る） */
+    #paint { position: absolute; inset: 0; z-index: 1; background: #1a1220; }
+    #paint[hidden] { display: none; }
+    #pcv { position: absolute; left: 0; right: 0; top: 0; bottom: calc(80px + env(safe-area-inset-bottom) + 64px); width: 100%; height: calc(100% - 80px - env(safe-area-inset-bottom) - 64px); touch-action: none; display: block; }
+    #pbar { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; justify-content: center; align-items: center; padding: 8px 12px 0; }
+    #pbar button { font: inherit; font-weight: 800; font-size: clamp(15px, 2.4vmin, 19px); border: none; border-radius: 999px; height: 48px; padding: 0 18px; cursor: pointer; background: #e0603a; color: #fff; box-shadow: 0 4px 0 #8f3518; display: inline-flex; align-items: center; justify-content: center; touch-action: manipulation; }
+    #pbar button.sub { background: #f3e3c8; color: #4a2a18; box-shadow: 0 4px 0 #a08560; padding: 0 14px; }
+    #pbar button.sub.on { background: #e8763c; color: #fff; box-shadow: 0 4px 0 #a84a1c; }
+    #pbar button:disabled { opacity: .4; cursor: default; }
+    #pbar button:active { transform: translateY(3px); box-shadow: none; }
+    #pbar svg { width: 20px; height: 20px; }
+    #pbar .dot { display: inline-block; background: currentColor; border-radius: 50%; }
     /* 型を選ぶ */
     #shapes { position: absolute; z-index: 4; top: 52px; right: 12px; display: grid; grid-template-columns: repeat(3, auto); gap: 8px; padding: 10px; border-radius: 14px; background: rgba(20,12,24,.88); border: 1px solid rgba(255,220,180,.3); }
     #shapes[hidden] { display: none; }
@@ -83,6 +95,16 @@
     <button data-s="cat" aria-label="cat"><img src="cat.png" alt=""></button>
     <button data-s="file" aria-label="image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8" fill="currentColor"/><path d="M4 18l5-5 3 3 3-4 5 6"/></svg></button>
   </div>
+  <div id="paint" hidden>
+    <canvas id="pcv"></canvas>
+    <div id="pbar">
+      <button id="pcancel" class="sub" aria-label="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <button id="brush" class="sub" aria-label="brush"><span class="dot" style="width:11px;height:11px"></span></button>
+      <button id="erase" class="sub"></button>
+      <button id="undo" class="sub"></button>
+      <button id="done" disabled></button>
+    </div>
+  </div>
   <div id="controls" class="hide"></div>
   <input type="file" id="file" accept="image/*" hidden>
 
@@ -105,16 +127,16 @@
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
-      ja: { title: 'カタヌキメーカー', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', noShape: '形が見つかりませんでした',
+      ja: { title: 'カタヌキメーカー', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', erase: '消す', undo: '戻す', done: 'できた', noShape: '形が見つかりませんでした',
             sec: s => `${s}秒`, pct: p => `${p}%`,
             ok: s => `カタヌキメーカーで型を${s}秒で抜いた ${TAG}`, ng: p => `カタヌキメーカーで${p}%まで削って割れた ${TAG}` },
-      ko: { title: '달고나 메이커', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', noShape: '모양을 찾지 못했어요',
+      ko: { title: '달고나 메이커', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', erase: '지우기', undo: '되돌리기', done: '완성', noShape: '모양을 찾지 못했어요',
             sec: s => `${s}초`, pct: p => `${p}%`,
             ok: s => `달고나 메이커에서 ${s}초 만에 모양을 뽑았다 ${TAG}`, ng: p => `달고나 메이커에서 ${p}%까지 긁다가 깨졌다 ${TAG}` },
-      en: { title: 'Katanuki Maker', back: '← Back to top', again: 'Play again', post: 'Post on X', noShape: "Couldn't find a shape",
+      en: { title: 'Katanuki Maker', back: '← Back to top', again: 'Play again', post: 'Post on X', erase: 'Erase', undo: 'Undo', done: 'Done', noShape: "Couldn't find a shape",
             sec: s => `${s}s`, pct: p => `${p}%`,
             ok: s => `Cut out the shape in ${s}s in Katanuki Maker ${TAG}`, ng: p => `Scraped ${p}% and it cracked in Katanuki Maker ${TAG}` },
-      th: { title: 'คาตะนุกิ เมกเกอร์', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', noShape: 'ไม่พบรูปทรง',
+      th: { title: 'คาตะนุกิ เมกเกอร์', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', erase: 'ลบ', undo: 'ย้อนกลับ', done: 'เสร็จ', noShape: 'ไม่พบรูปทรง',
             sec: s => `${s} วินาที`, pct: p => `${p}%`,
             ok: s => `แกะลายขนมสำเร็จใน ${s} วินาที ในเกมคาตะนุกิ เมกเกอร์ ${TAG}`, ng: p => `ขูดไปได้ ${p}% แล้วขนมแตก ในเกมคาตะนุกิ เมกเกอร์ ${TAG}` },
     };
@@ -128,6 +150,7 @@
       document.documentElement.lang = lang;
       document.title = t('title');
       document.getElementById('back').textContent = t('back');
+      for (const k of ['erase', 'undo', 'done']) document.getElementById(k).textContent = t(k);
       renderControls();
       if (state === 'result') { showResult(); prepareShare(); }
     }
@@ -355,38 +378,9 @@
       const k0 = P * 0.96 / Math.max(iw, ih), rw = iw * k0, rh = ih * k0, rx = (P - rw) / 2, ry = (P - rh) / 2;
       g.drawImage(img, rx, ry, rw, rh);
       const px = g.getImageData(0, 0, P, P).data;
-      const inRect = (x, y) => x >= rx + 1 && x < rx + rw - 1 && y >= ry + 1 && y < ry + rh - 1;
-      let trans = 0, tot = 0;
-      for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) if (inRect(x, y)) { tot++; if (px[(y * P + x) * 4 + 3] < 128) trans++; }
+      // 透明でない所が型（猫の画像・塗って切り抜いた画像・定番の型はどれも透明部分で形を持つ）
       let m = new Uint8Array(P * P);
-      if (trans > tot * 0.03) {
-        for (let i = 0; i < P * P; i++) m[i] = px[i * 4 + 3] >= 128 ? 1 : 0;
-      } else {
-        // ふちの色を背景とみなし、背景と色が違う所を型にする（大津の方法でしきい値を決める）
-        const edge = [];
-        for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) { if (!inRect(x, y)) continue; if (x < rx + 4 || x > rx + rw - 5 || y < ry + 4 || y > ry + rh - 5) edge.push((y * P + x) * 4); }
-        const med = [0, 1, 2].map(k => { const v = edge.map(o => px[o + k]).sort((p1, p2) => p1 - p2); return v[v.length >> 1]; });
-        const D = new Uint8Array(P * P), hist = new Float64Array(256);
-        for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) { const i = y * P + x; if (!inRect(x, y)) continue; const o = i * 4;
-          const dv = Math.min(255, Math.hypot(px[o] - med[0], px[o + 1] - med[1], px[o + 2] - med[2]) * 0.7); D[i] = dv; hist[D[i]]++; }
-        let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
-        let wB = 0, sB = 0, bestV = -1, thr = 40;
-        for (let i = 0; i < 256; i++) { wB += hist[i]; if (!wB) continue; const wF = tot - wB; if (!wF) break; sB += i * hist[i]; const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) ** 2; if (v > bestV) { bestV = v; thr = i; } }
-        thr = Math.max(thr, 18);
-        let on = 0;
-        for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) { const i = y * P + x; if (inRect(x, y)) { m[i] = D[i] > thr ? 1 : 0; on += m[i]; } }
-        // 画像いっぱいに広がってしまったら（背景が一色でない写真など）、明るさで2つに分け、ふちに少ない方を型にする
-        if (on > tot * 0.7) {
-          const L = new Uint8Array(P * P), h2 = new Float64Array(256);
-          for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) { const i = y * P + x; if (!inRect(x, y)) continue; const o = i * 4; L[i] = Math.round(px[o] * 0.3 + px[o + 1] * 0.59 + px[o + 2] * 0.11); h2[L[i]]++; }
-          let s2 = 0; for (let i = 0; i < 256; i++) s2 += i * h2[i];
-          let w2 = 0, b2 = 0, bv = -1, t2 = 128;
-          for (let i = 0; i < 256; i++) { w2 += h2[i]; if (!w2) continue; const wF = tot - w2; if (!wF) break; b2 += i * h2[i]; const mB = b2 / w2, mF = (s2 - b2) / wF, v = w2 * wF * (mB - mF) ** 2; if (v > bv) { bv = v; t2 = i; } }
-          let darkEdge = 0; for (const o of edge) if (L[o / 4] <= t2) darkEdge++;
-          const fgDark = darkEdge < edge.length / 2;
-          for (let y = 0; y < P; y++) for (let x = 0; x < P; x++) { const i = y * P + x; if (inRect(x, y)) m[i] = (L[i] <= t2) === fgDark ? 1 : 0; }
-        }
-      }
+      for (let i = 0; i < P * P; i++) m[i] = px[i * 4 + 3] >= 128 ? 1 : 0;
       m = blurThreshold(m, P, P, 2);
       let r = keepLargest(m, P, P);
       if (r.area < P * P * 0.01) return null;
@@ -888,14 +882,122 @@
       const f = fileIn.files?.[0]; fileIn.value = '';
       if (!f) return;
       const url = URL.createObjectURL(f), img = new Image();
-      img.onload = () => {
-        const sh = shapeFromImage(img);
-        if (!sh) { toast(t('noShape')); return; }
-        curShape = 'file'; setShape(sh); start();
-      };
-      img.onerror = () => toast(t('noShape'));
+      img.onload = () => { URL.revokeObjectURL(url); openPaint(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); toast(t('noShape')); };
       img.src = url;
     });
+    // ---------- 画像の切り抜き（タピオカメーカーと同じく、残したい所を指で塗る） ----------
+    const paintEl = document.getElementById('paint'), pcv = document.getElementById('pcv'), pctx = pcv.getContext('2d');
+    let pImg = null, pMask = null, pmctx = null, pView = null, pW = 0, pH = 0, pDPR = 1;
+    let brushIdx = 1, erasing = false, undoStack = [], lastPt = null, pinch = null, pTmp = null;
+    const pTouches = new Map(), BRUSH = [8, 22, 50];
+    function openPaint(im) {
+      const k = Math.min(1, 1600 / Math.max(im.width, im.height));
+      pImg = mk(Math.max(1, Math.round(im.width * k)), Math.max(1, Math.round(im.height * k)));
+      pImg.getContext('2d').drawImage(im, 0, 0, pImg.width, pImg.height);
+      pMask = mk(pImg.width, pImg.height); pmctx = pMask.getContext('2d', { willReadFrequently: true });
+      undoStack = []; erasing = false; pTouches.clear(); pinch = null; lastPt = null;
+      document.getElementById('erase').classList.remove('on');
+      paintEl.hidden = false; shapesEl.hidden = true; controls.classList.add('hide');
+      paintResize(); updateDone();
+    }
+    function closePaint() { paintEl.hidden = true; pImg = pMask = null; renderControls(); }
+    function paintResize() {
+      if (paintEl.hidden || !pImg) return;
+      const r = pcv.getBoundingClientRect();
+      pDPR = Math.min(devicePixelRatio || 1, 2); pW = r.width; pH = r.height;
+      pcv.width = Math.round(pW * pDPR); pcv.height = Math.round(pH * pDPR);
+      const pad = 12, top = 52, k = Math.min((pW - pad * 2) / pImg.width, (pH - top - pad) / pImg.height);
+      pView = { k, fit: k, x: (pW - pImg.width * k) / 2, y: top + (pH - top - pad - pImg.height * k) / 2 };
+      paintRender();
+    }
+    addEventListener('resize', paintResize);
+    function snapFit() { if (pView.k <= pView.fit * 1.001) { const top = 52, pad = 12; pView.x = (pW - pImg.width * pView.k) / 2; pView.y = top + (pH - top - pad - pImg.height * pView.k) / 2; } }
+    const toImg = e => { const r = pcv.getBoundingClientRect(); return { x: (e.clientX - r.left - pView.x) / pView.k, y: (e.clientY - r.top - pView.y) / pView.k }; };
+    const midPt = (a, b) => { const r = pcv.getBoundingClientRect(); return { x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top }; };
+    const brushPx = () => BRUSH[brushIdx] / pView.k;
+    function pStroke(a, b) {
+      pmctx.save();
+      pmctx.globalCompositeOperation = erasing ? 'destination-out' : 'source-over';
+      pmctx.strokeStyle = pmctx.fillStyle = '#000';
+      pmctx.lineCap = pmctx.lineJoin = 'round'; pmctx.lineWidth = brushPx();
+      pmctx.beginPath(); pmctx.moveTo(a.x, a.y); pmctx.lineTo(b.x, b.y); pmctx.stroke();
+      pmctx.beginPath(); pmctx.arc(b.x, b.y, brushPx() / 2, 0, Math.PI * 2); pmctx.fill();
+      pmctx.restore();
+    }
+    function maskBox() {
+      const d = pmctx.getImageData(0, 0, pMask.width, pMask.height).data;
+      let x0 = pMask.width, y0 = pMask.height, x1 = -1, y1 = -1;
+      for (let y = 0; y < pMask.height; y++) for (let x = 0; x < pMask.width; x++) if (d[(y * pMask.width + x) * 4 + 3] > 20) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+    }
+    const updateDone = () => { document.getElementById('done').disabled = !maskBox(); };
+    function paintRender() {
+      const g = pctx; g.setTransform(pDPR, 0, 0, pDPR, 0, 0); g.clearRect(0, 0, pW, pH);
+      if (!pImg) return;
+      const { k, x, y } = pView, w = pImg.width * k, h = pImg.height * k;
+      g.fillStyle = '#3b2a20'; g.fillRect(x, y, w, h);
+      g.globalAlpha = 0.35; g.drawImage(pImg, x, y, w, h); g.globalAlpha = 1;
+      if (!pTmp || pTmp.width !== pImg.width || pTmp.height !== pImg.height) pTmp = mk(pImg.width, pImg.height);
+      const tg = pTmp.getContext('2d');
+      tg.globalCompositeOperation = 'source-over'; tg.clearRect(0, 0, pTmp.width, pTmp.height); tg.drawImage(pMask, 0, 0);
+      tg.globalCompositeOperation = 'source-in'; tg.drawImage(pImg, 0, 0);
+      tg.globalCompositeOperation = 'source-atop'; tg.fillStyle = 'rgba(60, 220, 110, 0.45)'; tg.fillRect(0, 0, pTmp.width, pTmp.height);
+      g.drawImage(pTmp, x, y, w, h);
+    }
+    pcv.addEventListener('pointerdown', e => {
+      e.preventDefault(); try { pcv.setPointerCapture(e.pointerId); } catch {}
+      pTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pTouches.size === 1 && !pinch) {
+        undoStack.push(pmctx.getImageData(0, 0, pMask.width, pMask.height)); if (undoStack.length > 20) undoStack.shift();
+        lastPt = toImg(e); pStroke(lastPt, lastPt); paintRender();
+      } else if (pTouches.size === 2) {
+        // 2本目の指: 塗り始めた線を取り消して拡大に切り替える
+        if (lastPt) { const d = undoStack.pop(); if (d) pmctx.putImageData(d, 0, 0); lastPt = null; }
+        const [a, b] = [...pTouches.values()];
+        pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: midPt(a, b), k0: pView.k, x0: pView.x, y0: pView.y };
+        paintRender();
+      }
+    });
+    pcv.addEventListener('pointermove', e => {
+      if (!pTouches.has(e.pointerId)) return;
+      pTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pTouches.size >= 2) {
+        const [a, b] = [...pTouches.values()], m = midPt(a, b);
+        const k = Math.max(pView.fit, Math.min(pView.fit * 12, pinch.k0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0));
+        pView.x = m.x - (pinch.m0.x - pinch.x0) / pinch.k0 * k; pView.y = m.y - (pinch.m0.y - pinch.y0) / pinch.k0 * k;
+        pView.k = k; snapFit(); paintRender();
+      } else if (lastPt) { const q = toImg(e); pStroke(lastPt, q); lastPt = q; paintRender(); }
+    });
+    const pUp = e => { pTouches.delete(e.pointerId); if (!pTouches.size) pinch = null; if (lastPt) { lastPt = null; updateDone(); } };
+    pcv.addEventListener('pointerup', pUp); pcv.addEventListener('pointercancel', pUp);
+    pcv.addEventListener('wheel', e => {
+      e.preventDefault();
+      const r = pcv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+      const k = Math.max(pView.fit, Math.min(pView.fit * 12, pView.k * Math.exp(-e.deltaY * 0.0015)));
+      pView.x = mx - (mx - pView.x) / pView.k * k; pView.y = my - (my - pView.y) / pView.k * k; pView.k = k; snapFit(); paintRender();
+    }, { passive: false });
+    paintEl.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+    document.getElementById('brush').addEventListener('click', () => {
+      brushIdx = (brushIdx + 1) % BRUSH.length;
+      const d = document.getElementById('brush').firstChild; d.style.width = d.style.height = [5, 11, 20][brushIdx] + 'px';
+    });
+    document.getElementById('erase').addEventListener('click', () => { erasing = !erasing; document.getElementById('erase').classList.toggle('on', erasing); });
+    document.getElementById('undo').addEventListener('click', () => { const d = undoStack.pop(); if (d) { pmctx.putImageData(d, 0, 0); paintRender(); updateDone(); } });
+    document.getElementById('pcancel').addEventListener('click', closePaint);
+    document.getElementById('done').addEventListener('click', () => {
+      const b = maskBox(); if (!b) return;
+      // 塗った所だけを切り抜いた画像にして、型を取り出す
+      const k = Math.min(1, 512 / Math.max(b.w, b.h));
+      const c = mk(Math.max(1, Math.round(b.w * k)), Math.max(1, Math.round(b.h * k))), g = c.getContext('2d');
+      g.drawImage(pImg, b.x, b.y, b.w, b.h, 0, 0, c.width, c.height);
+      g.globalCompositeOperation = 'destination-in'; g.drawImage(pMask, b.x, b.y, b.w, b.h, 0, 0, c.width, c.height);
+      const sh = shapeFromImage(c, 0.54);
+      if (!sh) { toast(t('noShape')); return; }
+      closePaint();
+      curShape = 'file'; setShape(sh); start();
+    });
+
     const msgEl = document.getElementById('msg');
     let toastTimer = 0;
     function toast(s) { msgEl.textContent = s; msgEl.style.display = 'block'; clearTimeout(toastTimer); toastTimer = setTimeout(() => msgEl.style.display = 'none', 2500); }
