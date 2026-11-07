@@ -375,7 +375,9 @@
     function pickVoice(lg) {
       const vs = voices.filter(v => (v.lang || '').toLowerCase().replace('_', '-').startsWith(lg));
       if (!vs.length) return null;
-      return vs.find(v => FEMALE.test(v.name) && !/\bmale\b/i.test(v.name)) || vs.find(v => /google/i.test(v.name)) || vs[0];
+      // 端末に入っている声（すぐ話せる）を優先し、その中で女性の声を選ぶ
+      const fem = v => FEMALE.test(v.name) && !/\bmale\b/i.test(v.name);
+      return vs.find(v => v.localService && fem(v)) || vs.find(v => v.localService) || vs.find(fem) || vs[0];
     }
     // 「……」や「...」は読まずに間をあける（文字数を変えずに置き換える）
     const forSpeech = (str, lg) => str.replace(/…/g, lg === 'en' || lg === 'th' ? ' ' : '、').replace(/\.\.\./g, lg === 'en' ? ',  ' : '   ');
@@ -404,21 +406,22 @@
         u.onend = end;
         guard = setTimeout(end, (graphemes(text).length / CPS[lg] / rate * 2 + 2) * 1000); // 終わりの合図が来ない端末の保険
         let started = false;
-        u.onstart = () => { started = true; speechWorks = true; };
+        u.onstart = () => { started = true; speechWorks[lg] = true; };
         u.onerror = e => { if (!started && e && (e.error === 'not-allowed' || e.error === 'synthesis-unavailable' || e.error === 'language-unavailable' || e.error === 'voice-unavailable')) speechFail(c, sp); else end(); };
         // 話し始めの合図が来ないときは読み上げできない端末とみなし、おしゃべり声に切り替える
-        if (!speechWorks) setTimeout(() => { if (!started && !fin && c.sp === sp && !sp.done) speechFail(c, sp); }, 1600);
+        // （声をネットから取ってくる端末は話し始めが遅いので、長めに待つ）
+        if (!speechWorks[lg]) setTimeout(() => { if (!started && !fin && c.sp === sp && !sp.done) speechFail(c, sp); }, 5000);
         sp.utts.push(u);
         try { speechSynthesis.resume(); speechSynthesis.speak(u); } catch { speechFail(c, sp); }
       };
       next();
     }
-    let speechWorks = false, speechBroken = 0, speechUnlocked = false;
+    const speechWorks = {}, speechBroken = {}; let speechUnlocked = false;
     function speechFail(c, sp) {
       sp.done = true; sp.speaking = false; sp.failed = true;
       sp.segs.forEach((_, i) => sp.ended[i] = true);
       try { speechSynthesis.cancel(); } catch {}
-      speechBroken++;
+      speechBroken[sp.lg] = (speechBroken[sp.lg] || 0) + 1;
       // その場はおしゃべり声で埋める
       if (ac && c.bus && c.t < TALK_START + 0.3) { const t0 = c.babble[0]?.t ?? 0; const shift = c.t - t0; playEvents(c.babble.map(e => ({ ...e, t: e.t + shift })), c.bus, c.t, c, TALK_END + shift + 1); }
     }
@@ -1352,7 +1355,7 @@
           const t0 = cand.t; cand.t += dt;
           if (cand.audio && !cand.talked && t0 < TALK_START && cand.t >= TALK_START) {
             cand.talked = true;
-            if (speechOK() && speechBroken < 2) startSpeech(cand);
+            if (speechOK() && (speechBroken[lang] || 0) < 2) startSpeech(cand);
             else playEvents(cand.babble, cand.bus, cand.t, cand);
           }
           // 読み上げが終わるまで、歌の前で時間を止めて待つ
