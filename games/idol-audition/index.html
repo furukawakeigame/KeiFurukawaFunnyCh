@@ -169,8 +169,7 @@
         const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
         const o = ac.createOscillator(), z = ac.createGain(); z.gain.value = 0;
         o.connect(z).connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.05);
-        // iPhone は最初の読み上げをタップの中で行う必要があるので、無音で一度読ませておく
-        try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch {}
+
       } catch { ac = null; return false; }
       return true;
     }
@@ -402,13 +401,36 @@
         u.rate = rate;
         u.volume = T >= 3 ? 1 : T === 2 ? 0.7 : 0.5;
         u.onboundary = e => { if (e.charIndex != null) sp.rev[i] = Math.max(sp.rev[i], (e.charIndex + (e.charLength || 1)) / Math.max(1, text.length)); };
-        u.onend = end; u.onerror = end;
+        u.onend = end;
         guard = setTimeout(end, (graphemes(text).length / CPS[lg] / rate * 2 + 2) * 1000); // 終わりの合図が来ない端末の保険
+        let started = false;
+        u.onstart = () => { started = true; speechWorks = true; };
+        u.onerror = e => { if (!started && e && (e.error === 'not-allowed' || e.error === 'synthesis-unavailable' || e.error === 'language-unavailable' || e.error === 'voice-unavailable')) speechFail(c, sp); else end(); };
+        // 話し始めの合図が来ないときは読み上げできない端末とみなし、おしゃべり声に切り替える
+        if (!speechWorks) setTimeout(() => { if (!started && !fin && c.sp === sp && !sp.done) speechFail(c, sp); }, 1600);
         sp.utts.push(u);
-        try { speechSynthesis.speak(u); } catch { end(); }
+        try { speechSynthesis.resume(); speechSynthesis.speak(u); } catch { speechFail(c, sp); }
       };
+      next();
+    }
+    let speechWorks = false, speechBroken = 0, speechUnlocked = false;
+    function speechFail(c, sp) {
+      sp.done = true; sp.speaking = false; sp.failed = true;
+      sp.segs.forEach((_, i) => sp.ended[i] = true);
       try { speechSynthesis.cancel(); } catch {}
-      setTimeout(next, 30);
+      speechBroken++;
+      // その場はおしゃべり声で埋める
+      if (ac && c.bus && c.t < TALK_START + 0.3) { const t0 = c.babble[0]?.t ?? 0; const shift = c.t - t0; playEvents(c.babble.map(e => ({ ...e, t: e.t + shift })), c.bus, c.t, c, TALK_END + shift + 1); }
+    }
+    // スマホは読み上げをタップの中で一度始めないと鳴らないので、タップのたびに無音で読ませておく（動いたと分かるまで）
+    function unlockSpeech() {
+      if (speechUnlocked || !('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) return;
+      try {
+        loadVoices();
+        const u = new SpeechSynthesisUtterance(lang === 'ja' ? 'あ' : 'a'); u.volume = 0; u.rate = 2;
+        u.onstart = u.onend = () => { speechUnlocked = true; };
+        speechSynthesis.resume(); speechSynthesis.speak(u);
+      } catch {}
     }
     function stopSpeech(c) {
       if (!c || !c.sp) return;
@@ -472,7 +494,7 @@
       const k = Math.min(1, 2.15 / total);
       const nAll = counts.reduce((a, b) => a + b, 0);
       let tt = 1.55, si0 = 0;
-      c.segs = [];
+      c.segs = []; c.babble = [];
       segs.forEach((sg, si) => {
         const t0 = tt;
         for (let i = 0; i < counts[si]; i++, si0++) {
@@ -481,7 +503,8 @@
           const f = c.f0 * (1.18 - pr * 0.26) * (1 + (T <= 2 ? (Math.random() - 0.5) * 0.14 : 0));
           const last = i === counts[si] - 1 && /[！!？?]$/.test(sg);
           const f2 = last ? f * 1.25 : f * 0.97;
-          void f2; // セリフは読み上げ（speechSynthesis）で話すので、ここでは時間割りだけ作る
+          // 読み上げが使えない端末用の「おしゃべり声」
+          c.babble.push({ k: 'syl', t: tt, d, f, f2, v1: pick(VW), v2: pick(VW), vol: T >= 3 ? 0.5 : T === 2 ? 0.32 : 0.22, vib: T <= 2 ? 0.03 : 0.01 });
           tt += d + 0.02 * k;
         }
         c.segs.push({ t0, t1: tt });
@@ -1327,7 +1350,11 @@
       if (state === 'aud' && cand) {
         if (cand.phase === 'perf') {
           const t0 = cand.t; cand.t += dt;
-          if (cand.audio && speechOK() && !cand.sp && t0 < TALK_START && cand.t >= TALK_START) startSpeech(cand);
+          if (cand.audio && !cand.talked && t0 < TALK_START && cand.t >= TALK_START) {
+            cand.talked = true;
+            if (speechOK() && speechBroken < 2) startSpeech(cand);
+            else playEvents(cand.babble, cand.bus, cand.t, cand);
+          }
           // 読み上げが終わるまで、歌の前で時間を止めて待つ
           if (cand.sp && !cand.sp.done && cand.t > TALK_END) cand.t = TALK_END;
           if (cand.audio && !cand.rest && cand.t >= TALK_END) { cand.rest = true; playEvents(cand.ev, cand.bus, TALK_END, cand); }
@@ -1448,18 +1475,20 @@
     }
     // 最初のタップ: 音を準備し、1人目の自己紹介を声つきで最初からやり直す
     addEventListener('pointerdown', e => {
+      unlockSpeech();
       const fresh = initAudio();
       if (!fresh || state !== 'aud' || !cand || cand.audio) return;
       if (e.target.closest && e.target.closest('#controls button, header')) { cand.audio = true; return; }
       restartWithVoice();
     }, { capture: true });
     function restartWithVoice() {
-      stopSpeech(cand); cand.sp = null; cand.rest = false;
+      stopSpeech(cand); cand.sp = null; cand.rest = false; cand.talked = false;
       cand.t = 0; cand.lastDx = 0; parts.length = 0; cand.audio = true;
       cand.bus = newBus(); playEvents(cand.ev, cand.bus, 0, cand, TALK_END);
     }
     addEventListener('keydown', e => {
       if (e.target.tagName === 'SELECT') return;
+      unlockSpeech();
       const fresh = initAudio();
       if (e.key === 'ArrowRight' || e.key === 'Enter') { if (state === 'aud') decide(true); }
       else if (e.key === 'ArrowLeft') { if (state === 'aud') decide(false); }
