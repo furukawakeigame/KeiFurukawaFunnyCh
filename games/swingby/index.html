@@ -293,17 +293,18 @@
     // 座標は横長の画面を基準にした平面 (x: 左右, z: 上下)。縦長の画面では全体を90度回して表示する
     // body: k=種類, p=位置 / o=円運動 {c, d, period, ph}, r=半径, gm=重力の強さ
     const STAGES = [
-      { L: [-9, 0.3], T: { p: [8, -0.6] }, B: [{ k: 'earth', p: [-0.5, 1.4], r: 1.6, gm: 15 }] },
+      { L: [-9, 0.3], T: { p: [8, -0.6] }, B: [{ k: 'ocean', p: [-0.5, 1.4], r: 1.6, gm: 15, seed: 2 }] },
       { L: [-9, 0.4], T: { p: [6.6, 0.1] }, B: [{ k: 'desert', p: [1, 0], r: 2.0, gm: 24 }] },
-      { L: [-9, -2.2], T: { p: [8.5, -3.2] }, B: [{ k: 'ice', p: [-2.6, -2.6], r: 1.3, gm: 14 }, { k: 'earth', p: [2.8, 2.0], r: 1.7, gm: 20, seed: 7 }, { k: 'rock', p: [5.4, -4.4], r: 0.6, gm: 2, seed: 4 }] },
+      { L: [-9, -2.2], T: { p: [8.5, -3.2] }, B: [{ k: 'ice', p: [-2.6, -2.6], r: 1.3, gm: 14 }, { k: 'ocean', p: [2.8, 2.0], r: 1.7, gm: 20, seed: 7 }, { k: 'rock', p: [5.4, -4.4], r: 0.6, gm: 2, seed: 4 }] },
       { L: [-9, 2.4], T: { p: [8.4, -2.8] }, B: [{ k: 'gas', p: [0.6, -0.2], r: 2.2, gm: 34, ring: { inner: 2.9, outer: 4.5, ang: 0.5, tilt: 1.15 } }] },
       { L: [-9, 0.2], T: { o: { c: [2.2, 0], d: 3.6, period: 10, ph: 0 } }, B: [{ k: 'ice', p: [2.2, 0], r: 1.4, gm: 14, seed: 3 }] },
-      { L: [-9, 0], T: { p: [8.6, 0.4] }, B: [{ k: 'earth', o: { c: [1, 0], d: 2.3, period: 7, ph: 0 }, r: 1.1, gm: 12, seed: 11 }, { k: 'desert', o: { c: [1, 0], d: 2.3, period: 7, ph: Math.PI }, r: 1.1, gm: 12, seed: 5 }] },
+      { L: [-9, 0], T: { p: [8.6, 0.4] }, B: [{ k: 'ocean', o: { c: [1, 0], d: 2.3, period: 7, ph: 0 }, r: 1.1, gm: 12, seed: 11 }, { k: 'desert', o: { c: [1, 0], d: 2.3, period: 7, ph: Math.PI }, r: 1.1, gm: 12, seed: 5 }] },
       { L: [-9, -4.2], T: { p: [-9, 4.3] }, B: [{ k: 'lava', p: [-7.6, 0.2], r: 1.5, gm: 9 }, { k: 'cat', p: [3.2, 0], r: 2.2, gm: 40 }] },
       { L: [-9.2, 0.5], T: { p: [4.4, -2.4] }, B: [{ k: 'hole', p: [1.6, 0.2], r: 0.45, gm: 64 }, { k: 'rock', p: [-3.5, 3.4], r: 0.9, gm: 4, seed: 9 }] },
     ];
     const TARGET_R = 0.5, TARGET_GM = 1, PR = 0.12; // 届け先の衛星・小包の当たりの大きさ
-    const VMAX = 9.5, BOUND_X = 13.2, BOUND_Z = 8.4, TIMEOUT = 20, DT = 1 / 240;
+    const HOME_R = 0.9, HOME_GM = 3; // 出発点の地球（弱く打つと落ちて戻る）
+    const VMAX = 10, BOUND_X = 13.2, BOUND_Z = 8.4, TIMEOUT = 20, DT = 1 / 240;
     const BOX_W = 21, BOX_H = 12.8; // 画面に必ず入れる範囲
 
     function posAt(b, tt, out) {
@@ -313,7 +314,7 @@
     }
     // 物理: 時刻つきで重力・当たりを計算する（予測線・本番・テストで共通）
     function makeSim(st) {
-      const bodies = st.B.map(b => ({ ...b })).concat([{ ...st.T, r: TARGET_R, gm: TARGET_GM, target: true }]);
+      const bodies = st.B.map(b => ({ ...b })).concat([{ k: 'earth', p: st.L, r: HOME_R, gm: HOME_GM, home: true }, { ...st.T, r: TARGET_R, gm: TARGET_GM, target: true }]);
       const tmp = [0, 0];
       function acc(x, z, tt, a) {
         let ax = 0, az = 0;
@@ -354,7 +355,7 @@
       }
       return { bodies, step, hit, acc };
     }
-    const launchState = (st, ang, pow, t0) => ({ x: st.L[0], z: st.L[1], vx: Math.cos(ang) * pow * VMAX, vz: Math.sin(ang) * pow * VMAX, t: t0, t0, dist: 0 });
+    const launchState = (st, ang, pow, t0) => ({ x: st.L[0] + Math.cos(ang) * (HOME_R + PR + 0.03), z: st.L[1] + Math.sin(ang) * (HOME_R + PR + 0.03), vx: Math.cos(ang) * pow * VMAX, vz: Math.sin(ang) * pow * VMAX, t: t0, t0, dist: 0 });
     // テスト用: 打ち出しの結果を返す
     window.__sim = (si, ang, pow, t0 = 0) => { const st = STAGES[si], sim = makeSim(st), s = launchState(st, ang, pow, t0); let h = null; while (!(h = sim.step(s))); return { type: h.type, t: s.t - t0, dist: s.dist }; };
 
@@ -462,6 +463,7 @@
     });
     const PAL = {
       earth: { deep: hex(0x0a2350), shallow: hex(0x1d6f8f), sand: hex(0xc9b98a), grass: hex(0x3d6b2a), forest: hex(0x24451c), dry: hex(0x8a7a4a), rock: hex(0x6d6256), snow: hex(0xf2f5f8) },
+      ocean: { deep: hex(0x0a3d46), shallow: hex(0x3cc0a8), sand: hex(0xd8d0a8), grass: hex(0x4f8a3a), forest: hex(0x2c5a2a), dry: hex(0x9a8e5a), rock: hex(0x5e6a62), snow: hex(0xf2f8f8) },
       desert: { a: hex(0xb4532a), b: hex(0xd98a4e), c: hex(0x6e2c16), d: hex(0xe8c49a) },
       ice: { a: hex(0xe8f2fa), b: hex(0x9cc4e4), c: hex(0x2c5a8c), d: hex(0xffffff) },
       lava: { a: hex(0x1a1412), b: hex(0x3a2a22), hot: hex(0xff6a10), white: hex(0xffe08a) },
@@ -474,7 +476,8 @@
       const N = makeNoise(seed * 31 + kind.length * 7);
       const mk = () => { const c = document.createElement('canvas'); c.width = TEX_W; c.height = TEX_H; const x = c.getContext('2d'); return { c, x, img: x.createImageData(TEX_W, TEX_H) }; };
       const col = mk(), hgt = mk(), rough = mk();
-      const emi = kind === 'lava' ? mk() : null, cloud = kind === 'earth' ? mk() : null;
+      const emi = kind === 'lava' ? mk() : null, cloud = kind === 'earth' || kind === 'ocean' ? mk() : null;
+      const water = kind === 'earth' || kind === 'ocean';
       const crater = kind === 'desert' ? makeCraters(seed, 40, 0.03, 0.22) : kind === 'rock' ? makeCraters(seed, 70, 0.03, 0.3) : null;
       const c = [0, 0, 0], tmp = [0, 0, 0];
       const cosLon = new Float32Array(TEX_W), sinLon = new Float32Array(TEX_W);
@@ -486,11 +489,11 @@
           // three.js の球の UV と同じ向き（u=0.25 が +Z、正面）
           const x = cosLon[i] * sr, z = sinLon[i] * sr;
           let h = 0, rgh = 0.85, e = 0, cl = 0;
-          if (kind === 'earth') {
+          if (water) {
             const wx = N.fbm(x * 2 + 5, y * 2, z * 2, 3) - 0.5;
             const v = N.fbm(x * 1.6 + wx, y * 1.6 + wx, z * 1.6, 6);
             const m = N.fbm(x * 3 + 9, y * 3, z * 3, 4);
-            const sea = 0.5, P = PAL.earth;
+            const sea = kind === 'ocean' ? 0.68 : 0.5, P = kind === 'ocean' ? PAL.ocean : PAL.earth;
             const ice = smooth(0.78, 0.86, Math.abs(y) + (N.n(x * 6, y * 6, z * 6) - 0.5) * 0.12);
             if (v < sea) {
               mix3(P.deep, P.shallow, smooth(sea - 0.08, sea, v), c); rgh = 0.32; h = 0;
@@ -506,7 +509,7 @@
             if (ice > 0) { mix3(c, P.snow, ice, c); rgh = rgh + (0.6 - rgh) * ice; h = Math.max(h, ice * 0.2); }
             const cw = N.fbm(x * 2.5 + 20, y * 6, z * 2.5, 3) - 0.5;
             cl = smooth(0.53, 0.78, N.fbm(x * 3 + cw * 2, y * 3 + 30, z * 3 + cw, 6));
-            cl *= 0.85 + 0.15 * Math.cos(lat * 3);
+            cl *= (0.85 + 0.15 * Math.cos(lat * 3)) * (kind === 'ocean' ? 0.55 : 1);
           } else if (kind === 'desert') {
             const P = PAL.desert, v = N.fbm(x * 2, y * 2, z * 2, 6), d2 = N.fbm(x * 7, y * 7, z * 7, 4);
             mix3(P.a, P.b, smooth(0.4, 0.62, v), c);
@@ -591,7 +594,7 @@
       }
       return texCache.get(key);
     }
-    const stageKinds = st => st.B.filter(b => b.k !== 'hole').map(b => [b.k, b.seed || 1]).concat([['rock', 21]]);
+    const stageKinds = st => st.B.filter(b => b.k !== 'hole').map(b => [b.k, b.seed || 1]).concat([['earth', 1], ['rock', 21]]);
     const prepareStage = si => Promise.all(stageKinds(STAGES[si]).map(([k, s]) => texturesFor(k, s)));
 
     // ---------- 共通の形・質感 ----------
@@ -616,7 +619,7 @@
         side: back ? THREE.BackSide : THREE.FrontSide, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
       });
     }
-    const ATMO = { earth: [0x5aa0ff, 1.0], desert: [0xffa070, 0.5], ice: [0xbfe4ff, 0.6], cat: [0xffd0a0, 0.5], lava: [0xff5a20, 0.45] };
+    const ATMO = { earth: [0x5aa0ff, 1.0], ocean: [0x66d8ff, 0.9], desert: [0xffa070, 0.5], ice: [0xbfe4ff, 0.6], cat: [0xffd0a0, 0.5], lava: [0xff5a20, 0.45] };
 
     function makePlanet(b, tex) {
       const g = new THREE.Group();
@@ -929,6 +932,9 @@
         const g = b.k === 'hole' ? makeHole(b) : makePlanet(b, texs[i]);
         world.add(g); objs.push(g); meshes.push(g);
       });
+      // 出発点の地球
+      const home = makePlanet({ k: 'earth', r: HOME_R, seed: 1 }, texs[texs.length - 2]);
+      world.add(home); objs.push(home); meshes.push(home);
       // 届け先の衛星と家
       const tg = makePlanet({ k: 'rock', r: TARGET_R, seed: 21 }, texs[texs.length - 1]);
       tg.userData.spin = 0;
@@ -939,7 +945,8 @@
       mark.rotation.x = -Math.PI / 2; tg.add(mark);
       // 未使用のテクスチャの質感を先に用意しておく
       cur = { si, st, sim, objs, meshes, house, tg, mark };
-      launcher.position.set(st.L[0], 0, st.L[1]);
+      launcher.visible = false;
+      { const tp = st.T.p || st.T.o.c, dx = tp[0] - st.L[0], dz = tp[1] - st.L[1], l = Math.hypot(dx, dz); aimDir = [dx / l, dz / l]; }
       worldT = 0;
       placeBodies(0);
       orientHouse();
@@ -1055,7 +1062,7 @@
     let prevShot = null;
     let timer = 0, speed = 1, shots = 0, bestDist = 0;
     let trailPts = [];
-    let lastCreak = 0;
+    let lastCreak = 0, aimDir = [1, 0];
     const raycaster = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), ndc = new THREE.Vector2();
     function toLocal(cx, cy) {
       const r = renderer.domElement.getBoundingClientRect();
@@ -1300,12 +1307,14 @@
       // 小包
       predict.clear();
       if (state === 'aim') {
-        const st = cur.st, pow = drag ? drag.pow : 0, dir = drag ? drag.dir : [1, 0];
-        parcel.position.set(st.L[0] - dir[0] * pow * 0.32, 0.05 + Math.sin(animT * 2) * 0.03, st.L[1] - dir[1] * pow * 0.32);
-        parcel.rotation.set(Math.sin(animT * 0.7) * 0.15, -Math.atan2(dir[1], dir[0]), Math.sin(animT * 0.9) * 0.1);
+        const st = cur.st, pow = drag ? drag.pow : 0, dir = drag ? drag.dir : aimDir;
+        if (drag) aimDir = drag.dir;
+        // 小包は地球の表面に乗っていて、狙う向きへ回る。引くほど少し沈む
+        const rr = HOME_R + 0.13 - pow * 0.06;
+        parcel.position.set(st.L[0] + dir[0] * rr, 0, st.L[1] + dir[1] * rr);
+        parcel.rotation.set(0, -Math.atan2(dir[1], dir[0]), 0);
         if (drag && pow >= 0.08) {
           // 引っぱり帯（後ろ）と、最初の少しだけの予測点（前）
-          band.set([[st.L[0], st.L[1], 0], [st.L[0] - dir[0] * (0.4 + pow * 1.6), st.L[1] - dir[1] * (0.4 + pow * 1.6), 0]], f => 0.25 + 0.75 * f);
           const s = launchState(st, Math.atan2(dir[1], dir[0]), pow, worldT + acc);
           let len = 0, next = 0.32, k = 0;
           for (let i = 0; i < 1500 && len < 3.6; i++) {
@@ -1324,7 +1333,7 @@
         let close = 0, heat = 0;
         if (state === 'fly') {
           for (const b of cur.sim.bodies) {
-            if (b.target) continue;
+            if (b.target || b.home) continue;
             posAt(b, shot.t, hitTmp);
             const d = Math.hypot(x - hitTmp[0], z - hitTmp[1]);
             close = Math.max(close, clamp01(1.4 - d / (b.r * 2.4)));
