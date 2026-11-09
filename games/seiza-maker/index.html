@@ -41,6 +41,8 @@
     }
     header select option { color: #111; background: #fff; }
     header svg { width: 18px; height: 18px; display: block; }
+    /* リセットは2回押しで実行（1回目は赤くなって待つ） */
+    #reset.armed { background: #c8364a; border-color: #ff8a9a; animation: shake .42s; }
     #result {
       position: fixed; left: 0; right: 0; top: calc(54px + env(safe-area-inset-top)); z-index: 1;
       text-align: center; visibility: hidden; pointer-events: none;
@@ -90,6 +92,7 @@
   <canvas id="c"></canvas>
   <header>
     <a id="back" href="../../">← トップへ戻る</a>
+    <button id="reset" aria-label="reset"><svg viewBox="0 0 24 24" fill="none" stroke="#e8eeff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4v5h5"/></svg></button>
     <button id="sound" aria-label="sound"></button>
     <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
   </header>
@@ -842,6 +845,34 @@
       let ty = Math.atan2(-c.x, -c.z); while (ty - camYaw > Math.PI) ty -= Math.PI * 2; while (ty - camYaw < -Math.PI) ty += Math.PI * 2;
       tween = { t: 0, dur: 1.4, y0: camYaw, p0: camPitch, z0: zoom, y1: ty, p1: Math.asin(Math.max(-1, Math.min(1, c.y))), z1: Math.max(28, Math.min(78, 2 * Math.atan(Math.max(hx, hy) * 1.25) * 180 / Math.PI * 1.25)), after: () => { takeSnap(f); showResult(); prepareShare(); } };
       if (catHit >= 5 && !catFound) { catFound = true; catTarget = 1; store.set('cat', true); meow(0.9); meow(1.9); }
+    }
+    // リセット: 作った星座・つないでいる途中の線・猫を見つけた記録をすべて消す
+    const resetBtn = document.getElementById('reset');
+    let resetTimer = 0;
+    resetBtn.addEventListener('click', () => {
+      if (!resetBtn.classList.contains('armed')) {
+        resetBtn.classList.add('armed'); pop(500, 420, 0.06);
+        clearTimeout(resetTimer); resetTimer = setTimeout(() => resetBtn.classList.remove('armed'), 2500);
+        return;
+      }
+      clearTimeout(resetTimer); resetBtn.classList.remove('armed');
+      resetAll();
+    });
+    function resetAll() {
+      for (const d of done) {
+        d.meshes.forEach(m => { sky.remove(m); m.geometry.dispose(); });
+        if (d.label) setLabel(d, '');
+      }
+      done.length = 0;
+      cur.meshes.forEach(m => { sky.remove(m); m.geometry.dispose(); });
+      cur = { lines: [], meshes: [], hist: [] }; selected = -1; hover = -1; lastDone = null; snap = null; shareCache = null;
+      clearPreview(); sparkData.length = 0;
+      catFound = false; catFade = 0; catTarget = 0; catMat.uniforms.uOpacity.value = catOpacity(0);
+      store.set('done', []); store.set('cat', false);
+      tween = null; nameEl.value = '';
+      if (on()) { const now = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(1200, now); o.frequency.exponentialRampToValueAtTime(220, now + 0.5); g.gain.setValueAtTime(0.08, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.55); o.connect(g).connect(master); o.start(now); o.stop(now + 0.6); }
+      shimmer(0.8, 0.03);
+      newConstellation(); updateMarks();
     }
     function newConstellation() {
       nameEl.blur();
