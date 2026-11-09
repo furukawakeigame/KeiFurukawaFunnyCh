@@ -37,8 +37,17 @@
     header svg { width: 18px; height: 18px; display: block; }
     #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
     #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    /* 盛った量のゲージ: 真ん中の線が普通盛り。届かないと青（損）、超えるとオレンジ（得） */
+    #gauge { position: absolute; left: 12px; right: 12px; top: 54px; max-width: 520px; margin: 0 auto; display: flex; align-items: center; gap: 8px; pointer-events: none; }
+    #gauge svg { width: clamp(24px, 4.5vmin, 34px); height: auto; flex: none; filter: drop-shadow(0 1px 2px rgba(0,0,0,.5)); }
+    #gauge div { position: relative; flex: 1; height: clamp(14px, 2.4vmin, 20px); border-radius: 10px; background: rgba(255,248,236,.55); border: 2px solid #4a1a08; overflow: hidden; }
+    #gauge i { position: absolute; inset: 0; background: #6a9ad8; transform-origin: left; transform: scaleX(0); }
+    #gauge i.over { background: linear-gradient(#ffa040, #e8500e); }
+    #gauge u { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 4px; margin-left: -2px; background: #fff; box-shadow: 0 0 0 1px #4a1a08; }
     #result { position: absolute; left: 0; right: 0; top: 0; height: var(--band, 30%); display: none; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; padding-top: 44px; }
     #result b { font-size: clamp(52px, 15vmin, 128px); font-weight: 900; line-height: 1; color: #fff; text-shadow: 0 4px 0 #7a2408, 0 0 18px rgba(0,0,0,.35); }
+    #result.loss b { color: #e4eeff; text-shadow: 0 4px 0 #1e3a6a, 0 0 18px rgba(0,0,0,.35); }
+    #result.loss span { color: #cfe0ff; text-shadow: 0 2px 0 #1e3a6a, 0 0 10px rgba(0,0,0,.4); }
     #result span { margin-top: 6px; font-size: clamp(20px, 5vmin, 40px); font-weight: 800; color: #ffe2c4; text-shadow: 0 2px 0 #7a2408, 0 0 10px rgba(0,0,0,.4); }
     @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
       #result { top: 0; bottom: var(--reserve, 160px); height: auto; width: 34%; }
@@ -64,6 +73,7 @@
     <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
   </header>
   <div id="stage">
+    <div id="gauge"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#ff6a1e" stroke="#7a2408" stroke-width="1.5"/><circle cx="12" cy="13" r="3.5" fill="#ffb02a" opacity=".7"/><circle cx="8.5" cy="8" r="2.6" fill="#fff"/></svg><div><i></i><u></u></div></div>
     <div id="result"><b></b><span></span></div>
     <div id="msg"></div>
   </div>
@@ -95,11 +105,19 @@
     const YEN_PER_EGG = 2.5;
     const yenOf = n => Math.round(n * YEN_PER_EGG);
     const num = v => v.toLocaleString('en-US');
+    // 普通盛り（この粒数より多ければ得、少なければ損）
+    const DEFAULT_EGGS = 300;
+    const diffYen = n => yenOf(n - DEFAULT_EGGS);
+    const signed = (n, f) => { const d = diffYen(n); return (d >= 0 ? '+' : '−') + f(num(Math.abs(d))); };
     const DICT = {
-      ja: { title: '山盛りいくら丼', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', count: n => `${n}粒`, gain: n => `+${num(yenOf(n))}円`, share: n => `いくら丼で${num(yenOf(n))}円得した（${n}粒） #山盛りいくら丼ゲーム` },
-      ko: { title: '연어알 산더미 덮밥', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', count: n => `${n}알`, gain: n => `+${num(yenOf(n))}엔`, share: n => `연어알 덮밥으로 ${num(yenOf(n))}엔 이득 봤다 (${n}알) #山盛りいくら丼ゲーム` },
-      en: { title: 'Ikura Mountain Bowl', back: '← Back to top', again: 'Play again', post: 'Post on X', count: n => `${n} ${n === 1 ? 'egg' : 'eggs'}`, gain: n => `+¥${num(yenOf(n))}`, share: n => `I got ¥${num(yenOf(n))} worth of salmon roe on my bowl (${n} ${n === 1 ? 'egg' : 'eggs'}) #山盛りいくら丼ゲーム` },
-      th: { title: 'ข้าวหน้าไข่ปลาพูนชาม', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', count: n => `${n} เม็ด`, gain: n => `+${num(yenOf(n))} เยน`, share: n => `ได้กำไรจากข้าวหน้าไข่ปลา ${num(yenOf(n))} เยน (${n} เม็ด) #山盛りいくら丼ゲーム` },
+      ja: { title: '山盛りいくら丼', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', count: n => `${n}粒`, gain: n => signed(n, v => `${v}円`),
+        share: n => diffYen(n) >= 0 ? `いくら丼で${num(diffYen(n))}円得した（${n}粒） #山盛りいくら丼ゲーム` : `いくら丼で${num(-diffYen(n))}円損した（${n}粒） #山盛りいくら丼ゲーム` },
+      ko: { title: '연어알 산더미 덮밥', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', count: n => `${n}알`, gain: n => signed(n, v => `${v}엔`),
+        share: n => diffYen(n) >= 0 ? `연어알 덮밥으로 ${num(diffYen(n))}엔 이득 봤다 (${n}알) #山盛りいくら丼ゲーム` : `연어알 덮밥으로 ${num(-diffYen(n))}엔 손해 봤다 (${n}알) #山盛りいくら丼ゲーム` },
+      en: { title: 'Ikura Mountain Bowl', back: '← Back to top', again: 'Play again', post: 'Post on X', count: n => `${n} ${n === 1 ? 'egg' : 'eggs'}`, gain: n => signed(n, v => `¥${v}`),
+        share: n => `My salmon roe bowl came out ¥${num(Math.abs(diffYen(n)))} ${diffYen(n) >= 0 ? 'ahead' : 'short'} (${n} ${n === 1 ? 'egg' : 'eggs'}) #山盛りいくら丼ゲーム` },
+      th: { title: 'ข้าวหน้าไข่ปลาพูนชาม', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', count: n => `${n} เม็ด`, gain: n => signed(n, v => `${v} เยน`),
+        share: n => diffYen(n) >= 0 ? `ได้กำไรจากข้าวหน้าไข่ปลา ${num(diffYen(n))} เยน (${n} เม็ด) #山盛りいくら丼ゲーム` : `ขาดทุนจากข้าวหน้าไข่ปลา ${num(-diffYen(n))} เยน (${n} เม็ด) #山盛りいくら丼ゲーム` },
     };
     let lang = store.get('lang', null) || autoLang();
     if (!DICT[lang]) lang = 'en';
@@ -609,7 +627,16 @@
     }
 
     // 一番高い（止まっている）粒を調べる
+    const gaugeEl = document.getElementById('gauge'), gaugeBar = gaugeEl.querySelector('i');
+    let shownGauge = -1, shownOver = null;
+    function drawGauge() {
+      let n = 0; for (let i = 0; i < N; i++) if (touched[i] && !spilled[i]) n++;
+      const v = Math.min(1, n / (DEFAULT_EGGS * 2)), over = n >= DEFAULT_EGGS;
+      if (v !== shownGauge) { shownGauge = v; gaugeBar.style.transform = `scaleX(${v})`; }
+      if (over !== shownOver) { shownOver = over; gaugeBar.classList.toggle('over', over); if (over && state === 'play' && N) { catJoy = 1; sHappy(); } }
+    }
     function measure() {
+      drawGauge();
       let top = -9, ti = -1;
       for (let i = 0; i < N; i++) sleepAge[i] = sleep[i] ? sleepAge[i] + 0.1 : 0;
       // 1秒以上止まっている粒だけを数える
@@ -771,6 +798,7 @@
     function renderControls() {
       controls.innerHTML = '';
       controls.classList.toggle('hide', state !== 'result');
+      gaugeEl.style.display = state === 'result' ? 'none' : 'flex';
       if (state !== 'result') return;
       const b = document.createElement('button');
       b.className = 'go'; b.textContent = t('again');
@@ -799,6 +827,7 @@
     const inBowl = () => { let n = 0; for (let i = 0; i < N; i++) if (!spilled[i]) n++; return n; };
     let finalCount = 0;
     function showResult() {
+      resultEl.classList.toggle('loss', diffYen(finalCount) < 0);
       resultEl.children[0].textContent = t('gain')(finalCount);
       resultEl.children[1].textContent = t('count')(finalCount);
     }
@@ -824,7 +853,7 @@
       const text = (str, y, px, max) => {
         g.font = font(px);
         const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
-        g.lineWidth = px * .16; g.strokeStyle = '#7a2408'; g.strokeText(str, 540, y); g.fillText(str, 540, y);
+        g.lineWidth = px * .16; g.strokeStyle = diffYen(finalCount) < 0 ? '#1e3a6a' : '#7a2408'; g.strokeText(str, 540, y); g.fillText(str, 540, y);
       };
       text(t('gain')(finalCount), 920, 190, 960);
       text(t('count')(finalCount), 1030, 64, 900);
@@ -843,7 +872,7 @@
     function start() {
       N = 0; ikuraMesh.count = 0; eyeMesh.count = 0;
       spills = 0; best = 0; bestI = -1; topH = -9; pourAcc = 0; pouring = false; keyPour = false; lastRecord = 0; overT = 0;
-      catJoy = catShake = catSad = 0; heaveT = 9; yoishoT = 2.5; camLift = 0; shakeT = 0; shakeSeed = Math.random() * 100;
+      shownGauge = -1; shownOver = null; catJoy = catShake = catSad = 0; heaveT = 9; yoishoT = 2.5; camLift = 0; shakeT = 0; shakeSeed = Math.random() * 100;
       spoonTarget.set(0, 0, 0); spoonPos.set(0, 0, 0); lastSpawn = []; events.length = 0;
       flag.visible = false; spoon.visible = true;
       state = 'play';
