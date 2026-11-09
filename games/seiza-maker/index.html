@@ -838,7 +838,7 @@
       const hx = (f.maxX - f.minX) / 2, hy = (top - f.minY) / 2;
       const c = f.c.clone().addScaledVector(f.e1, f.cx).addScaledVector(f.e2, (top + f.minY) / 2).normalize();
       let ty = Math.atan2(-c.x, -c.z); while (ty - camYaw > Math.PI) ty -= Math.PI * 2; while (ty - camYaw < -Math.PI) ty += Math.PI * 2;
-      tween = { t: 0, dur: 1.4, y0: camYaw, p0: camPitch, z0: zoom, y1: ty, p1: Math.asin(Math.max(-1, Math.min(1, c.y))), z1: Math.max(28, Math.min(78, 2 * Math.atan(Math.max(hx, hy) * 1.25) * 180 / Math.PI * 1.25)), after: () => { takeSnap(); showResult(); prepareShare(); } };
+      tween = { t: 0, dur: 1.4, y0: camYaw, p0: camPitch, z0: zoom, y1: ty, p1: Math.asin(Math.max(-1, Math.min(1, c.y))), z1: Math.max(28, Math.min(78, 2 * Math.atan(Math.max(hx, hy) * 1.25) * 180 / Math.PI * 1.25)), after: () => { takeSnap(f); showResult(); prepareShare(); } };
       if (catHit >= 5 && !catFound) { catFound = true; catTarget = 1; store.set('cat', true); meow(0.9); meow(1.9); }
     }
     function newConstellation() {
@@ -907,13 +907,28 @@
 
     // 結果画像: 完成した星座を真ん中にした画面を切り抜き、星座の名前を重ねる
     let snap = null, shareCache = null;
-    function takeSnap() {
-      renderer.render(scene, camera);
-      const src = renderer.domElement, pr = src.width / innerWidth;
-      const side = Math.min(usable.w, usable.h * 1.15) * pr, cx = usable.w / 2 * pr, cy = (usable.top + usable.bottom) / 2 * pr;
-      snap = document.createElement('canvas'); snap.width = snap.height = 1080;
-      const sy = Math.max(0, Math.min(src.height - side, cy - side / 2));
-      snap.getContext('2d').drawImage(src, cx - side / 2, sy, side, side, 0, 0, 1080, 1080);
+    // 共有画像用に、正方形の画面で星座全体が入る向きと大きさで撮り直す（上は名前を書くので少し空ける）
+    const snapCam = new THREE.PerspectiveCamera(50, 1, 0.1, 3000);
+    snapCam.rotation.order = 'YXZ';
+    function takeSnap(f) {
+      const hx = (f.maxX - f.minX) / 2, hy = (f.maxY - f.minY) / 2;
+      const half = Math.max(0.1, Math.max(hx, hy * 1.15) * 1.35);
+      const dir = f.c.clone().addScaledVector(f.e1, f.cx).addScaledVector(f.e2, f.cy + half * 0.12).normalize();
+      snapCam.position.copy(camera.position);
+      snapCam.rotation.set(Math.asin(Math.max(-1, Math.min(1, dir.y))), Math.atan2(-dir.x, -dir.z), 0);
+      snapCam.fov = 2 * Math.atan(half) * 180 / Math.PI; snapCam.updateProjectionMatrix(); snapCam.updateMatrixWorld();
+      const pr0 = renderer.getPixelRatio(), sz = renderer.getSize(new THREE.Vector2()), S = 1080;
+      // 点や線の太さは、400px 四方の画面を2倍で見たときと同じにする
+      const k = S / 400, ppr = S / (2 * Math.atan(half));
+      ribbonW.value = (R - 12) * 11 * k / 2 / ppr; ribbonGap.value = 11 * k / 2 / ppr;
+      for (const m of [starMat, marks.material, sparks.material, flies.material]) m.uniforms.uPR.value = k;
+      starMat.uniforms.uScale.value = Math.min(1.6, Math.sqrt(62 / snapCam.fov));
+      renderer.setPixelRatio(1); renderer.setSize(S, S, false);
+      renderer.render(scene, snapCam);
+      snap = document.createElement('canvas'); snap.width = snap.height = S;
+      snap.getContext('2d').drawImage(renderer.domElement, 0, 0);
+      renderer.setPixelRatio(pr0); renderer.setSize(sz.x, sz.y, false);
+      resize(); renderer.render(scene, camera);
       shareCache = null;
     }
     function resultImage() {
