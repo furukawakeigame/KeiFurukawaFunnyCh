@@ -64,6 +64,13 @@
     .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 34% !important; font-size: clamp(16px, 2.6vmin, 20px) !important; }
     #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
     #controls.hide { visibility: hidden; }
+    /* カメラを回すボタン（押している間まわる） */
+    .rot { position: fixed; bottom: calc(80px + env(safe-area-inset-bottom)); width: clamp(52px, 8vmin, 66px); height: clamp(52px, 8vmin, 66px); border-radius: 50%;
+      border: 2px solid #b98a5a; background: rgba(255,248,236,.9); color: #3a2618; display: flex; align-items: center; justify-content: center; cursor: pointer; touch-action: none; box-shadow: 0 3px 0 rgba(0,0,0,.25); }
+    .rot svg { width: 60%; height: 60%; }
+    .rot:active { transform: translateY(2px); box-shadow: none; }
+    #rotL { left: 12px; } #rotR { right: 12px; }
+    .rot.hide { display: none; }
   </style>
 </head>
 <body>
@@ -78,6 +85,8 @@
     <div id="msg"></div>
   </div>
   <div id="controls"></div>
+  <button id="rotL" class="rot" aria-label="rotate left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13a8 8 0 1 1-3-6.2"/><path d="M17.5 2.5v4.5H13"/></svg></button>
+  <button id="rotR" class="rot" aria-label="rotate right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13a8 8 0 1 0 3-6.2"/><path d="M6.5 2.5v4.5H11"/></svg></button>
 
   <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
   <script>
@@ -298,7 +307,8 @@
     const BOWL_OUT = 7.15;         // これより外の低い所に落ちたら「こぼれた」
 
     // ---------- 背景: カウンター・壁・小物 ----------
-    const COUNTER_Z = 15;
+    // 奥の付け台・壁・猫は、カメラを回すといっしょに回り、いつも向こう側に見える
+    const backdrop = new THREE.Group(); scene.add(backdrop);
     {
       const wood = canvasTex(512, 512, (c, w, h) => {
         c.fillStyle = '#d9b07a'; c.fillRect(0, 0, w, h);
@@ -309,12 +319,12 @@
         }
         for (let i = 0; i < 4; i++) { c.strokeStyle = 'rgba(90,50,20,.18)'; c.lineWidth = 2; c.beginPath(); c.ellipse(rnd(0, w), rnd(0, h), rnd(8, 18), rnd(3, 6), 0, 0, Math.PI * 2); c.stroke(); }
       });
-      wood.wrapS = wood.wrapT = THREE.RepeatWrapping; wood.repeat.set(3, 1.5);
-      const counter = new THREE.Mesh(new THREE.BoxGeometry(90, 3, COUNTER_Z * 2), new THREE.MeshStandardMaterial({ map: wood, roughness: 0.55 }));
+      wood.wrapS = wood.wrapT = THREE.RepeatWrapping; wood.repeat.set(7, 11);
+      const counter = new THREE.Mesh(new THREE.BoxGeometry(220, 3, 220), new THREE.MeshStandardMaterial({ map: wood, roughness: 0.55 }));
       counter.position.set(0, -1.5, 0); counter.receiveShadow = true; scene.add(counter);
       // 奥の付け台（ひとつ高い板）
       const shelf = new THREE.Mesh(new THREE.BoxGeometry(90, 4, 4), new THREE.MeshStandardMaterial({ map: wood, roughness: 0.6, color: '#c89a68' }));
-      shelf.position.set(0, 2, -COUNTER_Z - 2); shelf.receiveShadow = shelf.castShadow = true; scene.add(shelf);
+      shelf.position.set(0, 2, -21); shelf.receiveShadow = shelf.castShadow = true; backdrop.add(shelf);
       // 壁: しっくいと木の腰板、のれん
       const wall = canvasTex(512, 512, (c, w, h) => {
         c.fillStyle = '#e8d8b8'; c.fillRect(0, 0, w, h);
@@ -326,29 +336,29 @@
       });
       wall.wrapS = THREE.RepeatWrapping; wall.repeat.set(4, 1);
       const wallM = new THREE.Mesh(new THREE.PlaneGeometry(160, 60), new THREE.MeshStandardMaterial({ map: wall, roughness: 0.95 }));
-      wallM.position.set(0, 12, -48); scene.add(wallM);
+      wallM.position.set(0, 12, -48); backdrop.add(wallM);
       const noren = canvasTex(256, 128, (c, w, h) => {
         c.fillStyle = '#1e2c5a'; c.fillRect(0, 0, w, h);
         c.fillStyle = 'rgba(255,255,255,.9)'; c.beginPath(); c.arc(w / 2, h * 0.45, 26, 0, Math.PI * 2); c.fill();
         c.fillStyle = '#e8501a'; c.beginPath(); c.arc(w / 2, h * 0.45, 17, 0, Math.PI * 2); c.fill();
         c.fillStyle = '#16204a'; for (const x of [w / 3, w * 2 / 3]) c.fillRect(x - 2, h * 0.25, 4, h);
       });
-      for (const x of [-34, 34]) { const n = new THREE.Mesh(new THREE.PlaneGeometry(22, 12), new THREE.MeshStandardMaterial({ map: noren, roughness: 1 })); n.position.set(x, 22, -47.5); scene.add(n); }
+      for (const x of [-34, 34]) { const n = new THREE.Mesh(new THREE.PlaneGeometry(22, 12), new THREE.MeshStandardMaterial({ map: noren, roughness: 1 })); n.position.set(x, 22, -47.5); backdrop.add(n); }
       // ちょうちん
       const lamp = new THREE.MeshStandardMaterial({ color: '#ffdca0', emissive: '#ff9a3a', emissiveIntensity: 0.9, roughness: 1 });
-      for (const x of [-20, 20]) { part(SPHG, lamp, x, 26, -40, 3, 3.8, 3, scene); part(CYLG, mat('#222'), x, 29.8, -40, 1.6, 0.6, 1.6, scene); part(CYLG, mat('#222'), x, 22.2, -40, 1.6, 0.6, 1.6, scene); }
+      for (const x of [-20, 20]) { part(SPHG, lamp, x, 26, -40, 3, 3.8, 3, backdrop); part(CYLG, mat('#222'), x, 29.8, -40, 1.6, 0.6, 1.6, backdrop); part(CYLG, mat('#222'), x, 22.2, -40, 1.6, 0.6, 1.6, backdrop); }
       // 湯のみ
       const cup = new THREE.Group(); cup.position.set(-13, 0, 4);
       part(new THREE.CylinderGeometry(2, 1.7, 5, 28), mat('#5a7a5a', 0.35), 0, 2.5, 0, 1, 1, 1, cup);
       part(new THREE.CylinderGeometry(1.8, 1.8, 0.1, 28), mat('#7a8a2a', 0.15), 0, 4.6, 0, 1, 1, 1, cup);
       scene.add(shade(cup));
       // 箸と箸置き
-      const chop = new THREE.Group(); chop.position.set(12, 0, 6); chop.rotation.y = -0.35;
+      const chop = new THREE.Group(); chop.position.set(11, 0, 3); chop.rotation.y = -0.35;
       part(new THREE.CylinderGeometry(0.5, 0.5, 2.4, 12), mat('#c43a2a', 0.4), 0, 0.5, -3, 1, 1, 1, chop).rotation.x = Math.PI / 2;
-      for (const s of [-0.45, 0.45]) { const c = part(new THREE.CylinderGeometry(0.12, 0.22, 18, 8), mat('#3a2014', 0.5), s, 1.05, 3, 1, 1, 1, chop); c.rotation.x = Math.PI / 2 - 0.06; }
+      for (const s of [-0.45, 0.45]) { const c = part(new THREE.CylinderGeometry(0.12, 0.22, 15, 8), mat('#3a2014', 0.5), s, 1.05, 2.5, 1, 1, 1, chop); c.rotation.x = Math.PI / 2 - 0.06; }
       scene.add(shade(chop));
       // 小皿のしょうゆとわさび
-      const dish = new THREE.Group(); dish.position.set(14, 0, -6);
+      const dish = new THREE.Group(); dish.position.set(13, 0, -5);
       part(new THREE.CylinderGeometry(3, 2.2, 0.8, 32), mat('#f2f0ea', 0.3), 0, 0.4, 0, 1, 1, 1, dish);
       part(new THREE.CylinderGeometry(2.6, 2.6, 0.05, 32), mat('#2a0e04', 0.1), 0, 0.72, 0, 1, 1, 1, dish);
       part(SPHG, mat('#8ab04a', 0.8), 1, 0.85, 0.6, 0.7, 0.45, 0.6, dish);
@@ -357,7 +367,7 @@
     // 付け台の向こうから覗く、いつもの猫（お客さん）
     const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
     const cat = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: catTex, alphaTest: 0.5, fog: false }));
-    const CAT_BASE = new THREE.Vector3(0, 9.5, -26), CAT_SIZE = 26;
+    const CAT_BASE = new THREE.Vector3(0, 10.5, -30), CAT_SIZE = 29;
     cat.position.copy(CAT_BASE); cat.scale.setScalar(CAT_SIZE);
     scene.add(cat);
     let catJoy = 0, catShake = 0, catSad = 0, heaveT = 9, yoishoT = 2.5;
@@ -580,16 +590,6 @@
       shade(spoon);
     }
     scene.add(spoon);
-    // 頂上の旗（爪楊枝）
-    const flag = new THREE.Group();
-    {
-      part(new THREE.CylinderGeometry(0.06, 0.06, 2.6, 6), mat('#e8d0a0', 0.6), 0, 1.3, 0, 1, 1, 1, flag);
-      const ft = canvasTex(128, 80, (c, w, h) => { c.fillStyle = '#fff'; c.fillRect(0, 0, w, h); c.fillStyle = '#e02a1a'; c.beginPath(); c.arc(w / 2, h / 2, 22, 0, Math.PI * 2); c.fill(); });
-      const f = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.95), new THREE.MeshStandardMaterial({ map: ft, side: THREE.DoubleSide, roughness: 0.9 }));
-      f.position.set(0.78, 2.1, 0); flag.add(f);
-      shade(flag);
-    }
-    flag.visible = false; scene.add(flag);
 
     // 時間で消える小さな粒（こぼれた時のしぶき）
     const fx = [], fxG = new THREE.SphereGeometry(1, 8, 6);
@@ -644,8 +644,6 @@
         best = topH; bestI = ti;
         if (state === 'play' && best - lastRecord >= 1) { lastRecord = Math.floor(best); catJoy = 1; }
       }
-      flag.visible = ti >= 0 && topH > -0.4;
-      if (ti >= 0) flag.position.set(px[ti], py[ti] + R * 0.6, pz[ti]);
     }
     // スプーンの真下で一番高い粒の高さ
     function heightUnder(x, z) {
@@ -661,7 +659,7 @@
       // スプーンを動かす
       if (state === 'play') {
         const kx = (keys.ArrowRight || keys.KeyD ? 1 : 0) - (keys.ArrowLeft || keys.KeyA ? 1 : 0), kz = (keys.ArrowDown || keys.KeyS ? 1 : 0) - (keys.ArrowUp || keys.KeyW ? 1 : 0);
-        if (kx || kz) { spoonTarget.x += kx * 9 * dt; spoonTarget.z += kz * 9 * dt; }
+        if (kx || kz) { const ca = Math.cos(az), sa = Math.sin(az); spoonTarget.x += (kx * ca + kz * sa) * 9 * dt; spoonTarget.z += (-kx * sa + kz * ca) * 9 * dt; }
         const r = Math.hypot(spoonTarget.x, spoonTarget.z); if (r > 10) spoonTarget.multiplyScalar(10 / r);
       }
       // 山が高くなるほど手が震える
@@ -733,6 +731,7 @@
       stage.style.setProperty('--band', (band + 40) + 'px');
       placeCamera(w, H);
     }
+    let az = 0, azVel = 0; // カメラの回り込み角度
     function placeCamera(w = stage.clientWidth, H = stage.clientHeight) {
       const h = viewH, fh = h - band;
       camera.aspect = w / fh;
@@ -741,11 +740,13 @@
       // 丼（とまわりにこぼれた粒）の横幅と、丼＋山の高さが両方入る距離
       const Wf = 9 + camLift * 0.3, Hf = 6.2 + camLift * 0.5;
       const d = Math.min(Math.max(Wf / Math.tan(hf / 2), Hf / Math.tan(vf / 2)) + 2, 110);
-      const dir = new THREE.Vector3(0, 0.75, 1).normalize();
+      const dir = new THREE.Vector3(Math.sin(az), 0.75, Math.cos(az)).normalize();
       const side = (state === 'result' && h <= 520 && w / h >= 4 / 3) ? -5 : 0;
       const c = CENTER.clone(); c.y += camLift * 0.6;
-      camera.position.copy(c).addScaledVector(dir, d).add(new THREE.Vector3(side, 0, 0));
-      camera.lookAt(c.x + side, c.y, c.z);
+      c.add(new THREE.Vector3(Math.cos(az) * side, 0, -Math.sin(az) * side));
+      camera.position.copy(c).addScaledVector(dir, d);
+      camera.lookAt(c);
+      backdrop.rotation.y = az;
       camera.updateProjectionMatrix();
       camera.updateMatrixWorld();
     }
@@ -763,7 +764,16 @@
     // マウスはその場所へ、タッチは指で隠れないように「動かした分だけ」動かす
     let drag = null;
     const cv = renderer.domElement;
+    // カメラを回す: 2本指・右ドラッグ・結果画面ではふつうのドラッグ
+    const touches = new Map();
+    let orbit = null;
+    const rotateBy = px => { az -= px * 0.012; placeCamera(); };
     cv.addEventListener('pointermove', e => {
+      if (touches.has(e.pointerId)) touches.set(e.pointerId, e.clientX);
+      if (orbit) {
+        if (orbit.ids.length === 2) { const x = (touches.get(orbit.ids[0]) + touches.get(orbit.ids[1])) / 2; rotateBy(x - orbit.x); orbit.x = x; return; }
+        if (orbit.ids[0] === e.pointerId) { rotateBy(e.clientX - orbit.x); orbit.x = e.clientX; return; }
+      }
       if (state !== 'play') return;
       const p = toPlane(e); if (!p) return;
       if (e.pointerType === 'mouse') spoonTarget.set(p.x, 0, p.z);
@@ -771,14 +781,19 @@
     });
     cv.addEventListener('pointerdown', e => {
       e.preventDefault();
-      if (state !== 'play') return;
+      try { cv.setPointerCapture(e.pointerId); } catch {}
+      if (e.pointerType !== 'mouse') touches.set(e.pointerId, e.clientX);
+      if (touches.size === 2) { // 2本目の指: 注ぐのをやめて回す
+        const ids = [...touches.keys()]; orbit = { ids, x: (touches.get(ids[0]) + touches.get(ids[1])) / 2 }; drag = null; pouring = false; return;
+      }
+      if (e.button === 2 || state !== 'play') { orbit = { ids: [e.pointerId], x: e.clientX }; return; }
       try { cv.setPointerCapture(e.pointerId); } catch {}
       const p = toPlane(e);
       if (e.pointerType === 'mouse') { if (p) spoonTarget.set(p.x, 0, p.z); }
       else if (p) drag = { id: e.pointerId, px: p.x, pz: p.z, sx: spoonTarget.x, sz: spoonTarget.z };
       pouring = true;
     }, { passive: false });
-    const endPour = e => { if (drag && e.pointerId === drag.id) drag = null; pouring = false; };
+    const endPour = e => { touches.delete(e.pointerId); if (orbit && orbit.ids.includes(e.pointerId)) orbit = null; if (drag && e.pointerId === drag.id) drag = null; pouring = false; };
     cv.addEventListener('pointerup', endPour);
     cv.addEventListener('pointercancel', endPour);
     addEventListener('keydown', e => {
@@ -786,16 +801,26 @@
       keys[e.code] = true;
       if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (state === 'play') keyPour = true; else if (state === 'result' && e.code === 'Space') start(); }
       if (e.code.startsWith('Arrow')) e.preventDefault();
+      if (e.code === 'KeyQ') azVel = 1; if (e.code === 'KeyE') azVel = -1;
     });
-    addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Space' || e.code === 'Enter') keyPour = false; });
+    addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyQ' || e.code === 'KeyE') azVel = 0; if (e.code === 'Space' || e.code === 'Enter') keyPour = false; });
     addEventListener('blur', () => { for (const k in keys) keys[k] = false; keyPour = false; pouring = false; });
     stage.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+
+    const rotBtns = [document.getElementById('rotL'), document.getElementById('rotR')];
+    rotBtns.forEach((b, k) => {
+      const dirv = k === 0 ? 1 : -1;
+      b.addEventListener('pointerdown', e => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch {} azVel = dirv; });
+      const stop = () => { azVel = 0; };
+      b.addEventListener('pointerup', stop); b.addEventListener('pointercancel', stop); b.addEventListener('lostpointercapture', stop);
+    });
 
     // ---------- 画面 ----------
     const resultEl = document.getElementById('result');
     function renderControls() {
       controls.innerHTML = '';
       controls.classList.toggle('hide', state !== 'result');
+      for (const b of rotBtns) b.classList.toggle('hide', state === 'result');
       if (state !== 'result') return;
       const b = document.createElement('button');
       b.className = 'go'; b.textContent = t('again');
@@ -893,7 +918,7 @@
       spills = 0; best = 0; bestI = -1; topH = -9; pourAcc = 0; pouring = false; keyPour = false; lastRecord = 0; overT = 0;
       overDefault = false; hideBubble(); catJoy = catShake = catSad = 0; heaveT = 9; yoishoT = 2.5; camLift = 0; shakeT = 0; shakeSeed = Math.random() * 100;
       spoonTarget.set(0, 0, 0); spoonPos.set(0, 0, 0); lastSpawn = []; events.length = 0;
-      flag.visible = false; spoon.visible = true;
+      spoon.visible = true;
       state = 'play';
       resultEl.style.display = 'none';
       renderControls(); resize();
@@ -922,15 +947,15 @@
       ikuraMesh.instanceMatrix.needsUpdate = true; eyeMesh.instanceMatrix.needsUpdate = true;
       // スプーン
       const tl = prevTilt + (tilt - prevTilt) * alpha;
-      spoon.position.set(spoonPos.x, spoonY + 0.6 * (1 - tl), spoonPos.z - 1.6 * (1 - tl));
+      spoon.position.set(spoonPos.x - 1.6 * (1 - tl) * Math.sin(az), spoonY + 0.6 * (1 - tl), spoonPos.z - 1.6 * (1 - tl) * Math.cos(az));
       spoonTilt.rotation.x = -tl * 1.0;
-      spoon.rotation.y = Math.sin(clock * 1.3) * 0.04;
+      spoon.rotation.y = az + Math.sin(clock * 1.3) * 0.04;
       // 猫: 新記録で身を乗り出し、こぼれると震え、終わるとしょんぼり傾く
-      cat.position.copy(CAT_BASE);
+      cat.position.copy(CAT_BASE).applyAxisAngle(new THREE.Vector3(0, 1, 0), az);
       // ヨイショ: 「ヨイ」で沈み、「ショ」で持ち上がる
       const heave = heaveT < 0.3 ? -0.7 * heaveT / 0.3 : heaveT < 0.9 ? 1.7 * Math.sin(Math.PI * (heaveT - 0.3) / 0.6) - 0.7 * (1 - Math.min(1, (heaveT - 0.3) / 0.15)) : 0;
       cat.position.y += Math.sin(clock * 1.7) * 0.25 + catJoy * 1.6 - catSad * 1.8 + heave;
-      cat.position.x += Math.sin(clock * 40) * catShake * 0.5;
+      cat.position.x += Math.sin(clock * 40) * catShake * 0.5 * Math.cos(az); cat.position.z -= Math.sin(clock * 40) * catShake * 0.5 * Math.sin(az);
       cat.rotation.z = catSad * 0.22 + Math.sin(clock * 0.9) * 0.02;
       cat.scale.setScalar(CAT_SIZE * (1 + catJoy * 0.06));
       cat.lookAt(camera.position.x, cat.position.y, camera.position.z);
@@ -945,6 +970,7 @@
       let n = 0;
       while (acc >= STEP && n < 6) { step(STEP); acc -= STEP; n++; }
       if (n === 6) acc = 0;
+      if (azVel) { az += azVel * 1.8 * dt; placeCamera(); }
       // 山が高くなったら、カメラを少しずつ上げる
       const lift = Math.max(0, Math.min(12, topH));
       if (Math.abs(lift - camLift) > 0.01) { camLift += (lift - camLift) * Math.min(1, dt * 1.5); placeCamera(); }
