@@ -91,12 +91,15 @@
       set(k, v) { try { localStorage.setItem('ikura-don:' + k, JSON.stringify(v)); } catch {} },
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
-    const cm = h => `${Math.max(0, h).toFixed(1)}cm`;
+    // いくら1粒の値段（100gで約1,500円、1粒約0.17g として 1粒2.5円）
+    const YEN_PER_EGG = 2.5;
+    const yenOf = n => Math.round(n * YEN_PER_EGG);
+    const num = v => v.toLocaleString('en-US');
     const DICT = {
-      ja: { title: '山盛りいくら丼', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', count: n => `${n}粒`, share: (h, n) => `いくら丼に${cm(h)}盛った（${n}粒） #山盛りいくら丼ゲーム` },
-      ko: { title: '연어알 산더미 덮밥', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', count: n => `${n}알`, share: (h, n) => `연어알 덮밥을 ${cm(h)} 쌓았다 (${n}알) #山盛りいくら丼ゲーム` },
-      en: { title: 'Ikura Mountain Bowl', back: '← Back to top', again: 'Play again', post: 'Post on X', count: n => `${n} ${n === 1 ? 'egg' : 'eggs'}`, share: (h, n) => `I piled salmon roe ${cm(h)} high on my bowl (${n} eggs) #山盛りいくら丼ゲーム` },
-      th: { title: 'ข้าวหน้าไข่ปลาพูนชาม', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', count: n => `${n} เม็ด`, share: (h, n) => `พูนไข่ปลาแซลมอนบนข้าวได้สูง ${cm(h)} (${n} เม็ด) #山盛りいくら丼ゲーム` },
+      ja: { title: '山盛りいくら丼', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', count: n => `${n}粒`, gain: n => `+${num(yenOf(n))}円`, share: n => `いくら丼で${num(yenOf(n))}円得した（${n}粒） #山盛りいくら丼ゲーム` },
+      ko: { title: '연어알 산더미 덮밥', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', count: n => `${n}알`, gain: n => `+${num(yenOf(n))}엔`, share: n => `연어알 덮밥으로 ${num(yenOf(n))}엔 이득 봤다 (${n}알) #山盛りいくら丼ゲーム` },
+      en: { title: 'Ikura Mountain Bowl', back: '← Back to top', again: 'Play again', post: 'Post on X', count: n => `${n} ${n === 1 ? 'egg' : 'eggs'}`, gain: n => `+¥${num(yenOf(n))}`, share: n => `I got ¥${num(yenOf(n))} worth of salmon roe on my bowl (${n} ${n === 1 ? 'egg' : 'eggs'}) #山盛りいくら丼ゲーム` },
+      th: { title: 'ข้าวหน้าไข่ปลาพูนชาม', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', count: n => `${n} เม็ด`, gain: n => `+${num(yenOf(n))} เยน`, share: n => `ได้กำไรจากข้าวหน้าไข่ปลา ${num(yenOf(n))} เยน (${n} เม็ด) #山盛りいくら丼ゲーム` },
     };
     let lang = store.get('lang', null) || autoLang();
     if (!DICT[lang]) lang = 'en';
@@ -775,12 +778,12 @@
       controls.append(b);
       const a = document.createElement('a');
       a.className = 'post'; a.textContent = t('post');
-      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(best, inBowl()))}&url=${encodeURIComponent(SHARE_URL)}`;
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(finalCount))}&url=${encodeURIComponent(SHARE_URL)}`;
       const coarse = matchMedia('(pointer: coarse)').matches;
       if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
       // スマホは画像ごと共有シートへ。PCは画像を保存してから投稿画面を開く
       a.addEventListener('click', e => {
-        const text = t('share')(best, inBowl());
+        const text = t('share')(finalCount);
         if (coarse && navigator.share) {
           e.preventDefault();
           const file = shareFile();
@@ -796,7 +799,7 @@
     const inBowl = () => { let n = 0; for (let i = 0; i < N; i++) if (!spilled[i]) n++; return n; };
     let finalCount = 0;
     function showResult() {
-      resultEl.children[0].textContent = cm(best);
+      resultEl.children[0].textContent = t('gain')(finalCount);
       resultEl.children[1].textContent = t('count')(finalCount);
     }
     // 結果画像: 山盛りの丼を切り抜いて、高さを重ねる
@@ -823,7 +826,7 @@
         const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
         g.lineWidth = px * .16; g.strokeStyle = '#7a2408'; g.strokeText(str, 540, y); g.fillText(str, 540, y);
       };
-      text(cm(best), 920, 190, 960);
+      text(t('gain')(finalCount), 920, 190, 960);
       text(t('count')(finalCount), 1030, 64, 900);
       text(t('title'), 90, 56, 900);
       return c;
