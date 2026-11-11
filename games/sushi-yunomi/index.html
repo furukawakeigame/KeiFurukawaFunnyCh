@@ -40,26 +40,28 @@
     header svg { width: 18px; height: 18px; display: block; }
     #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
     #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
-    /* お題の木札と時間ゲージ（背の低い横長画面では左の列に出す） */
-    #top { position: absolute; left: 0; right: 0; top: 4px; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; padding: 0 16px; }
-    #stage.side #top { right: auto; width: 34%; top: 0; bottom: var(--reserve, 160px); justify-content: center; }
-    #fuda {
-      flex: none; min-width: clamp(150px, 34vmin, 300px);
-      padding: clamp(4px, 1.2vmin, 10px) clamp(18px, 4vmin, 34px);
-      border-radius: 10px;
-      background: linear-gradient(180deg, #e9c894, #d7ad6f 55%, #c8995a);
-      border: 3px solid #5b3a1e; box-shadow: 0 5px 0 #2a1709, 0 8px 18px rgba(0,0,0,.45), inset 0 0 0 2px rgba(255,240,210,.5);
-      color: #1d120a; text-align: center; white-space: nowrap;
-      font-family: "Yuji Syuku", "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", "Noto Serif KR", "Noto Sans Thai", serif;
-      font-size: clamp(30px, 8vmin, 66px); line-height: 1.25;
-    }
-    #fuda.pop { animation: pop .35s ease-out; }
-    #fuda.result { background: none; border: none; box-shadow: none; color: #fff; font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif; font-weight: 900; font-size: clamp(54px, 15vmin, 130px); text-shadow: 0 4px 0 #5b3a1e, 0 0 18px rgba(0,0,0,.45); }
-    @keyframes pop { 0% { transform: scale(.7); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
+    /* 時間ゲージ */
+    #top { position: absolute; left: 0; right: 0; top: 4px; display: flex; justify-content: center; pointer-events: none; padding: 0 16px; }
     #gauge { width: min(420px, 78%); height: clamp(12px, 2.2vmin, 18px); border-radius: 10px; background: rgba(20,10,4,.55); border: 2px solid #f1e3c4; overflow: hidden; }
-    #stage.side #gauge { width: 80%; }
     #gauge i { display: block; height: 100%; width: 100%; background: linear-gradient(180deg, #a8c95a, #6f9a2c); transform-origin: left; }
     #gauge.low i { background: linear-gradient(180deg, #f08a5a, #d0482a); }
+    /* 大将の吹き出し（位置は大将の顔に合わせて JS で決める） */
+    #bubble {
+      position: absolute; left: 0; top: 0; pointer-events: none; visibility: hidden;
+      padding: clamp(4px, 1.2vmin, 10px) clamp(14px, 3vmin, 26px);
+      border-radius: 999px; background: #fffaf0; border: 3px solid #2a1709;
+      box-shadow: 0 6px 16px rgba(0,0,0,.4);
+      color: #1d120a; white-space: nowrap; line-height: 1.25;
+      font-family: "Yuji Syuku", "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", "Noto Serif KR", "Noto Sans Thai", serif;
+      font-size: clamp(28px, 7vmin, 60px);
+      transform-origin: left center;
+    }
+    #bubble::before, #bubble::after { content: ""; position: absolute; top: 50%; border-style: solid; }
+    #bubble::before { left: -20px; margin-top: -11px; border-width: 11px 20px 11px 0; border-color: transparent #2a1709 transparent transparent; }
+    #bubble::after { left: -14px; margin-top: -7px; border-width: 7px 14px 7px 0; border-color: transparent #fffaf0 transparent transparent; }
+    #bubble.result { font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans KR", "Noto Sans Thai", sans-serif; font-weight: 900; font-size: clamp(48px, 15vmin, 120px); }
+    #bubble.pop { animation: pop .35s ease-out; }
+    @keyframes pop { 0% { transform: scale(.6); } 60% { transform: scale(1.1); } 100% { transform: scale(1); } }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
     /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
     #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; }
@@ -80,7 +82,7 @@
     <button id="sound" aria-label="sound"></button>
     <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
   </header>
-  <div id="stage"><div id="top"><div id="fuda"></div><div id="gauge"><i></i></div></div><div id="msg"></div></div>
+  <div id="stage"><div id="top"><div id="gauge"><i></i></div></div><div id="bubble"></div><div id="msg"></div></div>
   <div id="controls"></div>
 
   <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
@@ -97,7 +99,7 @@
     window.YUNOMI_READY = true;
 
     const SHARE_URL = 'https://keifurukawafunnych.com/games/sushi-yunomi/';
-    const TIME = 60, PENALTY = 3, BONUS = 5;
+    const TIME = 60, PENALTY = 3;
 
     // ---------- 魚 ----------
     // [漢字, ひらがな, 한국어, English, ไทย]（前の方ほど有名。お題は有名な方から出す）
@@ -141,9 +143,9 @@
       ['鯣', 'するめ', '마른오징어', 'Dried squid', 'ปลาหมึกแห้ง'],
       ['鱏', 'えい', '가오리', 'Stingray', 'ปลากระเบน'],
       ['鱓', 'うつぼ', '곰치', 'Moray eel', 'ปลาไหลมอเรย์'],
+      ['鯑', 'かずのこ', '청어알', 'Herring roe', 'ไข่ปลาแฮร์ริง'],
     ];
     const EASY = 26; // お題はまずこの中から
-    const CAT = -1;
 
     // ---------- 言語 ----------
     const store = {
@@ -167,7 +169,7 @@
       document.documentElement.lang = lang;
       document.title = t('title');
       document.getElementById('back').textContent = t('back');
-      drawFuda();
+      drawBubble();
       renderControls();
       if (state === 'result') prepareShare();
     }
@@ -281,7 +283,33 @@
     const sCorrect = () => { chin(); setTimeout(sHei, 120); };
     // 外れ: 低い「ブッ」＋鈍く当たる音
     const sWrong = () => { tone('square', 150, 80, 0.22, 0.09); tone('sine', 180, 70, 0.2, 0.3); noise(0.06, 0.3, 500); };
-    const sCat = () => { chin(); setTimeout(() => voice(620, ['i', 'a', 'a'], 0.32, 0.35, 0.06, 0.1, 1.25), 80); };
+    // 大将がお題を話す: 端末の読み上げ（その言語の声がなければ、合成の声でもごもご話す）
+    const SPEECH_LANG = { ja: 'ja', ko: 'ko', en: 'en', th: 'th' };
+    const MALE = /otoya|hattori|ichiro|keita|daniel|aaron|fred|alex|male|남|injoon|niwat/i;
+    let voices = [];
+    const loadVoices = () => { try { voices = speechSynthesis.getVoices(); } catch {} };
+    if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.addEventListener?.('voiceschanged', loadVoices); }
+    function say(text) {
+      talk = Math.max(talk, 0.25 + text.length * 0.12);
+      if (!soundOn) return;
+      const code = SPEECH_LANG[lang];
+      const list = voices.filter(v => v.lang?.toLowerCase().startsWith(code));
+      if ('speechSynthesis' in window && list.length) {
+        try {
+          speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(text);
+          u.voice = list.find(v => MALE.test(v.name)) || list.find(v => v.localService) || list[0];
+          u.lang = u.voice.lang; u.pitch = 0.75; u.rate = 1.0; u.volume = 1;
+          speechSynthesis.speak(u);
+          return;
+        } catch {}
+      }
+      // 読み上げが使えないとき: 字数に合わせて母音を並べた声
+      if (!on()) return;
+      const n = Math.max(2, Math.min(5, [...text].length));
+      for (let k = 0; k < n; k++) setTimeout(() => voice(125 * (1 - k * 0.04), [pick(['a', 'o', 'u', 'e', 'i']), pick(['a', 'o', 'u'])], 0.17, 0.42, 0.03, 0.2), k * 170);
+    }
+    const sHmm = () => voice(105, ['u', 'u', 'o'], 0.42, 0.45, 0.05, 0.25);
     const sEnd = () => { chin(); setTimeout(() => voice(130, ['o', 'a', 'i'], 0.7, 0.5, 0.05, 0.2), 150); };
 
     // ---------- 3D ----------
@@ -326,8 +354,12 @@
       }
       for (let i = 0; i < 4000; i++) { g.fillStyle = `rgba(90,50,20,${Math.random() * 0.05})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 1); }
     }, [3, 3]);
-    const counter = new THREE.Mesh(new THREE.BoxGeometry(30, 0.4, 10), mat('#ffffff', 0.55, { map: woodTex }));
-    counter.position.set(0, FLOOR - 0.2, -1.2); counter.receiveShadow = true; scene.add(counter);
+    const counter = new THREE.Mesh(new THREE.BoxGeometry(30, 0.4, 7), mat('#ffffff', 0.55, { map: woodTex }));
+    counter.position.set(0, FLOOR - 0.2, 0.9); counter.receiveShadow = true; scene.add(counter);
+    // 奥の一段高い板（大将の腰を隠す）と、大将の立つ土間
+    const step2 = new THREE.Mesh(new THREE.BoxGeometry(30, 0.5, 0.6), mat('#ffffff', 0.55, { map: woodTex }));
+    step2.position.set(0, FLOOR + 0.05, -2.75); step2.castShadow = true; step2.receiveShadow = true; scene.add(step2);
+    const doma = new THREE.Mesh(new THREE.PlaneGeometry(30, 8), mat('#4a3424', 0.95)); doma.rotation.x = -Math.PI / 2; doma.position.set(0, FLOOR - 2.2, -6); doma.receiveShadow = true; scene.add(doma);
     // 奥の壁と柱、のれん
     const wallTex = canvasTex(256, 256, (g, w, h) => {
       g.fillStyle = '#c9a77a'; g.fillRect(0, 0, w, h);
@@ -358,7 +390,6 @@
     const CW = 2048, CH = 880;
     const cupCanvas = mkCanvas(CW, CH), cg = cupCanvas.getContext('2d');
     const cupTex = new THREE.CanvasTexture(cupCanvas); cupTex.colorSpace = THREE.SRGBColorSpace; cupTex.anisotropy = 8; cupTex.wrapS = THREE.RepeatWrapping;
-    const catImg = new Image(); catImg.src = 'cat.png'; catImg.onload = () => drawCup();
     const KFONT = px => `${px}px "Yuji Syuku", "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", "Noto Serif CJK JP", serif`;
     // 釉薬のざらつき（毎回同じ点を使う）
     const speck = []; for (let i = 0; i < 2500; i++) speck.push([Math.random() * CW, Math.random() * CH, Math.random() * 2 + 0.5, Math.random()]);
@@ -380,13 +411,9 @@
         const [x, y] = cellXY(i);
         for (const ox of [0, -CW, CW]) {
           const X = x + ox; if (X < -cw || X > CW + cw) continue;
-          if (cells[i] === CAT) {
-            if (catImg.complete && catImg.naturalWidth) { const s = px * 0.42; g.save(); g.globalAlpha = 0.92; g.drawImage(catImg, X - s / 2, y - s / 2, s, s); g.restore(); }
-          } else {
-            g.font = KFONT(Math.round(px * 0.4));
-            g.fillStyle = '#16120e';
-            g.fillText(FISH[cells[i]][0], X, y + px * 0.01);
-          }
+          g.font = KFONT(Math.round(px * 0.4));
+          g.fillStyle = '#16120e';
+          g.fillText(FISH[cells[i]][0], X, y + px * 0.01);
           if (found.has(i)) {
             // 見つけた字には朱色の丸
             g.save(); g.strokeStyle = 'rgba(200,40,30,.85)'; g.lineWidth = px * 0.035; g.lineCap = 'round';
@@ -455,6 +482,61 @@
       for (const dz of [-0.06, 0.06]) { const h = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 2.2, 8), mat('#7a2a1a', 0.4)); h.rotation.z = Math.PI / 2; h.rotation.y = -0.5; h.position.set(2.4, FLOOR + 0.15, 0.8 + dz); scene.add(shade(h)); }
     }
 
+    // ---------- 大将（顔はいつもの猫） ----------
+    const CHEF = new THREE.Vector3(-0.9, FLOOR, -4.1), HEAD_SIZE = 2.0;
+    const chef = new THREE.Group(); chef.position.copy(CHEF); scene.add(chef);
+    const coat = mat('#f7f5ef', 0.85), fur = mat('#a98a6c', 0.9), navy = mat('#22324f', 0.7);
+    {
+      const torso = new THREE.Mesh(new THREE.CapsuleGeometry(1.05, 2.0, 8, 20), coat); torso.scale.set(1, 1, 0.72); torso.position.y = 0.55; chef.add(torso);
+      // 白衣の打ち合わせ（襟元の紺の V）
+      for (const s of [-1, 1]) { const c = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.0, 0.06), navy); c.position.set(s * 0.18, 2.05, 0.74); c.rotation.z = s * 0.55; chef.add(c); }
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.36, 0.5, 16), fur); neck.position.y = 2.5; chef.add(neck);
+      for (const s of [-1, 1]) {
+        const arm = new THREE.Group(); arm.position.set(s * 1.05, 1.75, 0.1); arm.rotation.x = -0.95; arm.rotation.z = s * 0.18; chef.add(arm);
+        const up = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.1, 6, 12), coat); up.position.y = -0.7; arm.add(up);
+        const paw = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), fur); paw.scale.set(1, 0.8, 1.1); paw.position.y = -1.5; arm.add(paw);
+      }
+    }
+    shade(chef);
+    // 顔: 猫の写真にねじり鉢巻きを描き足して、いつもカメラの方を向く板に貼る
+    const headCanvas = mkCanvas(512, 512), headTex = new THREE.CanvasTexture(headCanvas); headTex.colorSpace = THREE.SRGBColorSpace;
+    const headImg = new Image(); headImg.src = 'cat.png';
+    headImg.onload = () => {
+      const g = headCanvas.getContext('2d'); g.clearRect(0, 0, 512, 512);
+      g.drawImage(headImg, 0, 0, 512, 512);
+      // 鉢巻き: 額をまたぐ白い帯（ねじれの影つき）と、横の結び目
+      g.save(); g.translate(256, 176); g.rotate(-0.06);
+      const band = g.createLinearGradient(0, -24, 0, 24); band.addColorStop(0, '#d9d4c8'); band.addColorStop(0.5, '#ffffff'); band.addColorStop(1, '#c9c2b4');
+      g.fillStyle = band; g.beginPath(); g.moveTo(-205, -6); g.quadraticCurveTo(0, -46, 205, -14); g.lineTo(208, 22); g.quadraticCurveTo(0, -8, -208, 30); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(120,110,95,.55)'; g.lineWidth = 3;
+      for (let x = -180; x <= 180; x += 34) { g.beginPath(); g.moveTo(x - 10, -24 + Math.abs(x) * 0.05); g.lineTo(x + 12, 16 + Math.abs(x) * 0.02); g.stroke(); }
+      g.fillStyle = band; g.beginPath(); g.ellipse(205, 4, 30, 24, 0.3, 0, Math.PI * 2); g.fill(); g.stroke();
+      g.beginPath(); g.moveTo(215, 20); g.quadraticCurveTo(250, 60, 236, 104); g.lineTo(214, 98); g.quadraticCurveTo(222, 60, 200, 26); g.closePath(); g.fill(); g.stroke();
+      g.restore();
+      headTex.needsUpdate = true;
+    };
+    const head = new THREE.Mesh(new THREE.PlaneGeometry(HEAD_SIZE, HEAD_SIZE), new THREE.MeshStandardMaterial({ map: headTex, transparent: true, alphaTest: 0.05, roughness: 0.9, side: THREE.DoubleSide }));
+    scene.add(head);
+    const HEAD_POS = new THREE.Vector3();
+    // 縦長の画面では湯呑みの後ろに立ち、横長の画面では湯呑みの右隣で少しかがむ
+    function setChefPose(wide) {
+      if (wide) CHEF.set(2.6, FLOOR - 1.5, -3.4); else CHEF.set(-0.9, FLOOR, -4.1);
+      chef.position.copy(CHEF);
+      HEAD_POS.set(CHEF.x, CHEF.y + 2.55 + HEAD_SIZE * 0.42, CHEF.z + 0.35);
+    }
+    setChefPose(false);
+    let talk = 0, nod = 0, chefT = 0;
+    function stepChef(dt) {
+      chefT += dt; talk = Math.max(0, talk - dt); nod = Math.max(0, nod - dt);
+      // 話している間は口を動かすように頭を弾ませ、外れたら首を横に振る
+      const bob = talk > 0 ? Math.abs(Math.sin(chefT * 16)) * 0.06 : Math.sin(chefT * 1.6) * 0.02;
+      head.position.copy(HEAD_POS); head.position.y += bob;
+      head.quaternion.copy(camera.quaternion);
+      head.rotateZ(nod > 0 ? Math.sin(nod * 30) * 0.18 * nod / 0.6 : Math.sin(chefT * 0.9) * 0.03);
+      head.scale.set(1, talk > 0 ? 1 - Math.abs(Math.sin(chefT * 16)) * 0.04 : 1, 1);
+      chef.position.y = CHEF.y + Math.sin(chefT * 1.6) * 0.015;
+    }
+
     // 湯気
     const steam = [];
     for (let i = 0; i < 8; i++) {
@@ -518,35 +600,63 @@
     }
 
     // ---------- 画面サイズ ----------
-    const topEl = document.getElementById('top'), fuda = document.getElementById('fuda'), gauge = document.getElementById('gauge'), gaugeBar = gauge.querySelector('i');
+    const topEl = document.getElementById('top'), bubble = document.getElementById('bubble'), gauge = document.getElementById('gauge'), gaugeBar = gauge.querySelector('i');
     const controls = document.getElementById('controls');
-    let pxPerUnit = 100, side = false;
-    const CENTER = new THREE.Vector3(0, FLOOR + 0.1 + BH / 2 + 0.05, 0);
+    let pxPerUnit = 100, region = { top: 0, rw: 1, rh: 1 };
+    const CENTER = new THREE.Vector3(-0.2, FLOOR + 2.1, -1.2);
+    // 画面に必ず入れる点: 湯呑みのまわり、大将の頭と肩、吹き出しの場所
+    const FIT = [];
+    for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; for (const y of [FLOOR, FLOOR + 0.1 + BH]) FIT.push(new THREE.Vector3(Math.cos(a) * 1.08, y, Math.sin(a) * 1.08)); }
+    const FIT_CUP = FIT.length;
+    function fitChef() {
+      FIT.length = FIT_CUP;
+      FIT.push(HEAD_POS.clone().add(new THREE.Vector3(-HEAD_SIZE * 0.5, HEAD_SIZE * 0.42, 0)), HEAD_POS.clone().add(new THREE.Vector3(HEAD_SIZE * 0.3, HEAD_SIZE * 0.42, 0)));
+      FIT.push(HEAD_POS.clone().add(new THREE.Vector3(2.6, 0, 0)));
+    }
+    const dir = new THREE.Vector3(0, 0.38, 1).normalize(), tmpV = new THREE.Vector3();
+    function placeCamera(d) {
+      camera.position.copy(CENTER).addScaledVector(dir, d); camera.lookAt(CENTER); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+      let x0 = 9, x1 = -9, y0 = 9, y1 = -9;
+      for (const p of FIT) { tmpV.copy(p).project(camera); x0 = Math.min(x0, tmpV.x); x1 = Math.max(x1, tmpV.x); y0 = Math.min(y0, tmpV.y); y1 = Math.max(y1, tmpV.y); }
+      return { x0, x1, y0, y1 };
+    }
     function resize() {
       const w = stage.clientWidth, H = stage.clientHeight;
       renderer.setSize(w, H, false);
-      const btnH = state === 'result' ? Math.min(72, Math.max(56, 0.08 * Math.min(innerWidth, innerHeight))) + 12 : 0; // 結果のボタンの分（プレイ中はボタンがないので湯呑みを大きく）
+      const btnH = state === 'result' ? Math.min(72, Math.max(56, 0.08 * Math.min(innerWidth, innerHeight))) + 12 : 0; // 結果のボタンの分（プレイ中はボタンがないので大きく）
       const reserve = Math.max(0, stage.getBoundingClientRect().bottom - controls.getBoundingClientRect().bottom) + btnH;
       stage.style.setProperty('--reserve', reserve + 'px');
       const h = Math.max(120, H - reserve);
-      side = h <= 520 && w / h >= 4 / 3;
-      stage.classList.toggle('side', side);
-      fitFuda();
-      // 湯呑みを置く範囲: お題の札の下（横長なら札の右）から、下の空白の上まで
-      let left = 0, top = 0, rw = w, rh = h;
-      if (side) { left = Math.round(w * 0.34); rw = w - left; top = 0; }
-      else { top = Math.round(topEl.getBoundingClientRect().bottom - stage.getBoundingClientRect().top + 6); rh = Math.max(100, h - top); }
+      // 大将と湯呑みを置く範囲: 時間ゲージの下から、下の空白の上まで
+      const top = Math.round(topEl.getBoundingClientRect().bottom - stage.getBoundingClientRect().top + 4), rw = w, rh = Math.max(100, h - top);
+      region = { top, rw, rh };
       camera.aspect = rw / rh;
-      camera.setViewOffset(rw, rh, -left, -top, w, H);
-      const vf = THREE.MathUtils.degToRad(camera.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
-      // 湯呑み（幅 2.0、高さ 2.7）と少しの余白が入る距離
-      const HW = 1.12, HH = 1.55;
-      const d = Math.min(Math.max(HH / Math.tan(vf / 2), HW / Math.tan(hf / 2)) + 1.0, 30);
-      const dir = new THREE.Vector3(0, 0.42, 1).normalize();
-      camera.position.copy(CENTER).addScaledVector(dir, d);
-      camera.lookAt(CENTER);
+      camera.clearViewOffset();
+      setChefPose(rw / rh > 1.15); fitChef();
+      // 全部の点が入るいちばん近い距離を探す
+      let lo = 4, hi = 60;
+      for (let k = 0; k < 22; k++) { const m = (lo + hi) / 2, b = placeCamera(m); if (b.x1 - b.x0 <= 1.9 && b.y1 - b.y0 <= 1.9) hi = m; else lo = m; }
+      const b = placeCamera(hi);
+      // 入れた点の真ん中が範囲の真ん中に来るようにずらす
+      camera.setViewOffset(rw, rh, (b.x0 + b.x1) / 2 * rw / 2, -top - (b.y0 + b.y1) / 2 * rh / 2, w, H);
       camera.updateProjectionMatrix();
-      pxPerUnit = rh / (2 * (d - 1) * Math.tan(vf / 2));
+      const dc = camera.position.distanceTo(new THREE.Vector3(0, CENTER.y, 0));
+      pxPerUnit = rh / (2 * dc * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+      stepChef(0);
+      placeBubble();
+    }
+    // 吹き出しは大将の顔の右に出す。はみ出すときは文字を小さくする
+    function placeBubble() {
+      const r = renderer.domElement.getBoundingClientRect(), sr = stage.getBoundingClientRect();
+      const toPx = v => { tmpV.copy(v).project(camera); return [r.left - sr.left + (tmpV.x + 1) / 2 * r.width, r.top - sr.top + (1 - tmpV.y) / 2 * r.height]; };
+      const [hx, hy] = toPx(HEAD_POS), [ex] = toPx(HEAD_POS.clone().add(new THREE.Vector3(HEAD_SIZE * 0.36, 0, 0)));
+      const left = Math.round(ex + 22);
+      bubble.style.fontSize = '';
+      const max = sr.width - left - 12, bw = bubble.offsetWidth;
+      if (bw > max) bubble.style.fontSize = parseFloat(getComputedStyle(bubble).fontSize) * max / bw * 0.97 + 'px';
+      bubble.style.left = left + 'px';
+      bubble.style.top = Math.round(hy - bubble.offsetHeight / 2) + 'px';
+      bubble.style.visibility = bubble.textContent ? 'visible' : 'hidden';
     }
     addEventListener('resize', resize);
 
@@ -602,47 +712,50 @@
     function setScrape(v) { if (!scrapeGain || !ac) return; const g = soundOn ? Math.min(0.12, v * 0.025) : 0; if (Math.abs(g - scrapeShown) > 0.004) { scrapeShown = g; scrapeGain.gain.setTargetAtTime(g, ac.currentTime, 0.04); } }
 
     // ---------- ゲーム ----------
-    let state = 'play', timeLeft = TIME, score = 0, order = [], target = -1, catUsed = false, endT = 0, needSnap = false, shake = 0;
+    let state = 'play', timeLeft = TIME, score = 0, order = [], target = -1, endT = 0, needSnap = false, shake = 0;
     const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
     function begin() { if (!armed && state === 'play') armed = true; }
     function nextTarget() {
       target = order.length ? order.shift() : -1;
-      drawFuda(true);
+      drawBubble(true);
     }
+    const sayTarget = () => { if (target >= 0 && state === 'play') say(FISH[target][LI[lang]]); };
+    // 開いた時点では声が出せないので、最初に触ったときに大将がお題を言う
+    let firstTouch = true;
+    const onFirst = () => { if (!firstTouch) return; firstTouch = false; setTimeout(sayTarget, 60); };
+    addEventListener('pointerdown', onFirst); addEventListener('keydown', onFirst);
+    const chefMeshes = []; chef.traverse(o => { if (o.isMesh) chefMeshes.push(o); }); chefMeshes.push(head);
     function tap(e) {
       begin();
       const i = cellAt(e);
-      if (i < 0) return;
-      const id = cells[i];
-      if (id === CAT) {
-        if (!catUsed) { catUsed = true; timeLeft = Math.min(TIME, timeLeft + BONUS); flash(i, '#ffe08a', 0.6, 0.85); sCat(); jump(i); }
-        else sCat();
+      if (i < 0) {
+        // 大将を叩くと、お題をもう一度言ってくれる
+        if (ray.intersectObjects(chefMeshes, false).length) sayTarget();
         return;
       }
+      const id = cells[i];
       if (found.has(i)) return;
       if (id === target) {
         found.add(i); score++;
         jump(i); sCorrect();
         drawCup();
-        // 当たった字が正面に来るように少し回す
         nextTarget();
-        if (target < 0) finishSoon();
+        if (target < 0) finishSoon(); else setTimeout(sayTarget, 380);
       } else {
         timeLeft = Math.max(0, timeLeft - PENALTY);
-        flash(i, '#ff3a2a', 0.45, 0.75); shake = 0.3; sWrong();
+        flash(i, '#ff3a2a', 0.45, 0.75); shake = 0.3; sWrong(); nod = 0.6; setTimeout(sHmm, 120);
       }
     }
     function finishSoon() { state = 'over'; endT = 0; sEnd(); setScrape(0); drawGauge(); }
     function reset() {
-      const ids = shuffle([...FISH.keys()]).slice(0, NC * NR - 1);
-      ids.splice(Math.floor(Math.random() * (NC * NR)), 0, CAT);
+      const ids = shuffle([...FISH.keys()]).slice(0, NC * NR);
       cells = ids; found = new Set();
       const easy = shuffle(ids.filter(id => id >= 0 && id < EASY)), hard = shuffle(ids.filter(id => id >= EASY));
       order = [...easy, ...hard];
       for (const p of patches) { cup.remove(p); p.geometry.dispose(); p.material.dispose(); }
       patches = cells.map((_, i) => makePatch(i));
       flashes.length = 0;
-      score = 0; timeLeft = TIME; armed = false; catUsed = false; spin = 0;
+      score = 0; timeLeft = TIME; armed = false; spin = 0;
       cup.rotation.y = Math.random() * Math.PI * 2;
       drawCup();
     }
@@ -651,18 +764,11 @@
       const v = Math.round(timeLeft / TIME * 300) / 300;
       if (v !== shownGauge) { shownGauge = v; gaugeBar.style.transform = `scaleX(${v})`; gauge.classList.toggle('low', timeLeft < 10); }
     }
-    function drawFuda(pop) {
-      if (state === 'result') { fuda.className = 'result'; fuda.textContent = t('count')(score); fitFuda(); return; }
-      fuda.className = '';
-      fuda.textContent = target >= 0 ? FISH[target][LI[lang]] : '';
-      fitFuda();
-      if (pop) { void fuda.offsetWidth; fuda.classList.add('pop'); }
-    }
-    // 長い名前（英語など）は、札が画面からはみ出さないよう文字を小さくする
-    function fitFuda() {
-      fuda.style.fontSize = '';
-      const max = topEl.clientWidth - 32, w = fuda.offsetWidth;
-      if (w > max) fuda.style.fontSize = parseFloat(getComputedStyle(fuda).fontSize) * max / w * 0.97 + 'px';
+    function drawBubble(pop) {
+      if (state === 'result') { bubble.className = 'result'; bubble.textContent = t('count')(score); }
+      else { bubble.className = ''; bubble.textContent = target >= 0 ? FISH[target][LI[lang]] : ''; }
+      placeBubble();
+      if (pop) { void bubble.offsetWidth; bubble.classList.add('pop'); }
     }
     const STEP = 1 / 60;
     function step(dt) {
@@ -686,7 +792,7 @@
       }
       shake = Math.max(0, shake - dt);
       cup.position.x = Math.sin(shake * 70) * shake * 0.12;
-      stepFx(dt); stepSteam(dt);
+      stepFx(dt); stepSteam(dt); stepChef(dt);
     }
 
     // ---------- 画面 ----------
@@ -719,12 +825,12 @@
       });
       controls.append(a);
     }
-    // 結果画像: 朱丸の付いた湯呑みに、見つけた数を重ねる
+    // 結果画像: 大将と朱丸の付いた湯呑みに、見つけた数を重ねる
     let snap = null, shareCache = null;
     function takeSnap() {
       const src = renderer.domElement;
-      const focus = CENTER.clone().project(camera);
-      const fx = (focus.x + 1) / 2 * src.width, fy = (1 - focus.y) / 2 * src.height;
+      // 大将と湯呑みの入る範囲の真ん中で切り抜く
+      const k = src.width / region.rw, fx = src.width / 2, fy = (region.top + region.rh / 2) * k;
       const sideLen = Math.min(src.width, src.height);
       const sx = THREE.MathUtils.clamp(fx - sideLen / 2, 0, src.width - sideLen), sy = THREE.MathUtils.clamp(fy - sideLen / 2, 0, src.height - sideLen);
       snap = mkCanvas(1080, 1080);
@@ -764,9 +870,9 @@
     }
     function finish() {
       state = 'result';
-      drawFuda();
-      snap = null; needSnap = true;
       renderControls(); resize();
+      drawBubble(true); say(t('count')(score));
+      snap = null; needSnap = true;
     }
 
     // ---------- ループ ----------
@@ -792,7 +898,7 @@
     start();
     applyLang();
     // 筆の字体を読み込んだら湯呑みを描き直す（読めなくても明朝で描いておく）
-    document.fonts?.addEventListener?.('loadingdone', () => fitFuda());
+    document.fonts?.addEventListener?.('loadingdone', () => placeBubble());
     if (document.fonts?.load) {
       document.fonts.load(KFONT(100), FISH.map(f => f[0]).join('')).then(() => drawCup()).catch(() => {});
       document.fonts.load('40px "Yuji Syuku"', FISH.map(f => f[1]).join('')).catch(() => {});
