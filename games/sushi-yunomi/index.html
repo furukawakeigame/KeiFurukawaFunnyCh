@@ -279,36 +279,123 @@
       noise(0.02, 0.25, 5000, 'highpass');
     }
     // 板前の「へいっ！」
-    const sHei = () => { const f0 = 120 + Math.random() * 40; voice(f0, pick([['e', 'i'], ['e', 'e', 'i'], ['a', 'i']]), 0.22 + Math.random() * 0.1, 0.5, 0.03, 0.2); };
+    const sHei = () => speak(pick(['へいっ', 'へい', 'はいよ']), { f0: 125 + Math.random() * 15, rate: 1.15, shout: 1.2 });
     const sCorrect = () => { chin(); setTimeout(sHei, 120); };
     // 外れ: 低い「ブッ」＋鈍く当たる音
     const sWrong = () => { tone('square', 150, 80, 0.22, 0.09); tone('sine', 180, 70, 0.2, 0.3); noise(0.06, 0.3, 500); };
-    // 大将がお題を話す: 端末の読み上げ（その言語の声がなければ、合成の声でもごもご話す）
-    const SPEECH_LANG = { ja: 'ja', ko: 'ko', en: 'en', th: 'th' };
-    const MALE = /otoya|hattori|ichiro|keita|daniel|aaron|fred|alex|male|남|injoon|niwat/i;
-    let voices = [];
-    const loadVoices = () => { try { voices = speechSynthesis.getVoices(); } catch {} };
-    if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.addEventListener?.('voiceschanged', loadVoices); }
-    function say(text) {
-      talk = Math.max(talk, 0.25 + text.length * 0.12);
-      if (!soundOn) return;
-      const code = SPEECH_LANG[lang];
-      const list = voices.filter(v => v.lang?.toLowerCase().startsWith(code));
-      if ('speechSynthesis' in window && list.length) {
-        try {
-          speechSynthesis.cancel();
-          const u = new SpeechSynthesisUtterance(text);
-          u.voice = list.find(v => MALE.test(v.name)) || list.find(v => v.localService) || list[0];
-          u.lang = u.voice.lang; u.pitch = 0.75; u.rate = 1.0; u.volume = 1;
-          speechSynthesis.speak(u);
-          return;
-        } catch {}
+    // ---------- 大将の声（Web Audio で合成して、ひらがなを1音ずつ発音する） ----------
+    // 声帯（のこぎり波）と息（ノイズ）を母音ごとの共鳴に通し、子音は破裂・摩擦のノイズと口の形の動きで作る
+    const SV = { a: [730, 1150, 2450], i: [290, 2200, 2950], u: [340, 1350, 2300], e: [500, 1850, 2500], o: [520, 880, 2400] };
+    const KANA = {};
+    { const rows = { '': 'あいうえお', k: 'かきくけこ', g: 'がぎぐげご', s: 'さしすせそ', z: 'ざじずぜぞ', t: 'たちつてと', d: 'だぢづでど', n: 'なにぬねの', h: 'はひふへほ', b: 'ばびぶべぼ', p: 'ぱぴぷぺぽ', m: 'まみむめも', r: 'らりるれろ', y: 'や_ゆ_よ', w: 'わ___を' };
+      for (const [c, row] of Object.entries(rows)) [...row].forEach((ch, k) => { if (ch !== '_') KANA[ch] = [c, 'aiueo'[k]]; });
+      Object.assign(KANA, { し: ['sh', 'i'], じ: ['j', 'i'], ち: ['ch', 'i'], つ: ['ts', 'u'], ぢ: ['j', 'i'], づ: ['z', 'u'], ふ: ['f', 'u'], を: ['', 'o'] }); }
+    const SMALL_Y = { ゃ: 'a', ゅ: 'u', ょ: 'o' };
+    const VOICELESS = new Set(['k', 't', 'p', 's', 'sh', 'ch', 'ts', 'h', 'f']);
+    function parseKana(text) {
+      const m = [];
+      for (const ch of text) {
+        if (SMALL_Y[ch] && m.length) { const p = m[m.length - 1]; p.y = true; p.v = SMALL_Y[ch]; }
+        else if (ch === 'っ') m.push({ c: 'Q' });
+        else if (ch === 'ん') m.push({ c: 'N' });
+        else if (ch === 'ー') { if (m.length) m[m.length - 1].long = true; }
+        else if (KANA[ch]) m.push({ c: KANA[ch][0], v: KANA[ch][1] });
       }
-      // 読み上げが使えないとき: 字数に合わせて母音を並べた声
-      if (!on()) return;
-      const n = Math.max(2, Math.min(5, [...text].length));
-      for (let k = 0; k < n; k++) setTimeout(() => voice(125 * (1 - k * 0.04), [pick(['a', 'o', 'u', 'e', 'i']), pick(['a', 'o', 'u'])], 0.17, 0.42, 0.03, 0.2), k * 170);
+      // 無声化: 「ます」「いわし」の終わりの「す」「し」などは息だけになる
+      m.forEach((x, k) => { const nx = m[k + 1]; if ((x.v === 'u' || x.v === 'i') && VOICELESS.has(x.c) && (!nx || VOICELESS.has(nx.c) || nx.c === 'Q')) x.dv = true; });
+      return m;
     }
+    let noiseBuf = null;
+    function speak(text, { f0 = 118, rate = 1, vol = 0.55, shout = 1 } = {}) {
+      const mor = parseKana(text);
+      const est = mor.length * 0.13 / rate + 0.15;
+      talk = Math.max(talk, est);
+      if (!on() || !mor.length) return est;
+      if (!noiseBuf) { noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate); const d = noiseBuf.getChannelData(0); for (let k = 0; k < d.length; k++) d[k] = Math.random() * 2 - 1; }
+      const t0 = ac.currentTime + 0.03;
+      const osc = ac.createOscillator(); osc.type = 'sawtooth';
+      const vib = ac.createOscillator(); vib.frequency.value = 5.5; const vg = ac.createGain(); vg.gain.value = f0 * 0.015; vib.connect(vg).connect(osc.frequency);
+      const voiceG = ac.createGain(); voiceG.gain.value = 0;
+      const nz1 = ac.createBufferSource(); nz1.buffer = noiseBuf; nz1.loop = true;
+      const nz2 = ac.createBufferSource(); nz2.buffer = noiseBuf; nz2.loop = true; nz2.playbackRate.value = 0.93;
+      const aspG = ac.createGain(); aspG.gain.value = 0;
+      const fricBP = ac.createBiquadFilter(); fricBP.type = 'bandpass'; fricBP.Q.value = 2;
+      const fricG = ac.createGain(); fricG.gain.value = 0;
+      const src = ac.createGain();
+      osc.connect(voiceG).connect(src); nz1.connect(aspG).connect(src);
+      const out = ac.createGain(); out.gain.value = vol;
+      const F = [0, 1, 2].map(k => { const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = [5, 9, 12][k]; const g = ac.createGain(); g.gain.value = [3.2, 2.2, 1.2][k] * (k ? shout : 1); src.connect(bp).connect(g).connect(out); return bp; });
+      const body = ac.createBiquadFilter(); body.type = 'lowpass'; body.frequency.value = 350; const bg = ac.createGain(); bg.gain.value = 0.25; src.connect(body).connect(bg).connect(out);
+      nz2.connect(fricBP).connect(fricG).connect(out);
+      out.connect(ac.destination);
+      // 口の形（共鳴の高さ）と音量を時間に沿って動かす
+      const form = (t, fs, ramp = 0.03) => F.forEach((bp, k) => { bp.frequency.setTargetAtTime(fs[k], t, ramp / 3); });
+      const env = (g, t, v, tc = 0.008) => g.gain.setTargetAtTime(v, t, tc);
+      const burst = (t, f, q, v, d) => { fricBP.frequency.setValueAtTime(f, t); fricBP.Q.setValueAtTime(q, t); fricG.gain.setValueAtTime(0, t); fricG.gain.linearRampToValueAtTime(v, t + 0.004); fricG.gain.linearRampToValueAtTime(0, t + d); };
+      const fric = (t, f, q, v, d) => { fricBP.frequency.setValueAtTime(f, t); fricBP.Q.setValueAtTime(q, t); fricG.gain.setTargetAtTime(v, t, 0.012); fricG.gain.setTargetAtTime(0, t + d - 0.015, 0.01); };
+      let t = t0;
+      const n = mor.length, V = 0.1 / rate;
+      // 抑揚: 少し上がって張り、最後は勢いよく下がる
+      osc.frequency.setValueAtTime(f0 * 1.05, t0);
+      mor.forEach((m, k) => {
+        const last = k === n - 1, vd = (last ? V * 1.7 : V) * (m.long ? 1.8 : 1);
+        const p = k === 0 ? 1.12 : last ? 0.95 : 1.22 - k * 0.04;
+        osc.frequency.setTargetAtTime(f0 * p, t, 0.03);
+        if (m.c === 'Q') { env(voiceG, t, 0); env(aspG, t, 0); t += 0.08 / rate; return; }
+        if (m.c === 'N') { form(t, [260, 1300, 2400]); env(voiceG, t, 0.55); env(aspG, t, 0); t += (last ? 0.16 : 0.09) / rate; return; }
+        const vf = SV[m.v];
+        const c = m.c;
+        if (c === 'k' || c === 't' || c === 'p' || c === 'ch' || c === 'ts') {
+          env(voiceG, t, 0); env(aspG, t, 0); form(t, vf);
+          const cl = 0.045 / rate; t += cl;
+          if (c === 'k') burst(t, 2300, 2, 0.7, 0.025); else if (c === 'p') burst(t, 900, 1, 0.5, 0.02); else burst(t, 4200, 1.5, 0.7, 0.018);
+          if (c === 'ch') { fric(t + 0.012, 3100, 2, 0.55, 0.06 / rate); t += 0.06 / rate; }
+          else if (c === 'ts') { fric(t + 0.012, 6000, 3, 0.45, 0.05 / rate); t += 0.05 / rate; }
+          else { env(aspG, t + 0.01, 0.5); env(aspG, t + 0.035, 0); t += 0.03; }
+        } else if (c === 'g' || c === 'd' || c === 'b') {
+          form(t, [200, c === 'b' ? 800 : c === 'd' ? 1700 : 2000, 2400], 0.015); env(voiceG, t, 0.2);
+          t += 0.035 / rate;
+          burst(t, c === 'g' ? 2000 : c === 'd' ? 3800 : 800, 1.5, 0.3, 0.015);
+        } else if (c === 's' || c === 'sh' || c === 'f') {
+          env(voiceG, t, 0); env(aspG, t, 0); form(t, vf);
+          const d = (c === 'f' ? 0.07 : 0.095) / rate;
+          fric(t, c === 's' ? 5800 : c === 'sh' ? 3000 : 1300, c === 'f' ? 0.7 : c === 's' ? 3 : 2, c === 'f' ? 0.3 : 0.5, d); t += d;
+        } else if (c === 'z' || c === 'j') {
+          form(t, [250, 1700, 2500], 0.02); env(voiceG, t, 0.35);
+          if (c === 'j') burst(t, 3000, 2, 0.3, 0.015);
+          fric(t, c === 'z' ? 5500 : 3000, 2.5, 0.3, 0.06 / rate); t += 0.06 / rate;
+        } else if (c === 'h') {
+          env(voiceG, t, 0); form(t, vf, 0.01); env(aspG, t, 0.9, 0.01); t += 0.07 / rate; env(aspG, t, 0, 0.01);
+        } else if (c === 'n' || c === 'm') {
+          form(t, [260, c === 'm' ? 1100 : 1550, 2400], 0.015); env(voiceG, t, 0.6); t += 0.06 / rate;
+        } else if (c === 'r') {
+          form(t, [350, 1350, 1900], 0.012); env(voiceG, t, 0.35, 0.005); t += 0.025 / rate;
+        } else if (c === 'y' || m.y) {
+          if (c === 'y') { form(t, SV.i, 0.01); env(voiceG, t, 0.8); t += 0.04 / rate; }
+        } else if (c === 'w') {
+          form(t, [320, 750, 2300], 0.01); env(voiceG, t, 0.8); t += 0.04 / rate;
+        }
+        // 拗音（きゃ・しゃ など）は、子音のあとに「い」の口を一瞬通る
+        if (m.y && c !== 'y') { form(t, SV.i, 0.01); env(voiceG, t, m.dv ? 0 : 0.8); t += 0.035 / rate; }
+        // 母音
+        if (m.dv) { form(t, vf); env(voiceG, t, 0); env(aspG, t, 0.45); t += 0.06 / rate; env(aspG, t, 0); }
+        else { form(t, vf); env(voiceG, t, 1, 0.012); env(aspG, t, 0.06); t += vd; }
+      });
+      osc.frequency.setTargetAtTime(f0 * 0.72, t - V * 0.8, 0.06);
+      env(voiceG, t - 0.03, 0, 0.02); env(aspG, t - 0.03, 0, 0.02);
+      const end = t + 0.15;
+      [osc, vib, nz1, nz2].forEach(x => { x.start(t0); x.stop(end); });
+      return end - ac.currentTime;
+    }
+    // 数の読み（「12匹」→「じゅうにひき」）
+    function countReading(n) {
+      const ONE = ['', 'いち', 'に', 'さん', 'よん', 'ご', 'ろく', 'なな', 'はち', 'きゅう'];
+      const HIKI = ['ぜろひき', 'いっぴき', 'にひき', 'さんびき', 'よんひき', 'ごひき', 'ろっぴき', 'ななひき', 'はっぴき', 'きゅうひき'];
+      if (n < 10) return HIKI[n];
+      const tens = Math.floor(n / 10), ones = n % 10, head = (tens > 1 ? ONE[tens] : '') + 'じゅう';
+      return ones ? head + HIKI[ones] : head.slice(0, -1) + 'っぴき';
+    }
+    function say(text) { speak(text, { f0: 112 + Math.random() * 12 }); }
     const sHmm = () => voice(105, ['u', 'u', 'o'], 0.42, 0.45, 0.05, 0.25);
     const sEnd = () => { chin(); setTimeout(() => voice(130, ['o', 'a', 'i'], 0.7, 0.5, 0.05, 0.2), 150); };
 
@@ -719,7 +806,8 @@
       target = order.length ? order.shift() : -1;
       drawBubble(true);
     }
-    const sayTarget = () => { if (target >= 0 && state === 'play') say(FISH[target][LI[lang]]); };
+    // 大将は寿司屋なので、どの言語でも魚の名前は日本語で言う（吹き出しは選んだ言語）
+    const sayTarget = () => { if (target >= 0 && state === 'play') say(FISH[target][1]); };
     // 開いた時点では声が出せないので、最初に触ったときに大将がお題を言う
     let firstTouch = true;
     const onFirst = () => { if (!firstTouch) return; firstTouch = false; setTimeout(sayTarget, 60); };
@@ -871,7 +959,7 @@
     function finish() {
       state = 'result';
       renderControls(); resize();
-      drawBubble(true); say(t('count')(score));
+      drawBubble(true); say(countReading(score));
       snap = null; needSnap = true;
     }
 
