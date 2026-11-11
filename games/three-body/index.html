@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>三体問題</title>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="三体問題">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/three-body/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/three-body/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #03040c; color: #e8ecff; overflow: hidden;
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif;
+    }
+    #stage { position: fixed; inset: 0; overflow: hidden; }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    header { position: fixed; left: 0; right: 0; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; padding: 10px 12px; pointer-events: none; }
+    header > * { pointer-events: auto; }
+    header a { color: #e8ecff; font-size: 14px; text-decoration: none; margin-right: auto; text-shadow: 0 1px 3px #000; }
+    header button, header select {
+      background: rgba(20, 26, 48, .7); border: 1px solid rgba(160, 180, 255, .35); border-radius: 8px;
+      height: 34px; min-width: 40px; padding: 0 10px; font-size: 13px; color: #e8ecff; cursor: pointer;
+    }
+    header select option { color: #111; }
+    header svg { width: 18px; height: 18px; display: block; }
+    /* プレイ中の経過（ベストまでのゲージ） */
+    #gauge { position: fixed; left: 50%; top: 58px; z-index: 4; width: min(56vw, 420px); height: 8px; transform: translateX(-50%); border-radius: 4px;
+      background: rgba(140, 160, 255, .16); overflow: hidden; opacity: 0; transition: opacity .3s; pointer-events: none; }
+    #gauge i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 4px; background: linear-gradient(90deg, #4f7bff, #9fd0ff); box-shadow: 0 0 10px #6fa0ff; }
+    #gauge.over i { background: linear-gradient(90deg, #ffb340, #ffe9a0); box-shadow: 0 0 14px #ffb340; animation: glow 0.8s ease-in-out infinite; }
+    @keyframes glow { 50% { opacity: .65; } }
+    #result { position: fixed; left: 0; right: 0; top: 62px; height: 22%; z-index: 4; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 2px; pointer-events: none; text-align: center; padding: 0 12px; }
+    #result b { font-size: clamp(42px, 12vmin, 120px); font-weight: 900; color: #fff; line-height: 1.05; text-shadow: 0 0 24px rgba(120, 170, 255, .7), 0 3px 0 #1a2350; }
+    #result b.gold { color: #ffe39a; text-shadow: 0 0 28px rgba(255, 170, 60, .85), 0 3px 0 #4a2a08; }
+    #result span { font-size: clamp(16px, 3.8vmin, 32px); font-weight: 800; color: #b8c8ff; text-shadow: 0 2px 6px #000; }
+    #result span.gold { color: #ffd890; text-shadow: 0 0 12px rgba(255, 160, 60, .6), 0 2px 0 #3a2208; }
+    @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+      #result { top: 56px; bottom: calc(80px + env(safe-area-inset-bottom)); height: auto; right: auto; width: 30%; }
+    }
+    #msg { position: fixed; inset: 0; z-index: 6; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+    /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
+    #controls { position: fixed; left: 0; right: 0; z-index: 5; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; }
+    #controls button, #controls a {
+      flex: 1; height: clamp(56px, 8vmin, 72px); border: none; border-radius: 14px; font-size: clamp(18px, 3vmin, 24px); font-weight: 800;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; touch-action: manipulation; color: #fff;
+    }
+    #controls svg { width: clamp(26px, 4.4vmin, 36px); height: clamp(26px, 4.4vmin, 36px); display: block; }
+    .go { background: #3d6cff; box-shadow: 0 4px 0 #1c338c; }
+    .stop { background: #c2364a; box-shadow: 0 4px 0 #6e1424; }
+    .sub { background: rgba(40, 50, 90, .85); box-shadow: 0 4px 0 #141a33; flex: 0 0 clamp(64px, 18%, 96px) !important; border: 1px solid rgba(160, 180, 255, .3) !important; }
+    .post { background: #111; box-shadow: 0 4px 0 #000; border: 1px solid #444 !important; flex: 0 0 30% !important; font-size: clamp(16px, 2.6vmin, 20px) !important; }
+    #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
+  </style>
+</head>
+<body>
+  <div id="stage"></div>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <div id="gauge"><i></i></div>
+  <div id="result"><b></b><span></span></div>
+  <div id="controls"></div>
+  <div id="msg"></div>
+
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
+  <script>
+    // CDN が読めないときの一言
+    setTimeout(() => { if (!window.TB_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 9000);
+    // 長押しの拡大鏡・メニューを出さない
+    document.addEventListener('touchstart', e => { if (!e.target.closest('a, button, select, input')) e.preventDefault(); }, { passive: false });
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('selectstart', e => e.preventDefault());
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+    window.TB_READY = true;
+
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/three-body/';
+
+    // ---------- 保存・言語 ----------
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('three-body:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('three-body:' + k, JSON.stringify(v)); } catch {} },
+    };
+    const LANGS = ['ja', 'ko', 'en', 'th'];
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (LANGS.includes(c)) return c; } return 'en'; };
+    const DICT = {
+      ja: { title: '三体問題', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', sec: s => `${s}秒`, best: s => `ベスト ${s}`,
+            share: s => `3つの星を${s}崩さずに回した #三体問題ゲーム` },
+      ko: { title: '삼체 문제', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', sec: s => `${s}초`, best: s => `최고 ${s}`,
+            share: s => `세 개의 별을 ${s} 동안 무너뜨리지 않고 돌렸다 #三体問題ゲーム` },
+      en: { title: 'Three-Body Problem', back: '← Back to top', again: 'Play again', post: 'Post on X', sec: s => `${s} s`, best: s => `Best ${s}`,
+            share: s => `Kept three stars in orbit for ${s} without falling apart #三体問題ゲーム` },
+      th: { title: 'ปัญหาสามวัตถุ', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', sec: s => `${s} วินาที`, best: s => `ดีที่สุด ${s}`,
+            share: s => `ประคองดาวสามดวงให้โคจรไม่แตกได้ ${s} #三体問題ゲーム` },
+    };
+    let lang = store.get('lang', null) || autoLang();
+    const t = k => DICT[lang][k];
+    const fmtSec = v => t('sec')((Math.floor(v * 10) / 10).toFixed(1));
+    const langSel = document.getElementById('lang');
+    langSel.value = lang;
+    langSel.addEventListener('change', () => { lang = langSel.value; store.set('lang', lang); applyLang(); });
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      if (state === 'result') { showResult(); prepareShare(); }
+      renderControls();
+    }
+
+    // ---------- 音 ----------
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const drawSoundBtn = () => {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${soundOn ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>'}</svg>`;
+    };
+    drawSoundBtn();
+    soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); if (!soundOn) humStop(); else if (state === 'play') humStart(); });
+    let ac = null, master = null;
+    function unmuteIOS() {
+      try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch {}
+      try {
+        const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+        const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+        w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+        v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+        const a = document.createElement('audio');
+        a.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })); a.loop = true; a.setAttribute('playsinline', '');
+        a.play().catch(() => {});
+      } catch {}
+    }
+    function initAudio() {
+      if (ac) return;
+      unmuteIOS();
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        master = ac.createDynamicsCompressor(); master.connect(ac.destination);
+        const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
+        o.connect(g).connect(master); o.start(); o.stop(ac.currentTime + 0.05);
+      } catch { ac = null; }
+    }
+    addEventListener('pointerdown', initAudio, { capture: true });
+    addEventListener('keydown', initAudio, { capture: true });
+    const on = () => soundOn && ac;
+    function tone(type, f0, f1, dur, vol, delay = 0) {
+      if (!on()) return;
+      const now = ac.currentTime + delay;
+      const o = ac.createOscillator(); o.type = type;
+      o.frequency.setValueAtTime(f0, now); o.frequency.exponentialRampToValueAtTime(f1, now + dur);
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(vol, now + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      o.connect(g).connect(master); o.start(now); o.stop(now + dur + 0.02);
+    }
+    const noiseBuf = {};
+    function getNoise(dur) {
+      const key = Math.ceil(dur * 10);
+      if (noiseBuf[key]) return noiseBuf[key];
+      const b = ac.createBuffer(1, Math.floor(ac.sampleRate * key / 10), ac.sampleRate), d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      return noiseBuf[key] = b;
+    }
+    function noise(dur, vol, f0, f1 = f0, type = 'lowpass', q = 1, delay = 0, attack = 0.005) {
+      if (!on()) return;
+      const now = ac.currentTime + delay;
+      const s = ac.createBufferSource(); s.buffer = getNoise(dur);
+      const fl = ac.createBiquadFilter(); fl.type = type; fl.Q.value = q;
+      fl.frequency.setValueAtTime(f0, now); fl.frequency.exponentialRampToValueAtTime(f1, now + dur);
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(vol, now + attack); g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      s.connect(fl).connect(g).connect(master); s.start(now); s.stop(now + dur + 0.05);
+    }
+    // 声: 声帯の振動（のこぎり波＋息のノイズ）を、母音ごとの共鳴（フォルマント）に通す
+    const VOWEL = { a: [800, 1200, 2600], i: [300, 2300, 3000], u: [350, 1250, 2500], e: [500, 1900, 2600], o: [500, 850, 2500] };
+    function voice(f0, seq, dur, vol = 0.4, { rise = 1.3, fall = 0.75, shake = 0.05, breath = 0.12, delay = 0, fmul = 1.25 } = {}) {
+      if (!on()) return;
+      const now = ac.currentTime + delay;
+      const o = ac.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0 * rise * 0.95, now);
+      o.frequency.linearRampToValueAtTime(f0 * rise, now + dur * 0.25);
+      o.frequency.exponentialRampToValueAtTime(f0 * fall, now + dur);
+      const vib = ac.createOscillator(); vib.frequency.value = 6 + Math.random() * 3;
+      const vg = ac.createGain(); vg.gain.value = f0 * shake; vib.connect(vg).connect(o.frequency);
+      const ns = ac.createBufferSource(); ns.buffer = getNoise(dur);
+      const ng = ac.createGain(); ng.gain.value = breath;
+      const src = ac.createGain();
+      o.connect(src); ns.connect(ng).connect(src);
+      const out = ac.createGain();
+      out.gain.setValueAtTime(0, now);
+      out.gain.linearRampToValueAtTime(vol, now + 0.025);
+      out.gain.setValueAtTime(vol, now + dur * 0.55);
+      out.gain.exponentialRampToValueAtTime(0.001, now + dur);
+      [1, 0.6, 0.25].forEach((amp, fi) => {
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = fi === 0 ? 6 : 9;
+        seq.forEach((v, si) => { const tt = now + dur * si / Math.max(1, seq.length - 1) * 0.75; bp.frequency[si ? 'linearRampToValueAtTime' : 'setValueAtTime'](VOWEL[v][fi] * fmul, tt); });
+        const g = ac.createGain(); g.gain.value = amp * 3;
+        src.connect(bp).connect(g).connect(out);
+      });
+      out.connect(master);
+      o.start(now); vib.start(now); ns.start(now);
+      o.stop(now + dur); vib.stop(now + dur); ns.stop(now + dur);
+    }
+    const pick = a => a[Math.floor(Math.random() * a.length)];
+    const CAT_F0 = 620;
+    // 猫の「にゃー」（ぶつかった・飛ばされた）
+    function sMeow(big = true, delay = 0) {
+      const f = CAT_F0 * (0.9 + Math.random() * 0.2);
+      if (big) voice(f, pick([['i', 'a', 'a', 'o'], ['i', 'e', 'a', 'u'], ['e', 'a', 'a', 'o']]), 0.6 + Math.random() * 0.3, 0.32, { rise: 1.25, fall: 0.62, shake: 0.06, breath: 0.1, delay, fmul: 1.45 });
+      else voice(f * 1.1, pick([['i', 'a'], ['e', 'a'], ['i', 'u']]), 0.16 + Math.random() * 0.08, 0.24, { rise: 1.15, fall: 0.9, shake: 0.03, delay, fmul: 1.45 });
+    }
+    // 星をつかむ「コッ」
+    function sGrab() { noise(0.05, 0.12, 2400, 1400, 'bandpass', 8); tone('sine', 520, 380, 0.08, 0.08); }
+    function sRelease() { noise(0.04, 0.08, 1700, 1100, 'bandpass', 8); }
+    // 再生「フォン」: 下からせり上がる風の音と和音
+    function sLaunch() {
+      noise(0.9, 0.22, 200, 2400, 'bandpass', 2.5, 0, 0.25);
+      [220, 330, 440].forEach((f, i) => tone('sine', f * 0.5, f, 0.9, 0.07, i * 0.04));
+      tone('sine', 60, 110, 0.7, 0.3);
+    }
+    // すれ違う「ヒュン」
+    function sPass(p) { noise(0.32, 0.05 + p * 0.12, 600 + p * 800, 2600 + p * 2000, 'bandpass', 3, 0, 0.12); }
+    // 衝突: 爆発のゴォッ＋低い衝撃＋パチパチ
+    function sCrash() {
+      noise(1.8, 0.6, 1600, 80, 'lowpass', 0.8, 0, 0.003);
+      noise(0.35, 0.35, 4000, 600, 'bandpass', 1.5);
+      tone('sine', 70, 22, 1.1, 0.75);
+      for (let i = 0; i < 9; i++) noise(0.04, 0.12, 2500 + Math.random() * 2500, 1500, 'bandpass', 4, 0.1 + Math.random() * 0.9);
+    }
+    // 飛ばされる: 遠ざかるヒュー
+    function sLost() { tone('sine', 1200, 240, 1.4, 0.12); tone('triangle', 1800, 360, 1.4, 0.05); noise(1.2, 0.12, 3000, 400, 'bandpass', 2); }
+    function bell(f, delay, vol) { [[1, 1], [2.76, 0.4], [5.4, 0.2]].forEach(([m, a]) => tone('sine', f * m, f * m * 0.998, 1.8, vol * a, delay)); }
+    function sPerfect() { [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => bell(f, 0.1 + i * 0.12, 0.13)); }
+    function sBest() { bell(1047, 0, 0.1); bell(1568, 0.12, 0.1); }
+    // 星どうしの重力のうなり（近いほど高く大きく）
+    let hum = null;
+    function humStart() {
+      if (!on() || hum) return;
+      const now = ac.currentTime;
+      const g = ac.createGain(); g.gain.value = 0;
+      const fl = ac.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = 200; fl.Q.value = 4;
+      const o1 = ac.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 55;
+      const o2 = ac.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = 82.6;
+      const o3 = ac.createOscillator(); o3.type = 'sine'; o3.frequency.value = 110;
+      o1.connect(fl); o2.connect(fl); o3.connect(fl); fl.connect(g).connect(master);
+      g.gain.setTargetAtTime(0.05, now, 0.3);
+      o1.start(now); o2.start(now); o3.start(now);
+      hum = { g, fl, o1, o2, o3 };
+    }
+    function humSet(close) {
+      if (!hum) return;
+      const now = ac.currentTime;
+      hum.g.gain.setTargetAtTime(0.04 + close * 0.16, now, 0.08);
+      hum.fl.frequency.setTargetAtTime(160 + close * 900, now, 0.08);
+      hum.o1.frequency.setTargetAtTime(55 * (1 + close * 0.5), now, 0.1);
+      hum.o2.frequency.setTargetAtTime(82.6 * (1 + close * 0.5), now, 0.1);
+      hum.o3.frequency.setTargetAtTime(110 * (1 + close * 0.8), now, 0.1);
+    }
+    function humStop() {
+      if (!hum) return;
+      const h = hum; hum = null;
+      const now = ac.currentTime;
+      h.g.gain.setTargetAtTime(0, now, 0.15);
+      [h.o1, h.o2, h.o3].forEach(n => n.stop(now + 0.8));
+    }
+
+    // ---------- 物理（G=1、質量1の星が3つ。平面の上だけを動く） ----------
+    const RATE = 1.6;          // 1秒あたりに進むシミュレーションの時間
+    const STEP = 1 / 120;      // 固定の時間刻み（実時間）
+    const WS = 1.6;            // 物理の長さ → 3D の長さ
+    const R_ESC = 3.2;         // この輪の外に出たら「飛ばされた」
+    const EDIT_R = 2.4;        // 置ける範囲
+    const STAR_R = 0.23;       // 星の見た目の半径（物理）
+    const COLL = 0.32;         // これより近づくと衝突
+    const VMAX = 1.8;
+    const ARW = 0.75;          // 速さ1 → 矢印の長さ（物理）
+    const D0 = 0.42;           // 矢印のつまみは、速さ0でも星の外に出しておく
+    const CAP = 180;           // 記録の上限（秒）
+    const EPS2 = 1e-4;
+    const CAT = 2;             // 猫の星
+
+    const sim = { x: new Float64Array(6), v: new Float64Array(6), m: [1, 1, 1], alive: [true, true, true], t: 0 };
+    const accBuf = new Float64Array(6);
+    function accel(x, a) {
+      a.fill(0);
+      for (let i = 0; i < 3; i++) {
+        if (!sim.alive[i]) continue;
+        for (let j = i + 1; j < 3; j++) {
+          if (!sim.alive[j]) continue;
+          const dx = x[j * 2] - x[i * 2], dy = x[j * 2 + 1] - x[i * 2 + 1];
+          const r2 = dx * dx + dy * dy + EPS2, inv = 1 / (r2 * Math.sqrt(r2));
+          a[i * 2] += dx * inv * sim.m[j]; a[i * 2 + 1] += dy * inv * sim.m[j];
+          a[j * 2] -= dx * inv * sim.m[i]; a[j * 2 + 1] -= dy * inv * sim.m[i];
+        }
+      }
+    }
+    function minPair(x) {
+      let best = Infinity, bi = 0, bj = 1;
+      for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) {
+        if (!sim.alive[i] || !sim.alive[j]) continue;
+        const d = Math.hypot(x[j * 2] - x[i * 2], x[j * 2 + 1] - x[i * 2 + 1]);
+        if (d < best) { best = d; bi = i; bj = j; }
+      }
+      return [best, bi, bj];
+    }
+    // dt だけ進める。近いほど細かく刻む。check=true なら衝突・脱出を返す
+    function advance(s, dt, check) {
+      let rem = dt;
+      while (rem > 1e-12) {
+        const [rmin] = minPair(s.x);
+        const h = Math.min(rem, Math.max(2e-5, 0.004 * Math.min(1, Math.pow(Math.min(rmin, 10) / 0.6, 1.5))));
+        accel(s.x, accBuf);
+        for (let k = 0; k < 6; k++) s.v[k] += accBuf[k] * h * 0.5;
+        for (let k = 0; k < 6; k++) s.x[k] += s.v[k] * h;
+        accel(s.x, accBuf);
+        for (let k = 0; k < 6; k++) s.v[k] += accBuf[k] * h * 0.5;
+        rem -= h; s.t += h;
+        if (check) { const [d, i, j] = minPair(s.x); if (d < COLL) return { type: 'crash', i, j }; }
+      }
+      if (check) for (let i = 0; i < 3; i++) if (s.alive[i] && Math.hypot(s.x[i * 2], s.x[i * 2 + 1]) > R_ESC) return { type: 'escape', i };
+      return null;
+    }
+    // 配置: p=[[x,y]×3], v=[[vx,vy]×3]
+    function loadSim(setup) {
+      sim.m = [1, 1, 1]; sim.alive = [true, true, true]; sim.t = 0;
+      // 全体が流れていかないよう、重心の動きを打ち消す（隠れた手助け）
+      const mvx = (setup.v[0][0] + setup.v[1][0] + setup.v[2][0]) / 3, mvy = (setup.v[0][1] + setup.v[1][1] + setup.v[2][1]) / 3;
+      for (let i = 0; i < 3; i++) { sim.x[i * 2] = setup.p[i][0]; sim.x[i * 2 + 1] = setup.p[i][1]; sim.v[i * 2] = setup.v[i][0] - mvx; sim.v[i * 2 + 1] = setup.v[i][1] - mvy; }
+    }
+    // 予測: 少し先までの軌跡
+    const PRED_T = 3.4, PRED_N = 170;
+    const predPts = [[], [], []];
+    let predEnd = null;
+    function predict(setup) {
+      const save = { x: sim.x.slice(), v: sim.v.slice(), m: sim.m.slice(), alive: sim.alive.slice(), t: sim.t };
+      loadSim(setup);
+      predEnd = null;
+      for (let i = 0; i < 3; i++) predPts[i] = [[sim.x[i * 2], sim.x[i * 2 + 1]]];
+      for (let n = 0; n < PRED_N; n++) {
+        const ev = advance(sim, PRED_T / PRED_N, true);
+        for (let i = 0; i < 3; i++) predPts[i].push([sim.x[i * 2], sim.x[i * 2 + 1]]);
+        if (ev) { predEnd = ev; break; }
+      }
+      sim.x.set(save.x); sim.v.set(save.v); sim.m = save.m; sim.alive = save.alive; sim.t = save.t;
+    }
+    // テスト用: 配置の持ち時間（秒）
+    window.__life = (setup, max = CAP) => { loadSim(setup); let ev = null; while (!ev && sim.t < max * RATE) ev = advance(sim, 0.02, true); return { sec: sim.t / RATE, ev }; };
+
+    // ---------- 配置づくり ----------
+    function rot(p, a) { const c = Math.cos(a), s = Math.sin(a); return [p[0] * c - p[1] * s, p[0] * s + p[1] * c]; }
+    function normalize(setup) {
+      const cx = (setup.p[0][0] + setup.p[1][0] + setup.p[2][0]) / 3, cy = (setup.p[0][1] + setup.p[1][1] + setup.p[2][1]) / 3;
+      const mvx = (setup.v[0][0] + setup.v[1][0] + setup.v[2][0]) / 3, mvy = (setup.v[0][1] + setup.v[1][1] + setup.v[2][1]) / 3;
+      for (let i = 0; i < 3; i++) {
+        setup.p[i][0] -= cx; setup.p[i][1] -= cy; setup.v[i][0] -= mvx; setup.v[i][1] -= mvy;
+        const r = Math.hypot(...setup.p[i]); if (r > EDIT_R) { setup.p[i][0] *= EDIT_R / r; setup.p[i][1] *= EDIT_R / r; }
+        const s = Math.hypot(...setup.v[i]); if (s > VMAX) { setup.v[i][0] *= VMAX / s; setup.v[i][1] *= VMAX / s; }
+      }
+      return setup;
+    }
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    function randomSetup() {
+      const a0 = Math.random() * Math.PI * 2, dir = Math.random() < 0.5 ? 1 : -1;
+      const setup = { p: [], v: [] };
+      if (Math.random() < 0.6) {
+        // 回る三角形（ラグランジュの正三角形解を少し崩したもの）
+        const r = rnd(0.9, 1.4), L = r * Math.sqrt(3), w = Math.sqrt(3 / (L * L * L)) * rnd(0.8, 1.12);
+        for (let i = 0; i < 3; i++) {
+          const a = a0 + i * Math.PI * 2 / 3 + rnd(-0.25, 0.25), rr = r * rnd(0.88, 1.12);
+          const p = [Math.cos(a) * rr, Math.sin(a) * rr];
+          setup.p.push(p);
+          setup.v.push([-p[1] * w * dir + rnd(-0.08, 0.08), p[0] * w * dir + rnd(-0.08, 0.08)]);
+        }
+      } else {
+        // 近い2つの星と、そのまわりを回る3つ目
+        const s = rnd(0.55, 0.85), R = rnd(1.5, 2.1);
+        const vin = Math.sqrt(2 / s) / 2 * rnd(0.85, 1.05), vout = Math.sqrt(2 / R) * rnd(0.8, 1.05);
+        const c = [-R / 3, 0];
+        const pts = [[c[0] - s / 2, 0], [c[0] + s / 2, 0], [R * 2 / 3, 0]];
+        const vel = [[0, -vin], [0, vin], [0, vout * 2 / 3]];
+        vel[0][1] -= vout / 3; vel[1][1] -= vout / 3;
+        const order = [0, 1, 2].sort(() => Math.random() - 0.5);
+        for (let k = 0; k < 3; k++) { setup.p[order[k]] = rot(pts[k], a0); const v = rot(vel[k], a0); setup.v[order[k]] = [v[0] * dir, v[1] * dir]; }
+        if (dir < 0) for (let k = 0; k < 3; k++) { const p = setup.p[k]; setup.p[k] = [p[0], p[1]]; }
+      }
+      return normalize(setup);
+    }
+    const cloneSetup = s => ({ p: s.p.map(q => q.slice()), v: s.v.map(q => q.slice()) });
+
+    // ---------- 3D の土台 ----------
+    const stageEl = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+    const PIXEL_RATIO = Math.min(devicePixelRatio, 2);
+    renderer.setPixelRatio(PIXEL_RATIO);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    stageEl.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x100c2a, 0.045);
+    const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 3000);
+    scene.add(camera);
+
+    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    const composer = new EffectComposer(renderer, rt);
+    composer.setPixelRatio(PIXEL_RATIO);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.9, 0.6, 0.62);
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+
+    // 光: 空色の天空光と暖色の平行光（ほかに星ごとの点光源）
+    scene.add(new THREE.HemisphereLight(0x6a80ff, 0x1a0c08, 0.35));
+    const dirLight = new THREE.DirectionalLight(0xffe2c0, 0.5);
+    dirLight.position.set(-6, 10, 4);
+    scene.add(dirLight);
+
+    // ---------- ノイズ ----------
+    function rng(seed) { let s = (seed * 7919 + 1) % 2147483647 || 1; return () => (s = s * 16807 % 2147483647) / 2147483647; }
+    function makeNoise(seed) {
+      const r = rng(seed), p = [...Array(256).keys()];
+      for (let i = 255; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+      const P = new Uint8Array(512); for (let i = 0; i < 512; i++) P[i] = p[i & 255];
+      const V = new Float32Array(256); for (let i = 0; i < 256; i++) V[i] = r();
+      function n(x, y, z) {
+        const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+        const xf = x - xi, yf = y - yi, zf = z - zi;
+        const X = xi & 255, Y = yi & 255, Z = zi & 255;
+        const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
+        const a = P[X] + Y, aa = P[a] + Z, ab = P[a + 1] + Z, b = P[X + 1] + Y, ba = P[b] + Z, bb = P[b + 1] + Z;
+        const l1 = V[P[aa]] + u * (V[P[ba]] - V[P[aa]]), l2 = V[P[ab]] + u * (V[P[bb]] - V[P[ab]]);
+        const l3 = V[P[aa + 1]] + u * (V[P[ba + 1]] - V[P[aa + 1]]), l4 = V[P[ab + 1]] + u * (V[P[bb + 1]] - V[P[ab + 1]]);
+        const m1 = l1 + v * (l2 - l1), m2 = l3 + v * (l4 - l3);
+        return m1 + w * (m2 - m1);
+      }
+      function fbm(x, y, z, oct = 5) {
+        let s = 0, a = 0.5, f = 1, norm = 0;
+        for (let i = 0; i < oct; i++) { s += a * n(x * f, y * f, z * f); norm += a; a *= 0.5; f *= 2.03; }
+        return s / norm;
+      }
+      return { n, fbm };
+    }
+    const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+    const smooth = (a, b, v) => { const x = clamp01((v - a) / (b - a)); return x * x * (3 - 2 * x); };
+    const hex = h => [(h >> 16 & 255), (h >> 8 & 255), (h & 255)];
+
+    // ---------- 星 ----------
+    const STARS = [
+      { core: 0xffa850, hot: 0xffe0a0, cool: 0xd8480c, glow: 0xff8a30, light: 0xffa050 },  // オレンジ
+      { core: 0x80b0ff, hot: 0xd8e8ff, cool: 0x2c5ce0, glow: 0x6fa4ff, light: 0x9cc4ff },  // 青白
+      { core: 0xffe6a8, hot: 0xfff8e6, cool: 0xffb040, glow: 0xffc860, light: 0xffd080 },  // 猫の星（黄色）
+    ];
+    let catData = null;
+    const catReady = new Promise(res => {
+      const im = new Image();
+      im.onload = () => { const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d'); x.drawImage(im, 0, 0, 256, 256); catData = x.getImageData(0, 0, 256, 256).data; res(im); };
+      im.onerror = () => res(null);
+      im.src = 'cat.png';
+    });
+    // 表面: 粒状の模様（three.js の球の UV と同じ向き。u=0.25 が +Z の正面）
+    function starTexture(k, withCat) {
+      const W = 512, H = 256, S = STARS[k], N = makeNoise(k * 13 + 5);
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const x = c.getContext('2d'), img = x.createImageData(W, H), d = img.data;
+      const hot = hex(S.hot), core = hex(S.core), cool = hex(S.cool);
+      for (let j = 0; j < H; j++) {
+        const th = (j + 0.5) / H * Math.PI, py = Math.cos(th), sr = Math.sin(th);
+        for (let i = 0; i < W; i++) {
+          const phi = (i + 0.5) / W * Math.PI * 2, px = -Math.cos(phi) * sr, pz = Math.sin(phi) * sr;
+          const g = N.fbm(px * 5 + 3, py * 5, pz * 5, 4), cell = N.n(px * 22, py * 22, pz * 22);
+          const v = clamp01(g * 1.2 - 0.05 + (cell - 0.5) * 0.22);
+          let r, gg, b;
+          if (v > 0.5) { const q = (v - 0.5) * 2; r = core[0] + (hot[0] - core[0]) * q; gg = core[1] + (hot[1] - core[1]) * q; b = core[2] + (hot[2] - core[2]) * q; }
+          else { const q = v * 2; r = cool[0] + (core[0] - cool[0]) * q; gg = cool[1] + (core[1] - cool[1]) * q; b = cool[2] + (core[2] - cool[2]) * q; }
+          if (withCat && catData && pz > 0) {
+            // 正面に猫の顔（燃える太陽の色に少しなじませる）
+            const u = (px * 1.02 + 1) / 2, vv = (1 - py * 1.02) / 2;
+            const cx = Math.min(255, Math.max(0, Math.floor(u * 256))), cy = Math.min(255, Math.max(0, Math.floor(vv * 256)));
+            const o = (cy * 256 + cx) * 4, al = catData[o + 3] / 255 * smooth(0.05, 0.35, pz);
+            if (al > 0) {
+              const cr = catData[o] * 0.85 + hot[0] * 0.15, cg = catData[o + 1] * 0.85 + hot[1] * 0.12, cb = catData[o + 2] * 0.8 + hot[2] * 0.05;
+              r = r + (cr - r) * al; gg = gg + (cg - gg) * al; b = b + (cb - b) * al;
+            }
+          }
+          const o = (j * W + i) * 4; d[o] = r; d[o + 1] = gg; d[o + 2] = b; d[o + 3] = 255;
+        }
+      }
+      x.putImageData(img, 0, 0);
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+      return tex;
+    }
+    // 光のにじみ（中心は抜いて、星の表面を隠さない）
+    function glowTexture() {
+      const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+      const g = x.createRadialGradient(128, 128, 0, 128, 128, 128);
+      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.2, 'rgba(255,255,255,0)'); g.addColorStop(0.3, 'rgba(255,255,255,.55)');
+      g.addColorStop(0.4, 'rgba(255,255,255,.28)'); g.addColorStop(0.6, 'rgba(255,255,255,.09)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+      return new THREE.CanvasTexture(c);
+    }
+    function dotTexture() {
+      const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
+      const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+      g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.3, 'rgba(255,255,255,.7)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+      return new THREE.CanvasTexture(c);
+    }
+    const GLOW_TEX = glowTexture(), DOT_TEX = dotTexture();
+    const starGeo = new THREE.SphereGeometry(STAR_R * WS, 48, 32);
+    const stars = STARS.map((S, k) => {
+      const g = new THREE.Group();
+      const mat = new THREE.MeshBasicMaterial({ map: starTexture(k, false) });
+      mat.color.setScalar(k === CAT ? 1.25 : 1.5); // 明るさを1より上げて光のにじみを出す
+      const body = new THREE.Mesh(starGeo, mat);
+      g.add(body);
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOW_TEX, color: S.glow, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+      glow.scale.setScalar(STAR_R * WS * 5.2);
+      g.add(glow);
+      const corona = new THREE.Sprite(new THREE.SpriteMaterial({ map: DOT_TEX, color: S.glow, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.22 }));
+      corona.scale.setScalar(STAR_R * WS * 9);
+      g.add(corona);
+      const light = new THREE.PointLight(S.light, 14, 0, 1.6);
+      light.position.y = 0.3;
+      g.add(light);
+      scene.add(g);
+      return { g, body, mat, glow, corona, light, scale: 1 };
+    });
+    catReady.then(() => { stars[CAT].mat.map = starTexture(CAT, true); stars[CAT].mat.needsUpdate = true; });
+
+    // ---------- 尾（平らな帯。先ほど太く明るい） ----------
+    class Ribbon {
+      constructor(max, color, width, intensity = 1) {
+        this.max = max; this.width = width; this.color = new THREE.Color(color); this.intensity = intensity;
+        const g = new THREE.BufferGeometry();
+        this.pos = new Float32Array(max * 2 * 3); this.col = new Float32Array(max * 2 * 3);
+        g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+        g.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
+        const idx = []; for (let i = 0; i < max - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        g.setIndex(idx); g.setDrawRange(0, 0);
+        this.mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+        this.mesh.frustumCulled = false; this.mesh.renderOrder = 1;
+        scene.add(this.mesh);
+      }
+      // pts: 物理の座標 [x, y] の配列（古い順）
+      set(pts, y = 0.01, fadePow = 1.6) {
+        const n = Math.min(pts.length, this.max), off = pts.length - n;
+        if (n < 2) { this.mesh.geometry.setDrawRange(0, 0); return; }
+        for (let k = 0; k < n; k++) {
+          const p = pts[off + k], a = pts[off + Math.max(0, k - 1)], b = pts[off + Math.min(n - 1, k + 1)];
+          let tx = b[0] - a[0], ty = b[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+          const f = k / (n - 1), w = this.width * (0.15 + 0.85 * f), al = Math.pow(f, fadePow) * this.intensity;
+          const x = p[0] * WS, z = p[1] * WS;
+          this.pos.set([x - ty * w, y, z + tx * w, x + ty * w, y, z - tx * w], k * 6);
+          const r = this.color.r * al, g = this.color.g * al, bb = this.color.b * al;
+          this.col.set([r, g, bb, r, g, bb], k * 6);
+        }
+        const geo = this.mesh.geometry;
+        geo.attributes.position.needsUpdate = true; geo.attributes.color.needsUpdate = true;
+        geo.setDrawRange(0, (n - 1) * 6);
+      }
+      hide() { this.mesh.geometry.setDrawRange(0, 0); }
+    }
+    const TRAIL_MAX = 520;
+    const trails = STARS.map(S => new Ribbon(TRAIL_MAX, S.glow, 0.075, 1.15));
+    const ghosts = STARS.map(S => new Ribbon(PRED_N + 2, S.glow, 0.035, 0.45));
+    const trailPts = [[], [], []];
+
+    // ---------- 速さの矢印（つまみ付き） ----------
+    const arrows = STARS.map(S => {
+      const g = new THREE.Group();
+      const mat = new THREE.MeshBasicMaterial({ color: S.glow, transparent: true, opacity: 0.85, fog: false });
+      const shaft = new THREE.Mesh(new THREE.BoxGeometry(1, 0.012, 0.06), mat); g.add(shaft);
+      const head = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.24, 20), mat); head.rotation.z = -Math.PI / 2; g.add(head);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, fog: false });
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.17, 0.23, 40), ringMat); ring.rotation.x = -Math.PI / 2; g.add(ring);
+      const pulse = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.24, 40), new THREE.MeshBasicMaterial({ color: S.glow, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false, fog: false }));
+      pulse.rotation.x = -Math.PI / 2; g.add(pulse);
+      g.position.y = 0.02;
+      scene.add(g);
+      return { g, shaft, head, ring, pulse };
+    });
+
+    // ---------- 境界の輪 ----------
+    const bound = new THREE.Mesh(new THREE.RingGeometry(R_ESC * WS - 0.03, R_ESC * WS + 0.03, 160), new THREE.MeshBasicMaterial({ color: 0x6f8cff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false, fog: false }));
+    bound.rotation.x = -Math.PI / 2; bound.position.y = -0.02;
+    scene.add(bound);
+    const boundTicks = new THREE.Group();
+    {
+      const tg = new THREE.PlaneGeometry(0.05, 0.28), tm = new THREE.MeshBasicMaterial({ color: 0x8fa6ff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false, fog: false });
+      for (let i = 0; i < 48; i++) { const m = new THREE.Mesh(tg, tm); const a = i / 48 * Math.PI * 2; m.position.set(Math.cos(a) * (R_ESC * WS + 0.2), 0, Math.sin(a) * (R_ESC * WS + 0.2)); m.rotation.x = -Math.PI / 2; m.rotation.z = -a + Math.PI / 2; boundTicks.add(m); }
+      boundTicks.position.y = -0.02;
+      scene.add(boundTicks);
+    }
+
+    // ---------- 重力でへこむ時空の網 ----------
+    const GRID_SIZE = 44, GRID_SEG = 128, GRID_Y = -1.1;
+    const gridGeo = new THREE.PlaneGeometry(GRID_SIZE, GRID_SIZE, GRID_SEG, GRID_SEG);
+    gridGeo.rotateX(-Math.PI / 2);
+    const gridBase = gridGeo.attributes.position.array.slice();
+    function gridTexture() {
+      const S = 128, c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d');
+      x.clearRect(0, 0, S, S); x.fillStyle = 'rgba(10,10,32,.72)'; x.fillRect(0, 0, S, S);
+      x.strokeStyle = 'rgba(150,160,255,.85)'; x.lineWidth = 1.8; x.strokeRect(0, 0, S, S);
+      x.strokeStyle = 'rgba(140,150,255,.16)'; x.lineWidth = 1;
+      x.beginPath(); x.moveTo(S / 2, 0); x.lineTo(S / 2, S); x.moveTo(0, S / 2); x.lineTo(S, S / 2); x.stroke();
+      const tex = new THREE.CanvasTexture(c); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(GRID_SIZE / 1.6, GRID_SIZE / 1.6); tex.anisotropy = 8; tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+    const gridTex = gridTexture();
+    const grid = new THREE.Mesh(gridGeo, new THREE.MeshStandardMaterial({ color: 0x8090c0, map: gridTex, emissive: 0x5a50c8, emissiveMap: gridTex, emissiveIntensity: 0.4, roughness: 0.5, metalness: 0.3, transparent: true, depthWrite: false }));
+    grid.position.y = GRID_Y;
+    grid.receiveShadow = true;
+    scene.add(grid);
+    function updateGrid(rp) {
+      const a = gridGeo.attributes.position.array, K = 0.55, A2 = 0.42 * 0.42;
+      const sx = [], sz = [], sm = [];
+      for (let i = 0; i < 3; i++) if (sim.alive[i] || state === 'edit') { sx.push(rp[i][0] * WS); sz.push(rp[i][1] * WS); sm.push(state === 'edit' ? 1 : sim.m[i]); }
+      for (let k = 0; k < a.length; k += 3) {
+        const x = gridBase[k], z = gridBase[k + 2];
+        let h = 0;
+        for (let i = 0; i < sx.length; i++) { const dx = x - sx[i], dz = z - sz[i]; h += sm[i] / Math.sqrt(dx * dx + dz * dz + A2); }
+        a[k + 1] = -K * h;
+      }
+      gridGeo.attributes.position.needsUpdate = true;
+      gridGeo.computeVertexNormals();
+    }
+
+    // ---------- 背景: 星雲のグラデーションと星空 ----------
+    function buildBackground() {
+      const W = 1024, H = 512, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+      const g = x.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#0b0f2e'); g.addColorStop(0.45, '#1a1240'); g.addColorStop(0.62, '#0a0c22'); g.addColorStop(1, '#020309');
+      x.fillStyle = g; x.fillRect(0, 0, W, H);
+      const img = x.getImageData(0, 0, W, H), d = img.data, N = makeNoise(77);
+      for (let j = 0; j < H; j++) {
+        const th = (j + 0.5) / H * Math.PI, py = Math.cos(th), sr = Math.sin(th);
+        for (let i = 0; i < W; i++) {
+          const phi = (i + 0.5) / W * Math.PI * 2, px = Math.cos(phi) * sr, pz = Math.sin(phi) * sr;
+          const n1 = N.fbm(px * 2.2 + 4, py * 2.2, pz * 2.2, 5), n2 = N.fbm(px * 3.5, py * 3.5 + 9, pz * 3.5, 4);
+          const band = Math.exp(-Math.pow((py - 0.12 - 0.25 * Math.sin(phi * 2)) / 0.35, 2));
+          const k1 = smooth(0.45, 0.8, n1) * band, k2 = smooth(0.5, 0.82, n2) * band;
+          const o = (j * W + i) * 4;
+          d[o] = Math.min(255, d[o] + k1 * 120 + k2 * 30); d[o + 1] = Math.min(255, d[o + 1] + k1 * 40 + k2 * 70); d[o + 2] = Math.min(255, d[o + 2] + k1 * 150 + k2 * 120);
+        }
+      }
+      x.putImageData(img, 0, 0);
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+      const sky = new THREE.Mesh(new THREE.SphereGeometry(900, 48, 24), new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false }));
+      scene.add(sky);
+      // 網の下に透けて見える星雲
+      const NS = 512, nc = document.createElement('canvas'); nc.width = nc.height = NS; const nx = nc.getContext('2d');
+      const nimg = nx.createImageData(NS, NS), nd = nimg.data, N2 = makeNoise(31);
+      for (let j = 0; j < NS; j++) for (let i = 0; i < NS; i++) {
+        const u = i / NS * 2 - 1, v = j / NS * 2 - 1, r = Math.hypot(u, v);
+        const a = N2.fbm(u * 2.4 + 7, v * 2.4, 0.5, 5), b = N2.fbm(u * 4 + 1, v * 4 + 3, 2.5, 4);
+        const fall = smooth(1, 0.15, r), k1 = smooth(0.38, 0.78, a) * fall, k2 = smooth(0.45, 0.8, b) * fall;
+        const o = (j * NS + i) * 4;
+        nd[o] = 6 + k1 * 150 + k2 * 40; nd[o + 1] = 6 + k1 * 40 + k2 * 90; nd[o + 2] = 18 + k1 * 170 + k2 * 140; nd[o + 3] = 255;
+        if (Math.random() < 0.004) { const w = 120 + Math.random() * 135; nd[o] = nd[o + 1] = nd[o + 2] = w; }
+      }
+      nx.putImageData(nimg, 0, 0);
+      const ntex = new THREE.CanvasTexture(nc); ntex.colorSpace = THREE.SRGBColorSpace;
+      const neb = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), new THREE.MeshBasicMaterial({ map: ntex, fog: false, depthWrite: false }));
+      neb.rotation.x = -Math.PI / 2; neb.position.y = -40; neb.renderOrder = -1;
+      scene.add(neb);
+      // 星
+      const n = 2600, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), r = rng(5);
+      for (let i = 0; i < n; i++) {
+        const u = r() * 2 - 1, a = r() * Math.PI * 2, s = Math.sqrt(1 - u * u), R = 800;
+        pos.set([s * Math.cos(a) * R, u * R, s * Math.sin(a) * R], i * 3);
+        const b = 0.35 + Math.pow(r(), 3) * 1.4, tint = r();
+        col.set([b * (tint > 0.8 ? 1 : 0.8), b * 0.88, b * (tint < 0.3 ? 0.75 : 1)], i * 3);
+      }
+      const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); sg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      scene.add(new THREE.Points(sg, new THREE.PointsMaterial({ size: 2.2, sizeAttenuation: false, map: DOT_TEX, vertexColors: true, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending })));
+      // 遠くの小さな惑星（輪つき）
+      const planet = new THREE.Group();
+      const pm = new THREE.Mesh(new THREE.SphereGeometry(14, 40, 24), new THREE.MeshStandardMaterial({ color: 0x6a5a9a, roughness: 0.85, fog: false }));
+      const ring = new THREE.Mesh(new THREE.RingGeometry(19, 28, 64), new THREE.MeshStandardMaterial({ color: 0xa898d8, roughness: 0.9, side: THREE.DoubleSide, transparent: true, opacity: 0.55, fog: false }));
+      ring.rotation.x = -Math.PI / 2 + 0.35;
+      planet.add(pm, ring);
+      planet.position.set(-150, 40, -320);
+      scene.add(planet);
+    }
+    buildBackground();
+
+    // ---------- 粒（爆発の火花など）: 加算合成なので、色を暗くすると消える ----------
+    const PN = 700;
+    const parts = { pos: new Float32Array(PN * 3), col: new Float32Array(PN * 3), vel: new Float32Array(PN * 3), life: new Float32Array(PN), max: new Float32Array(PN), base: new Float32Array(PN * 3), next: 0 };
+    const partGeo = new THREE.BufferGeometry();
+    partGeo.setAttribute('position', new THREE.BufferAttribute(parts.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    partGeo.setAttribute('color', new THREE.BufferAttribute(parts.col, 3).setUsage(THREE.DynamicDrawUsage));
+    const partPts = new THREE.Points(partGeo, new THREE.PointsMaterial({ size: 0.16, map: DOT_TEX, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    partPts.frustumCulled = false;
+    scene.add(partPts);
+    function burst(x, z, color, n, speed, life, up = 0.6) {
+      const c = new THREE.Color(color);
+      for (let k = 0; k < n; k++) {
+        const i = parts.next; parts.next = (parts.next + 1) % PN;
+        const a = Math.random() * Math.PI * 2, s = speed * (0.25 + Math.random() * 0.9), e = (Math.random() - 0.3) * up;
+        parts.pos.set([x, 0, z], i * 3);
+        parts.vel.set([Math.cos(a) * s, e * s, Math.sin(a) * s], i * 3);
+        const w = 0.6 + Math.random() * 0.8;
+        parts.base.set([Math.min(2, c.r * w + 0.2), Math.min(2, c.g * w + 0.1), Math.min(2, c.b * w)], i * 3);
+        parts.life[i] = parts.max[i] = life * (0.5 + Math.random() * 0.7);
+      }
+    }
+    function updateParts(dt) {
+      for (let i = 0; i < PN; i++) {
+        if (parts.life[i] <= 0) { parts.col[i * 3] = parts.col[i * 3 + 1] = parts.col[i * 3 + 2] = 0; continue; }
+        parts.life[i] -= dt;
+        const k = Math.max(0, parts.life[i] / parts.max[i]), drag = Math.exp(-1.6 * dt);
+        for (let a = 0; a < 3; a++) { parts.vel[i * 3 + a] *= drag; parts.pos[i * 3 + a] += parts.vel[i * 3 + a] * dt; parts.col[i * 3 + a] = parts.base[i * 3 + a] * k * k; }
+      }
+      partGeo.attributes.position.needsUpdate = true; partGeo.attributes.color.needsUpdate = true;
+    }
+    // 衝撃波の輪と閃光
+    const shock = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 64), new THREE.MeshBasicMaterial({ color: 0xffd6a0, transparent: true, opacity: 0, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    shock.rotation.x = -Math.PI / 2; scene.add(shock);
+    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: DOT_TEX, color: 0xffeedd, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
+    scene.add(flash);
+    let shockT = -1;
+    // 再生したときに星から広がる小さな輪
+    const pulses = STARS.map(S => { const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 48), new THREE.MeshBasicMaterial({ color: S.glow, transparent: true, opacity: 0, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })); m.rotation.x = -Math.PI / 2; scene.add(m); return m; });
+    let pulseT = -1;
+
+    // ---------- 画面の大きさ ----------
+    const fitCam = new THREE.PerspectiveCamera(40, 1, 0.1, 3000);
+    const CAM_DIR = new THREE.Vector3();
+    let view = { w: 1, H: 1, top: 70, fh: 1 }, camDist = 20;
+    function btnHeight() { return Math.min(72, Math.max(56, 0.08 * Math.min(innerWidth, innerHeight))) + 14; }
+    function layout() {
+      const w = stageEl.clientWidth, H = stageEl.clientHeight;
+      const top = 72; // 戻るリンク・音・言語・ゲージ
+      const shortWide = H <= 520 && w / H >= 4 / 3;
+      const reserve = 80 + btnHeight();
+      const fh = Math.max(120, H - top - reserve);
+      view = { w, H, top, fh };
+      renderer.setSize(w, H, false);
+      composer.setSize(w, H);
+      bloom.resolution.set(w / 2, H / 2);
+      // 縦長ほど真上から見る
+      const asp = w / fh, el = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(52 + (1.6 - asp) * 22, 50, 74));
+      CAM_DIR.set(0, Math.sin(el), Math.cos(el));
+      camera.aspect = w / fh;
+      camera.setViewOffset(w, fh, 0, -top, w, H);
+      camera.updateProjectionMatrix();
+      // 輪（と矢印の余裕）が必ず入る距離を探す。背の低い横長画面では結果を左に出すので、少し右に寄せる
+      fitCam.aspect = w / fh; fitCam.updateProjectionMatrix();
+      const R = R_ESC * WS + 0.45, pts = [];
+      for (let i = 0; i < 32; i++) { const a = i / 32 * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * R, 0, Math.sin(a) * R)); }
+      let lo = 3, hi = 300;
+      for (let k = 0; k < 32; k++) {
+        const d = (lo + hi) / 2;
+        fitCam.position.copy(CAM_DIR).multiplyScalar(d); fitCam.lookAt(0, 0, 0); fitCam.updateMatrixWorld();
+        const ok = pts.every(c => { const p = c.clone().project(fitCam); return Math.abs(p.x) < 0.96 && Math.abs(p.y) < 0.96 && p.z < 1; });
+        if (ok) hi = d; else lo = d;
+      }
+      camDist = hi;
+      camera.position.copy(CAM_DIR).multiplyScalar(camDist);
+      camera.lookAt(0, 0, 0);
+      camera.updateMatrixWorld();
+      partPts.material.size = 0.16;
+      renderControls();
+    }
+    addEventListener('resize', layout);
+
+    // ---------- 状態 ----------
+    let state = 'edit';             // edit → play → end → result
+    let setup = (() => { const s = store.get('setup', null); return s && s.p?.length === 3 ? s : randomSetup(); })();
+    let lastSetup = cloneSetup(setup);
+    let best = store.get('best', 0);
+    let score = 0, endT = 0, endEv = null, newBest = false, perfect = false;
+    let predDirty = true;
+    const prevX = new Float64Array(6);
+    let accT = 0;
+    let snapPending = false, snapCanvas = null, shareCache = null;
+    let passCool = [0, 0, 0], meowCool = 0;
+    const resultEl = document.getElementById('result'), controls = document.getElementById('controls');
+    const gaugeEl = document.getElementById('gauge'), gaugeFill = gaugeEl.querySelector('i');
+
+    function enterEdit(s) {
+      state = 'edit';
+      snapCanvas = null; shareCache = null;
+      setup = cloneSetup(s);
+      loadSim(setup);
+      for (let i = 0; i < 3; i++) { sim.x[i * 2] = setup.p[i][0]; sim.x[i * 2 + 1] = setup.p[i][1]; }
+      prevX.set(sim.x);
+      for (let i = 0; i < 3; i++) { trailPts[i] = []; trails[i].hide(); stars[i].g.visible = true; stars[i].scale = 1; }
+      predDirty = true;
+      resultEl.style.display = 'none';
+      gaugeEl.style.opacity = 0;
+      humStop();
+      renderControls();
+    }
+    function play() {
+      if (state !== 'edit') return;
+      lastSetup = cloneSetup(setup);
+      store.set('setup', lastSetup);
+      loadSim(setup);
+      prevX.set(sim.x); accT = 0;
+      state = 'play'; score = 0; perfect = false; newBest = false;
+      for (let i = 0; i < 3; i++) { trailPts[i] = [[sim.x[i * 2], sim.x[i * 2 + 1]]]; ghosts[i].hide(); }
+      passCool = [0, 0, 0]; meowCool = 0;
+      pulseT = 0;
+      gaugeEl.style.opacity = 1; gaugeEl.classList.remove('over'); gaugeFill.style.width = '0%';
+      sLaunch(); humStart();
+      renderControls();
+    }
+    function endGame(ev) {
+      endEv = ev; endT = 0; state = 'end';
+      score = Math.min(CAP, sim.t / RATE);
+      humStop();
+      if (ev.type === 'crash') {
+        const { i, j } = ev;
+        // 2つの星は1つにまとまる（猫の星が残る）
+        const keep = j === CAT ? j : i, gone = keep === i ? j : i;
+        const mx = (sim.x[i * 2] + sim.x[j * 2]) / 2, my = (sim.x[i * 2 + 1] + sim.x[j * 2 + 1]) / 2;
+        sim.v[keep * 2] = (sim.v[i * 2] + sim.v[j * 2]) / 2; sim.v[keep * 2 + 1] = (sim.v[i * 2 + 1] + sim.v[j * 2 + 1]) / 2;
+        sim.x[keep * 2] = mx; sim.x[keep * 2 + 1] = my;
+        sim.m[keep] = 2; sim.alive[gone] = false; prevX[keep * 2] = mx; prevX[keep * 2 + 1] = my;
+        stars[gone].g.visible = false; stars[keep].scale = 1.3;
+        const c = new THREE.Color(STARS[i].glow).lerp(new THREE.Color(STARS[j].glow), 0.5);
+        burst(mx * WS, my * WS, c, 260, 7, 1.6);
+        burst(mx * WS, my * WS, 0xffffff, 80, 3, 0.8);
+        shockT = 0; shock.position.set(mx * WS, 0.05, my * WS); flash.position.set(mx * WS, 0.3, my * WS); shock.material.color.copy(c);
+        sCrash();
+        if (i === CAT || j === CAT) sMeow(true, 0.35);
+      } else if (ev.type === 'escape') {
+        sLost();
+        if (ev.i === CAT) sMeow(true, 0.15);
+      }
+    }
+    function finish() {
+      state = 'result';
+      gaugeEl.style.opacity = 0;
+      if (score > best + 1e-9) { newBest = best > 0 || score > 0; best = score; store.set('best', best); if (newBest && !perfect) sBest(); }
+      showResult();
+      renderControls();
+      setTimeout(() => prepareShare(), 30);
+    }
+    function showResult() {
+      resultEl.style.display = 'flex';
+      const b = resultEl.querySelector('b'), s = resultEl.querySelector('span');
+      b.textContent = fmtSec(score); b.className = perfect ? 'gold' : '';
+      s.textContent = t('best')(fmtSec(best)); s.className = newBest ? 'gold' : '';
+    }
+
+    // ---------- ボタン ----------
+    const ICON = {
+      play: '<svg viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/></svg>',
+      stop: '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>',
+      shuffle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h3.5c4 0 7 10 11 10H21M18 14l3 3-3 3M3 17h3.5c1.6 0 3-1.6 4.2-3.6M14 8.6C15 7.6 16 7 17.5 7H21M18 4l3 3-3 3"/></svg>',
+      again: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4v4.5h4.5"/></svg>',
+    };
+    function btn(cls, html, fn, label) { const b = document.createElement('button'); b.className = cls; b.innerHTML = html; b.setAttribute('aria-label', label || ''); b.addEventListener('click', fn); return b; }
+    function shuffle() { sGrab(); enterEdit(randomSetup()); }
+    function renderControls() {
+      controls.innerHTML = '';
+      if (state === 'edit') {
+        controls.append(btn('sub', ICON.shuffle, shuffle, 'shuffle'), btn('go', ICON.play, play, 'play'));
+      } else if (state === 'play' || state === 'end') {
+        const b = btn('stop', ICON.stop, () => { if (state === 'play') enterEdit(lastSetup); }, 'stop');
+        if (state === 'end') b.style.opacity = 0.4;
+        controls.append(b);
+      } else if (state === 'result') {
+        const again = btn('go', ICON.again + `<span>${t('again')}</span>`, () => enterEdit(lastSetup), 'again');
+        const a = document.createElement('a'); a.className = 'post'; a.textContent = t('post');
+        const text = t('share')(fmtSec(score));
+        a.href = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SHARE_URL)}`;
+        const coarse = matchMedia('(pointer: coarse)').matches;
+        if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
+        a.addEventListener('click', e => {
+          const file = shareCache?.lang === lang ? shareCache.file : null;
+          if (coarse && navigator.share) {
+            e.preventDefault();
+            const data = { text: text + ' ' + SHARE_URL };
+            if (file && navigator.canShare?.({ files: [file] })) data.files = [file];
+            navigator.share(data).catch(() => {});
+            return;
+          }
+          // PC: 画像を保存してから投稿画面へ（Webの投稿画面には画像を自動で付けられない）
+          const img = resultImage();
+          if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'three-body.png'; d.click(); }
+        });
+        controls.append(btn('sub', ICON.shuffle, shuffle, 'shuffle'), again, a);
+      }
+    }
+
+    // ---------- 結果の画像 ----------
+    function takeSnap() {
+      const src = renderer.domElement, W = src.width, H = src.height;
+      const p = new THREE.Vector3(0, 0, 0).project(camera);
+      const cx = (p.x * 0.5 + 0.5) * W, cy = (-p.y * 0.5 + 0.5) * H;
+      const s = Math.min(W, H, Math.max(W, H) * 0.75);
+      const sx = Math.max(0, Math.min(W - s, cx - s / 2)), sy = Math.max(0, Math.min(H - s, cy - s * 0.56));
+      snapCanvas = document.createElement('canvas'); snapCanvas.width = snapCanvas.height = 1080;
+      snapCanvas.getContext('2d').drawImage(src, sx, sy, s, s, 0, 0, 1080, 1080);
+    }
+    function resultImage() {
+      if (!snapCanvas) return null;
+      const c = document.createElement('canvas'); c.width = c.height = 1080; const x = c.getContext('2d');
+      x.drawImage(snapCanvas, 0, 0);
+      const g = x.createLinearGradient(0, 0, 0, 420); g.addColorStop(0, 'rgba(0,0,12,.8)'); g.addColorStop(1, 'rgba(0,0,12,0)');
+      x.fillStyle = g; x.fillRect(0, 0, 1080, 420);
+      const g2 = x.createLinearGradient(0, 940, 0, 1080); g2.addColorStop(0, 'rgba(0,0,12,0)'); g2.addColorStop(1, 'rgba(0,0,12,.7)');
+      x.fillStyle = g2; x.fillRect(0, 940, 1080, 140);
+      x.textAlign = 'center'; x.textBaseline = 'middle';
+      const font = 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif';
+      x.shadowColor = perfect ? 'rgba(255,170,60,.9)' : 'rgba(120,170,255,.85)'; x.shadowBlur = 32; x.fillStyle = perfect ? '#ffe39a' : '#fff';
+      x.font = `900 180px ${font}`; x.fillText(fmtSec(score), 540, 170);
+      x.shadowBlur = 0; x.fillStyle = 'rgba(255,255,255,.88)'; x.font = `700 44px ${font}`;
+      x.fillText(t('title'), 540, 1030);
+      return c;
+    }
+    function prepareShare() {
+      const img = resultImage(); if (!img) return;
+      const key = lang; shareCache = { lang: key, file: null };
+      img.toBlob(b => { if (b && shareCache?.lang === key) shareCache.file = new File([b], 'three-body.png', { type: 'image/png' }); }, 'image/png');
+      renderControls();
+    }
+
+    // ---------- 操作（星と矢印をドラッグ） ----------
+    const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitV = new THREE.Vector3(), tmpV = new THREE.Vector3();
+    function toPhys(cx, cy) {
+      const r = renderer.domElement.getBoundingClientRect();
+      ray.setFromCamera({ x: (cx - r.left) / r.width * 2 - 1, y: -(cy - r.top) / r.height * 2 + 1 }, camera);
+      return ray.ray.intersectPlane(plane, hitV) ? [hitV.x / WS, hitV.z / WS] : null;
+    }
+    function toScreen(px, py) {
+      const r = renderer.domElement.getBoundingClientRect();
+      tmpV.set(px * WS, 0, py * WS).project(camera);
+      return [(tmpV.x * 0.5 + 0.5) * r.width, (-tmpV.y * 0.5 + 0.5) * r.height];
+    }
+    const tipOf = i => { const v = setup.v[i], s = Math.hypot(v[0], v[1]), d = s > 1e-6 ? [v[0] / s, v[1] / s] : [0, -1], L = D0 + s * ARW; return [setup.p[i][0] + d[0] * L, setup.p[i][1] + d[1] * L]; };
+    let drag = null;
+    renderer.domElement.addEventListener('pointerdown', e => {
+      if (state !== 'edit') return;
+      const r = renderer.domElement.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+      const [ax, ay] = toScreen(0, 0), [bx, by] = toScreen(STAR_R, 0), starPx = Math.hypot(bx - ax, by - ay);
+      const grabR = Math.max(30, starPx * 1.6);
+      let bestD = Infinity, cand = null;
+      for (let i = 0; i < 3; i++) {
+        const [tx, ty] = toScreen(...tipOf(i)), dt = Math.hypot(mx - tx, my - ty) * 0.85;
+        if (dt < grabR && dt < bestD) { bestD = dt; cand = { type: 'vel', i }; }
+        const [sx, sy] = toScreen(...setup.p[i]), ds = Math.hypot(mx - sx, my - sy);
+        if (ds < grabR && ds < bestD) { bestD = ds; cand = { type: 'pos', i }; }
+      }
+      if (!cand) return;
+      const p = toPhys(e.clientX, e.clientY); if (!p) return;
+      if (cand.type === 'pos') cand.off = [setup.p[cand.i][0] - p[0], setup.p[cand.i][1] - p[1]];
+      else { const tp = tipOf(cand.i); cand.off = [tp[0] - p[0], tp[1] - p[1]]; }
+      drag = cand; drag.id = e.pointerId;
+      renderer.domElement.setPointerCapture(e.pointerId);
+      sGrab();
+    });
+    renderer.domElement.addEventListener('pointermove', e => {
+      if (!drag || e.pointerId !== drag.id || state !== 'edit') return;
+      const q = toPhys(e.clientX, e.clientY); if (!q) return;
+      const p = [q[0] + drag.off[0], q[1] + drag.off[1]], i = drag.i;
+      if (drag.type === 'pos') {
+        const r = Math.hypot(p[0], p[1]), k = r > EDIT_R ? EDIT_R / r : 1;
+        setup.p[i] = [p[0] * k, p[1] * k];
+      } else {
+        const dx = p[0] - setup.p[i][0], dy = p[1] - setup.p[i][1], L = Math.hypot(dx, dy) || 1;
+        const s = Math.min(VMAX, Math.max(0, L - D0) / ARW);
+        setup.v[i] = [dx / L * s, dy / L * s];
+      }
+      for (let k = 0; k < 3; k++) { sim.x[k * 2] = setup.p[k][0]; sim.x[k * 2 + 1] = setup.p[k][1]; }
+      prevX.set(sim.x);
+      predDirty = true;
+    });
+    const endDrag = e => { if (drag && e.pointerId === drag.id) { drag = null; sRelease(); } };
+    renderer.domElement.addEventListener('pointerup', endDrag);
+    renderer.domElement.addEventListener('pointercancel', endDrag);
+    addEventListener('keydown', e => { if (e.code === 'Space' || e.code === 'Enter') { if (e.target.closest?.('button, a, select')) return; e.preventDefault(); if (state === 'edit') play(); else if (state === 'result') enterEdit(lastSetup); } });
+
+    // ---------- 毎フレーム ----------
+    let last = performance.now(), clockT = 0;
+    const rp = [[0, 0], [0, 0], [0, 0]];
+    function simStep() {
+      prevX.set(sim.x);
+      if (state === 'play') {
+        const ev = advance(sim, STEP * RATE, true);
+        if (sim.t / RATE >= CAP) { score = CAP; perfect = true; humStop(); sPerfect(); state = 'end'; endEv = { type: 'perfect' }; endT = 0.9; return; }
+        if (ev) { if (ev.type === 'crash') prevX.set(sim.x); endGame(ev); }
+      } else {
+        advance(sim, STEP * RATE, false);
+      }
+      for (let i = 0; i < 3; i++) {
+        if (sim.alive[i] && Math.hypot(sim.x[i * 2], sim.x[i * 2 + 1]) < 60) trailPts[i].push([sim.x[i * 2], sim.x[i * 2 + 1]]);
+        else if (trailPts[i].length) trailPts[i].shift();
+        if (trailPts[i].length > TRAIL_MAX) trailPts[i].shift();
+      }
+    }
+    function frame(now) {
+      requestAnimationFrame(frame);
+      const dt = Math.min(0.05, (now - last) / 1000) * (window.__speed || 1); last = now; clockT += dt;
+      const running = state !== 'edit';
+      if (running) {
+        accT += dt;
+        while (accT >= STEP) { simStep(); accT -= STEP; }
+      }
+      const al = running ? accT / STEP : 1;
+      for (let i = 0; i < 3; i++) { rp[i][0] = prevX[i * 2] + (sim.x[i * 2] - prevX[i * 2]) * al; rp[i][1] = prevX[i * 2 + 1] + (sim.x[i * 2 + 1] - prevX[i * 2 + 1]) * al; }
+
+      // 星
+      for (let i = 0; i < 3; i++) {
+        const s = stars[i];
+        s.g.position.set(rp[i][0] * WS, 0, rp[i][1] * WS);
+        const cur = s.g.scale.x, target = s.scale;
+        s.g.scale.setScalar(cur + (target - cur) * Math.min(1, dt * 6));
+        if (i === CAT) s.body.lookAt(camera.position); else s.body.rotation.y += dt * (0.25 + i * 0.1);
+        const flick = 1 + Math.sin(clockT * (5 + i) + i * 2) * 0.03 + Math.sin(clockT * 13.7 + i) * 0.02;
+        s.glow.scale.setScalar(STAR_R * WS * 5.2 * flick);
+      }
+      // 尾・予測・矢印
+      if (state === 'edit') {
+        if (predDirty) { predict(setup); predDirty = false; }
+        for (let i = 0; i < 3; i++) {
+          ghosts[i].set(predPts[i], 0.005, 0.0001);
+          // 予測の帯は、先ほど薄く
+          const n = predPts[i].length, col = ghosts[i].col;
+          for (let k = 0; k < Math.min(n, ghosts[i].max); k++) { const f = 1 - k / Math.max(1, n - 1), a = 0.45 * (0.25 + 0.75 * f); col[k * 6] = col[k * 6 + 3] = ghosts[i].color.r * a; col[k * 6 + 1] = col[k * 6 + 4] = ghosts[i].color.g * a; col[k * 6 + 2] = col[k * 6 + 5] = ghosts[i].color.b * a; }
+          ghosts[i].mesh.geometry.attributes.color.needsUpdate = true;
+          const A = arrows[i], v = setup.v[i], sp = Math.hypot(v[0], v[1]), tip = tipOf(i);
+          A.g.visible = true;
+          const px = setup.p[i][0] * WS, pz = setup.p[i][1] * WS, tx = tip[0] * WS, tz = tip[1] * WS;
+          const dx = tx - px, dz = tz - pz, L = Math.hypot(dx, dz);
+          A.g.position.set(px, 0.02, pz);
+          A.g.rotation.y = Math.atan2(-dz, dx);
+          const startR = STAR_R * WS * 1.15, len = Math.max(0.001, L - startR - 0.24);
+          A.shaft.visible = A.head.visible = sp > 0.02;
+          A.shaft.scale.x = len; A.shaft.position.x = startR + len / 2;
+          A.head.position.x = L - 0.12;
+          A.ring.position.x = A.pulse.position.x = L;
+          const ph = (clockT * 0.9 + i * 0.33) % 1, active = drag && drag.i === i && drag.type === 'vel';
+          A.pulse.scale.setScalar(1 + ph * 1.4); A.pulse.material.opacity = (1 - ph) * 0.7;
+          A.ring.scale.setScalar(active ? 1.3 : 1);
+        }
+      } else {
+        for (let i = 0; i < 3; i++) {
+          arrows[i].g.visible = false; ghosts[i].hide();
+          const pts = sim.alive[i] ? trailPts[i].concat([[rp[i][0], rp[i][1]]]) : trailPts[i];
+          trails[i].set(pts, 0.01);
+        }
+      }
+      // 境界: 近づいた星があると赤く光る
+      let near = 0;
+      for (let i = 0; i < 3; i++) if (state === 'edit' || sim.alive[i]) near = Math.max(near, smooth(R_ESC * 0.7, R_ESC, Math.hypot(rp[i][0], rp[i][1])));
+      if (state === 'end' || state === 'result') near *= 0.4;
+      bound.material.color.setRGB(0.44 + near * 0.56, 0.55 - near * 0.3, 1 - near * 0.65);
+      bound.material.opacity = 0.3 + near * 0.5;
+      boundTicks.rotation.y += dt * 0.03;
+
+      // プレイ中: ゲージ・音・すれ違い
+      if (state === 'play') {
+        const tsec = sim.t / RATE, ref = Math.max(best, 10);
+        gaugeFill.style.width = Math.min(100, tsec / ref * 100).toFixed(1) + '%';
+        const over = best > 0 && tsec > best;
+        if (over !== gaugeEl.classList.contains('over')) gaugeEl.classList.toggle('over', over);
+        const [d, a, b] = minPair(sim.x);
+        humSet(clamp01((1.1 - d) / 0.9));
+        for (let k = 0; k < 3; k++) passCool[k] -= dt;
+        meowCool -= dt;
+        if (d < 0.62 && passCool[a] <= 0 && passCool[b] <= 0) {
+          const p = clamp01((0.62 - d) / 0.33);
+          sPass(p); passCool[a] = passCool[b] = 0.5;
+          if ((a === CAT || b === CAT) && meowCool <= 0 && d < 0.5) { sMeow(false); meowCool = 2.2; }
+        }
+      }
+      if (state === 'end') {
+        endT += dt;
+        if (!snapCanvas && endT > 0.55) snapPending = true;
+        if (endT > 1.35) finish();
+      }
+      // 演出
+      if (pulseT >= 0) {
+        pulseT += dt;
+        for (let i = 0; i < 3; i++) { const m = pulses[i]; m.position.set(rp[i][0] * WS, 0.03, rp[i][1] * WS); m.scale.setScalar(0.3 + pulseT * 2.4); m.material.opacity = Math.max(0, 0.8 - pulseT * 1.4); }
+        if (pulseT > 0.7) { pulseT = -1; pulses.forEach(m => m.material.opacity = 0); }
+      }
+      if (shockT >= 0) {
+        shockT += dt;
+        shock.scale.setScalar(0.2 + shockT * 6); shock.material.opacity = Math.max(0, 1 - shockT * 0.9);
+        flash.scale.setScalar(2 + shockT * 10); flash.material.opacity = Math.max(0, 1 - shockT * 2.2);
+        if (shockT > 1.2) { shockT = -1; shock.material.opacity = 0; flash.material.opacity = 0; }
+      }
+      updateParts(dt);
+      updateGrid(rp);
+      composer.render();
+      if (snapPending) { snapPending = false; takeSnap(); }
+    }
+
+    // ---------- 開始 ----------
+    window.__state = () => ({ state, score, best, setup });
+    window.__play = () => play();
+    window.__setup = s => enterEdit(normalize(cloneSetup(s)));
+    layout();
+    applyLang();
+    enterEdit(setup);
+    updateGrid(rp);
+    composer.render(); // 空回しして、最初のフレームで固まらないように
+    renderer.compileAsync?.(scene, camera).catch(() => {});
+    requestAnimationFrame(t0 => { last = t0; frame(t0); });
+  </script>
+</body>
+</html>
