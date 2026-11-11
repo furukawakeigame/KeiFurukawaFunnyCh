@@ -279,8 +279,9 @@
       noise(0.02, 0.25, 5000, 'highpass');
     }
     // 板前の「へいっ！」
-    const sHei = () => speak(pick(['へいっ', 'へい', 'はいよ']), { f0: 125 + Math.random() * 15, rate: 1.15, shout: 1.2 });
-    const sCorrect = () => { chin(); setTimeout(sHei, 120); };
+    // 「チン」のあと大将が「へいっ」。返り値は「へいっ」を言い終わるまでの秒数
+    const HEI = ['へいっ', 'へい', 'はいよ'];
+    const sCorrect = () => { chin(); const w = pick(HEI), f0 = 125 + Math.random() * 15; setTimeout(() => speak(w, { f0, rate: 1.15, shout: 1.2 }), 120); return 0.12 + parseKana(w).length * 0.13 / 1.15 + 0.15; };
     // 外れ: 低い「ブッ」＋鈍く当たる音
     const sWrong = () => { tone('square', 150, 80, 0.22, 0.09); tone('sine', 180, 70, 0.2, 0.3); noise(0.06, 0.3, 500); };
     // ---------- 大将の声（Web Audio で合成して、ひらがなを1音ずつ発音する） ----------
@@ -809,7 +810,7 @@
     // 大将は寿司屋なので、どの言語でも魚の名前は日本語で言う（吹き出しは選んだ言語）
     const sayTarget = () => { if (target >= 0 && state === 'play') say(FISH[target][1]); };
     // 開いた時点では声が出せないので、最初に触ったときに大将がお題を言う
-    let firstTouch = true;
+    let firstTouch = true, sayTimer = 0;
     const onFirst = () => { if (!firstTouch) return; firstTouch = false; setTimeout(sayTarget, 60); };
     addEventListener('pointerdown', onFirst); addEventListener('keydown', onFirst);
     const chefMeshes = []; chef.traverse(o => { if (o.isMesh) chefMeshes.push(o); }); chefMeshes.push(head);
@@ -825,10 +826,10 @@
       if (found.has(i)) return;
       if (id === target) {
         found.add(i); score++;
-        jump(i); sCorrect();
+        jump(i); const heiEnd = sCorrect();
         drawCup();
         nextTarget();
-        if (target < 0) finishSoon(); else setTimeout(sayTarget, 380);
+        if (target < 0) finishSoon(); else { clearTimeout(sayTimer); sayTimer = setTimeout(sayTarget, (heiEnd + 0.55) * 1000); } // 「へいっ」と次のお題の間をあける
       } else {
         timeLeft = Math.max(0, timeLeft - PENALTY);
         flash(i, '#ff3a2a', 0.45, 0.75); shake = 0.3; sWrong(); nod = 0.6; setTimeout(sHmm, 120);
