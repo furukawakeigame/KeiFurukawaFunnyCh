@@ -97,7 +97,7 @@
     window.YUNOMI_READY = true;
 
     const SHARE_URL = 'https://keifurukawafunnych.com/games/sushi-yunomi/';
-    const TIME = 60, PENALTY = 3, BONUS = 5, HINT_AFTER = 8;
+    const TIME = 60, PENALTY = 3, BONUS = 5;
 
     // ---------- 魚 ----------
     // [漢字, ひらがな, 한국어, English, ไทย]（前の方ほど有名。お題は有名な方から出す）
@@ -412,7 +412,7 @@
     cup.position.y = FLOOR + 0.1 + BH / 2;
     shade(cup); tea.castShadow = false; inner.castShadow = false;
 
-    // 字の上に重ねる光（ヒント・正解・外れ）
+    // 字の上に重ねる光（外れ・猫）
     const glowTex = canvasTex(128, 128, (g, w, h) => {
       const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.55, 'rgba(255,255,255,.7)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
       g.fillStyle = gr; g.fillRect(0, 0, w, h);
@@ -602,12 +602,11 @@
     function setScrape(v) { if (!scrapeGain || !ac) return; const g = soundOn ? Math.min(0.12, v * 0.025) : 0; if (Math.abs(g - scrapeShown) > 0.004) { scrapeShown = g; scrapeGain.gain.setTargetAtTime(g, ac.currentTime, 0.04); } }
 
     // ---------- ゲーム ----------
-    let state = 'play', timeLeft = TIME, score = 0, order = [], target = -1, hintT = 0, catUsed = false, endT = 0, needSnap = false, shake = 0;
+    let state = 'play', timeLeft = TIME, score = 0, order = [], target = -1, catUsed = false, endT = 0, needSnap = false, shake = 0;
     const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
     function begin() { if (!armed && state === 'play') armed = true; }
     function nextTarget() {
       target = order.length ? order.shift() : -1;
-      hintT = 0;
       drawFuda(true);
     }
     function tap(e) {
@@ -623,7 +622,7 @@
       if (found.has(i)) return;
       if (id === target) {
         found.add(i); score++;
-        flash(i, '#ffd84a', 0.6, 0.9); jump(i); sCorrect();
+        jump(i); sCorrect();
         drawCup();
         // 当たった字が正面に来るように少し回す
         nextTarget();
@@ -643,7 +642,7 @@
       for (const p of patches) { cup.remove(p); p.geometry.dispose(); p.material.dispose(); }
       patches = cells.map((_, i) => makePatch(i));
       flashes.length = 0;
-      score = 0; timeLeft = TIME; armed = false; catUsed = false; hintT = 0; spin = 0;
+      score = 0; timeLeft = TIME; armed = false; catUsed = false; spin = 0;
       cup.rotation.y = Math.random() * Math.PI * 2;
       drawCup();
     }
@@ -669,13 +668,8 @@
     function step(dt) {
       if (state === 'play') {
         if (armed) {
-          timeLeft -= dt; hintT += dt;
+          timeLeft -= dt;
           if (timeLeft <= 0) { timeLeft = 0; finishSoon(); }
-          // しばらく見つからないと、正解の字がうっすら光る
-          if (hintT > HINT_AFTER && target >= 0) {
-            const i = cells.indexOf(target), p = patches[i];
-            if (p && !flashes.some(f => f.m === p)) { p.material.color.set('#ffa800'); p.material.opacity = Math.min(0.75, (hintT - HINT_AFTER) * 0.25) * (0.6 + 0.4 * Math.sin(hintT * 5)); }
-          }
           drawGauge();
         }
         const kd = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
@@ -694,8 +688,6 @@
       cup.position.x = Math.sin(shake * 70) * shake * 0.12;
       stepFx(dt); stepSteam(dt);
     }
-    // ヒントの光は、お題が変わったら消す
-    function clearHints() { for (const p of patches) if (!flashes.some(f => f.m === p)) p.material.opacity = 0; }
 
     // ---------- 画面 ----------
     function renderControls() {
@@ -771,16 +763,15 @@
       renderControls(); resize();
     }
     function finish() {
-      state = 'result'; clearHints();
+      state = 'result';
       drawFuda();
       snap = null; needSnap = true;
       renderControls(); resize();
     }
 
     // ---------- ループ ----------
-    let last = performance.now(), acc = 0, lastTarget = -2, swayT = 0;
+    let last = performance.now(), acc = 0, swayT = 0;
     function render() {
-      if (target !== lastTarget) { lastTarget = target; clearHints(); }
       renderer.render(scene, camera);
       if (needSnap) { needSnap = false; takeSnap(); prepareShare(); }
     }
