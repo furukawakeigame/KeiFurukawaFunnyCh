@@ -49,9 +49,7 @@
     #result b.gold { color: #ffe39a; text-shadow: 0 0 28px rgba(255, 170, 60, .85), 0 3px 0 #4a2a08; }
     #result span { font-size: clamp(16px, 3.8vmin, 32px); font-weight: 800; color: #b8c8ff; text-shadow: 0 2px 6px #000; }
     #result span.gold { color: #ffd890; text-shadow: 0 0 12px rgba(255, 160, 60, .6), 0 2px 0 #3a2208; }
-    @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
-      #result { top: 56px; bottom: calc(80px + env(safe-area-inset-bottom)); height: auto; right: auto; width: 30%; }
-    }
+
     #msg { position: fixed; inset: 0; z-index: 6; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
     /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
     #controls { position: fixed; left: 0; right: 0; z-index: 5; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; }
@@ -65,6 +63,15 @@
     .sub { background: rgba(40, 50, 90, .85); box-shadow: 0 4px 0 #141a33; flex: 0 0 clamp(64px, 18%, 96px) !important; border: 1px solid rgba(160, 180, 255, .3) !important; }
     .post { background: #111; box-shadow: 0 4px 0 #000; border: 1px solid #444 !important; flex: 0 0 30% !important; font-size: clamp(16px, 2.6vmin, 20px) !important; }
     #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
+    /* 背の低い横長画面: 結果とボタンを右の列にまとめ、遊ぶ範囲を左に広く取る */
+    @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+      #controls { left: auto; right: 0; width: min(36vw, 300px); margin: 0; flex-direction: column; padding: 0 12px 0 0; }
+      #controls button, #controls a, .sub, .post { flex: 0 0 auto !important; height: clamp(42px, 11vh, 56px); }
+      #result { top: 52px; left: auto; right: 0; width: min(36vw, 300px); height: auto; bottom: calc(80px + env(safe-area-inset-bottom) + 3 * clamp(42px, 11vh, 56px) + 24px); padding: 0 12px 0 0; }
+      #result b { font-size: clamp(30px, 10vh, 64px); }
+      #result span { font-size: clamp(14px, 4.4vh, 24px); }
+      #gauge { left: calc((100% - min(36vw, 300px)) / 2); width: min(40vw, 360px); }
+    }
   </style>
 </head>
 <body>
@@ -751,22 +758,23 @@
     function btnHeight() { return Math.min(72, Math.max(56, 0.08 * Math.min(innerWidth, innerHeight))) + 14; }
     function layout() {
       const w = stageEl.clientWidth, H = stageEl.clientHeight;
-      const top = 72; // 戻るリンク・音・言語・ゲージ
-      const shortWide = H <= 520 && w / H >= 4 / 3;
-      const reserve = 80 + btnHeight();
+      const shortWide = matchMedia('(max-height: 520px) and (min-aspect-ratio: 4/3)').matches;
+      const top = shortWide ? 66 : 72; // 戻るリンク・音・言語・ゲージ
+      const reserve = shortWide ? 80 : 80 + btnHeight();
       const fh = Math.max(120, H - top - reserve);
+      const rw = shortWide ? w - Math.min(w * 0.36, 300) : w; // 右の列を除いた幅
       view = { w, H, top, fh };
       renderer.setSize(w, H, false);
       composer.setSize(w, H);
       bloom.resolution.set(w / 2, H / 2);
       // 縦長ほど真上から見る
-      const asp = w / fh, el = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(52 + (1.6 - asp) * 22, 50, 74));
+      const asp = rw / fh, el = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(52 + (1.6 - asp) * 22, 50, 74));
       CAM_DIR.set(0, Math.sin(el), Math.cos(el));
-      camera.aspect = w / fh;
-      camera.setViewOffset(w, fh, 0, -top, w, H);
+      camera.aspect = rw / fh;
+      camera.setViewOffset(rw, fh, 0, -top, w, H);
       camera.updateProjectionMatrix();
       // 輪（と矢印の余裕）が必ず入る距離を探す。背の低い横長画面では結果を左に出すので、少し右に寄せる
-      fitCam.aspect = w / fh; fitCam.updateProjectionMatrix();
+      fitCam.aspect = rw / fh; fitCam.updateProjectionMatrix();
       const R = R_ESC * WS + 0.45, pts = [];
       for (let i = 0; i < 32; i++) { const a = i / 32 * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * R, 0, Math.sin(a) * R)); }
       let lo = 3, hi = 300;
