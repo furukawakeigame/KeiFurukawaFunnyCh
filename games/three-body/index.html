@@ -351,22 +351,6 @@
       const mvx = (setup.v[0][0] + setup.v[1][0] + setup.v[2][0]) / 3, mvy = (setup.v[0][1] + setup.v[1][1] + setup.v[2][1]) / 3;
       for (let i = 0; i < 3; i++) { sim.x[i * 2] = setup.p[i][0]; sim.x[i * 2 + 1] = setup.p[i][1]; sim.v[i * 2] = setup.v[i][0] - mvx; sim.v[i * 2 + 1] = setup.v[i][1] - mvy; }
     }
-    // 予測: 少し先までの軌跡
-    const PRED_T = 3.4, PRED_N = 170;
-    const predPts = [[], [], []];
-    let predEnd = null;
-    function predict(setup) {
-      const save = { x: sim.x.slice(), v: sim.v.slice(), m: sim.m.slice(), alive: sim.alive.slice(), t: sim.t };
-      loadSim(setup);
-      predEnd = null;
-      for (let i = 0; i < 3; i++) predPts[i] = [[sim.x[i * 2], sim.x[i * 2 + 1]]];
-      for (let n = 0; n < PRED_N; n++) {
-        const ev = advance(sim, PRED_T / PRED_N, true);
-        for (let i = 0; i < 3; i++) predPts[i].push([sim.x[i * 2], sim.x[i * 2 + 1]]);
-        if (ev) { predEnd = ev; break; }
-      }
-      sim.x.set(save.x); sim.v.set(save.v); sim.m = save.m; sim.alive = save.alive; sim.t = save.t;
-    }
     // テスト用: 配置の持ち時間（秒）
     window.__life = (setup, max = CAP) => { loadSim(setup); let ev = null; while (!ev && sim.t < max * RATE) ev = advance(sim, 0.02, true); return { sec: sim.t / RATE, ev }; };
 
@@ -589,7 +573,6 @@
     }
     const TRAIL_MAX = 520;
     const trails = STARS.map(S => new Ribbon(TRAIL_MAX, S.glow, 0.075, 1.15));
-    const ghosts = STARS.map(S => new Ribbon(PRED_N + 2, S.glow, 0.035, 0.45));
     const trailPts = [[], [], []];
 
     // ---------- 速さの矢印（つまみ付き） ----------
@@ -799,7 +782,6 @@
     let lastSetup = cloneSetup(setup);
     let best = store.get('best', 0);
     let score = 0, endT = 0, endEv = null, newBest = false, perfect = false;
-    let predDirty = true;
     const prevX = new Float64Array(6);
     let accT = 0;
     let snapPending = false, snapCanvas = null, shareCache = null;
@@ -815,7 +797,6 @@
       for (let i = 0; i < 3; i++) { sim.x[i * 2] = setup.p[i][0]; sim.x[i * 2 + 1] = setup.p[i][1]; }
       prevX.set(sim.x);
       for (let i = 0; i < 3; i++) { trailPts[i] = []; trails[i].hide(); stars[i].g.visible = true; stars[i].scale = 1; }
-      predDirty = true;
       resultEl.style.display = 'none';
       gaugeEl.style.opacity = 0;
       humStop();
@@ -828,7 +809,7 @@
       loadSim(setup);
       prevX.set(sim.x); accT = 0;
       state = 'play'; score = 0; perfect = false; newBest = false;
-      for (let i = 0; i < 3; i++) { trailPts[i] = [[sim.x[i * 2], sim.x[i * 2 + 1]]]; ghosts[i].hide(); }
+      for (let i = 0; i < 3; i++) { trailPts[i] = [[sim.x[i * 2], sim.x[i * 2 + 1]]]; }
       passCool = [0, 0, 0]; meowCool = 0;
       pulseT = 0;
       gaugeEl.style.opacity = 1; gaugeEl.classList.remove('over'); gaugeFill.style.width = '0%';
@@ -996,7 +977,6 @@
       }
       for (let k = 0; k < 3; k++) { sim.x[k * 2] = setup.p[k][0]; sim.x[k * 2 + 1] = setup.p[k][1]; }
       prevX.set(sim.x);
-      predDirty = true;
     });
     const endDrag = e => { if (drag && e.pointerId === drag.id) { drag = null; sRelease(); } };
     renderer.domElement.addEventListener('pointerup', endDrag);
@@ -1044,13 +1024,7 @@
       }
       // 尾・予測・矢印
       if (state === 'edit') {
-        if (predDirty) { predict(setup); predDirty = false; }
         for (let i = 0; i < 3; i++) {
-          ghosts[i].set(predPts[i], 0.005, 0.0001);
-          // 予測の帯は、先ほど薄く
-          const n = predPts[i].length, col = ghosts[i].col;
-          for (let k = 0; k < Math.min(n, ghosts[i].max); k++) { const f = 1 - k / Math.max(1, n - 1), a = 0.45 * (0.25 + 0.75 * f); col[k * 6] = col[k * 6 + 3] = ghosts[i].color.r * a; col[k * 6 + 1] = col[k * 6 + 4] = ghosts[i].color.g * a; col[k * 6 + 2] = col[k * 6 + 5] = ghosts[i].color.b * a; }
-          ghosts[i].mesh.geometry.attributes.color.needsUpdate = true;
           const A = arrows[i], v = setup.v[i], sp = Math.hypot(v[0], v[1]), tip = tipOf(i);
           A.g.visible = true;
           const px = setup.p[i][0] * WS, pz = setup.p[i][1] * WS, tx = tip[0] * WS, tz = tip[1] * WS;
@@ -1068,7 +1042,7 @@
         }
       } else {
         for (let i = 0; i < 3; i++) {
-          arrows[i].g.visible = false; ghosts[i].hide();
+          arrows[i].g.visible = false;
           const pts = sim.alive[i] ? trailPts[i].concat([[rp[i][0], rp[i][1]]]) : trailPts[i];
           trails[i].set(pts, 0.01);
         }
