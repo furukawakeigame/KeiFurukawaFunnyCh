@@ -516,15 +516,15 @@
     //     wait(始まる前、少し離れて様子を見る) / caught(押された) / fly(箱へ飛ぶ) / cheer(勝ってはしゃぐ)
     const mice = [];
     const flyingW = [];  // 取り返して皿へ戻るチーズ
-    function spawnMouse(fast) {
-      const side = Math.random(), m = newMouse();
+    function spawnMouse(fast, side = Math.random()) {
+      const m = newMouse();
       let x, z;
       if (side < 0.32) { x = DESK.x0 + 0.2; z = rnd(-1.8, 2.6); }
       else if (side < 0.64) { x = DESK.x1 - 0.2; z = rnd(-1.8, 2.6); }
       else if (side < 0.9) { x = rnd(-4, 4); z = DESK.z1 - 0.2; }
       else { x = rnd(-3.5, 3.5); z = DESK.z0 + 0.3; }
       const p = new THREE.Vector3(x, -0.7, z);
-      const o = { m, p, pp: p.clone(), st: 'climb', t: 0, sp: Math.min(3.4, 1.4 + elapsed * 0.035) * (fast ? 1.55 : 1) * rnd(0.9, 1.1), dir: 0, wiggle: rnd(0, 6), wedge: null, carry: null, bob: 0, eatT: Math.max(0.8, 1.5 - elapsed * 0.012) };
+      const o = { m, p, pp: p.clone(), st: 'climb', t: 0, sp: Math.min(4.6, 1.9 + elapsed * 0.06) * (fast ? 1.6 : 1) * rnd(0.9, 1.1), dir: 0, wiggle: rnd(0, 6), wedge: null, carry: null, bob: 0, eatT: Math.max(0.5, 1.0 - elapsed * 0.015) };
       o.dir = Math.atan2(CHEESE.x - x, CHEESE.z - z);
       m.position.copy(p); m.rotation.y = o.dir; scene.add(m);
       mice.push(o);
@@ -633,7 +633,7 @@
     const catchable = o => ['climb', 'run', 'wait', 'eat', 'flee'].includes(o.st) && o.p.y > -0.4;
     function tapAt(e) {
       const r = renderer.domElement.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
-      let best = null, bd = 34 + 0.07 * Math.min(r.width, r.height);
+      let best = null, bd = 24 + 0.05 * Math.min(r.width, r.height);
       for (const o of mice) if (catchable(o)) {
         const v = o.p.clone().setY(0.25).project(camera), d = Math.hypot((v.x + 1) / 2 * r.width - x, (1 - v.y) / 2 * r.height - y);
         if (d < bd) { bd = d; best = o; }
@@ -696,8 +696,11 @@
     function spawnTick() {
       const alive = mice.filter(o => !['fly', 'gone'].includes(o.st)).length;
       if (!armed) { if (alive < 3) spawnMouse(false); return; }
-      if (alive >= 14) return;
-      spawnMouse(elapsed > 15 && Math.random() < Math.min(0.3, (elapsed - 15) / 60));
+      if (alive >= 22) return;
+      const fast = () => elapsed > 6 && Math.random() < Math.min(0.4, (elapsed - 6) / 40);
+      // 10秒をすぎると、同じ方向から3匹まとめて押し寄せることがある
+      if (elapsed > 10 && Math.random() < Math.min(0.25, (elapsed - 10) / 60)) { const side = Math.random(); for (let i = 0; i < 3; i++) spawnMouse(fast(), side); }
+      else spawnMouse(fast());
     }
     function gameOver() {
       state = 'over'; overT = 0;
@@ -714,7 +717,7 @@
       if (state === 'play') {
         if (armed) elapsed += dt;
         nextSpawn -= dt;
-        if (nextSpawn <= 0) { spawnTick(); nextSpawn = armed ? Math.max(0.42, 1.7 * Math.exp(-elapsed / 35)) * rnd(0.7, 1.3) : 2.0; }
+        if (nextSpawn <= 0) { spawnTick(); nextSpawn = armed ? Math.max(0.22, 1.1 * Math.exp(-elapsed / 22)) * rnd(0.7, 1.3) : 2.0; }
       }
       let chewing = false;
       for (let k = mice.length - 1; k >= 0; k--) {
