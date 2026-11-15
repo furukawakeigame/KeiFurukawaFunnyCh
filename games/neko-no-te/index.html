@@ -42,6 +42,16 @@
     @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
       #result { top: 0; bottom: var(--reserve, 160px); height: auto; width: 32%; }
     }
+    /* 猫のセリフの吹き出し（口元に向けたしっぽ付き） */
+    #say { position: absolute; z-index: 2; display: none; pointer-events: none; max-width: min(58vw, 420px); text-wrap: balance; word-break: keep-all;
+      background: #fff; color: #2a1a10; border: 3px solid #2a1a10; border-radius: 20px; padding: 10px 14px;
+      font-size: clamp(15px, calc(1.6vmin + 9px), 24px); font-weight: 800; line-height: 1.35; box-shadow: 0 4px 0 rgba(42,26,16,.25);
+      transform-origin: 100% 80%; }
+    #say.on { display: block; animation: pop .22s cubic-bezier(.3,1.6,.6,1); }
+    #say::after { content: ""; position: absolute; right: -16px; bottom: 12px; border: 9px solid transparent; border-left: 14px solid #2a1a10; }
+    #say::before { content: ""; position: absolute; right: -9px; bottom: 14px; border: 7px solid transparent; border-left: 11px solid #fff; z-index: 1; }
+    @keyframes pop { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { #say.on { animation: none; } }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
     /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
     #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; }
@@ -62,7 +72,7 @@
     <button id="sound" aria-label="sound"></button>
     <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
   </header>
-  <div id="stage"><div id="result"><b></b></div><div id="msg"></div></div>
+  <div id="stage"><div id="say"></div><div id="result"><b></b></div><div id="msg"></div></div>
   <div id="controls"></div>
 
   <script>
@@ -93,6 +103,19 @@
       en: { title: "Lend Me a Cat's Paw", back: '← Back to top', again: 'Play again', post: 'Post on X', count: n => `${n} ${n === 1 ? 'mouse' : 'mice'}`, share: n => `I borrowed a cat's paw and caught ${n} ${n === 1 ? 'mouse' : 'mice'} #猫の手も借りたいゲーム` },
       th: { title: 'ขอยืมมือแมวหน่อย', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', count: n => `${n} ตัว`, share: n => `ยืมมือแมวมาจับหนูได้ ${n} ตัว #猫の手も借りたいゲーム` },
     };
+    // 猫のセリフ（4言語で同じ順番）
+    const LINES = {
+      ja: ['ネズミのしっぽは揚げるとうまい', 'チーズより、おまえが食べたい', '猫の手、高くつくぞ', 'ネズミは前菜、チーズはデザート', 'ネズミの耳はコリコリしてうまい', 'チュウチュウうるさいニャ', '残業代はカリカリでたのむ', '肉球ハンコ、押しときました', 'ネズミの踊り食い、いっとく？'],
+      ko: ['쥐 꼬리는 튀기면 맛있어', '치즈보다 네가 더 먹고 싶어', '고양이 손, 비싸다', '쥐는 전채, 치즈는 디저트', '쥐 귀는 오독오독 맛있어', '찍찍 시끄럽다냥', '야근 수당은 사료로 부탁해', '젤리 도장 찍어 뒀어', '쥐 산 채로 먹기, 해 볼까?'],
+      en: ['Mouse tails are tasty deep-fried', 'Forget the cheese. I want YOU', "This paw doesn't come cheap", 'Mice for starters, cheese for dessert', 'Mouse ears are nice and crunchy', 'Squeak, squeak. So noisy', 'Pay my overtime in kibble', 'Paw stamp: approved', 'Anyone for live mouse sashimi?'],
+      th: ['หางหนูเอาไปทอดอร่อยนะ', 'ชีสน่ะช่างมัน ฉันอยากกินแกมากกว่า', 'มือแมวไม่ได้ให้ยืมฟรีนะ', 'หนูเป็นของว่าง ชีสเป็นของหวาน', 'หูหนูกรุบกรอบอร่อยดี', 'จี๊ดๆ หนวกหูจังเมี้ยว', 'ค่าโอทีขอเป็นอาหารเม็ดนะ', 'ปั๊มตราอุ้งเท้าให้แล้ว', 'หนูสดๆ ลองสักตัวไหม'],
+    };
+    const EVENT_LINES = {
+      ja: { stolen: 'あっ、ぼくのチーズ！', over: 'ネズミのしっぽ、揚げそこねた…' },
+      ko: { stolen: '앗, 내 치즈!', over: '쥐 꼬리 튀기기 실패…' },
+      en: { stolen: "Hey, that's MY cheese!", over: 'So much for fried mouse tails...' },
+      th: { stolen: 'เฮ้ย ชีสของฉัน!', over: 'อดกินหางหนูทอดเลย...' },
+    };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
     const langSel = document.getElementById('lang');
@@ -103,6 +126,7 @@
       document.title = t('title');
       document.getElementById('back').textContent = t('back');
       renderControls();
+      if (sayKey !== null) sayEl.textContent = lineText(sayKey);
       if (state === 'result') { showResult(); prepareShare(); }
     }
 
@@ -625,7 +649,7 @@
       bodyBase.perPx = bodyBase.w / S;
       body.scale.setScalar(bodyBase.w);
     }
-    addEventListener('resize', resize);
+    addEventListener('resize', () => { resize(); placeSay(); });
 
     // ---------- 入力 ----------
     // 押した所に一番近いネズミを、画面上の距離で選ぶ（多少ずれても拾う）
@@ -657,9 +681,34 @@
     });
     stage.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 
+    // ---------- 猫のセリフ ----------
+    const sayEl = document.getElementById('say');
+    let sayKey = null, sayT = 0, nextSay = 6, lastLine = -1;
+    const lineText = k => typeof k === 'number' ? LINES[lang][k] : EVENT_LINES[lang][k];
+    function say(k, dur = 2.8) {
+      sayKey = k; sayT = dur;
+      sayEl.textContent = lineText(k);
+      sayEl.classList.remove('on'); void sayEl.offsetWidth; sayEl.classList.add('on');
+      placeSay(); sMeow();
+    }
+    function sayRandom() { let i; do { i = Math.floor(Math.random() * LINES.ja.length); } while (i === lastLine); lastLine = i; say(i); }
+    function hideSay() { if (sayKey !== null) { sayKey = null; sayEl.classList.remove('on'); } }
+    // 吹き出しは猫の口元の左に出す。左に余裕がない画面では、猫のほおに重ねる
+    function placeSay() {
+      if (sayKey === null) return;
+      const v = catBase.pos.clone().project(camera), W = stage.clientWidth, H = stage.clientHeight;
+      const cx = (v.x + 1) / 2 * W, cy = (1 - v.y) / 2 * H, S = catBase.S;
+      const right = cx - 0.2 * S, mouthY = cy + 0.1 * S;
+      const edge = Math.max(right, Math.min(W * 0.6, 240)), over = edge > right + 4;
+      sayEl.style.right = Math.max(8, W - edge) + 'px';
+      sayEl.style.left = 'auto';
+      // 顔に重なるときは目を隠さないよう、口元より下（ほおの下）に出す
+      sayEl.style.top = Math.max(6, over ? mouthY - 8 : mouthY - sayEl.offsetHeight + 4) + 'px';
+    }
+
     // ---------- ゲーム ----------
     let state = 'play', armed = false, score = 0, elapsed = 0, nextSpawn = 0, overT = 0, needSnap = false, clock = 0, meowIn = 4, chewT = 0;
-    function startPlay() { if (!armed) { armed = true; elapsed = 0; nextSpawn = 0.8; for (const o of mice) if (o.st === 'wait') o.st = 'run'; } }
+    function startPlay() { if (!armed) { armed = true; elapsed = 0; nextSpawn = 0.8; lastLine = 0; nextSay = rnd(5, 8); say(0); for (const o of mice) if (o.st === 'wait') o.st = 'run'; } }
     function swing(x, z, y) {
       // 前足: 左側は左手、右側は右手
       const a = x < -0.3 ? arms[0] : x > 0.3 ? arms[1] : arms[nextArm = 1 - nextArm];
@@ -691,7 +740,7 @@
       for (const w of wedges) { w.st = 'home'; w.eater = null; w.s = 1; w.m.visible = true; w.m.scale.setScalar(1); w.m.position.copy(w.home); }
       for (const m of trayStack) tray.remove(m); trayStack.length = 0;
       for (const a of arms) { a.t = 9; a.lift = 0; a.from.copy(a.rest); a.target.copy(a.rest); a.cur.copy(a.rest); }
-      score = 0; armed = false; elapsed = 0; nextSpawn = 0.6; overT = 0;
+      score = 0; armed = false; elapsed = 0; nextSpawn = 0.6; overT = 0; hideSay();
     }
     function spawnTick() {
       const alive = mice.filter(o => !['fly', 'gone'].includes(o.st)).length;
@@ -704,7 +753,7 @@
     }
     function gameOver() {
       state = 'over'; overT = 0;
-      sGameOver();
+      sGameOver(); say('over', 9);
       for (const o of mice) if (['climb', 'run', 'wait', 'eat'].includes(o.st)) { o.st = 'cheer'; o.t = rnd(0, 0.3); }
       for (const a of arms) { a.t = 9; a.lift = 0; }
       renderControls();
@@ -761,6 +810,7 @@
             o.st = 'flee'; o.t = 0; o.dir = Math.atan2(o.wedge.dir.x, o.wedge.dir.y); o.sp *= 1.1;
             sSqueak(1.2); setTimeout(() => sSqueak(1.35), 100);
             if (state === 'play' && !homeWedges().length && !flyingW.length) gameOver();
+            else if (state === 'play' && (sayKey === null || sayT < 2)) { say('stolen', 2); nextSay = Math.max(nextSay, 4); }
           }
         } else if (o.st === 'flee') {
           o.p.x += Math.sin(o.dir) * o.sp * dt; o.p.z += Math.cos(o.dir) * o.sp * dt;
@@ -799,6 +849,9 @@
         if (q >= 1) { w.m.position.copy(w.home); w.st = 'home'; flyingW.splice(k, 1); tone('sine', 520, 880, 0.12, 0.1); }
       }
       for (const w of wedges) if (w.st === 'home' && !flyingW.some(f => f.w === w)) w.m.scale.setScalar(w.eater ? w.s : 1);
+      // セリフ: しばらく出したら消し、5〜8秒ごとに次を言う
+      if (sayKey !== null) { sayT -= dt; if (sayT <= 0) hideSay(); }
+      if (state === 'play' && armed) { nextSay -= dt; if (nextSay <= 0 && sayKey === null) { sayRandom(); nextSay = rnd(5, 8); } }
       for (const a of arms) a.t += dt;
       stepFx(dt);
       if (state === 'over') {
@@ -882,7 +935,7 @@
     }
     function showResult() { resultEl.children[0].textContent = t('count')(score); }
     function finish() {
-      state = 'result';
+      state = 'result'; hideSay();
       showResult();
       resultEl.style.display = 'flex';
       snap = null; needSnap = true;
