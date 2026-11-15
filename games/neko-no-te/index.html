@@ -88,10 +88,10 @@
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
-      ja: { title: '猫の手も借りたい', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', count: n => `${n}枚`, share: n => `猫の手を借りて書類を${n}枚片付けた #猫の手も借りたいゲーム` },
-      ko: { title: '고양이 손이라도 빌리고 싶어', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', count: n => `${n}장`, share: n => `고양이 손을 빌려 서류 ${n}장을 처리했다 #猫の手も借りたいゲーム` },
-      en: { title: "Lend Me a Cat's Paw", back: '← Back to top', again: 'Play again', post: 'Post on X', count: n => `${n} ${n === 1 ? 'sheet' : 'sheets'}`, share: n => `I borrowed a cat's paw and cleared ${n} ${n === 1 ? 'sheet' : 'sheets'} of paperwork #猫の手も借りたいゲーム` },
-      th: { title: 'ขอยืมมือแมวหน่อย', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', count: n => `${n} แผ่น`, share: n => `ยืมมือแมวมาเคลียร์เอกสารได้ ${n} แผ่น #猫の手も借りたいゲーム` },
+      ja: { title: '猫の手も借りたい', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', count: n => `${n}匹`, share: n => `猫の手を借りてネズミを${n}匹捕まえた #猫の手も借りたいゲーム` },
+      ko: { title: '고양이 손이라도 빌리고 싶어', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', count: n => `${n}마리`, share: n => `고양이 손을 빌려 쥐 ${n}마리를 잡았다 #猫の手も借りたいゲーム` },
+      en: { title: "Lend Me a Cat's Paw", back: '← Back to top', again: 'Play again', post: 'Post on X', count: n => `${n} ${n === 1 ? 'mouse' : 'mice'}`, share: n => `I borrowed a cat's paw and caught ${n} ${n === 1 ? 'mouse' : 'mice'} #猫の手も借りたいゲーム` },
+      th: { title: 'ขอยืมมือแมวหน่อย', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', count: n => `${n} ตัว`, share: n => `ยืมมือแมวมาจับหนูได้ ${n} ตัว #猫の手も借りたいゲーム` },
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -206,13 +206,27 @@
     }
     // 紙が飛ぶ「シュッ」
     const sWhoosh = () => hiss(0.22, 0.22, [['bandpass', 1200, 1.5, 1, 4200]], 0, 0.06);
-    // 紙が積もる「パサッ」
+    // ネズミが乗っかる「ポテッ」
     function sLand(heavy) {
-      hiss(heavy ? 0.16 : 0.1, heavy ? 0.5 : 0.22, [['bandpass', 1800 + Math.random() * 900, 0.9, 1], ['highpass', 4000, 0.7, 0.4]]);
+      hiss(heavy ? 0.12 : 0.07, heavy ? 0.6 : 0.35, [['lowpass', 700, 0.7, 1.2], ['bandpass', 1500, 1.5, 0.3]]);
+      tone('sine', 260 + Math.random() * 60, 120, 0.08, 0.12);
       if (heavy) { tone('sine', 110, 55, 0.18, 0.4); hiss(0.08, 0.5, [['lowpass', 400, 0.7, 1.5]]); }
     }
     // 輪ゴムが切れる「パチン」
     const sSnap = () => { hiss(0.03, 0.6, [['bandpass', 3200, 3, 1.4]]); tone('triangle', 900, 300, 0.06, 0.15); };
+    // ネズミの「チュッ」: 高い音を素早く上げ下げし、細かく震わせる
+    function sSqueak(k = 1, vol = 0.09) {
+      if (!on()) return;
+      const now = ac.currentTime, dur = 0.07 + Math.random() * 0.06, f = 2900 * k;
+      const o = ac.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(f * 0.8, now); o.frequency.linearRampToValueAtTime(f * 1.15, now + dur * 0.35); o.frequency.exponentialRampToValueAtTime(f * 0.85, now + dur);
+      const vib = ac.createOscillator(); vib.frequency.value = 60; const vg = ac.createGain(); vg.gain.value = f * 0.04; vib.connect(vg).connect(o.frequency);
+      const o2 = ac.createOscillator(); o2.type = 'triangle'; o2.frequency.setValueAtTime(f * 2, now); o2.frequency.exponentialRampToValueAtTime(f * 1.7, now + dur);
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(vol, now + 0.008); g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+      const g2 = ac.createGain(); g2.gain.value = 0.15;
+      o.connect(g); o2.connect(g2).connect(g); g.connect(ac.destination);
+      for (const x of [o, o2, vib]) { x.start(now); x.stop(now + dur + 0.02); }
+    }
     // 猫の声: 高い声で「ニャッ」
     const sMeow = () => voice(560 + Math.random() * 220, pick([['i', 'a'], ['i', 'a', 'u'], ['n', 'a', 'o'], ['i', 'a', 'o']]), 0.22 + Math.random() * 0.14, 0.32, 0.03, 0.12, 1.3, 0.75, 1.25);
     // 崩れた時: 猫の「ニ゛ャー！」と、会社員の「あぁぁ…」
@@ -221,6 +235,7 @@
       voice(720, ['i', 'a', 'a', 'o'], 0.9, 0.42, 0.12, 0.45, 1.25, 0.6, 1.25);
       setTimeout(() => voice(132, ['a', 'a', 'a', 'o'], 1.6, 0.5, 0.06, 0.25, 1.5, 0.55), 520);
       for (let i = 0; i < 6; i++) setTimeout(() => sLand(i % 2 === 0), i * 70 + Math.random() * 40);
+      for (let i = 0; i < 10; i++) setTimeout(() => sSqueak(rnd(0.85, 1.3), 0.07), 120 + i * 90 + Math.random() * 60);
     }
 
     // ---------- 3D ----------
@@ -312,8 +327,8 @@
       scene.add(shade(clock));
     }
 
-    // ---------- 書類 ----------
-    const PW = 1.4, PD = 1.95, TH = 0.1, MAX = 22;
+    // ---------- ネズミ ----------
+    const MS = 1.45, TH = 0.27 * MS, MAX = 7;
     const PILES = [-2.25, 0, 2.25].map(x => ({ x, z: -0.35 }));
     const TRAY = { x: 3.55, z: 1.85 };
     function pawPrint(g, cx, cy, s, color) {
@@ -321,61 +336,92 @@
       g.beginPath(); g.ellipse(cx, cy + s * 0.25, s * 0.42, s * 0.34, 0, 0, Math.PI * 2); g.fill();
       for (const [dx, dy, r] of [[-0.45, -0.18, 0.15], [-0.17, -0.42, 0.16], [0.17, -0.42, 0.16], [0.45, -0.18, 0.15]]) { g.beginPath(); g.ellipse(cx + dx * s, cy + dy * s, r * s, r * s * 1.2, dx * 0.6, 0, Math.PI * 2); g.fill(); }
     }
-    const paperTex = stamped => canvasTex(140, 196, (g, w, h) => {
-      g.fillStyle = '#fbf9f2'; g.fillRect(0, 0, w, h);
-      g.fillStyle = '#5a6a7a'; g.fillRect(14, 14, 60, 9);
-      g.fillStyle = '#b8bec4';
-      for (let y = 36; y < h - 22; y += 10) g.fillRect(14, y, (w - 28) * (0.55 + ((y * 37) % 45) / 100), 3);
-      g.strokeStyle = '#c8ccd0'; g.lineWidth = 1.5; g.strokeRect(w - 46, h - 44, 32, 32);
-      if (stamped) pawPrint(g, w - 30, h - 32, 40, 'rgba(226,70,110,0.9)');
-    });
-    const PAPER_G = new THREE.BoxGeometry(PW, TH, PD), THIN_G = new THREE.BoxGeometry(PW, 0.032, PD);
-    const topPlain = paperTex(false), topStamp = paperTex(true);
-    const EDGE = mat('#ece6d6', 0.9), TOP_STAMP = mat('#ffffff', 0.85, { map: topStamp });
-    const STAMP_MATS = [EDGE, EDGE, TOP_STAMP, EDGE, EDGE, EDGE];
+    // 形をまとめて1つのジオメトリにする（色は頂点ごと）。ネズミ1匹を1回で描けるので軽い
+    const M4 = (x, y, z, sx, sy = sx, sz = sx, rx = 0, ry = 0, rz = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
+    function mergeParts(parts) {
+      const P = [], N = [], C = [], col = new THREE.Color();
+      for (const [geo, color, mtx] of parts) {
+        const g = geo.index ? geo.toNonIndexed() : geo.clone(); g.applyMatrix4(mtx);
+        col.set(color);
+        const pa = g.attributes.position.array, na = g.attributes.normal.array;
+        for (let i = 0; i < pa.length; i++) { P.push(pa[i]); N.push(na[i]); }
+        for (let i = 0; i < pa.length / 3; i++) C.push(col.r, col.g, col.b);
+      }
+      const out = new THREE.BufferGeometry();
+      out.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+      out.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
+      out.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+      return out;
+    }
+    // ネズミ: 丸い胴、とがった鼻先、大きな耳、黒い目、ピンクのしっぽ（頭は手前 +z を向く）
+    const MSPH = new THREE.SphereGeometry(1, 16, 12), MCYL = new THREE.CylinderGeometry(1, 1, 1, 8);
+    const TAIL_CURVE = new THREE.CatmullRomCurve3([[0, 0.1, -0.36], [0.05, 0.06, -0.55], [0.22, 0.05, -0.68], [0.36, 0.1, -0.6], [0.4, 0.2, -0.45]].map(p => new THREE.Vector3(...p)));
+    const MTAIL = new THREE.TubeGeometry(TAIL_CURVE, 16, 0.022, 6, false);
+    function mouseGeo(fur, belly) {
+      const pink = '#f2a0b0', parts = [
+        [MSPH, fur, M4(0, 0.16, -0.04, 0.3, 0.17, 0.4)],          // 胴
+        [MSPH, belly, M4(0, 0.1, 0.02, 0.24, 0.1, 0.32)],          // おなか
+        [MSPH, fur, M4(0, 0.2, 0.3, 0.17, 0.15, 0.19)],            // 頭
+        [MSPH, fur, M4(0, 0.17, 0.46, 0.08, 0.07, 0.11)],          // 鼻先
+        [MSPH, pink, M4(0, 0.18, 0.565, 0.035)],                    // 鼻
+        [MTAIL, pink, M4(0, 0, 0, 1)],
+      ];
+      for (const s of [-1, 1]) {
+        parts.push([MSPH, fur, M4(s * 0.13, 0.35, 0.24, 0.12, 0.12, 0.03, -0.2, s * 0.35)]);           // 耳
+        parts.push([MSPH, pink, M4(s * 0.135, 0.35, 0.255, 0.08, 0.08, 0.02, -0.2, s * 0.35)]);        // 耳の内側
+        parts.push([MSPH, '#14100e', M4(s * 0.075, 0.25, 0.43, 0.034, 0.038, 0.03)]);                 // 目
+        parts.push([MSPH, '#ffffff', M4(s * 0.068, 0.262, 0.455, 0.011)]);                             // 目の光
+        for (const z of [0.2, -0.22]) parts.push([MSPH, pink, M4(s * 0.17, 0.025, z, 0.06, 0.03, 0.08)]); // 足
+        for (const k of [-1, 1]) parts.push([MCYL, '#5a4a44', M4(s * 0.13, 0.17 + k * 0.012, 0.5, 0.004, 0.2, 0.004, 0, 0, s * (Math.PI / 2 + k * 0.15))]); // ひげ
+      }
+      return mergeParts(parts).scale(MS, MS, MS);
+    }
+    const MICE_G = [mouseGeo('#9a9690', '#d8d2ca'), mouseGeo('#8a6a50', '#e0cdb8'), mouseGeo('#eeeae4', '#ffffff'), mouseGeo('#6e6a68', '#c8c0b8')];
+    const MOUSE_M = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 });
     // 山ごとに材質を分けて、危なくなったら赤くする
     for (const p of PILES) {
-      p.edge = mat('#ece6d6', 0.9); p.top = mat('#ffffff', 0.85, { map: topPlain });
-      p.mats = [p.edge, p.edge, p.top, p.edge, p.edge, p.edge];
+      p.mat = MOUSE_M.clone();
       p.sheets = []; p.sway = 0; p.swayV = 0; p.danger = 0;
       // 上限の目印: 赤い輪（危なくなると見える）
-      p.ring = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.04, 8, 48), new THREE.MeshBasicMaterial({ color: '#ff3a3a', transparent: true, opacity: 0, depthWrite: false }));
-      p.ring.rotation.x = Math.PI / 2; p.ring.scale.set(1, 1.3, 1); p.ring.position.set(p.x, MAX * TH, p.z); scene.add(p.ring);
+      p.ring = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.045, 8, 48), new THREE.MeshBasicMaterial({ color: '#ff3a3a', transparent: true, opacity: 0, depthWrite: false }));
+      p.ring.rotation.x = Math.PI / 2; p.ring.scale.set(1, 1.2, 1); p.ring.position.set(p.x, MAX * TH + 0.1, p.z); scene.add(p.ring);
     }
+    const newMouse = (m = MOUSE_M) => { const o = new THREE.Mesh(pick(MICE_G), m); o.castShadow = o.receiveShadow = true; return o; };
     function addSheet(p, jitter = 1) {
-      const m = new THREE.Mesh(PAPER_G, p.mats);
-      m.castShadow = m.receiveShadow = true;
-      m.userData.ox = rnd(-0.08, 0.08) * jitter; m.userData.oz = rnd(-0.08, 0.08) * jitter; m.userData.ry = rnd(-0.12, 0.12) * jitter;
+      const m = newMouse(p.mat);
+      m.userData.ox = rnd(-0.1, 0.1) * jitter; m.userData.oz = rnd(-0.08, 0.08) * jitter; m.userData.ry = rnd(-0.7, 0.7) * jitter;
       scene.add(m); p.sheets.push(m);
       return m;
     }
     function placePile(p, time) {
       const n = p.sheets.length;
       for (let i = 0; i < n; i++) {
-        const m = p.sheets[i], u = m.userData, y = (i + 0.5) * TH, k = (y / (MAX * TH)) ** 2;
+        const m = p.sheets[i], u = m.userData, y = i * TH, k = ((y + TH / 2) / (MAX * TH)) ** 2;
         m.position.set(p.x + u.ox + p.sway * k * 1.6, y, p.z + u.oz + Math.sin(time * 5.3 + p.x) * p.danger * 0.05 * k);
-        m.rotation.set(0, u.ry, -p.sway * k * 0.35);
+        // 危ない山のネズミは、そわそわ足踏みする
+        m.rotation.set(0, u.ry + Math.sin(time * 12 + i) * p.danger * 0.15, -p.sway * k * 0.35);
       }
     }
     const topY = p => p.sheets.length * TH;
 
-    // 済みトレイ
+    // 捕まえたネズミを入れる箱
     const tray = new THREE.Group(); tray.position.set(TRAY.x, 0, TRAY.z); tray.rotation.y = -0.18;
     {
       const tm = mat('#3a7be0', 0.35);
       part(BOX, tm, 0, 0.04, 0, 1.75, 0.08, 2.3, tray);
-      for (const [x, z, sx, sz] of [[0, 1.12, 1.75, 0.06], [0, -1.12, 1.75, 0.06], [0.85, 0, 0.06, 2.3], [-0.85, 0, 0.06, 2.3]]) part(BOX, tm, x, 0.2, z, sx, 0.36, sz, tray);
+      for (const [x, z, sx, sz] of [[0, 1.12, 1.75, 0.06], [0, -1.12, 1.75, 0.06], [0.85, 0, 0.06, 2.3], [-0.85, 0, 0.06, 2.3]]) part(BOX, tm, x, 0.25, z, sx, 0.46, sz, tray);
       scene.add(shade(tray));
     }
     const trayStack = [];
-    const TRAY_CAP = 70;
-    function addToTray() {
+    const TRAY_CAP = 36;
+    const trayPos = n => new THREE.Vector3(((n * 0.618) % 1 - 0.5) * 1.1, 0.08 + Math.floor(n / 6) * 0.3, (((n * 0.382 + 0.2) % 1) - 0.5) * 1.6);
+    function addToTray(geo) {
       if (trayStack.length >= TRAY_CAP) return;
-      const m = new THREE.Mesh(THIN_G, STAMP_MATS); m.castShadow = m.receiveShadow = true;
-      m.position.set(rnd(-0.05, 0.05), 0.1 + trayStack.length * 0.032, rnd(-0.05, 0.05)); m.rotation.y = rnd(-0.08, 0.08);
+      const m = new THREE.Mesh(geo, MOUSE_M); m.castShadow = m.receiveShadow = true;
+      m.position.copy(trayPos(trayStack.length)); m.rotation.y = rnd(-1, 1); m.scale.setScalar(0.72);
       tray.add(m); trayStack.push(m);
     }
-    const trayTop = () => { const v = new THREE.Vector3(0, 0.12 + trayStack.length * 0.032, 0); return tray.localToWorld(v); };
+    const trayTop = () => tray.localToWorld(trayPos(Math.min(trayStack.length, TRAY_CAP - 1)));
 
     // ---------- 猫 ----------
     const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
@@ -464,17 +510,14 @@
       a.paw.scale.set(1 + a.squash * 0.15, 1 - a.squash * 0.25, 1 + a.squash * 0.1);
     }
 
-    // ---------- 動く紙 ----------
-    const falling = [];   // 降ってくる紙（1枚、または輪ゴムで留めた束）
-    const flying = [];    // ハンコを押されてトレイへ飛ぶ紙
-    const debris = [];    // 崩れて散らばる紙
-    const BAND = mat('#d8402a', 0.5);
+    // ---------- 動くネズミ ----------
+    const falling = [];   // 降ってくるネズミ（1匹、またはしがみつき合った3匹）
+    const flying = [];    // 肉球で押されて箱へ飛ぶネズミ
+    const debris = [];    // 崩れて散らばり、走って逃げるネズミ
     function spawnFall(pi, bundle) {
-      const p = PILES[pi], g = new THREE.Group(), n = bundle ? 5 : 1;
-      for (let k = 0; k < n; k++) { const m = new THREE.Mesh(PAPER_G, p.mats); m.position.set(rnd(-0.06, 0.06), (k + 0.5) * TH, rnd(-0.06, 0.06)); m.rotation.y = rnd(-0.1, 0.1); g.add(m); }
-      if (bundle) { const h = n * TH; part(BOX, BAND, 0, h + 0.01, 0, 0.1, 0.02, PD + 0.02, g); part(BOX, BAND, 0, -0.01, 0, 0.1, 0.02, PD + 0.02, g); for (const z of [-1, 1]) part(BOX, BAND, 0, h / 2, z * (PD / 2 + 0.01), 0.1, h, 0.02, g); }
-      shade(g);
-      const f = { g, pi, n, bundle, y: 7.5 + Math.random(), py: 0, vy: bundle ? -4 : -2.2, t: Math.random() * 6, ry: rnd(-0.6, 0.6) };
+      const p = PILES[pi], g = new THREE.Group(), n = bundle ? 3 : 1;
+      for (let k = 0; k < n; k++) { const m = newMouse(p.mat); m.position.set(rnd(-0.08, 0.08), k * TH, rnd(-0.06, 0.06)); m.rotation.y = rnd(-0.7, 0.7); g.add(m); }
+      const f = { g, pi, n, bundle, y: 7.5 + Math.random(), py: 0, vy: bundle ? -3 : -1.5, t: Math.random() * 6, ry: rnd(-0.6, 0.6) };
       f.py = f.y; g.position.set(p.x, f.y, p.z); scene.add(g);
       falling.push(f);
     }
@@ -596,13 +639,12 @@
       a.from.copy(a.cur); a.target.copy(target); a.t = 0;
       if (!p.sheets.length) { setTimeout(() => hiss(0.06, 0.4, [['lowpass', 600, 0.7, 1.2]]), 90); return; }
       const m = p.sheets.pop();
-      const y = topY(p) + TH / 2;
-      m.material = STAMP_MATS;
-      const f = { m, t: -0.1, from: m.position.clone().setY(y), ry0: m.rotation.y, spin: rnd(-1, 1) };
+      m.material = MOUSE_M;
+      const f = { m, t: -0.1, from: m.position.clone().setY(topY(p)), ry0: m.rotation.y, spin: rnd(-1, 1) };
       flying.push(f);
       p.swayV += (Math.random() - 0.5) * 0.25;
       score++;
-      setTimeout(() => { sStamp(); if (--meowIn <= 0) { sMeow(); meowIn = 3 + Math.floor(Math.random() * 5); } }, 90);
+      setTimeout(() => { sStamp(); sSqueak(rnd(0.9, 1.2)); if (--meowIn <= 0) { sMeow(); meowIn = 3 + Math.floor(Math.random() * 5); } }, 90);
     }
     function reset() {
       for (const p of PILES) { for (const m of p.sheets) scene.remove(m); p.sheets = []; p.sway = p.swayV = p.danger = 0; }
@@ -610,7 +652,7 @@
       for (const f of flying) scene.remove(f.m); flying.length = 0;
       for (const d of debris) scene.remove(d.m); debris.length = 0;
       for (const m of trayStack) tray.remove(m); trayStack.length = 0;
-      [3, 5, 4].forEach((n, i) => { for (let k = 0; k < n; k++) addSheet(PILES[i]); });
+      [2, 3, 2].forEach((n, i) => { for (let k = 0; k < n; k++) addSheet(PILES[i]); });
       for (const a of arms) { a.t = 9; a.lift = 0; a.from.copy(a.rest); a.target.copy(a.rest); a.cur.copy(a.rest); }
       score = 0; armed = false; elapsed = 0; nextSpawn = 1; overT = 0; collapsed = -1;
     }
@@ -618,11 +660,11 @@
       const counts = PILES.map((p, i) => p.sheets.length + falling.filter(f => f.pi === i).reduce((s, f) => s + f.n, 0));
       if (!armed) {
         // 始まる前は崩れないよう、低い山にだけ降らせる
-        const low = [0, 1, 2].filter(i => counts[i] < 7);
+        const low = [0, 1, 2].filter(i => counts[i] < MAX - 3);
         if (low.length) spawnFall(pick(low), false);
         return;
       }
-      const bundle = elapsed > 9 && Math.random() < Math.min(0.2, (elapsed - 9) / 100);
+      const bundle = elapsed > 12 && Math.random() < Math.min(0.15, (elapsed - 12) / 120);
       spawnFall(Math.floor(Math.random() * 3), bundle);
     }
     // 崩れる: 紙が机いっぱいに散らばる
@@ -630,6 +672,7 @@
       const p = PILES[pi];
       const dirx = Math.sign(p.x || (Math.random() - 0.5)) * 0.6 + rnd(-0.6, 0.6);
       p.sheets.forEach((m, i) => {
+        m.material = MOUSE_M;
         const k = i / Math.max(1, p.sheets.length);
         const v = new THREE.Vector3(dirx * (1 + k * 4) + rnd(-1.5, 1.5), 1.5 + k * 4 + rnd(0, 2), 1.2 + k * 3 * Math.random() + rnd(-1, 1)).multiplyScalar(power);
         debris.push({ m, p: m.position.clone(), pp: m.position.clone(), v, w: new THREE.Vector3(rnd(-6, 6), rnd(-4, 4), rnd(-6, 6)), rest: false });
@@ -650,24 +693,26 @@
       if (state === 'play') {
         if (armed) elapsed += dt;
         nextSpawn -= dt;
-        if (nextSpawn <= 0) { spawnTick(); nextSpawn = armed ? Math.max(0.15, 0.95 * Math.exp(-elapsed / 26)) * rnd(0.7, 1.3) : 1.4; }
+        if (nextSpawn <= 0) { spawnTick(); nextSpawn = armed ? Math.max(0.3, 1.1 * Math.exp(-elapsed / 32)) * rnd(0.7, 1.3) : 1.6; }
       }
       // 降ってくる紙: ひらひら揺れながら落ちる
       for (let k = falling.length - 1; k >= 0; k--) {
         const f = falling[k], p = PILES[f.pi];
         f.py = f.y; f.t += dt;
-        f.vy = Math.max(f.vy - dt * (f.bundle ? 14 : 5), f.bundle ? -14 : -6.5);
+        f.vy = Math.max(f.vy - dt * (f.bundle ? 14 : 9), f.bundle ? -13 : -8);
         f.y += f.vy * dt;
-        f.g.rotation.set(Math.sin(f.t * 5) * (f.bundle ? 0.05 : 0.22), f.ry, Math.cos(f.t * 4) * (f.bundle ? 0.05 : 0.25));
-        f.g.userData.sx = Math.sin(f.t * 3.3) * (f.bundle ? 0.02 : 0.25);
+        // 落ちながら手足をばたつかせるように揺れる
+        f.g.rotation.set(Math.sin(f.t * 17) * 0.18, f.ry + f.t * 1.5, Math.cos(f.t * 13) * 0.2);
+        f.g.userData.sx = Math.sin(f.t * 3.3) * 0.08;
         if (f.y <= topY(p) + 0.02 && state !== 'result') {
           scene.remove(f.g); falling.splice(k, 1);
           if (state !== 'play') continue;
           for (let n = 0; n < f.n; n++) addSheet(p);
           p.swayV += (f.bundle ? 0.5 : 0.12) * (Math.random() < 0.5 ? -1 : 1);
           sLand(f.bundle);
-          if (f.bundle) { sSnap(); burst(new THREE.Vector3(p.x, topY(p), p.z), 8, '#d8402a', 2, 0.05, 0.4, 2); }
-          else burst(new THREE.Vector3(p.x, topY(p), p.z), 4, '#fff6e0', 1.2, 0.06, 0.35, 0.6);
+          if (f.bundle) { sSqueak(1.1); setTimeout(() => sSqueak(0.95), 90); setTimeout(() => sSqueak(1.2), 170); }
+          else if (Math.random() < 0.35) sSqueak(rnd(0.9, 1.15), 0.06);
+          burst(new THREE.Vector3(p.x, topY(p), p.z), f.bundle ? 8 : 4, '#fff6e0', 1.2, 0.06, 0.35, 0.6);
           if (p.sheets.length > MAX) { gameOver(f.pi); break; }
         }
       }
@@ -683,14 +728,28 @@
       for (let k = flying.length - 1; k >= 0; k--) {
         const f = flying[k]; f.t += dt;
         if (f.t < 0) continue;
+        if (f.t < 0.001 && !f.started) f.m.scale.set(1.3, 0.5, 1.3);
         if (!f.started) { f.started = true; f.to = trayTop(); sWhoosh(); printPop(f.from.clone().setY(f.from.y + 0.4)); }
         const q = Math.min(1, f.t / 0.42), e = 1 - (1 - q) ** 2;
         f.m.position.lerpVectors(f.from, f.to, e); f.m.position.y += Math.sin(q * Math.PI) * 1.6;
-        f.m.rotation.set(Math.sin(q * Math.PI) * 0.5, f.ry0 + f.spin * q * Math.PI * 2 - 0.18 * q, 0);
-        if (q >= 1) { scene.remove(f.m); flying.splice(k, 1); addToTray(); hiss(0.05, 0.12, [['bandpass', 2600, 1, 1]]); }
+        // 押されたネズミはぺしゃんこから戻りつつ、くるっと宙返りして箱へ
+        f.m.rotation.set(-q * Math.PI * 2, f.ry0 + f.spin * q * 2, 0);
+        const sq = f.t < 0.08 ? 1 - f.t / 0.08 : 0; f.m.scale.set(1 + sq * 0.3, 1 - sq * 0.5, 1 + sq * 0.3);
+        if (q >= 1) { scene.remove(f.m); flying.splice(k, 1); addToTray(f.m.geometry); hiss(0.05, 0.12, [['bandpass', 1400, 1, 1]]); }
       }
-      // 散らばる紙
+      // 散らばったネズミ: 落ちて止まったら、机の上を走って逃げる
       for (const d of debris) {
+        if (d.run) {
+          d.pp.copy(d.p);
+          d.turn += dt; if (d.turn > d.next) { d.turn = 0; d.next = rnd(0.3, 0.9); d.dir += rnd(-1.4, 1.4); }
+          d.p.x += Math.sin(d.dir) * d.sp * dt; d.p.z += Math.cos(d.dir) * d.sp * dt;
+          d.m.rotation.set(0, d.dir, Math.sin(clock * 30 + d.dir) * 0.08);
+          d.bob = Math.abs(Math.sin(clock * 22 + d.dir * 3)) * 0.05;
+          const onDesk = d.p.x > DESK.x0 && d.p.x < DESK.x1 && d.p.z > DESK.z0 + 0.2 && d.p.z < DESK.z1;
+          if (!onDesk && d.p.y > -1) { d.run = false; d.rest = false; d.v.set(Math.sin(d.dir) * d.sp, 1, Math.cos(d.dir) * d.sp); d.w.set(rnd(-5, 5), 0, rnd(-5, 5)); }
+          if (d.p.y < -1) d.run = d.p.z > DESK.z1 || d.p.x < DESK.x0 || d.p.x > DESK.x1 ? d.run : false;
+          continue;
+        }
         if (d.rest) continue;
         d.pp.copy(d.p);
         d.v.y -= 14 * dt;
@@ -702,7 +761,7 @@
         if (d.p.y < ground && (onDesk ? d.pp.y >= ground - 0.3 : true)) {
           d.p.y = ground;
           if (Math.abs(d.v.y) > 2.5) { d.v.y *= -0.25; d.v.x *= 0.5; d.v.z *= 0.5; d.w.multiplyScalar(0.4); }
-          else { d.rest = true; d.m.rotation.x = 0; d.m.rotation.z = 0; d.pp.copy(d.p); }
+          else { d.rest = true; d.m.rotation.x = 0; d.m.rotation.z = 0; d.pp.copy(d.p); d.run = true; d.dir = Math.atan2(d.v.x, d.v.z) + rnd(-0.8, 0.8); d.sp = rnd(1.6, 2.8); d.turn = 0; d.next = rnd(0.2, 0.6); d.bob = 0; if (Math.random() < 0.3) sSqueak(rnd(1, 1.3), 0.05); }
         }
       }
       for (const a of arms) a.t += dt;
@@ -805,13 +864,12 @@
         placePile(p, time);
         // 危ない山は紙が赤く、上限の輪が点滅する
         const d = p.danger;
-        p.edge.color.setRGB(0.93, 0.9 - d * 0.35, 0.84 - d * 0.4);
-        p.top.color.setRGB(1, 1 - d * 0.3, 1 - d * 0.35);
+        p.mat.color.setRGB(1, 1 - d * 0.4, 1 - d * 0.45);
         p.ring.material.opacity = d * (0.55 + 0.45 * Math.sin(time * 14));
         p.ring.visible = d > 0.01 && state === 'play';
       }
       for (const f of falling) { const p = PILES[f.pi]; f.g.position.set(p.x + (f.g.userData.sx || 0), f.py + (f.y - f.py) * alpha, p.z); }
-      for (const d of debris) d.m.position.lerpVectors(d.pp, d.p, d.rest ? 1 : alpha);
+      for (const d of debris) { d.m.position.lerpVectors(d.pp, d.p, d.rest && !d.run ? 1 : alpha); if (d.run) d.m.position.y += d.bob; }
       // 猫: 崩れると飛び上がって震える
       const jump = state === 'over' || state === 'result' ? Math.min(1, overT * 5) : 0;
       const shake = state === 'over' ? Math.sin(time * 60) * 0.015 * Math.max(0, 1 - overT) : 0;
@@ -847,7 +905,7 @@
     // 最初の1回が重くならないように、使う形と質感を一度描いておく
     {
       spawnFall(1, true); const tmp = falling.pop(); tmp.g.position.set(0, 1, 0);
-      const fm = new THREE.Mesh(PAPER_G, STAMP_MATS); fm.position.set(1, 1, 1); scene.add(fm);
+      const fm = newMouse(); fm.position.set(1, 1, 1); scene.add(fm);
       printPop(new THREE.Vector3(0, 1, 0)); burst(new THREE.Vector3(0, 1, 0), 1, '#fff', 0, 0.1, 0.1, 0);
       renderer.compile(scene, camera); render(0);
       scene.remove(tmp.g); scene.remove(fm);
