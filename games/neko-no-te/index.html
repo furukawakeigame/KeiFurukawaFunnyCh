@@ -229,13 +229,12 @@
     }
     // 猫の声: 高い声で「ニャッ」
     const sMeow = () => voice(560 + Math.random() * 220, pick([['i', 'a'], ['i', 'a', 'u'], ['n', 'a', 'o'], ['i', 'a', 'o']]), 0.22 + Math.random() * 0.14, 0.32, 0.03, 0.12, 1.3, 0.75, 1.25);
-    // 崩れた時: 猫の「ニ゛ャー！」と、会社員の「あぁぁ…」
-    function sCollapse() {
+    // チーズを取られきった時: 猫の「ニ゛ャー！」と、ネズミたちの「チュチュチュ」
+    function sGameOver() {
       if (!on()) return;
       voice(720, ['i', 'a', 'a', 'o'], 0.9, 0.42, 0.12, 0.45, 1.25, 0.6, 1.25);
-      setTimeout(() => voice(132, ['a', 'a', 'a', 'o'], 1.6, 0.5, 0.06, 0.25, 1.5, 0.55), 520);
-      for (let i = 0; i < 6; i++) setTimeout(() => sLand(i % 2 === 0), i * 70 + Math.random() * 40);
-      for (let i = 0; i < 10; i++) setTimeout(() => sSqueak(rnd(0.85, 1.3), 0.07), 120 + i * 90 + Math.random() * 60);
+      setTimeout(() => voice(560, ['n', 'a', 'a', 'o'], 1.1, 0.35, 0.08, 0.3, 1.1, 0.5, 1.25), 900);
+      for (let i = 0; i < 14; i++) setTimeout(() => sSqueak(rnd(0.9, 1.4), 0.07), 150 + i * 80 + Math.random() * 60);
     }
 
     // ---------- 3D ----------
@@ -328,8 +327,7 @@
     }
 
     // ---------- ネズミ ----------
-    const MS = 1.45, TH = 0.27 * MS, MAX = 7;
-    const PILES = [-2.25, 0, 2.25].map(x => ({ x, z: -0.35 }));
+    const MS = 1.25;
     const TRAY = { x: 3.55, z: 1.85 };
     function pawPrint(g, cx, cy, s, color) {
       g.fillStyle = color;
@@ -378,31 +376,34 @@
     }
     const MICE_G = [mouseGeo('#9a9690', '#d8d2ca'), mouseGeo('#8a6a50', '#e0cdb8'), mouseGeo('#eeeae4', '#ffffff'), mouseGeo('#6e6a68', '#c8c0b8')];
     const MOUSE_M = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 });
-    // 山ごとに材質を分けて、危なくなったら赤くする
-    for (const p of PILES) {
-      p.mat = MOUSE_M.clone();
-      p.sheets = []; p.sway = 0; p.swayV = 0; p.danger = 0;
-      // 上限の目印: 赤い輪（危なくなると見える）
-      p.ring = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.045, 8, 48), new THREE.MeshBasicMaterial({ color: '#ff3a3a', transparent: true, opacity: 0, depthWrite: false }));
-      p.ring.rotation.x = Math.PI / 2; p.ring.scale.set(1, 1.2, 1); p.ring.position.set(p.x, MAX * TH + 0.1, p.z); scene.add(p.ring);
-    }
     const newMouse = (m = MOUSE_M) => { const o = new THREE.Mesh(pick(MICE_G), m); o.castShadow = o.receiveShadow = true; return o; };
-    function addSheet(p, jitter = 1) {
-      const m = newMouse(p.mat);
-      m.userData.ox = rnd(-0.1, 0.1) * jitter; m.userData.oz = rnd(-0.08, 0.08) * jitter; m.userData.ry = rnd(-0.7, 0.7) * jitter;
-      scene.add(m); p.sheets.push(m);
-      return m;
+
+    // ---------- チーズ ----------
+    // 丸いチーズを8切れに分けて置く。残っている切れが、そのまま残りの命
+    const CHEESE = new THREE.Vector3(0, 0, 0.45), CR = 1.0, CH = 0.62, NW = 8;
+    const cheeseTex = canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#f6c443'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 26; i++) { const x = Math.random() * w, y = Math.random() * h, r = 5 + Math.random() * 16; const gr = g.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r); gr.addColorStop(0, '#c98a12'); gr.addColorStop(0.8, '#e2a728'); gr.addColorStop(1, '#f6c443'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); }
+      for (let i = 0; i < 1500; i++) { g.fillStyle = `rgba(255,255,255,${Math.random() * 0.08})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+    });
+    cheeseTex.wrapS = cheeseTex.wrapT = THREE.RepeatWrapping; cheeseTex.repeat.set(0.7, 0.7);
+    const CHEESE_M = mat('#ffffff', 0.55, { map: cheeseTex });
+    const cheese = new THREE.Group(); cheese.position.copy(CHEESE); scene.add(cheese);
+    // 皿
+    part(CYL, mat('#f4f1ec', 0.25), CHEESE.x, 0.03, CHEESE.z, CR + 0.4, 0.06, CR + 0.4, scene).receiveShadow = true;
+    const wedges = [];
+    for (let i = 0; i < NW; i++) {
+      const a0 = i / NW * Math.PI * 2, a1 = (i + 1) / NW * Math.PI * 2, mid = (a0 + a1) / 2;
+      const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(Math.cos(a0) * CR, Math.sin(a0) * CR); sh.absarc(0, 0, CR, a0, a1, false); sh.lineTo(0, 0);
+      const g = new THREE.ExtrudeGeometry(sh, { depth: CH - 0.06, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 2, curveSegments: 10 });
+      g.rotateX(-Math.PI / 2); g.translate(0, 0.09, 0);
+      const m = new THREE.Mesh(g, CHEESE_M); m.castShadow = m.receiveShadow = true;
+      const home = new THREE.Vector3(Math.cos(mid) * 0.05, 0, -Math.sin(mid) * 0.05);
+      m.position.copy(home); cheese.add(m);
+      // 外向きの向き（机の上の xz）
+      wedges.push({ m, g, home, dir: new THREE.Vector2(Math.cos(mid), -Math.sin(mid)), mid, st: 'home', eater: null, s: 1 });
     }
-    function placePile(p, time) {
-      const n = p.sheets.length;
-      for (let i = 0; i < n; i++) {
-        const m = p.sheets[i], u = m.userData, y = i * TH, k = ((y + TH / 2) / (MAX * TH)) ** 2;
-        m.position.set(p.x + u.ox + p.sway * k * 1.6, y, p.z + u.oz + Math.sin(time * 5.3 + p.x) * p.danger * 0.05 * k);
-        // 危ない山のネズミは、そわそわ足踏みする
-        m.rotation.set(0, u.ry + Math.sin(time * 12 + i) * p.danger * 0.15, -p.sway * k * 0.35);
-      }
-    }
-    const topY = p => p.sheets.length * TH;
+    const homeWedges = () => wedges.filter(w => w.st === 'home');
 
     // 捕まえたネズミを入れる箱
     const tray = new THREE.Group(); tray.position.set(TRAY.x, 0, TRAY.z); tray.rotation.y = -0.18;
@@ -511,15 +512,31 @@
     }
 
     // ---------- 動くネズミ ----------
-    const falling = [];   // 降ってくるネズミ（1匹、またはしがみつき合った3匹）
-    const flying = [];    // 肉球で押されて箱へ飛ぶネズミ
-    const debris = [];    // 崩れて散らばり、走って逃げるネズミ
-    function spawnFall(pi, bundle) {
-      const p = PILES[pi], g = new THREE.Group(), n = bundle ? 3 : 1;
-      for (let k = 0; k < n; k++) { const m = newMouse(p.mat); m.position.set(rnd(-0.08, 0.08), k * TH, rnd(-0.06, 0.06)); m.rotation.y = rnd(-0.7, 0.7); g.add(m); }
-      const f = { g, pi, n, bundle, y: 7.5 + Math.random(), py: 0, vy: bundle ? -3 : -1.5, t: Math.random() * 6, ry: rnd(-0.6, 0.6) };
-      f.py = f.y; g.position.set(p.x, f.y, p.z); scene.add(g);
-      falling.push(f);
+    // st: climb(机によじ登る) → run(チーズへ) → eat(かじる) → flee(1切れくわえて逃げる)
+    //     wait(始まる前、少し離れて様子を見る) / caught(押された) / fly(箱へ飛ぶ) / cheer(勝ってはしゃぐ)
+    const mice = [];
+    const flyingW = [];  // 取り返して皿へ戻るチーズ
+    function spawnMouse(fast) {
+      const side = Math.random(), m = newMouse();
+      let x, z;
+      if (side < 0.32) { x = DESK.x0 + 0.2; z = rnd(-1.8, 2.6); }
+      else if (side < 0.64) { x = DESK.x1 - 0.2; z = rnd(-1.8, 2.6); }
+      else if (side < 0.9) { x = rnd(-4, 4); z = DESK.z1 - 0.2; }
+      else { x = rnd(-3.5, 3.5); z = DESK.z0 + 0.3; }
+      const p = new THREE.Vector3(x, -0.7, z);
+      const o = { m, p, pp: p.clone(), st: 'climb', t: 0, sp: Math.min(3.4, 1.4 + elapsed * 0.035) * (fast ? 1.55 : 1) * rnd(0.9, 1.1), dir: 0, wiggle: rnd(0, 6), wedge: null, carry: null, bob: 0, eatT: Math.max(0.8, 1.5 - elapsed * 0.012) };
+      o.dir = Math.atan2(CHEESE.x - x, CHEESE.z - z);
+      m.position.copy(p); m.rotation.y = o.dir; scene.add(m);
+      mice.push(o);
+      return o;
+    }
+    // くわえて運ぶチーズ（小さい1切れ）
+    function carryMesh(w) {
+      const c = new THREE.Mesh(w.g, CHEESE_M); c.castShadow = true;
+      c.scale.setScalar(0.42);
+      // 切れの先（中心側）を口に、外側を前に
+      c.rotation.y = -Math.atan2(w.dir.x, w.dir.y) + Math.PI; c.position.set(0, 0.06 * MS, 0.95 * MS);
+      return c;
     }
     const BURST_G = new THREE.SphereGeometry(1, 6, 5);
     const fx = [];
@@ -611,167 +628,180 @@
     addEventListener('resize', resize);
 
     // ---------- 入力 ----------
-    // 山は横一列なので、押した所に一番近い山を選ぶ（多少ずれても拾う）
-    function pileAt(e) {
-      const r = renderer.domElement.getBoundingClientRect();
-      const x = e.clientX - r.left;
-      let best = 0, bd = Infinity;
-      PILES.forEach((p, i) => { const v = new THREE.Vector3(p.x, topY(p) * 0.5 + 0.5, p.z).project(camera); const sx = (v.x + 1) / 2 * r.width, d = Math.abs(sx - x); if (d < bd) { bd = d; best = i; } });
-      return best;
+    // 押した所に一番近いネズミを、画面上の距離で選ぶ（多少ずれても拾う）
+    const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), deskPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.2);
+    const catchable = o => ['climb', 'run', 'wait', 'eat', 'flee'].includes(o.st) && o.p.y > -0.4;
+    function tapAt(e) {
+      const r = renderer.domElement.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+      let best = null, bd = 34 + 0.07 * Math.min(r.width, r.height);
+      for (const o of mice) if (catchable(o)) {
+        const v = o.p.clone().setY(0.25).project(camera), d = Math.hypot((v.x + 1) / 2 * r.width - x, (1 - v.y) / 2 * r.height - y);
+        if (d < bd) { bd = d; best = o; }
+      }
+      if (best) return bop(best);
+      ndc.set(x / r.width * 2 - 1, -(y / r.height) * 2 + 1); ray.setFromCamera(ndc, camera);
+      const hit = new THREE.Vector3();
+      if (ray.ray.intersectPlane(deskPlane, hit)) miss(hit);
     }
-    renderer.domElement.addEventListener('pointerdown', e => { e.preventDefault(); if (state === 'play') stamp(pileAt(e)); }, { passive: false });
+    renderer.domElement.addEventListener('pointerdown', e => { e.preventDefault(); if (state === 'play') tapAt(e); }, { passive: false });
+    // キーボード: ←は左半分、→は右半分、スペース・↑↓はどこでも、チーズに一番近いネズミを押す
     addEventListener('keydown', e => {
       if (e.repeat || state !== 'play' || e.target.closest?.('select')) return;
       const k = e.key.toLowerCase();
-      const i = ['arrowleft', 'a', '1'].includes(k) ? 0 : ['arrowdown', 'arrowup', 's', 'w', '2'].includes(k) ? 1 : ['arrowright', 'd', '3'].includes(k) ? 2 : -1;
-      if (i >= 0) { e.preventDefault(); stamp(i); }
+      const side = ['arrowleft', 'a'].includes(k) ? -1 : ['arrowright', 'd'].includes(k) ? 1 : [' ', 'enter', 'arrowup', 'arrowdown', 'w', 's'].includes(k) ? 0 : null;
+      if (side === null) return;
+      e.preventDefault();
+      let best = null, bd = Infinity;
+      for (const o of mice) if (catchable(o) && (side === 0 || Math.sign(o.p.x - CHEESE.x || 1) === side)) { const d = Math.hypot(o.p.x - CHEESE.x, o.p.z - CHEESE.z); if (d < bd) { bd = d; best = o; } }
+      if (best) bop(best); else miss(new THREE.Vector3(side * 2, 0, 1));
     });
     stage.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 
     // ---------- ゲーム ----------
-    let state = 'play', armed = false, score = 0, elapsed = 0, nextSpawn = 0, overT = 0, needSnap = false, clock = 0, collapsed = -1, meowIn = 4;
-    function stamp(pi) {
-      if (!armed) { armed = true; elapsed = 0; nextSpawn = 0.5; }
-      const p = PILES[pi];
-      // 前足: 左の山は左手、右の山は右手、真ん中は交互
-      const a = pi === 0 ? arms[0] : pi === 2 ? arms[1] : arms[nextArm = 1 - nextArm];
-      const target = new THREE.Vector3(p.x, topY(p) + 0.02, p.z + 0.15);
-      a.from.copy(a.cur); a.target.copy(target); a.t = 0;
-      if (!p.sheets.length) { setTimeout(() => hiss(0.06, 0.4, [['lowpass', 600, 0.7, 1.2]]), 90); return; }
-      const m = p.sheets.pop();
-      m.material = MOUSE_M;
-      const f = { m, t: -0.1, from: m.position.clone().setY(topY(p)), ry0: m.rotation.y, spin: rnd(-1, 1) };
-      flying.push(f);
-      p.swayV += (Math.random() - 0.5) * 0.25;
+    let state = 'play', armed = false, score = 0, elapsed = 0, nextSpawn = 0, overT = 0, needSnap = false, clock = 0, meowIn = 4, chewT = 0;
+    function startPlay() { if (!armed) { armed = true; elapsed = 0; nextSpawn = 0.8; for (const o of mice) if (o.st === 'wait') o.st = 'run'; } }
+    function swing(x, z, y) {
+      // 前足: 左側は左手、右側は右手
+      const a = x < -0.3 ? arms[0] : x > 0.3 ? arms[1] : arms[nextArm = 1 - nextArm];
+      a.from.copy(a.cur); a.target.set(x, y, z); a.t = 0;
+    }
+    function bop(o) {
+      startPlay();
+      swing(o.p.x, o.p.z, 0.32 * MS);
+      // かじりかけの切れは元に戻り、くわえていた切れは皿へ戻る
+      if (o.wedge && o.st === 'eat' && o.wedge.eater === o) o.wedge.eater = null;
+      if (o.carry) {
+        const w = o.wedge, from = new THREE.Vector3(); o.carry.getWorldPosition(from);
+        o.m.remove(o.carry); o.carry = null; w.st = 'return';
+        flyingW.push({ w, from, t: -0.1 });
+      }
+      o.wedge = null;
+      o.st = 'caught'; o.t = 0;
       score++;
       setTimeout(() => { sStamp(); sSqueak(rnd(0.9, 1.2)); if (--meowIn <= 0) { sMeow(); meowIn = 3 + Math.floor(Math.random() * 5); } }, 90);
     }
+    function miss(p) {
+      startPlay();
+      swing(THREE.MathUtils.clamp(p.x, DESK.x0 + 0.5, DESK.x1 - 0.5), THREE.MathUtils.clamp(p.z, DESK.z0 + 0.4, DESK.z1 - 0.3), 0.02);
+      setTimeout(() => { hiss(0.08, 0.6, [['lowpass', 380, 0.7, 1.5]]); tone('sine', 120, 55, 0.14, 0.3); }, 90);
+    }
     function reset() {
-      for (const p of PILES) { for (const m of p.sheets) scene.remove(m); p.sheets = []; p.sway = p.swayV = p.danger = 0; }
-      for (const f of falling) scene.remove(f.g); falling.length = 0;
-      for (const f of flying) scene.remove(f.m); flying.length = 0;
-      for (const d of debris) scene.remove(d.m); debris.length = 0;
+      for (const o of mice) scene.remove(o.m); mice.length = 0;
+      flyingW.length = 0;
+      for (const w of wedges) { w.st = 'home'; w.eater = null; w.s = 1; w.m.visible = true; w.m.scale.setScalar(1); w.m.position.copy(w.home); }
       for (const m of trayStack) tray.remove(m); trayStack.length = 0;
-      [2, 3, 2].forEach((n, i) => { for (let k = 0; k < n; k++) addSheet(PILES[i]); });
       for (const a of arms) { a.t = 9; a.lift = 0; a.from.copy(a.rest); a.target.copy(a.rest); a.cur.copy(a.rest); }
-      score = 0; armed = false; elapsed = 0; nextSpawn = 1; overT = 0; collapsed = -1;
+      score = 0; armed = false; elapsed = 0; nextSpawn = 0.6; overT = 0;
     }
     function spawnTick() {
-      const counts = PILES.map((p, i) => p.sheets.length + falling.filter(f => f.pi === i).reduce((s, f) => s + f.n, 0));
-      if (!armed) {
-        // 始まる前は崩れないよう、低い山にだけ降らせる
-        const low = [0, 1, 2].filter(i => counts[i] < MAX - 3);
-        if (low.length) spawnFall(pick(low), false);
-        return;
-      }
-      const bundle = elapsed > 12 && Math.random() < Math.min(0.15, (elapsed - 12) / 120);
-      spawnFall(Math.floor(Math.random() * 3), bundle);
+      const alive = mice.filter(o => !['fly', 'gone'].includes(o.st)).length;
+      if (!armed) { if (alive < 3) spawnMouse(false); return; }
+      if (alive >= 14) return;
+      spawnMouse(elapsed > 15 && Math.random() < Math.min(0.3, (elapsed - 15) / 60));
     }
-    // 崩れる: 紙が机いっぱいに散らばる
-    function topple(pi, power = 1) {
-      const p = PILES[pi];
-      const dirx = Math.sign(p.x || (Math.random() - 0.5)) * 0.6 + rnd(-0.6, 0.6);
-      p.sheets.forEach((m, i) => {
-        m.material = MOUSE_M;
-        const k = i / Math.max(1, p.sheets.length);
-        const v = new THREE.Vector3(dirx * (1 + k * 4) + rnd(-1.5, 1.5), 1.5 + k * 4 + rnd(0, 2), 1.2 + k * 3 * Math.random() + rnd(-1, 1)).multiplyScalar(power);
-        debris.push({ m, p: m.position.clone(), pp: m.position.clone(), v, w: new THREE.Vector3(rnd(-6, 6), rnd(-4, 4), rnd(-6, 6)), rest: false });
-      });
-      p.sheets = [];
-    }
-    function gameOver(pi) {
-      state = 'over'; overT = 0; collapsed = pi;
-      topple(pi, 1.1);
-      sCollapse();
-      burst(new THREE.Vector3(PILES[pi].x, MAX * TH, PILES[pi].z), 16, '#fff6e0', 3, 0.1, 0.6, 2);
+    function gameOver() {
+      state = 'over'; overT = 0;
+      sGameOver();
+      for (const o of mice) if (['climb', 'run', 'wait', 'eat'].includes(o.st)) { o.st = 'cheer'; o.t = rnd(0, 0.3); }
       for (const a of arms) { a.t = 9; a.lift = 0; }
       renderControls();
     }
+    // 机の上を進む。ふちの外に出たら落ちる
+    function onDesk(p) { return p.x > DESK.x0 && p.x < DESK.x1 && p.z > DESK.z0 + 0.1 && p.z < DESK.z1; }
     const STEP = 1 / 60;
     function step(dt) {
       clock += dt;
       if (state === 'play') {
         if (armed) elapsed += dt;
         nextSpawn -= dt;
-        if (nextSpawn <= 0) { spawnTick(); nextSpawn = armed ? Math.max(0.3, 1.1 * Math.exp(-elapsed / 32)) * rnd(0.7, 1.3) : 1.6; }
+        if (nextSpawn <= 0) { spawnTick(); nextSpawn = armed ? Math.max(0.42, 1.7 * Math.exp(-elapsed / 35)) * rnd(0.7, 1.3) : 2.0; }
       }
-      // 降ってくる紙: ひらひら揺れながら落ちる
-      for (let k = falling.length - 1; k >= 0; k--) {
-        const f = falling[k], p = PILES[f.pi];
-        f.py = f.y; f.t += dt;
-        f.vy = Math.max(f.vy - dt * (f.bundle ? 14 : 9), f.bundle ? -13 : -8);
-        f.y += f.vy * dt;
-        // 落ちながら手足をばたつかせるように揺れる
-        f.g.rotation.set(Math.sin(f.t * 17) * 0.18, f.ry + f.t * 1.5, Math.cos(f.t * 13) * 0.2);
-        f.g.userData.sx = Math.sin(f.t * 3.3) * 0.08;
-        if (f.y <= topY(p) + 0.02 && state !== 'result') {
-          scene.remove(f.g); falling.splice(k, 1);
-          if (state !== 'play') continue;
-          for (let n = 0; n < f.n; n++) addSheet(p);
-          p.swayV += (f.bundle ? 0.5 : 0.12) * (Math.random() < 0.5 ? -1 : 1);
-          sLand(f.bundle);
-          if (f.bundle) { sSqueak(1.1); setTimeout(() => sSqueak(0.95), 90); setTimeout(() => sSqueak(1.2), 170); }
-          else if (Math.random() < 0.35) sSqueak(rnd(0.9, 1.15), 0.06);
-          burst(new THREE.Vector3(p.x, topY(p), p.z), f.bundle ? 8 : 4, '#fff6e0', 1.2, 0.06, 0.35, 0.6);
-          if (p.sheets.length > MAX) { gameOver(f.pi); break; }
+      let chewing = false;
+      for (let k = mice.length - 1; k >= 0; k--) {
+        const o = mice[k]; o.pp.copy(o.p); o.t += dt;
+        const toC = new THREE.Vector2(CHEESE.x - o.p.x, CHEESE.z - o.p.z), dist = toC.length();
+        if (o.st === 'climb') {
+          // ふちからよじ登ってくる
+          o.p.y = Math.min(0, -0.7 + o.t * 3);
+          o.p.x += Math.sin(o.dir) * dt * 0.8; o.p.z += Math.cos(o.dir) * dt * 0.8;
+          if (o.p.y >= 0) { o.st = armed ? 'run' : 'wait'; o.t = 0; if (Math.random() < 0.4) sSqueak(rnd(1, 1.25), 0.04); }
+        } else if (o.st === 'run' || o.st === 'wait') {
+          const stop = o.st === 'wait' ? 2.6 : CR + 0.55;
+          if (dist > stop) {
+            o.dir = Math.atan2(toC.x, toC.y) + Math.sin(clock * 3 + o.wiggle) * 0.35;
+            const sp = o.st === 'wait' ? 1.2 : o.sp;
+            o.p.x += Math.sin(o.dir) * sp * dt; o.p.z += Math.cos(o.dir) * sp * dt;
+            o.bob = Math.abs(Math.sin(clock * 22 + o.wiggle)) * 0.05;
+          } else if (o.st === 'run') {
+            // 着いたら、近くの残っている切れをかじりはじめる
+            const free = homeWedges().filter(w => !w.eater);
+            const pool = free.length ? free : homeWedges();
+            if (!pool.length) { o.st = 'cheer'; o.t = 0; continue; }
+            const ang = new THREE.Vector2(-toC.x, -toC.y).normalize();
+            o.wedge = pool.reduce((b, w) => w.dir.dot(ang) > b.dir.dot(ang) ? w : b);
+            o.wedge.eater = o; o.st = 'eat'; o.t = 0;
+            // 切れの外側に回り込んで、チーズの方を向く
+            o.p.x = CHEESE.x + o.wedge.dir.x * (CR + 0.5); o.p.z = CHEESE.z + o.wedge.dir.y * (CR + 0.5);
+            o.dir = Math.atan2(-o.wedge.dir.x, -o.wedge.dir.y);
+          } else { o.dir = Math.atan2(toC.x, toC.y) + Math.sin(clock * 2 + o.wiggle) * 0.6; o.bob = 0; }
+        } else if (o.st === 'eat') {
+          chewing = true;
+          o.bob = Math.abs(Math.sin(clock * 30)) * 0.03;
+          const w = o.wedge;
+          if (w.st !== 'home') { o.st = 'run'; o.wedge = null; continue; }
+          if (!w.eater) w.eater = o;
+          w.s = 1 - 0.35 * Math.min(1, o.t / o.eatT);
+          if (o.t >= o.eatT) {
+            // 1切れくわえて逃げる
+            w.st = 'carried'; w.eater = null; w.m.visible = false;
+            o.carry = carryMesh(w); o.m.add(o.carry);
+            o.st = 'flee'; o.t = 0; o.dir = Math.atan2(o.wedge.dir.x, o.wedge.dir.y); o.sp *= 1.1;
+            sSqueak(1.2); setTimeout(() => sSqueak(1.35), 100);
+            if (state === 'play' && !homeWedges().length && !flyingW.length) gameOver();
+          }
+        } else if (o.st === 'flee') {
+          o.p.x += Math.sin(o.dir) * o.sp * dt; o.p.z += Math.cos(o.dir) * o.sp * dt;
+          o.bob = Math.abs(Math.sin(clock * 24 + o.wiggle)) * 0.05;
+          if (!onDesk(o.p) && o.p.y >= 0) { o.st = 'fall'; o.vy = 1.5; }
+        } else if (o.st === 'fall') {
+          o.vy -= 14 * dt; o.p.y += o.vy * dt;
+          o.p.x += Math.sin(o.dir) * o.sp * dt; o.p.z += Math.cos(o.dir) * o.sp * dt;
+          if (o.p.y < -3.4) { if (o.wedge && o.wedge.st === 'carried') o.wedge.st = 'gone'; o.st = 'gone'; }
+        } else if (o.st === 'cheer') {
+          // チーズを取りきって、はしゃいで跳ねる
+          o.p.y = Math.abs(Math.sin((clock + o.wiggle) * 9)) * 0.35; o.dir += dt * 4;
+        } else if (o.st === 'caught') {
+          // 前足が届くまでその場で固まる → ぺしゃんこ → 箱へ
+          if (o.t > 0.1) { o.st = 'fly'; o.t = 0; o.from = o.p.clone(); o.to = trayTop(); o.ry0 = o.dir; sWhoosh(); printPop(o.p.clone().setY(0.8)); }
+        } else if (o.st === 'fly') {
+          const q = Math.min(1, o.t / 0.45), e = 1 - (1 - q) ** 2;
+          o.p.lerpVectors(o.from, o.to, e); o.p.y += Math.sin(q * Math.PI) * 1.8;
+          o.flip = -q * Math.PI * 2;
+          if (q >= 1) { o.st = 'gone'; addToTray(o.m.geometry); hiss(0.05, 0.12, [['bandpass', 1400, 1, 1]]); }
         }
+        if (o.st === 'gone') { scene.remove(o.m); mice.splice(k, 1); }
       }
-      // 山の揺れ: 高いほど揺れやすい（バネ）
-      for (const p of PILES) {
-        const fill = p.sheets.length / MAX;
-        p.danger += ((fill > 0.6 ? (fill - 0.6) / 0.4 : 0) - p.danger) * Math.min(1, dt * 6);
-        p.swayV += (-p.sway * 40 - p.swayV * 4) * dt + Math.sin(clock * 9 + p.x) * p.danger * dt * 1.2;
-        p.sway += p.swayV * dt;
-        p.sway = THREE.MathUtils.clamp(p.sway, -0.25, 0.25);
-      }
-      // ハンコを押された紙: 少しその場にとどまってから、弧を描いてトレイへ
-      for (let k = flying.length - 1; k >= 0; k--) {
-        const f = flying[k]; f.t += dt;
+      // かじる音「カリカリ」
+      chewT -= dt;
+      if (chewing && chewT <= 0) { chewT = 0.11; hiss(0.03, 0.18, [['bandpass', 3000 + Math.random() * 1500, 2, 1]]); }
+      // 取り返したチーズが皿に戻る
+      for (let k = flyingW.length - 1; k >= 0; k--) {
+        const f = flyingW[k]; f.t += dt;
         if (f.t < 0) continue;
-        if (f.t < 0.001 && !f.started) f.m.scale.set(1.3, 0.5, 1.3);
-        if (!f.started) { f.started = true; f.to = trayTop(); sWhoosh(); printPop(f.from.clone().setY(f.from.y + 0.4)); }
-        const q = Math.min(1, f.t / 0.42), e = 1 - (1 - q) ** 2;
-        f.m.position.lerpVectors(f.from, f.to, e); f.m.position.y += Math.sin(q * Math.PI) * 1.6;
-        // 押されたネズミはぺしゃんこから戻りつつ、くるっと宙返りして箱へ
-        f.m.rotation.set(-q * Math.PI * 2, f.ry0 + f.spin * q * 2, 0);
-        const sq = f.t < 0.08 ? 1 - f.t / 0.08 : 0; f.m.scale.set(1 + sq * 0.3, 1 - sq * 0.5, 1 + sq * 0.3);
-        if (q >= 1) { scene.remove(f.m); flying.splice(k, 1); addToTray(f.m.geometry); hiss(0.05, 0.12, [['bandpass', 1400, 1, 1]]); }
+        const w = f.w; w.m.visible = true; w.s = 1;
+        const q = Math.min(1, f.t / 0.4), e = 1 - (1 - q) ** 2;
+        const local = cheese.worldToLocal(f.from.clone());
+        w.m.position.lerpVectors(local, w.home, e); w.m.position.y += Math.sin(q * Math.PI) * 1.2;
+        w.m.scale.setScalar(0.42 + 0.58 * e);
+        if (q >= 1) { w.m.position.copy(w.home); w.st = 'home'; flyingW.splice(k, 1); tone('sine', 520, 880, 0.12, 0.1); }
       }
-      // 散らばったネズミ: 落ちて止まったら、机の上を走って逃げる
-      for (const d of debris) {
-        if (d.run) {
-          d.pp.copy(d.p);
-          d.turn += dt; if (d.turn > d.next) { d.turn = 0; d.next = rnd(0.3, 0.9); d.dir += rnd(-1.4, 1.4); }
-          d.p.x += Math.sin(d.dir) * d.sp * dt; d.p.z += Math.cos(d.dir) * d.sp * dt;
-          d.m.rotation.set(0, d.dir, Math.sin(clock * 30 + d.dir) * 0.08);
-          d.bob = Math.abs(Math.sin(clock * 22 + d.dir * 3)) * 0.05;
-          const onDesk = d.p.x > DESK.x0 && d.p.x < DESK.x1 && d.p.z > DESK.z0 + 0.2 && d.p.z < DESK.z1;
-          if (!onDesk && d.p.y > -1) { d.run = false; d.rest = false; d.v.set(Math.sin(d.dir) * d.sp, 1, Math.cos(d.dir) * d.sp); d.w.set(rnd(-5, 5), 0, rnd(-5, 5)); }
-          if (d.p.y < -1) d.run = d.p.z > DESK.z1 || d.p.x < DESK.x0 || d.p.x > DESK.x1 ? d.run : false;
-          continue;
-        }
-        if (d.rest) continue;
-        d.pp.copy(d.p);
-        d.v.y -= 14 * dt;
-        d.v.multiplyScalar(1 - dt * 0.6);
-        d.p.addScaledVector(d.v, dt);
-        d.m.rotation.x += d.w.x * dt; d.m.rotation.y += d.w.y * dt; d.m.rotation.z += d.w.z * dt;
-        const onDesk = d.p.x > DESK.x0 && d.p.x < DESK.x1 && d.p.z > DESK.z0 && d.p.z < DESK.z1;
-        const ground = onDesk ? 0.05 + Math.random() * 0.02 : -3.35;
-        if (d.p.y < ground && (onDesk ? d.pp.y >= ground - 0.3 : true)) {
-          d.p.y = ground;
-          if (Math.abs(d.v.y) > 2.5) { d.v.y *= -0.25; d.v.x *= 0.5; d.v.z *= 0.5; d.w.multiplyScalar(0.4); }
-          else { d.rest = true; d.m.rotation.x = 0; d.m.rotation.z = 0; d.pp.copy(d.p); d.run = true; d.dir = Math.atan2(d.v.x, d.v.z) + rnd(-0.8, 0.8); d.sp = rnd(1.6, 2.8); d.turn = 0; d.next = rnd(0.2, 0.6); d.bob = 0; if (Math.random() < 0.3) sSqueak(rnd(1, 1.3), 0.05); }
-        }
-      }
+      for (const w of wedges) if (w.st === 'home' && !flyingW.some(f => f.w === w)) w.m.scale.setScalar(w.eater ? w.s : 1);
       for (const a of arms) a.t += dt;
       stepFx(dt);
       if (state === 'over') {
         overT += dt;
-        // ほかの山もつられて崩れる
-        for (let i = 0; i < 3; i++) if (i !== collapsed && PILES[i].sheets.length && overT > 0.25 + Math.abs(i - collapsed) * 0.18) topple(i, 0.8);
         for (const a of arms) a.lift = Math.min(1.4, overT * 6);
-        if (overT > 1.7) finish();
+        if (overT > 1.8) finish();
       }
     }
 
@@ -809,7 +839,7 @@
     let snap = null, shareCache = null;
     function takeSnap() {
       const src = renderer.domElement;
-      const focus = new THREE.Vector3(PILES[Math.max(0, collapsed)].x * 0.4, 1.6, -0.6).project(camera);
+      const focus = new THREE.Vector3(0, 1.1, -0.4).project(camera);
       const fx = (focus.x + 1) / 2 * src.width, fy = (1 - focus.y) / 2 * src.height;
       const side = Math.min(src.width, src.height);
       const sx = THREE.MathUtils.clamp(fx - side / 2, 0, src.width - side), sy = THREE.MathUtils.clamp(fy - side / 2, 0, src.height - side);
@@ -860,16 +890,12 @@
     let last = performance.now(), acc = 0, shownSpeed = 0;
     function render(alpha) {
       const time = clock + alpha * STEP;
-      for (const p of PILES) {
-        placePile(p, time);
-        // 危ない山は紙が赤く、上限の輪が点滅する
-        const d = p.danger;
-        p.mat.color.setRGB(1, 1 - d * 0.4, 1 - d * 0.45);
-        p.ring.material.opacity = d * (0.55 + 0.45 * Math.sin(time * 14));
-        p.ring.visible = d > 0.01 && state === 'play';
+      for (const o of mice) {
+        o.m.position.lerpVectors(o.pp, o.p, alpha); o.m.position.y += o.bob || 0;
+        const sq = o.st === 'caught' && o.t > 0.07 ? 1 : o.st === 'fly' ? Math.max(0, 1 - o.t / 0.1) : 0;
+        o.m.scale.set(1 + sq * 0.3, 1 - sq * 0.5, 1 + sq * 0.3);
+        o.m.rotation.set(o.st === 'fly' ? o.flip : o.st === 'eat' ? Math.sin(time * 30) * 0.08 : 0, o.dir, o.st === 'run' || o.st === 'flee' ? Math.sin(time * 30 + o.wiggle) * 0.06 : 0);
       }
-      for (const f of falling) { const p = PILES[f.pi]; f.g.position.set(p.x + (f.g.userData.sx || 0), f.py + (f.y - f.py) * alpha, p.z); }
-      for (const d of debris) { d.m.position.lerpVectors(d.pp, d.p, d.rest && !d.run ? 1 : alpha); if (d.run) d.m.position.y += d.bob; }
       // 猫: 崩れると飛び上がって震える
       const jump = state === 'over' || state === 'result' ? Math.min(1, overT * 5) : 0;
       const shake = state === 'over' ? Math.sin(time * 60) * 0.015 * Math.max(0, 1 - overT) : 0;
@@ -885,7 +911,7 @@
       cat.scale.setScalar(catBase.scale * (1 + 0.12 * jump));
       cat.rotation.z = shake;
       // 置き時計: 忙しくなるほど針が速く回る
-      const speed = state === 'play' && armed ? 1 + elapsed * 0.25 : 0.3;
+      const speed = state === 'play' && armed ? 1 + elapsed * 0.2 : 0.3;
       shownSpeed += (speed - shownSpeed) * 0.05;
       clockMin.rotation.z -= shownSpeed * 0.05; clockHand.rotation.z -= shownSpeed * 0.05 / 12;
       renderer.render(scene, camera);
@@ -904,11 +930,10 @@
     applyLang();
     // 最初の1回が重くならないように、使う形と質感を一度描いておく
     {
-      spawnFall(1, true); const tmp = falling.pop(); tmp.g.position.set(0, 1, 0);
-      const fm = newMouse(); fm.position.set(1, 1, 1); scene.add(fm);
+      const fm = newMouse(); fm.position.set(1, 1, 1); fm.add(carryMesh(wedges[0])); scene.add(fm);
       printPop(new THREE.Vector3(0, 1, 0)); burst(new THREE.Vector3(0, 1, 0), 1, '#fff', 0, 0.1, 0.1, 0);
       renderer.compile(scene, camera); render(0);
-      scene.remove(tmp.g); scene.remove(fm);
+      scene.remove(fm);
       for (const f of fx) scene.remove(f.m); fx.length = 0;
     }
     requestAnimationFrame(t0 => { last = t0; loop(t0); });
