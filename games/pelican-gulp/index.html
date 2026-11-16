@@ -279,7 +279,7 @@
     scene.fog = new THREE.Fog(HORIZON, 30, 150);
     const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 800);
 
-    scene.add(new THREE.HemisphereLight(0xbfdcff, 0x5a6a70, 1.0));
+    scene.add(new THREE.HemisphereLight(0xbfdcff, 0x5a6a70, 0.45));
     const sun = new THREE.DirectionalLight(0xffe0b5, 2.4);
     sun.position.set(-5, 9, 7);
     sun.castShadow = true;
@@ -317,19 +317,37 @@
     sunSprite.position.set(-140, 38, -330); sunSprite.scale.setScalar(90);
     scene.add(sunSprite);
 
-    // 海: 波の筋を描いたテクスチャを流す
-    const seaTex = canvasTex(256, 256, (g, w, h) => {
-      g.fillStyle = '#4a9ccc'; g.fillRect(0, 0, w, h);
-      for (let i = 0; i < 70; i++) {
-        const x = Math.random() * w, y = Math.random() * h, l = 20 + Math.random() * 50;
-        g.strokeStyle = Math.random() < 0.5 ? 'rgba(200,232,248,.5)' : 'rgba(30,90,140,.35)'; g.lineWidth = 2 + Math.random() * 2;
-        g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + l / 2, y - 4, x + l, y); g.stroke();
-        g.beginPath(); g.moveTo(x - w, y); g.quadraticCurveTo(x - w + l / 2, y - 4, x - w + l, y); g.stroke();
+    // 映り込み用の空（海やうろこに空が映る）
+    {
+      const envScene = new THREE.Scene();
+      envScene.add(new THREE.Mesh(sky.geometry, sky.material));
+      const sunBall = new THREE.Mesh(new THREE.SphereGeometry(30, 16, 8), new THREE.MeshBasicMaterial({ color: 0xfff2d8 }));
+      sunBall.position.set(-140, 38, -330).setLength(400); envScene.add(sunBall);
+      const pm = new THREE.PMREMGenerator(renderer);
+      scene.environment = pm.fromScene(envScene, 0.02, 0.1, 1000).texture;
+      pm.dispose();
+    }
+
+    // 海: 波の凹凸（法線マップ）をゆっくり流し、空と太陽を映す
+    const seaNormal = (() => {
+      const N = 256, c = document.createElement('canvas'); c.width = c.height = N;
+      const g = c.getContext('2d'), img = g.createImageData(N, N), d = img.data;
+      const waves = Array.from({ length: 14 }, (_, i) => ({ kx: Math.round((Math.random() - 0.5) * (4 + i * 1.5)), ky: Math.round(1 + Math.random() * (2 + i)), a: 1 / (1 + i * 0.6), p: Math.random() * 6.28 }));
+      const hgt = new Float32Array(N * N);
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { let s = 0; for (const w of waves) s += w.a * Math.sin(2 * Math.PI * (w.kx * x + w.ky * y) / N + w.p); hgt[y * N + x] = s; }
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const dx = hgt[y * N + (x + 1) % N] - hgt[y * N + (x + N - 1) % N], dy = hgt[((y + 1) % N) * N + x] - hgt[((y + N - 1) % N) * N + x];
+        let nx = -dx * 1.2, ny = -dy * 1.2, nz = 1; const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
+        const o = (y * N + x) * 4; d[o] = (nx * 0.5 + 0.5) * 255; d[o + 1] = (ny * 0.5 + 0.5) * 255; d[o + 2] = (nz * 0.5 + 0.5) * 255; d[o + 3] = 255;
       }
-    }, [60, 60]);
-    const sea = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), std(0xffffff, 0.3, { map: seaTex }));
+      g.putImageData(img, 0, 0);
+      const tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(150, 150); tx.anisotropy = 4;
+      return tx;
+    })();
+    const seaTex = seaNormal;
+    const sea = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ color: 0x1a628f, roughness: 0.22, metalness: 0, envMapIntensity: 0.7, normalMap: seaNormal, normalScale: new THREE.Vector2(0.28, 0.28) }));
     sea.rotation.x = -Math.PI / 2;
-    sea.receiveShadow = true;
+    sea.receiveShadow = false;
     scene.add(sea);
 
     // 木目
@@ -416,89 +434,178 @@
       scene.add(g); gulls.push({ g, wings, sp: 1.2 + Math.random(), ph: Math.random() * 6 });
     }
 
-    // ---------- ペリカン ----------
-    const M = {
-      white: std(0xf7f4ee, 0.85), wing: std(0xdedad2, 0.85), tip: std(0x2a2a2e, 0.7), crest: std(0xf2e2a8, 0.9),
-      beak: std(0xf2b06a, 0.45), hook: std(0xd96a3c, 0.4), leg: std(0x9a8a7a, 0.7), foot: std(0xe8a060, 0.6),
-      eye: std(0xffffff, 0.2), pupil: std(0x141414, 0.2), iris: std(0xf3d36a, 0.3),
-      pouch: new THREE.MeshStandardMaterial({ color: 0xf2a070, roughness: 0.45, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }),
-    };
-    const SPH = new THREE.SphereGeometry(1, 24, 16);
+    // ---------- 形づくりの道具 ----------
+    // u（長さ方向 0..1）と a（周り 0..vMax）から面を作る
+    function sweep(U, V, fn, vMax = Math.PI * 2) {
+      const pos = new Float32Array((U + 1) * (V + 1) * 3), uv = [], idx = [];
+      for (let i = 0; i <= U; i++) for (let j = 0; j <= V; j++) uv.push(i / U, j / V);
+      for (let i = 0; i < U; i++) for (let j = 0; j < V; j++) { const a = i * (V + 1) + j, b = a + V + 1; idx.push(a, a + 1, b, b, a + 1, b + 1); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
+      g.userData = { U, V, fn, vMax };
+      if (fn) resweep(g);
+      return g;
+    }
+    const sp = [0, 0, 0];
+    function resweep(g, fn = g.userData.fn) {
+      const { U, V, vMax } = g.userData, pos = g.attributes.position.array;
+      for (let i = 0; i <= U; i++) for (let j = 0; j <= V; j++) { fn(i / U, j / V * vMax, sp); const o = (i * (V + 1) + j) * 3; pos[o] = sp[0]; pos[o + 1] = sp[1]; pos[o + 2] = sp[2]; }
+      g.attributes.position.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingSphere();
+    }
+    const SPH = new THREE.SphereGeometry(1, 28, 18);
     const mesh = (geo, mat, shadow = true) => { const m = new THREE.Mesh(geo, mat); m.castShadow = shadow; return m; };
+    const lerp = (a, b, t) => a + (b - a) * t;
+
+    // ---------- ペリカン ----------
+    // 羽毛の模様（細かい羽の縁）
+    const featherTex = canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#f4f1ea'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 1100; i++) {
+        const x = Math.random() * w, y = Math.random() * h, r = 4 + Math.random() * 7;
+        g.strokeStyle = `rgba(125,112,95,${0.05 + Math.random() * 0.09})`; g.lineWidth = 1;
+        g.beginPath(); g.arc(x, y, r, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke();
+      }
+    }, [3, 3]);
+    const DS = THREE.DoubleSide;
+    const M = {
+      white: std(0xffffff, 0.92, { map: featherTex, bumpMap: featherTex, bumpScale: 0.6, side: DS }),
+      dark: std(0x3b3a3c, 0.8), tip: std(0x1d1d20, 0.65), crest: std(0xf0dfa0, 0.95),
+      beak: std(0xf0b26e, 0.42, { side: DS }), jaw: std(0xeea27a, 0.45, { side: DS }), hook: std(0xd8603a, 0.35),
+      leg: std(0xe8a07a, 0.6), skin: std(0xf4c9a0, 0.5), iris: std(0x5a2416, 0.2), pupil: std(0x0c0c0c, 0.1),
+      pouch: new THREE.MeshStandardMaterial({ color: 0xf2aa78, roughness: 0.42, transparent: true, opacity: 0.84, side: DS, depthWrite: false }),
+    };
     const P = new THREE.Vector3(1.75, DECK_Y, 0); // 足もと
     const pelican = new THREE.Group(); pelican.position.copy(P); scene.add(pelican);
     const bodyG = new THREE.Group(); pelican.add(bodyG); // 太ると大きくなる部分
-    const torso = mesh(new THREE.CapsuleGeometry(0.46, 0.66, 8, 20), M.white);
-    torso.rotation.z = Math.PI / 2 - 0.5; bodyG.add(torso);
+    // 体の寸法（当たり判定もこれから作る）
+    const BODY = { cx: 0.08, cy: 0, rx: 0.8, ry: 0.46, rz: 0.47, tilt: -0.2, bx: -0.38, by: 0.14, br: 0.4 };
+    const torso = mesh(SPH, M.white); torso.scale.set(BODY.rx, BODY.ry, BODY.rz); torso.position.set(BODY.cx, BODY.cy, 0); torso.rotation.z = BODY.tilt; bodyG.add(torso);
+    const breast = mesh(SPH, M.white); breast.scale.setScalar(BODY.br); breast.position.set(BODY.bx, BODY.by, 0); bodyG.add(breast);
+    // たたんだ翼。風切羽は黒
     for (const s of [-1, 1]) {
-      const w = mesh(SPH, M.wing); w.scale.set(0.68, 0.26, 0.1); w.position.set(0.12, 0.08, s * 0.4); w.rotation.z = -0.3; bodyG.add(w);
-      const tp = mesh(SPH, M.tip); tp.scale.set(0.34, 0.12, 0.07); tp.position.set(0.68, -0.08, s * 0.42); tp.rotation.z = -0.4; bodyG.add(tp);
+      const w = mesh(SPH, M.white); w.scale.set(0.66, 0.3, 0.08); w.position.set(0.18, 0.06, s * 0.43); w.rotation.set(s * 0.12, 0, -0.22); bodyG.add(w);
+      const sec = mesh(SPH, M.dark); sec.scale.set(0.5, 0.07, 0.05); sec.position.set(0.32, -0.15, s * 0.44); sec.rotation.z = -0.22; bodyG.add(sec);
+      for (let k = 0; k < 4; k++) { const pr = mesh(SPH, M.tip); pr.scale.set(0.42 - k * 0.03, 0.045, 0.028); pr.position.set(0.74 + k * 0.03, -0.06 - k * 0.04, s * (0.38 - k * 0.025)); pr.rotation.z = -0.32 - k * 0.06; bodyG.add(pr); }
     }
-    const tail = mesh(new THREE.ConeGeometry(0.16, 0.4, 10), M.wing); tail.rotation.z = -Math.PI / 2 - 0.5; tail.position.set(0.82, -0.18, 0); bodyG.add(tail);
-    bodyG.position.y = 0.78;
+    const tail = mesh(SPH, M.white); tail.scale.set(0.24, 0.06, 0.2); tail.position.set(0.86, -0.2, 0); tail.rotation.z = -0.35; bodyG.add(tail);
+    // 脚と水かき
+    const footShape = new THREE.Shape();
+    footShape.moveTo(0.04, 0); footShape.lineTo(-0.22, 0.11); footShape.quadraticCurveTo(-0.19, 0.05, -0.25, 0.01); footShape.lineTo(-0.25, -0.01);
+    footShape.quadraticCurveTo(-0.19, -0.05, -0.22, -0.11); footShape.lineTo(0.04, 0);
+    const footGeo = new THREE.ExtrudeGeometry(footShape, { depth: 0.025, bevelEnabled: false }); footGeo.rotateX(-Math.PI / 2);
     for (const s of [-1, 1]) {
-      const leg = mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.42, 8), M.leg); leg.position.set(0.05, 0.21, s * 0.16); pelican.add(leg);
-      const ft = mesh(new THREE.BoxGeometry(0.3, 0.04, 0.2), M.foot); ft.position.set(-0.06, 0.02, s * 0.17); pelican.add(ft);
+      const leg = mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.4, 10), M.leg); leg.position.set(0.04, 0.2, s * 0.16); pelican.add(leg);
+      const ft = mesh(footGeo, M.leg); ft.position.set(0.03, 0.0, s * 0.16); pelican.add(ft);
     }
-    // 首: 球を並べて曲線にする
     // 首: 太さの変わる管を毎フレーム曲げ直す
-    const NECK = 28, RAD = 12;
+    const NECK = 30, RAD = 14;
     const neckGeo = new THREE.BufferGeometry();
     neckGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((NECK + 1) * (RAD + 1) * 3), 3));
-    { const idx = []; for (let i = 0; i < NECK; i++) for (let j = 0; j < RAD; j++) { const a = i * (RAD + 1) + j, b = a + RAD + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); } neckGeo.setIndex(idx); }
+    { const idx = [], uv = []; for (let i = 0; i <= NECK; i++) for (let j = 0; j <= RAD; j++) uv.push(j / RAD, i / NECK * 3); for (let i = 0; i < NECK; i++) for (let j = 0; j < RAD; j++) { const a = i * (RAD + 1) + j, b = a + RAD + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); } neckGeo.setIndex(idx); neckGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); }
     const neckMesh = mesh(neckGeo, M.white); neckMesh.frustumCulled = false; scene.add(neckMesh);
     const neckCaps = [mesh(SPH, M.white), mesh(SPH, M.white)]; neckCaps.forEach(m => scene.add(m));
     // 頭
     const head = new THREE.Group(); scene.add(head);
-    const skull = mesh(SPH, M.white); skull.scale.set(0.25, 0.22, 0.2); head.add(skull);
-    const crest = mesh(SPH, M.crest); crest.scale.set(0.16, 0.08, 0.1); crest.position.set(0.14, 0.17, 0); crest.rotation.z = -0.5; head.add(crest);
+    const skull = mesh(SPH, M.white); skull.scale.set(0.2, 0.16, 0.14); skull.position.set(0.03, 0.01, 0); head.add(skull);
+    const face = mesh(SPH, M.white); face.scale.set(0.16, 0.1, 0.1); face.position.set(-0.1, -0.01, 0); head.add(face);
     for (const s of [-1, 1]) {
-      const e = mesh(SPH, M.eye, false); e.scale.setScalar(0.06); e.position.set(-0.07, 0.06, s * 0.165); head.add(e);
-      const ir = mesh(SPH, M.iris, false); ir.scale.setScalar(0.042); ir.position.set(-0.08, 0.06, s * 0.205); head.add(ir);
-      const pu = mesh(SPH, M.pupil, false); pu.scale.setScalar(0.026); pu.position.set(-0.085, 0.06, s * 0.232); head.add(pu);
-      const hl = new THREE.Mesh(SPH, new THREE.MeshBasicMaterial({ color: 0xffffff })); hl.scale.setScalar(0.009); hl.position.set(-0.095, 0.072, s * 0.255); head.add(hl);
+      const sk = mesh(SPH, M.skin, false); sk.scale.set(0.065, 0.045, 0.03); sk.position.set(-0.06, 0.035, s * 0.112); head.add(sk);
+      const ir = mesh(SPH, M.iris, false); ir.scale.setScalar(0.024); ir.position.set(-0.065, 0.04, s * 0.134); head.add(ir);
+      const pu = mesh(SPH, M.pupil, false); pu.scale.setScalar(0.013); pu.position.set(-0.068, 0.04, s * 0.152); head.add(pu);
+      const hl = new THREE.Mesh(SPH, new THREE.MeshBasicMaterial({ color: 0xffffff })); hl.scale.setScalar(0.005); hl.position.set(-0.075, 0.048, s * 0.158); head.add(hl);
     }
-    const HINGE = new THREE.Vector3(-0.14, -0.04, 0);
+    const tuftGeo = new THREE.ConeGeometry(0.022, 0.15, 6);
+    for (let k = 0; k < 5; k++) { const tf = mesh(tuftGeo, M.crest); tf.position.set(0.19, 0.08 + (k % 2) * 0.03, (k - 2) * 0.028); tf.rotation.z = -1.95 + (k % 2) * 0.2; head.add(tf); }
+    // くちばし（上は平たく真ん中に稜線、先がかぎ形。下は細い2本の骨の間に袋）
+    const LB = 1.05, UA = 0.4, LA = 0.16;
+    const HINGE = new THREE.Vector3(-0.12, -0.03, 0);
     const upper = new THREE.Group(); upper.position.copy(HINGE); head.add(upper);
-    const beakGeo = new THREE.CylinderGeometry(0.03, 0.085, 1, 14); beakGeo.rotateZ(Math.PI / 2); // 先が -x
-    const ub = mesh(beakGeo, M.beak); ub.scale.set(1, 0.55, 1); ub.position.set(-0.5, 0.02, 0); upper.add(ub);
-    const hook = mesh(SPH, M.hook); hook.scale.set(0.06, 0.045, 0.04); hook.position.set(-1.0, 0.0, 0); upper.add(hook);
+    const upperTop = u => lerp(0.06, 0.022, u);
+    upper.add(mesh(sweep(22, 18, (u, a, p) => {
+      const s = Math.sin(a), c = Math.cos(a), w = lerp(0.072, 0.03, Math.pow(u, 0.8));
+      const top = upperTop(u) + 0.01 * Math.exp(-c * c / 0.03);
+      p[0] = 0.06 - u * (LB + 0.06); p[1] = (s > 0 ? top * s : 0.012 * s) - 0.012 * u * u; p[2] = w * c;
+    }), M.beak));
+    const nail = mesh(SPH, M.hook); nail.scale.set(0.05, 0.032, 0.03); nail.position.set(-LB - 0.005, -0.02, 0); nail.rotation.z = 0.5; upper.add(nail);
     const lower = new THREE.Group(); lower.position.copy(HINGE); head.add(lower);
-    for (const s of [-1, 1]) { const lb = mesh(beakGeo, M.beak); lb.scale.set(1, 0.25, 0.3); lb.position.set(-0.48, -0.03, s * 0.055); lower.add(lb); }
-    // のど袋（少し透ける）
-    const pouchG = new THREE.Group(); lower.add(pouchG);
-    const pouch = new THREE.Mesh(SPH, M.pouch); pouch.renderOrder = 2; pouchG.add(pouch);
-    const heldG = new THREE.Group(); pouchG.add(heldG); // 袋の中身
+    const LJ = LB * 0.97;
+    const hwAt = u => lerp(0.062, 0.02, Math.min(1, Math.max(0, u)));
+    for (const s of [-1, 1]) lower.add(mesh(sweep(20, 8, (u, a, p) => { p[0] = 0.06 - u * (LJ + 0.06); p[1] = -0.004 + 0.013 * Math.sin(a); p[2] = s * hwAt(u) + 0.011 * Math.cos(a); }), M.jaw));
+    // のど袋（少し透けて中身が見える）
+    let pouchD = 0.04, pouchW = 0;
+    const PX0 = 0.1, PXL = LJ + 0.1;
+    const pouchDepth = u => pouchD * Math.pow(Math.sin(Math.PI * (0.12 + 0.88 * u)), 0.8) + 0.008;
+    const pouchFn = (u, a, p) => {
+      const s = Math.sin(a), c = Math.cos(a), d = pouchDepth(u);
+      p[0] = PX0 - u * PXL; p[1] = -0.004 - d * Math.pow(s, 0.85); p[2] = c * (hwAt(u) + pouchW * s * Math.pow(Math.sin(Math.PI * u), 0.7));
+    };
+    const pouchGeo = sweep(28, 16, pouchFn, Math.PI);
+    const pouch = new THREE.Mesh(pouchGeo, M.pouch); pouch.renderOrder = 2; pouch.frustumCulled = false; lower.add(pouch);
+    const heldG = new THREE.Group(); lower.add(heldG); // 袋の中身
 
     // ---------- 飛んでくる物 ----------
-    const fishMats = {};
-    const fm = (c, r = 0.35) => fishMats[c] ||= std(c, r, { metalness: 0.15 });
-    const CONE = new THREE.ConeGeometry(1, 1, 8);
-    function fish(L, h, back, belly, fin) {
+    // 魚の柄: 背中は濃く、おなかは銀色。種類ごとに模様を描く
+    function fishTex(back, belly, pattern) {
+      return canvasTex(256, 128, (g, w, h) => {
+        const img = g.createImageData(w, h), d = img.data;
+        for (let y = 0; y < h; y++) {
+          const v = 1 - (y + 0.5) / h, k = Math.min(1, Math.max(0, Math.sin(v * Math.PI * 2) * 1.7 + 0.3));
+          for (let x = 0; x < w; x++) { const n = (Math.random() - 0.5) * 12, o = (y * w + x) * 4; for (let c = 0; c < 3; c++) d[o + c] = belly[c] + (back[c] - belly[c]) * k + n; d[o + 3] = 255; }
+        }
+        g.putImageData(img, 0, 0);
+        // 側線
+        g.strokeStyle = 'rgba(40,50,60,.35)'; g.lineWidth = 1.2;
+        for (const yy of [0.94, 0.56]) { g.beginPath(); g.moveTo(10, h * yy); g.lineTo(w - 20, h * yy); g.stroke(); }
+        pattern?.(g, w, h);
+      });
+    }
+    const sardineTex = fishTex([38, 84, 122], [226, 233, 238], (g, w, h) => { g.fillStyle = 'rgba(20,30,45,.75)'; for (const yy of [0.91, 0.59]) for (let x = w * 0.45; x < w * 0.85; x += 14) { g.beginPath(); g.arc(x, h * yy, 2.6, 0, 7); g.fill(); } });
+    const mackerelTex = fishTex([42, 100, 104], [226, 231, 233], (g, w, h) => {
+      g.strokeStyle = 'rgba(12,22,26,.85)'; g.lineWidth = 2.4;
+      for (let x = 20; x < w - 30; x += 9) { g.beginPath(); for (let y = h * 0.6; y <= h * 0.9; y += 3) { const xx = x + Math.sin(y * 0.25 + x) * 4; y === h * 0.6 ? g.moveTo(xx, y) : g.lineTo(xx, y); } g.stroke(); }
+    });
+    const tunaTex = fishTex([24, 34, 70], [202, 208, 218], (g, w, h) => { g.fillStyle = 'rgba(220,190,60,.35)'; g.fillRect(w * 0.2, h * 0.88, w * 0.6, 3); g.fillRect(w * 0.2, h * 0.6, w * 0.6, 3); });
+    const fishEye = std(0x101010, 0.05, { metalness: 0.3 });
+    function tri(ax, ay, bx, by, cx, cy) { const s = new THREE.Shape(); s.moveTo(ax, ay); s.lineTo(bx, by); s.lineTo(cx, cy); s.lineTo(ax, ay); return new THREE.ShapeGeometry(s); }
+    // 長さ L・高さ H・幅 Wd の魚（+x が頭）
+    function fish(L, H, Wd, tex, finColor, finlets) {
       const g = new THREE.Group();
-      const b = mesh(SPH, fm(belly)); b.scale.set(L * 0.42, h * 0.5, h * 0.33); g.add(b);
-      const tp = mesh(SPH, fm(back)); tp.scale.set(L * 0.4, h * 0.36, h * 0.3); tp.position.y = h * 0.15; g.add(tp);
-      const tl = mesh(CONE, fm(fin)); tl.scale.set(h * 0.5, L * 0.22, h * 0.1); tl.rotation.z = -Math.PI / 2; tl.position.x = -L * 0.48; g.add(tl);
-      const df = mesh(CONE, fm(fin)); df.scale.set(L * 0.08, h * 0.35, h * 0.05); df.position.set(-L * 0.05, h * 0.5, 0); g.add(df);
-      for (const s of [-1, 1]) { const e = mesh(SPH, M.pupil, false); e.scale.setScalar(h * 0.09); e.position.set(L * 0.31, h * 0.08, s * h * 0.27); g.add(e); }
+      g.add(mesh(sweep(30, 20, (u, a, p) => {
+        const prof = Math.pow(Math.max(0, Math.sin(Math.PI * Math.pow(u, 1.15))), 0.62);
+        p[0] = (u - 0.5) * L; p[1] = Math.sin(a) * H * 0.5 * prof; p[2] = Math.cos(a) * Wd * 0.5 * prof;
+      }), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.26, metalness: 0.5, side: DS })));
+      const fin = new THREE.MeshStandardMaterial({ color: finColor, roughness: 0.5, metalness: 0.2, side: DS, transparent: true, opacity: 0.92 });
+      const a = L * 0.2, b = H * 0.75, ts = new THREE.Shape();
+      ts.moveTo(0, H * 0.05); ts.quadraticCurveTo(-a * 0.6, b * 0.4, -a, b); ts.quadraticCurveTo(-a * 0.62, 0, -a, -b); ts.quadraticCurveTo(-a * 0.6, -b * 0.4, 0, -H * 0.05); ts.lineTo(0, H * 0.05);
+      const tl = mesh(new THREE.ShapeGeometry(ts), fin); tl.position.x = -L * 0.46; g.add(tl);
+      g.add(mesh(tri(L * 0.1, H * 0.4, -L * 0.1, H * 0.38, -L * 0.04, H * 0.72), fin));
+      g.add(mesh(tri(-L * 0.12, -H * 0.36, -L * 0.28, -H * 0.24, -L * 0.24, -H * 0.5), fin));
+      for (const s of [-1, 1]) {
+        const pf = mesh(tri(0, 0, -L * 0.14, H * 0.08, -L * 0.12, -H * 0.06), fin); pf.position.set(L * 0.22, -H * 0.12, s * Wd * 0.36); pf.rotation.y = s * 0.3; g.add(pf);
+        const e = mesh(SPH, fishEye, false); e.scale.setScalar(H * 0.085); e.position.set(L * 0.36, H * 0.07, s * Wd * 0.3); g.add(e);
+      }
+      if (finlets) for (let k = 0; k < 6; k++) { const x = -L * (0.26 + k * 0.03); for (const sy of [1, -1]) g.add(mesh(tri(x, sy * H * 0.18, x - L * 0.025, sy * H * 0.16, x - L * 0.015, sy * H * 0.27), fin)); }
       return g;
     }
+    // 魚の当たり判定: 胴体のカプセル＋尾びれ（見た目の寸法から作る）
+    const fishCaps = (L, H) => [[-L * 0.3, 0, L * 0.3, 0, H * 0.45], [-L * 0.62, 0, -L * 0.34, 0, H * 0.18], [-L * 0.66, -H * 0.62, -L * 0.66, H * 0.62, H * 0.06]];
     function boot(color) {
-      const g = new THREE.Group(), m = std(color, 0.55);
-      const sh = mesh(new THREE.CylinderGeometry(0.12, 0.11, 0.46, 12), m); sh.position.set(-0.06, 0.08, 0); g.add(sh);
-      const ft = mesh(new THREE.CapsuleGeometry(0.1, 0.2, 4, 10), m); ft.rotation.z = Math.PI / 2; ft.position.set(0.06, -0.16, 0); g.add(ft);
-      const so = mesh(new THREE.BoxGeometry(0.42, 0.04, 0.2), std(0x2a2a2a, 0.9)); so.position.set(0.05, -0.26, 0); g.add(so);
+      const g = new THREE.Group(), m = std(color, 0.6);
+      const sh = mesh(new THREE.CylinderGeometry(0.12, 0.11, 0.46, 16, 1, true), std(color, 0.6, { side: DS })); sh.position.set(-0.06, 0.08, 0); g.add(sh);
+      const inside = mesh(new THREE.CircleGeometry(0.115, 16), std(0x151515, 0.9)); inside.rotation.x = -Math.PI / 2; inside.position.set(-0.06, 0.25, 0); g.add(inside);
+      const ft = mesh(new THREE.CapsuleGeometry(0.1, 0.2, 6, 14), m); ft.rotation.z = Math.PI / 2; ft.position.set(0.06, -0.16, 0); g.add(ft);
+      const so = mesh(new THREE.BoxGeometry(0.42, 0.04, 0.2), std(0x2a2a2a, 0.95)); so.position.set(0.05, -0.26, 0); g.add(so);
       return g;
     }
     const ballTex = canvasTex(256, 128, (g, w, h) => { const cs = ['#e8413a', '#ffffff', '#2f7ad8', '#ffffff', '#f4c430', '#ffffff']; cs.forEach((c, i) => { g.fillStyle = c; g.fillRect(i * w / 6, 0, w / 6 + 1, h); }); });
-    const ball = () => mesh(new THREE.SphereGeometry(0.28, 20, 14), std(0xffffff, 0.35, { map: ballTex }));
+    const ball = () => mesh(new THREE.SphereGeometry(0.28, 24, 16), std(0xffffff, 0.3, { map: ballTex }));
     const KINDS = [
-      { key: 'sardine', w: 0.1, r: 0.2, p: 40, make: () => fish(0.42, 0.11, 0x2f6a9a, 0xdfe8ef, 0x6f8fa8) },
-      { key: 'mackerel', w: 0.5, r: 0.28, p: 24, make: () => fish(0.72, 0.18, 0x2a5a6a, 0xd6e0e4, 0x4a6a74) },
-      { key: 'tuna', w: 3, r: 0.48, p: 8, make: () => fish(1.3, 0.38, 0x1f2f55, 0xc8d0da, 0xe6c02a) },
-      { key: 'boot', w: 0.8, r: 0.28, p: 9, make: () => boot(Math.random() < 0.5 ? 0xf2c230 : 0x3e6b3a) },
-      { key: 'ball', w: 0.3, r: 0.28, p: 10, make: ball },
-      { key: 'cat', w: 4, r: 0.32, p: 4, cat: true },
+      { key: 'sardine', w: 0.1, p: 40, fish: true, caps: fishCaps(0.42, 0.1), make: () => fish(0.42, 0.1, 0.07, sardineTex, 0x7f95a8) },
+      { key: 'mackerel', w: 0.5, p: 24, fish: true, caps: fishCaps(0.72, 0.16), make: () => fish(0.72, 0.16, 0.11, mackerelTex, 0x5a7076) },
+      { key: 'tuna', w: 3, p: 8, fish: true, caps: fishCaps(1.3, 0.36), make: () => fish(1.3, 0.36, 0.28, tunaTex, 0x2a3558, true) },
+      { key: 'boot', w: 0.8, p: 9, caps: [[-0.06, -0.08, -0.06, 0.22, 0.12], [-0.04, -0.16, 0.16, -0.16, 0.1]], make: () => boot(Math.random() < 0.5 ? 0xf2c230 : 0x3e6b3a) },
+      { key: 'ball', w: 0.3, p: 10, caps: [[0, 0, 0, 0, 0.28]], make: ball },
+      { key: 'cat', w: 4, p: 4, cat: true, caps: [[0, 0, 0, 0, 0.3]] },
     ];
     // 見た目は種類ごとに作っておき、出すときは複製する（生成の重さを抑える）
     for (const k of KINDS) if (!k.cat) k.protos = Array.from({ length: k.key === 'boot' ? 4 : 1 }, k.make);
@@ -506,17 +613,17 @@
     const PSUM = KINDS.reduce((s, k) => s + k.p, 0);
     function pickKind() { let r = Math.random() * PSUM; for (const k of KINDS) { if ((r -= k.p) < 0) return k; } return KINDS[0]; }
 
-    // ---------- 粒（水しぶき・星） ----------
+    // ---------- 粒（水しぶき・星・羽根） ----------
     const DROP = new THREE.SphereGeometry(1, 6, 4);
-    const pMats = { water: new THREE.MeshBasicMaterial({ color: 0xe9f6ff }), star: new THREE.MeshBasicMaterial({ color: 0xffe27a }), feather: std(0xffffff, 0.9) };
+    const pMats = { water: new THREE.MeshStandardMaterial({ color: 0xeaf6ff, roughness: 0.1 }), star: new THREE.MeshBasicMaterial({ color: 0xffe27a }), feather: std(0xffffff, 0.9) };
     const parts = [];
     const pool = [];
-    function burst(x, y, kind, n, sp, up, size) {
+    function burst(x, y, kind, n, spd, up, size) {
       for (let i = 0; i < n; i++) {
         const m = pool.pop() || new THREE.Mesh(DROP, pMats.water);
         m.material = pMats[kind]; m.visible = true; scene.add(m);
         const a = Math.random() * Math.PI * 2;
-        parts.push({ m, x, y, z: (Math.random() - 0.5) * 0.4, vx: Math.cos(a) * sp * Math.random(), vy: up * (0.5 + Math.random() * 0.7), vz: Math.sin(a) * sp * 0.6 * Math.random(), life: 0, max: 0.5 + Math.random() * 0.4, size: size * (0.6 + Math.random() * 0.6), g: kind === 'feather' ? 2 : 9 });
+        parts.push({ m, x, y, z: (Math.random() - 0.5) * 0.4, vx: Math.cos(a) * spd * Math.random(), vy: up * (0.5 + Math.random() * 0.7), vz: Math.sin(a) * spd * 0.6 * Math.random(), life: 0, max: 0.5 + Math.random() * 0.4, size: size * (0.6 + Math.random() * 0.6), g: kind === 'feather' ? 2 : 9 });
       }
     }
     function updateParts(dt) {
@@ -541,39 +648,45 @@
     let heldW = 0;
     const neckBase = new THREE.Vector3();
     const headPos = new THREE.Vector3(), headPrev = new THREE.Vector3(), target = new THREE.Vector3();
+    let tilt = 0, tiltPrev = 0;
     let open = 1, snapT = 0, bulge = -1, bulgeSize = 0, belly = 0, gulpWob = 0;
     let mode = 'mouse', touching = false;
 
+    // 体の付け根（胸の上）から首が出る
     function updateNeckBase() {
-      const f = fatShow;
-      neckBase.set(P.x - 0.45 - 0.22 * (f - 1), P.y + 1.02 + 0.5 * (f - 1), 0);
+      const f = fatShow, by = 0.34 + BODY.ry * f;
+      neckBase.set(P.x + (BODY.bx - 0.05) * f, P.y + by + (BODY.by + 0.24) * f, 0);
     }
-    const restPoint = () => new THREE.Vector3(neckBase.x - 0.45 - 0.3 * (fatShow - 1), neckBase.y + 0.75 + 0.45 * (fatShow - 1), 0);
+    const restPoint = () => new THREE.Vector3(neckBase.x - 0.4 - 0.3 * (fatShow - 1), neckBase.y + 0.7 + 0.4 * (fatShow - 1), 0);
     // 頭が届く範囲に収める
     function clampHead(v) {
       v.x = Math.min(v.x, neckBase.x + 0.35);
-      v.y = Math.max(0.35, Math.min(v.y, neckBase.y + 2.1));
+      v.y = Math.max(0.4, Math.min(v.y, neckBase.y + 2.0));
       const dx = v.x - neckBase.x, dy = v.y - neckBase.y, l = Math.hypot(dx, dy);
       if (l > REACH) { v.x = neckBase.x + dx / l * REACH; v.y = neckBase.y + dy / l * REACH; }
       if (l < 0.55 && l > 0) { v.x = neckBase.x + dx / l * 0.55; v.y = neckBase.y + dy / l * 0.55; }
       return v;
     }
-    const mouthAt = (h, out) => out.set(h.x - 0.62, h.y - 0.14, 0);
+    const tiltFor = (h, res) => Math.max(-0.45, Math.min(0.45, (h.y - neckBase.y) * -0.12 + (res ? 0.22 : 0)));
+    // 口を開けたときの真ん中（頭からの位置）
+    const MOUTH_OFS = [HINGE.x - LB * 0.55, HINGE.y - 0.02];
 
     function spawn() {
       const k = pickKind();
       const obj = k.cat ? new THREE.Sprite(catBase.clone()) : k.protos[Math.random() * k.protos.length | 0].clone();
-      if (k.cat) obj.scale.setScalar(0.72);
+      if (k.cat) obj.scale.setScalar(0.72); else obj.rotation.order = 'ZYX';
       // 頭が届く所を通るように投げる
       let tx, ty;
       for (let n = 0; n < 20; n++) {
         tx = neckBase.x - 2.5 + Math.random() * 2.3; ty = 0.7 + Math.random() * 2.6;
-        if (Math.hypot(tx + 0.62 - neckBase.x, ty + 0.14 - neckBase.y) < REACH - 0.1) break;
+        if (Math.hypot(tx - MOUTH_OFS[0] - neckBase.x, ty - MOUTH_OFS[1] - neckBase.y) < REACH - 0.1) break;
       }
       const prog = state === 'play' ? 1 - timeLeft / PLAY_TIME : 0;
       const ft = (1.28 - prog * 0.25) * (0.85 + Math.random() * 0.3) * (k.key === 'tuna' || k.cat ? 1.1 : 1);
       const sx = -6.5 - Math.random() * 2, sy = -0.1;
-      const it = { k, obj, x: sx, y: sy, px: sx, py: sy, vx: (tx - sx) / ft, vy: (ty - sy) / ft + 0.5 * G * ft, rot: 0, spin: (Math.random() - 0.5) * 10, life: 0, bonk: 0, hit: false, onDeck: 0, dead: 0 };
+      const vx = (tx - sx) / ft, vy = (ty - sy) / ft + 0.5 * G * ft;
+      const ang = k.fish ? Math.atan2(vy, vx) : 0;
+      const it = { k, obj, x: sx, y: sy, px: sx, py: sy, vx, vy, ang, pang: ang, spin: k.fish ? 0 : (Math.random() - 0.5) * 8, life: 0, hit: false, snd: 0, rest: 0, dead: 0, wet: false, flap: Math.random() * 6 };
       obj.position.set(sx, sy, 0);
       scene.add(obj);
       items.push(it);
@@ -588,10 +701,11 @@
       scene.remove(it.obj);
       // 袋の中に入れる（少し小さく）
       const o = it.obj;
-      o.position.set(0.15 - Math.random() * 0.4, -0.05 + (Math.random() - 0.5) * 0.08, (Math.random() - 0.5) * 0.1);
-      if (it.k.cat) o.scale.setScalar(0.42);
-      else { o.scale.setScalar(it.k.key === 'tuna' ? 0.42 : 0.6); o.rotation.set(0, 0, (Math.random() - 0.5) * 0.8); }
+      o.userData.u = 0.22 + Math.random() * 0.45;
+      o.userData.z = (Math.random() - 0.5) * 0.04;
       o.userData.wig = Math.random() * 6;
+      if (it.k.cat) o.scale.setScalar(0.4);
+      else { o.scale.setScalar(it.k.key === 'tuna' ? 0.4 : 0.62); o.rotation.set(0, Math.PI + (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.5); }
       heldG.add(o);
       held.push(it);
       heldW += it.k.w;
@@ -672,11 +786,141 @@
     });
     addEventListener('keyup', e => keys.delete(e.key));
 
+    // ---------- 当たり判定 ----------
+    // すべて z=0 の平面上の「カプセル（線分＋半径）」で、見た目の寸法と同じ値から作る
+    const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+    // 2本の線分の最も近い点（Real-Time Collision Detection の方法）
+    const SS = { d: 0, px: 0, py: 0, qx: 0, qy: 0 };
+    function segSeg(ax, ay, bx, by, cx, cy, dx, dy) {
+      const d1x = bx - ax, d1y = by - ay, d2x = dx - cx, d2y = dy - cy, rx = ax - cx, ry = ay - cy;
+      const a = d1x * d1x + d1y * d1y, e = d2x * d2x + d2y * d2y, f = d2x * rx + d2y * ry;
+      let s = 0, t = 0;
+      if (a < 1e-9 && e < 1e-9) { s = t = 0; }
+      else if (a < 1e-9) { t = clamp01(f / e); }
+      else {
+        const c = d1x * rx + d1y * ry;
+        if (e < 1e-9) { s = clamp01(-c / a); }
+        else {
+          const b = d1x * d2x + d1y * d2y, den = a * e - b * b;
+          s = den > 1e-12 ? clamp01((b * f - c * e) / den) : 0;
+          t = (b * s + f) / e;
+          if (t < 0) { t = 0; s = clamp01(-c / a); } else if (t > 1) { t = 1; s = clamp01((b - c) / a); }
+        }
+      }
+      SS.px = ax + d1x * s; SS.py = ay + d1y * s; SS.qx = cx + d2x * t; SS.qy = cy + d2y * t;
+      SS.d = Math.hypot(SS.px - SS.qx, SS.py - SS.qy);
+      return SS;
+    }
+    // ペリカンの当たり判定（毎刻み作り直す）
+    const caps = [];
+    let capN = 0;
+    function addCap(ax, ay, bx, by, r, vx, vy, kind) {
+      const c = caps[capN] || (caps[capN] = {});
+      Object.assign(c, { ax, ay, bx, by, r, vx, vy, kind }); capN++;
+    }
+    const A2 = [0, 0], B2 = [0, 0];
+    // 頭の中の点 → 世界
+    function headPt(x, y, out) { const c = Math.cos(tilt), s = Math.sin(tilt); out[0] = headPos.x + x * c - y * s; out[1] = headPos.y + x * s + y * c; return out; }
+    // くちばし（蝶番で ang だけ回した所）の点 → 世界
+    function jawPt(ang, x, y, out) { const c = Math.cos(ang), s = Math.sin(ang); return headPt(HINGE.x + x * c - y * s, HINGE.y + x * s + y * c, out); }
+    function capHead(x1, y1, x2, y2, r, hv, kind) { headPt(x1, y1, A2); headPt(x2, y2, B2); addCap(A2[0], A2[1], B2[0], B2[1], r, hv.x, hv.y, kind); }
+    function capJaw(ang, x1, y1, x2, y2, r, hv, kind) { jawPt(ang, x1, y1, A2); jawPt(ang, x2, y2, B2); addCap(A2[0], A2[1], B2[0], B2[1], r, hv.x, hv.y, kind); }
+    const hv = new THREE.Vector2(), mouthTri = [[0, 0], [0, 0], [0, 0]];
+    const neckPts = Array.from({ length: 9 }, () => new THREE.Vector3());
+    const neckR = new Float32Array(9);
+    function buildColliders() {
+      capN = 0;
+      hv.set((headPos.x - headPrev.x) / DT, (headPos.y - headPrev.y) / DT);
+      const ua = -open * UA, la = open * LA;
+      // 上くちばし: 根元は厚く先は薄い（upperTop と同じ寸法）
+      capJaw(ua, 0.0, 0.029, -0.52, 0.013, 0.038, hv, 'beak');
+      capJaw(ua, -0.52, 0.013, -LB, -0.006, 0.026, hv, 'beak');
+      capJaw(ua, -LB - 0.005, -0.02, -LB - 0.005, -0.02, 0.034, hv, 'beak'); // 先のかぎ
+      // 下くちばし（2本の骨）
+      capJaw(la, 0.06, -0.004, -LJ, -0.004, 0.016, hv, 'beak');
+      // 袋の底（外から当たると跳ね返る）
+      let lx = 0, ly = 0;
+      for (let k = 0; k <= 5; k++) {
+        const u = k / 5, x = PX0 - u * PXL, y = -0.004 - pouchDepth(u);
+        if (k) capJaw(la, lx, ly, x, y, 0.02, hv, 'pouch');
+        lx = x; ly = y;
+      }
+      // 頭（頭骨と顔の楕円）
+      capHead(-0.01, 0.01, 0.07, 0.01, 0.155, hv, 'head');
+      capHead(-0.18, -0.01, -0.04, -0.01, 0.1, hv, 'head');
+      // 首（描画と同じ曲線）
+      neckCurve(headPos, tilt, fatShow, neckPts, neckR);
+      for (let k = 1; k < neckPts.length; k++) {
+        const tt = k / (neckPts.length - 1);
+        addCap(neckPts[k - 1].x, neckPts[k - 1].y, neckPts[k].x, neckPts[k].y, (neckR[k - 1] + neckR[k]) / 2, hv.x * tt, hv.y * tt, 'neck');
+      }
+      // 体（胴の楕円・胸・風切羽）
+      const f = fatShow, ox = P.x, oy = P.y + 0.34 + BODY.ry * f;
+      const ex = Math.cos(BODY.tilt) * (BODY.rx - BODY.ry), ey = Math.sin(BODY.tilt) * (BODY.rx - BODY.ry);
+      addCap(ox + (BODY.cx - ex) * f, oy + (BODY.cy - ey) * f, ox + (BODY.cx + ex) * f, oy + (BODY.cy + ey) * f, BODY.ry * f, 0, 0, 'body');
+      addCap(ox + BODY.bx * f, oy + BODY.by * f, ox + BODY.bx * f, oy + BODY.by * f, BODY.br * f, 0, 0, 'body');
+      addCap(ox + 0.7 * f, oy - 0.08 * f, ox + 1.14 * f, oy - 0.22 * f, 0.05 * f, 0, 0, 'body');
+      // 口の入り口: 蝶番・上の先・下の先の三角形
+      jawPt(0, -0.04, -0.01, mouthTri[0]);
+      jawPt(ua, -LB + 0.03, -0.006, mouthTri[1]);
+      jawPt(la, -LJ + 0.03, -0.004, mouthTri[2]);
+    }
+    const cross = (ax, ay, bx, by, cx, cy) => (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    function inTri(x, y, t) {
+      const d1 = cross(t[0][0], t[0][1], t[1][0], t[1][1], x, y), d2 = cross(t[1][0], t[1][1], t[2][0], t[2][1], x, y), d3 = cross(t[2][0], t[2][1], t[0][0], t[0][1], x, y);
+      return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
+    }
+    // 線分 p→q が線分 a→b と交わるか
+    function segCross(px, py, qx, qy, ax, ay, bx, by) {
+      const d1 = cross(ax, ay, bx, by, px, py), d2 = cross(ax, ay, bx, by, qx, qy), d3 = cross(px, py, qx, qy, ax, ay), d4 = cross(px, py, qx, qy, bx, by);
+      return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+    }
+    // 物の当たり判定（物の向き ang で回したカプセル）
+    const IC = Array.from({ length: 4 }, () => [0, 0, 0, 0, 0]);
+    function itemCaps(it) {
+      const c = Math.cos(it.ang), s = Math.sin(it.ang), k = it.obj.scale.x / (it.k.cat ? 0.72 : 1);
+      it.k.caps.forEach((q, i) => { const o = IC[i]; o[0] = it.x + (q[0] * c - q[1] * s) * k; o[1] = it.y + (q[0] * s + q[1] * c) * k; o[2] = it.x + (q[2] * c - q[3] * s) * k; o[3] = it.y + (q[2] * s + q[3] * c) * k; o[4] = q[4] * k; });
+      return it.k.caps.length;
+    }
+    function collide(it) {
+      const n = itemCaps(it);
+      let touched = null;
+      for (let i = 0; i < n; i++) {
+        const q = IC[i];
+        for (let j = 0; j < capN; j++) {
+          const c = caps[j];
+          const r = segSeg(q[0], q[1], q[2], q[3], c.ax, c.ay, c.bx, c.by), rr = q[4] + c.r;
+          if (r.d >= rr) continue;
+          let nx, ny;
+          if (r.d > 1e-6) { nx = (r.px - r.qx) / r.d; ny = (r.py - r.qy) / r.d; }
+          else { const dx = it.x - (c.ax + c.bx) / 2, dy = it.y - (c.ay + c.by) / 2, l = Math.hypot(dx, dy) || 1; nx = dx / l; ny = dy / l; }
+          const pen = rr - r.d;
+          it.x += nx * pen; it.y += ny * pen;
+          for (const o of IC) { o[0] += nx * pen; o[1] += ny * pen; o[2] += nx * pen; o[3] += ny * pen; }
+          // 相手の動きも入れた跳ね返り
+          const rvx = it.vx - c.vx, rvy = it.vy - c.vy, vn = rvx * nx + rvy * ny;
+          if (vn < 0) {
+            const e = c.kind === 'pouch' || c.kind === 'body' || c.kind === 'neck' ? 0.25 : 0.5;
+            it.vx -= (1 + e) * vn * nx; it.vy -= (1 + e) * vn * ny;
+            // こすれた向きに回る
+            const vt = -rvx * ny + rvy * nx, lx = r.px - it.x, ly = r.py - it.y;
+            it.spin += (lx * -ny + ly * nx) * vt * 6 - vt * 1.5;
+            if (-vn > 1) touched = c.kind;
+          }
+          it.hit = true;
+        }
+      }
+      if (touched && it.snd <= 0) {
+        it.snd = 0.15;
+        if (touched === 'beak' || touched === 'head') { sBonk(); burst(it.x, it.y, 'star', 5, 2, 2, 0.05); }
+        else { sPouch(); burst(it.x, it.y, 'feather', 4, 1, 1, 0.05); }
+      }
+    }
+
     // ---------- 更新（固定刻み） ----------
-    const mouth = new THREE.Vector3(), tmp = new THREE.Vector3();
     function step() {
-      headPrev.copy(headPos);
-      for (const it of items) { it.px = it.x; it.py = it.y; }
+      headPrev.copy(headPos); tiltPrev = tilt;
+      for (const it of items) { it.px = it.x; it.py = it.y; it.pang = it.ang; }
       if (state === 'play') {
         timeLeft -= DT;
         if (timeLeft <= 0) { timeLeft = 0; state = 'end'; endT = 0; if (held.length) { snapT = 0; snap(); } else snapT = 0.24; }
@@ -701,75 +945,83 @@
         if (keys.has('ArrowDown')) target.y -= s;
       }
       let goal;
-      if (state === 'ready' && !touching && mode !== 'mouse') { const r = restPoint(); goal = r; }
+      if (state === 'ready' && !touching && mode !== 'mouse') goal = restPoint();
       else if (state === 'end' || state === 'result') goal = restPoint();
       else goal = target.clone();
       if (state === 'play' || state === 'ready') clampHead(target);
       goal = clampHead(goal.clone());
       goal.y -= Math.min(0.9, heldW * 0.1); // 袋が重いと頭が下がる
-      goal.y = Math.max(0.35, goal.y);
+      goal.y = Math.max(0.4, goal.y);
       const rate = 16 / (1 + weight * 0.035 + heldW * 0.15); // 太るほどのろくなる
       headPos.lerp(goal, 1 - Math.exp(-rate * DT));
+      tilt = tiltFor(headPos, state === 'result');
       // 口
       if (snapT > 0) snapT -= DT;
       let want = 1;
       if (snapT > 0 || state === 'end' || state === 'result') want = 0;
       else if (mode === 'touch' && !touching && state !== 'ready') want = 0;
       open += (want - open) * (1 - Math.exp(-(want < open ? 40 : 12) * DT));
-      mouthAt(headPos, mouth);
+      // 袋の形（見た目と当たり判定の両方で使う）
+      const fill = Math.min(1, Math.sqrt(heldW) * 0.35);
+      pouchD = 0.04 + open * 0.12 + fill * 0.34;
+      pouchW = fill * 0.13 + open * 0.025;
+      buildColliders();
       // 飛んでくる物
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i];
-        it.life += DT;
-        it.vy -= G * DT; it.x += it.vx * DT; it.y += it.vy * DT; it.rot += it.spin * DT;
-        if (it.dead) { it.dead -= DT; if (it.dead <= 0) { removeItem(i); } continue; }
-        // 袋に入る
-        const dM = Math.hypot(it.x - mouth.x, it.y - mouth.y);
-        if (open > 0.6 && dM < 0.5 + it.k.r * 0.7 && playable()) { catchItem(i); continue; }
-        // 閉じたくちばしや頭に当たると跳ね返る
-        if (it.bonk <= 0) {
-          for (const [cx, cy, rr] of [[mouth.x, mouth.y + 0.1, 0.32], [headPos.x, headPos.y, 0.28]]) {
-            const dx = it.x - cx, dy = it.y - cy, d = Math.hypot(dx, dy);
-            if (d < rr + it.k.r && d > 0) {
-              const nx = dx / d, ny = dy / d, vn = it.vx * nx + it.vy * ny;
-              if (vn < 0) { it.vx -= 1.7 * vn * nx; it.vy -= 1.7 * vn * ny; }
-              it.vx -= 1.5; it.vy += 1.5; it.spin = (Math.random() - 0.5) * 20; it.bonk = 0.3; it.hit = true;
-              sBonk(); burst(it.x, it.y, 'star', 5, 2, 2, 0.05);
-              break;
-            }
+        it.life += DT; it.snd -= DT;
+        it.vy -= G * DT; it.x += it.vx * DT; it.y += it.vy * DT;
+        // 魚は当たるまで進む向きを向き、当たった後は回る
+        if (it.k.fish && !it.hit) it.ang = Math.atan2(it.vy, it.vx);
+        else { it.ang += it.spin * DT; it.spin *= it.rest ? 0.9 : 0.995; }
+        if (it.dead) { it.dead -= DT; if (it.dead <= 0) removeItem(i); continue; }
+        // 口の入り口から入ったら袋へ
+        if (open > 0.3 && playable() && (inTri(it.x, it.y, mouthTri) || segCross(it.px, it.py, it.x, it.y, mouthTri[1][0], mouthTri[1][1], mouthTri[2][0], mouthTri[2][1]))) { catchItem(i); continue; }
+        // ペリカンの体・頭・くちばしに当たる
+        collide(it);
+        // 桟橋の床（物のいちばん下の点で判定）
+        const n = itemCaps(it);
+        let low = Infinity, lowX = 0;
+        for (let j = 0; j < n; j++) { const q = IC[j]; for (const [x, y] of [[q[0], q[1]], [q[2], q[3]]]) if (y - q[4] < low) { low = y - q[4]; lowX = x; } }
+        if (lowX > DECK_X0 && low < DECK_Y && low > DECK_Y - 0.35) {
+          it.y += DECK_Y - low;
+          if (it.vy < 0) {
+            if (it.vy < -1.5 && !it.rest) tone('sine', 200, 90, 0.08, 0.15);
+            it.vy = -it.vy * 0.3; it.vx *= 0.7; it.spin = it.spin * 0.6 - it.vx * 2; it.hit = true;
           }
-          // 体に当たる
-          const bx = P.x + 0.05, by = P.y + 0.78 * fatShow, br = 0.5 * fatShow;
-          const dx = it.x - bx, dy = it.y - by, d = Math.hypot(dx, dy);
-          if (d < br + it.k.r && d > 0) {
-            const nx = dx / d, ny = dy / d, vn = it.vx * nx + it.vy * ny;
-            if (vn < 0) { it.vx -= 1.5 * vn * nx; it.vy -= 1.5 * vn * ny; }
-            it.bonk = 0.3; it.hit = true; sPouch(); burst(it.x, it.y, 'feather', 4, 1, 1, 0.05);
-          }
-        } else it.bonk -= DT;
-        // 桟橋に落ちる
-        if (it.x > DECK_X0 && it.y - it.k.r * 0.5 < DECK_Y && it.vy < 0 && it.y > DECK_Y - 0.4) {
-          it.y = DECK_Y + it.k.r * 0.5; it.vy = Math.abs(it.vy) * 0.35; it.vx *= 0.5; it.spin *= 0.5;
-          if (++it.onDeck >= 2) it.dead = 0.5;
-          if (it.onDeck === 1) tone('sine', 200, 90, 0.08, 0.15);
+          if (Math.abs(it.vy) < 0.8) { it.vy = 0; it.vx *= 0.9; it.rest += DT; if (it.rest > 0.7) it.dead = 0.5; }
         }
-        // 海に落ちる
-        if (it.y < -0.05 && it.vy < 0 && it.life > 0.3) { burst(it.x, 0, 'water', 14, 2, 4, 0.07); sSplash(0.6); removeItem(i); continue; }
-        if (it.life > 7) removeItem(i);
+        // 海
+        if (low < 0 && !it.wet && it.vy < 0) { it.wet = true; burst(it.x, 0, 'water', 14, 2, 4, 0.07); sSplash(0.6); }
+        if (it.y < -0.05 && it.vy < 0 && it.life > 0.3) { removeItem(i); continue; }
+        if (it.life > 8) removeItem(i);
       }
       // カモメが時々鳴く
       gullT -= DT; if (gullT <= 0) { gullT = 6 + Math.random() * 6; if (state !== 'result') sGull(); }
     }
 
-    // ---------- 描画 ----------
-    const gaugeEl = document.getElementById('gauge'), gaugeBar = gaugeEl.firstElementChild;
-    let lastGauge = -1;
-    const bez = new THREE.Vector3();
+    // ---------- 首の曲線（描画と当たり判定で共通） ----------
+    const bez = new THREE.Vector3(), n1 = new THREE.Vector3(), n2 = new THREE.Vector3(), n3 = new THREE.Vector3(), n4 = new THREE.Vector3(), hb = new THREE.Vector3();
     function cubic(p0, p1, p2, p3, tt, out) {
       const u = 1 - tt;
       return out.set(0, 0, 0).addScaledVector(p0, u * u * u).addScaledVector(p1, 3 * u * u * tt).addScaledVector(p2, 3 * u * tt * tt).addScaledVector(p3, tt * tt * tt);
     }
-    const n1 = new THREE.Vector3(), n2 = new THREE.Vector3(), n3 = new THREE.Vector3(), n4 = new THREE.Vector3(), hb = new THREE.Vector3();
+    const neckRadius = (tt, f) => 0.2 * (1 + (f - 1) * 0.5) * (1 - tt) ** 1.5 + 0.115 * (1 - (1 - tt) ** 1.5);
+    function neckSetup(h, tl) {
+      const c = Math.cos(tl), s = Math.sin(tl);
+      hb.set(h.x + 0.15 * c + 0.05 * s, h.y + 0.15 * s - 0.05 * c, 0);
+      n1.set(neckBase.x - 0.05, neckBase.y + 0.45, 0);
+      n2.set(hb.x + 0.45, hb.y - 0.05, 0);
+    }
+    function neckCurve(h, tl, f, pts, rs) {
+      neckSetup(h, tl);
+      for (let k = 0; k < pts.length; k++) { const tt = k / (pts.length - 1); cubic(neckBase, n1, n2, hb, tt, pts[k]); rs[k] = neckRadius(tt, f); }
+    }
+
+    // ---------- 描画 ----------
+    const gaugeEl = document.getElementById('gauge'), gaugeBar = gaugeEl.firstElementChild;
+    let lastGauge = -1;
+    const tmp = new THREE.Vector3();
     let clock = 0;
     function draw(alpha, dt) {
       clock += dt;
@@ -780,35 +1032,35 @@
       const breathe = 1 + Math.sin(clock * 2.2) * 0.015;
       const f = fatShow;
       bodyG.scale.set(f * (1 + belly * 0.1), f * breathe * (1 + belly * 0.15), f * (1 + belly * 0.15));
-      bodyG.position.y = 0.36 + 0.42 * f;
+      bodyG.position.y = 0.34 + BODY.ry * f;
       belly = Math.max(0, belly - dt * 2.5);
       // 頭
       const h = tmp.copy(headPrev).lerp(headPos, alpha);
-      if (state === 'result') h.y += Math.abs(Math.sin(clock * 3)) * 0.05;
+      const tl = tiltPrev + (tilt - tiltPrev) * alpha;
       head.position.copy(h);
-      head.rotation.z = Math.max(-0.5, Math.min(0.5, (h.y - neckBase.y) * -0.12 + (state === 'result' ? 0.25 : 0)));
-      upper.rotation.z = -open * 0.42;
-      lower.rotation.z = open * 0.12;
-      // 袋: 開くと広がり、中身が多いほどふくらむ
-      const fill = Math.min(1, Math.sqrt(heldW) * 0.35);
-      const sy = 0.06 + open * 0.1 + fill * 0.3 + gulpWob * Math.sin(clock * 30) * 0.03;
-      pouch.scale.set(0.44 + fill * 0.06, sy, 0.12 + fill * 0.16 + open * 0.04);
-      pouchG.position.set(-0.46, -0.04 - sy * 0.7, 0);
-      heldG.position.y = sy * 0.2;
-      for (const c of heldG.children) if (c.isMesh || c.isGroup) c.rotation.z = Math.sin(clock * 9 + c.userData.wig) * 0.25;
+      head.rotation.z = tl;
+      upper.rotation.z = -open * UA;
+      lower.rotation.z = open * LA;
+      // 袋: 開くと広がり、中身が多いほどふくらむ（形は step で決めた値）
+      const wob = gulpWob * Math.sin(clock * 30) * 0.02;
+      pouchD += wob;
+      resweep(pouchGeo, pouchFn);
+      pouchD -= wob;
+      for (const c of heldG.children) {
+        const u = c.userData.u, d = pouchDepth(u);
+        c.position.set(PX0 - u * PXL, -0.01 - d * 0.5, c.userData.z);
+        if (!c.isSprite) c.rotation.z = Math.sin(clock * 9 + c.userData.wig) * 0.2;
+      }
       // 首（太い所から細い所へ。飲み込んだ物のふくらみが下りていく）
       if (bulge >= 0) { bulge -= dt / 0.5; if (bulge < 0) { bulge = -1; belly = 1; tone('sine', 120, 70, 0.1, 0.25); } }
-      hb.set(h.x + 0.16, h.y - 0.06, 0);
-      n1.set(neckBase.x - 0.05, neckBase.y + 0.45, 0);
-      n2.set(hb.x + 0.45, hb.y - 0.05, 0);
+      neckSetup(h, tl);
       const pos = neckGeo.attributes.position.array;
       for (let i = 0; i <= NECK; i++) {
         const tt = i / NECK;
         cubic(neckBase, n1, n2, hb, tt, bez);
         cubic(neckBase, n1, n2, hb, Math.min(1, tt + 0.01), n3); n3.sub(cubic(neckBase, n1, n2, hb, Math.max(0, tt - 0.01), n4)).normalize();
-        let r = 0.19 * (1 + (f - 1) * 0.5) * (1 - tt) ** 1.5 + 0.12 * (1 - (1 - tt) ** 1.5);
+        let r = neckRadius(tt, f);
         if (bulge >= 0) r *= 1 + bulgeSize * Math.exp(-(((tt - bulge) / 0.08) ** 2));
-        // 曲線に垂直な向き（xy 平面内）と z 方向で輪を作る
         const nx = -n3.y, ny = n3.x;
         for (let j = 0; j <= RAD; j++) {
           const a = j / RAD * Math.PI * 2, c = Math.cos(a) * r, sn = Math.sin(a) * r, o = (i * (RAD + 1) + j) * 3;
@@ -819,18 +1071,23 @@
       }
       neckGeo.attributes.position.needsUpdate = true;
       neckGeo.computeVertexNormals();
-      // 飛んでくる物
+      // 飛んでくる物（当たり判定と同じ位置・向き）
       for (const it of items) {
         const x = it.px + (it.x - it.px) * alpha, y = it.py + (it.y - it.py) * alpha;
+        let da = it.ang - it.pang; da = Math.atan2(Math.sin(da), Math.cos(da));
+        const ang = it.pang + da * alpha;
         it.obj.position.set(x, y, 0);
-        if (it.k.cat) it.obj.material.rotation = it.rot * 0.3;
-        else if (it.k.key === 'sardine' || it.k.key === 'mackerel' || it.k.key === 'tuna') { if (!it.hit && !it.onDeck) it.obj.rotation.set(0, 0, Math.atan2(it.vy, it.vx) + Math.sin(clock * 20) * 0.15); else it.obj.rotation.z = it.rot; }
-        else it.obj.rotation.set(it.rot * 0.4, 0, it.rot);
+        if (it.k.cat) it.obj.material.rotation = ang;
+        else {
+          it.obj.rotation.set(0, 0, ang);
+          // 魚は体をくねらせる（横から見た形は変わらない向きで）
+          if (it.k.fish && !it.rest) it.obj.rotation.y = Math.sin(clock * 22 + it.flap) * 0.25;
+        }
         if (it.dead) it.obj.scale.multiplyScalar(0.92);
       }
       updateParts(dt);
       // 海とカモメ
-      seaTex.offset.x += dt * 0.012; seaTex.offset.y = Math.sin(clock * 0.4) * 0.01;
+      seaTex.offset.x += dt * 0.004; seaTex.offset.y += dt * 0.0025;
       for (const g of gulls) {
         g.g.position.x += g.sp * dt; if (g.g.position.x > 30) g.g.position.x = -40;
         const a = Math.sin(clock * 6 * g.sp + g.ph) * 0.6;
