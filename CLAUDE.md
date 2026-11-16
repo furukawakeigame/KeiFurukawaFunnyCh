@@ -16,6 +16,7 @@ Always talk with the owner in Japanese (日本語で会話する), including pro
 - `style.css` — shared styling for the top page only.
 - `games/<game-name>/index.html` — each game lives in its own folder and is fully self-contained (its own inline CSS/JS or files inside that folder). Games link back to the top page with `../../`.
 - `.nojekyll` — tells GitHub Pages to serve files as-is.
+- `sitemap.xml` / `robots.txt` — for search engines. Every public page is listed in `sitemap.xml` (hand-written; old redirect folders are left out).
 
 ## Adding a game
 
@@ -25,6 +26,7 @@ The full flow (企画 → 仕様 → 実装 → 確認 → デプロイ) is the 
 
 1. Put the game in `games/<game-name>/` with an `index.html` entry point (use relative paths for any assets), plus a square `icon.png` (512×512 recommended).
 2. Copy an existing `<li>` in `index.html` (the icon-style one) and update the links (`games/<game-name>/`), icon path, title, and description. Every game on the top page shows its icon.
+3. Add the game's URL to `sitemap.xml`, and give the game page a `<meta name="description">` (same one-liner as the top page) and `<link rel="canonical">`. No `og:description` — share cards stay title + icon only.
 
 ## View counts
 
@@ -40,4 +42,4 @@ python -m http.server 8000
 
 ## Hosting (free)
 
-Intended to be hosted on GitHub Pages: push to a public GitHub repo, then Settings → Pages → deploy from branch `main` / root. Every push to `main` updates the site. Because the site may be served from a subpath (`https://<user>.github.io/<repo>/`), always use relative links — never root-absolute paths like `/games/...`. The one exception is the share-card meta tags (`og:url`, `og:image`) in each game's `<head>`: crawlers like X need full `https://keifurukawafunnych.com/...` URLs there.
+Intended to be hosted on GitHub Pages: push to a public GitHub repo, then Settings → Pages → deploy from branch `main` / root. Every push to `main` updates the site. Because the site may be served from a subpath (`https://<user>.github.io/<repo>/`), always use relative links — never root-absolute paths like `/games/...`. The exceptions are the share-card meta tags (`og:url`, `og:image`) and `<link rel="canonical">` in each page's `<head>`, plus `sitemap.xml`/`robots.txt`: crawlers like X and search engines need full `https://keifurukawafunnych.com/...` URLs there.

@@ -78,9 +78,11 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
   - **画面の下 80px ほどには何も置かない**（Xのアプリ内ブラウザで開くと、下部にXの投稿文が重なってボタンが隠れるため）。ただし**描画は画面の一番下までする**: `body` に `padding-bottom` を付けて背景色だけの帯にしない。ゲーム画面（canvas）は下端まで広げ、ボタンは `position: fixed; bottom: calc(80px + env(safe-area-inset-bottom))` で上に重ねる。大事な物（台・キャラ・結果の文字）は、下の空白とボタンを除いた範囲に収める（three.js なら、その範囲で大きさを決めて `camera.setViewOffset` で下まで描き足す。「モグラ叩かないで」の `resize` を参考にする）。結果パネルなどの重ねて出す画面も同じ。
   - アイコン `games/<フォルダ名>/icon.png`（正方形のPNG、512×512 推奨）。トップページの一覧に表示する。ユーザーが用意していなければ、ゲームの絵を使って Canvas で描くなどして作り、見せてOKをもらう。ゲームのページにも `<link rel="icon" href="icon.png">` と `<link rel="apple-touch-icon" href="icon.png">` を入れる。
   - `<head>` の先頭（`<head>` の直後）に、トップページと同じ Google アナリティクスのタグ（`G-9E13VFBMWN`）をそのままコピーして入れる。
-  - X などにURLを貼ったときにアイコンとタイトルが出るよう、`<head>` にカード用の meta タグを入れる。`og:url` と `og:image` だけは相対パスでは読まれないので、公開URLを `https://` から書く。カードはタイトルとアイコンだけにし、**説明文（`description` / `og:description`）は入れない**。
+  - X などにURLを貼ったときにアイコンとタイトルが出るよう、`<head>` にカード用の meta タグを入れる。`og:url` と `og:image` だけは相対パスでは読まれないので、公開URLを `https://` から書く。カードはタイトルとアイコンだけにし、**`og:description` は入れない**。検索対策（SEO）として、`<title>` の直後に検索結果用の説明文 `<meta name="description">`（トップページの一覧と同じ一言説明）と `<link rel="canonical">`（公開URL）は入れる。
 
     ```html
+    <meta name="description" content="説明文">
+    <link rel="canonical" href="https://keifurukawafunnych.com/games/<フォルダ名>/">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="ふるかわけい面白チャンネル">
     <meta property="og:title" content="タイトル">
@@ -141,11 +143,12 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
    </li>
    ```
 
-2. 追加・変更したファイルだけを `git add` し、`Add game: <タイトル>` というメッセージでコミットする。
-3. 公開のタイミングをユーザーに確認する。
+2. `sitemap.xml` の、トップページの `<url>` の次の行に `  <url><loc>https://keifurukawafunnych.com/games/<フォルダ名>/</loc></url>` を追加する（検索エンジンに新しいページを知らせるため）。
+3. 追加・変更したファイルだけを `git add` し、`Add game: <タイトル>` というメッセージでコミットする。
+4. 公開のタイミングをユーザーに確認する。
    - **すぐ公開**: `git push` する。数分でサイトに反映されることを伝え、URLを案内する。
    - **時刻を指定して公開**（X投稿の時刻に合わせたいときなど）: 下の「予約公開」を使う。
-4. URLの案内:
+5. URLの案内:
    - ゲーム: `https://keifurukawafunnych.com/games/<フォルダ名>/`
    - トップ: `https://keifurukawafunnych.com/`
 
