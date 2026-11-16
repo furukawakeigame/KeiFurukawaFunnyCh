@@ -24,7 +24,7 @@ New games are **3D by default** (three.js from a CDN). Use 2D only when the idea
 
 The full flow (企画 → 仕様 → 実装 → 確認 → デプロイ) is the `/make-game` skill in `.claude/skills/make-game/`. In short:
 
-1. Put the game in `games/<game-name>/` with an `index.html` entry point (use relative paths for any assets), plus a square `icon.png` (512×512 recommended).
+1. Put the game in `games/<game-name>/` with an `index.html` entry point (use relative paths for any assets), plus a square `icon.png` (512×512 recommended). Also make a 192×192 `thumb.webp` from it — the top page list shows the thumb (with `loading="lazy"`) so it stays light; `icon.png` is still used for the favicon and share card.
 2. Copy an existing `<li>` in `index.html` (the icon-style one) and update the links (`games/<game-name>/`), icon path, title, and description. Every game on the top page shows its icon.
 3. Add the game's URL to `sitemap.xml`, and give the game page a `<meta name="description">` (same one-liner as the top page) and `<link rel="canonical">`, a `VideoGame` JSON-LD block, and one `<h1>` with the game title (visually hidden if the game shows no title), with the game itself wrapped in `<main>`. The top-page icon's `alt` is the game title. No `og:description` — share cards stay title + icon only.
 
