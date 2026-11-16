@@ -16,6 +16,7 @@ Always talk with the owner in Japanese (日本語で会話する), including pro
 - `style.css` — shared styling for the top page only.
 - `games/<game-name>/index.html` — each game lives in its own folder and is fully self-contained (its own inline CSS/JS or files inside that folder). Games link back to the top page with `../../`.
 - `.nojekyll` — tells GitHub Pages to serve files as-is.
+- `404.html` — shown by GitHub Pages for any missing URL (at any depth), so its links/CSS use full `https://keifurukawafunnych.com/...` URLs. It lists the 6 newest games by reading `index.html` at runtime, so it needs no edits when games are added.
 - `sitemap.xml` / `robots.txt` — for search engines. Every public page is listed in `sitemap.xml` (hand-written; old redirect folders are left out).
 
 ## Adding a game
@@ -42,4 +43,4 @@ python -m http.server 8000
 
 ## Hosting (free)
 
-Intended to be hosted on GitHub Pages: push to a public GitHub repo, then Settings → Pages → deploy from branch `main` / root. Every push to `main` updates the site. Because the site may be served from a subpath (`https://<user>.github.io/<repo>/`), always use relative links — never root-absolute paths like `/games/...`. The exceptions are the share-card meta tags (`og:url`, `og:image`) and `<link rel="canonical">` in each page's `<head>`, plus `sitemap.xml`/`robots.txt`: crawlers like X and search engines need full `https://keifurukawafunnych.com/...` URLs there.
+Intended to be hosted on GitHub Pages: push to a public GitHub repo, then Settings → Pages → deploy from branch `main` / root. Every push to `main` updates the site. Because the site may be served from a subpath (`https://<user>.github.io/<repo>/`), always use relative links — never root-absolute paths like `/games/...`. The exceptions are the share-card meta tags (`og:url`, `og:image`) and `<link rel="canonical">` in each page's `<head>`, plus `sitemap.xml`/`robots.txt` and `404.html`: crawlers like X and search engines need full `https://keifurukawafunnych.com/...` URLs there.
