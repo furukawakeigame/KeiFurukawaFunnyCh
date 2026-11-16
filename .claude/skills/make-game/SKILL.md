@@ -78,11 +78,16 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
   - **画面の下 80px ほどには何も置かない**（Xのアプリ内ブラウザで開くと、下部にXの投稿文が重なってボタンが隠れるため）。ただし**描画は画面の一番下までする**: `body` に `padding-bottom` を付けて背景色だけの帯にしない。ゲーム画面（canvas）は下端まで広げ、ボタンは `position: fixed; bottom: calc(80px + env(safe-area-inset-bottom))` で上に重ねる。大事な物（台・キャラ・結果の文字）は、下の空白とボタンを除いた範囲に収める（three.js なら、その範囲で大きさを決めて `camera.setViewOffset` で下まで描き足す。「モグラ叩かないで」の `resize` を参考にする）。結果パネルなどの重ねて出す画面も同じ。
   - アイコン `games/<フォルダ名>/icon.png`（正方形のPNG、512×512 推奨）。トップページの一覧に表示する。ユーザーが用意していなければ、ゲームの絵を使って Canvas で描くなどして作り、見せてOKをもらう。ゲームのページにも `<link rel="icon" href="icon.png">` と `<link rel="apple-touch-icon" href="icon.png">` を入れる。
   - `<head>` の先頭（`<head>` の直後）に、トップページと同じ Google アナリティクスのタグ（`G-9E13VFBMWN`）をそのままコピーして入れる。
-  - X などにURLを貼ったときにアイコンとタイトルが出るよう、`<head>` にカード用の meta タグを入れる。`og:url` と `og:image` だけは相対パスでは読まれないので、公開URLを `https://` から書く。カードはタイトルとアイコンだけにし、**`og:description` は入れない**。検索対策（SEO）として、`<title>` の直後に検索結果用の説明文 `<meta name="description">`（トップページの一覧と同じ一言説明）と `<link rel="canonical">`（公開URL）は入れる。
+  - X などにURLを貼ったときにアイコンとタイトルが出るよう、`<head>` にカード用の meta タグを入れる。`og:url` と `og:image` だけは相対パスでは読まれないので、公開URLを `https://` から書く。カードはタイトルとアイコンだけにし、**`og:description` は入れない**。検索対策（SEO）として、`<title>` の直後に検索結果用の説明文 `<meta name="description">`（トップページの一覧と同じ一言説明）と `<link rel="canonical">`（公開URL）、ゲームの情報を検索エンジンに伝える構造化データ（`VideoGame`）を入れる。
+  - **ページに `<h1>` を1つ入れる**（SEO）: 画面に出すタイトルがあればそれを `<h1>` にする（JSで言語ごとに書き換える場合も、HTMLには日本語のタイトルを最初から書いておく）。画面にタイトルを出さないゲームは、`<body>` の直後に見えない `<h1>` を置く:
+    `<h1 style="position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">タイトル</h1>`
 
     ```html
     <meta name="description" content="説明文">
     <link rel="canonical" href="https://keifurukawafunnych.com/games/<フォルダ名>/">
+    <script type="application/ld+json">
+    {"@context": "https://schema.org", "@type": "VideoGame", "name": "タイトル", "description": "説明文", "url": "https://keifurukawafunnych.com/games/<フォルダ名>/", "image": "https://keifurukawafunnych.com/games/<フォルダ名>/icon.png", "inLanguage": "ja", "gamePlatform": "Web browser", "applicationCategory": "Game", "operatingSystem": "Any", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": 0, "priceCurrency": "JPY"}, "author": {"@type": "Person", "name": "ふるかわけい"}}
+    </script>
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="ふるかわけい面白チャンネル">
     <meta property="og:title" content="タイトル">
@@ -135,7 +140,7 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
 
    ```html
    <li>
-     <a class="icon" href="games/<フォルダ名>/"><img src="games/<フォルダ名>/icon.png" alt="" width="72" height="72"></a>
+     <a class="icon" href="games/<フォルダ名>/"><img src="games/<フォルダ名>/icon.png" alt="タイトル" width="72" height="72"></a>
      <div>
        <a href="games/<フォルダ名>/">タイトル</a>
        <p>説明文</p>
