@@ -26,7 +26,7 @@ The full flow (企画 → 仕様 → 実装 → 確認 → デプロイ) is the 
 
 1. Put the game in `games/<game-name>/` with an `index.html` entry point (use relative paths for any assets), plus a square `icon.png` (512×512 recommended).
 2. Copy an existing `<li>` in `index.html` (the icon-style one) and update the links (`games/<game-name>/`), icon path, title, and description. Every game on the top page shows its icon.
-3. Add the game's URL to `sitemap.xml`, and give the game page a `<meta name="description">` (same one-liner as the top page) and `<link rel="canonical">`, a `VideoGame` JSON-LD block, and one `<h1>` with the game title (visually hidden if the game shows no title). The top-page icon's `alt` is the game title. No `og:description` — share cards stay title + icon only.
+3. Add the game's URL to `sitemap.xml`, and give the game page a `<meta name="description">` (same one-liner as the top page) and `<link rel="canonical">`, a `VideoGame` JSON-LD block, and one `<h1>` with the game title (visually hidden if the game shows no title), with the game itself wrapped in `<main>`. The top-page icon's `alt` is the game title. No `og:description` — share cards stay title + icon only.
 
 ## View counts
 

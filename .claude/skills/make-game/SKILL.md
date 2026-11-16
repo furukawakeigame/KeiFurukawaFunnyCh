@@ -81,6 +81,7 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
   - X などにURLを貼ったときにアイコンとタイトルが出るよう、`<head>` にカード用の meta タグを入れる。`og:url` と `og:image` だけは相対パスでは読まれないので、公開URLを `https://` から書く。カードはタイトルとアイコンだけにし、**`og:description` は入れない**。検索対策（SEO）として、`<title>` の直後に検索結果用の説明文 `<meta name="description">`（トップページの一覧と同じ一言説明）と `<link rel="canonical">`（公開URL）、ゲームの情報を検索エンジンに伝える構造化データ（`VideoGame`）を入れる。
   - **ページに `<h1>` を1つ入れる**（SEO）: 画面に出すタイトルがあればそれを `<h1>` にする（JSで言語ごとに書き換える場合も、HTMLには日本語のタイトルを最初から書いておく）。画面にタイトルを出さないゲームは、`<body>` の直後に見えない `<h1>` を置く:
     `<h1 style="position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">タイトル</h1>`
+  - **ゲーム本体を `<main>` で囲む**（SEO）: `<header>` の後ろから、`<body>` の最後の `<script>` の前までを `<main>` にする。レイアウトを変えたくなければ `<main style="display:contents">` にすると箱が増えない。
 
     ```html
     <meta name="description" content="説明文">
