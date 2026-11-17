@@ -51,7 +51,7 @@
     #arrow { position: absolute; left: 0; top: 0; width: 56px; height: 56px; display: none; pointer-events: none; z-index: 2; }
     #arrow svg { width: 56px; height: 56px; display: block; }
     /* 撮れた卒業写真のプリント */
-    #print { position: absolute; left: 50%; top: calc(56px + (100% - 56px - var(--reserve, 160px)) / 2); transform: translate(-50%, -50%) rotate(-1.5deg); max-width: min(92%, 900px); max-height: calc(100% - var(--reserve, 160px) - 76px); display: none; box-shadow: 0 10px 30px rgba(40,20,30,.4); z-index: 2; pointer-events: none; }
+    #print { position: absolute; left: 50%; top: calc(56px + (100% - 56px - var(--reserve, 160px)) / 2); transform: translate(-50%, -50%) rotate(-1.5deg); display: none; box-shadow: 0 10px 30px rgba(40,20,30,.4); z-index: 2; pointer-events: none; }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
     /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
     #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; z-index: 4; }
@@ -670,7 +670,7 @@
       // 横長なら横から（道が左右）、縦長なら後ろから（道が上下）
       const k = THREE.MathUtils.clamp((camera.aspect - 0.65) / 0.75, 0, 1);
       camDir.set(THREE.MathUtils.lerp(-1, -0.35, k), 0, THREE.MathUtils.lerp(-0.3, -1, k)).normalize();
-      camD = THREE.MathUtils.lerp(8.5, 10, k);
+      camD = THREE.MathUtils.lerp(7.2, 7.8, k);
       camRight.set(-camDir.z, 0, camDir.x);
       camFwd.copy(camDir);
       placeCamera(1, true);
@@ -703,7 +703,7 @@
       arrowEl.style.transform = `translate(${cx + dx * sc - 28}px, ${cy + dy * sc - 28}px)`;
       arrowEl.querySelector('svg').style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
     }
-    addEventListener('resize', resize);
+    addEventListener('resize', () => { resize(); fitPrint(); });
 
     // ---------- 入力: スワイプで体を飛ばす ----------
     let swipe = null, swipeCD = 0;
@@ -711,7 +711,7 @@
       e.preventDefault();
       if (!(state === 'ready' || state === 'play')) return;
       swipe = { x: e.clientX, y: e.clientY, t: performance.now() };
-      renderer.domElement.setPointerCapture?.(e.pointerId);
+      try { renderer.domElement.setPointerCapture?.(e.pointerId); } catch {}
     }, { passive: false });
     function endSwipe(e) {
       if (!swipe) return;
@@ -865,6 +865,15 @@
       const p = printImage(); if (!p) return;
       printEl.width = p.width; printEl.height = p.height; printEl.getContext('2d').drawImage(p, 0, 0);
       printEl.style.display = 'block';
+      fitPrint();
+    }
+    // プリントの縦横比を保ったまま、ボタンの上の空いた所に収める
+    function fitPrint() {
+      if (!printEl.width) return;
+      const w = stage.clientWidth, H = stage.clientHeight;
+      const mw = Math.min(w * 0.92, 900), mh = Math.max(80, H - reserve - 76);
+      const sc = Math.min(mw / printEl.width, mh / printEl.height);
+      printEl.style.width = printEl.width * sc + 'px'; printEl.style.height = printEl.height * sc + 'px';
     }
     const shareText = () => inPhoto ? t('shareHit')(knocked) : t('shareMiss');
     function renderControls() {
