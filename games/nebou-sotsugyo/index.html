@@ -706,40 +706,62 @@
     }
     addEventListener('resize', () => { resize(); fitPrint(); });
 
-    // ---------- 入力: スワイプで体を飛ばす ----------
-    let swipe = null, swipeCD = 0;
+    // ---------- 入力: パチンコのように引っぱって飛ばす ----------
+    const dotTex = canvasTex(32, 32, g => { g.fillStyle = '#fff'; g.beginPath(); g.arc(16, 16, 12, 0, 7); g.fill(); g.strokeStyle = 'rgba(40,50,70,.6)'; g.lineWidth = 3; g.stroke(); });
+    const dots = [];
+    for (let i = 0; i < 20; i++) { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, transparent: true, depthTest: false })); sp.scale.setScalar(0.16); sp.visible = false; sp.renderOrder = 10; scene.add(sp); dots.push(sp); }
+    let aim = null, swipe = null;
+    const launchV = new THREE.Vector3();
+    const canLaunch = () => (state === 'ready' || state === 'play') && me.bodies && me.bodies.pelvis.velocity.length() < 3;
+    // 引いた向きと反対へ。画面の上が「奥」
+    function aimVel(px, py) {
+      const dx = aim.x - px, dy = aim.y - py, len = Math.hypot(dx, dy);
+      if (len < 12) { launchV.set(0, 0, 0); return false; }
+      const s = Math.min(1, len / (Math.min(stage.clientWidth, stage.clientHeight) * 0.36));
+      const dir = camRight.clone().multiplyScalar(dx / len).addScaledVector(camFwd, -dy / len).normalize();
+      launchV.copy(dir.multiplyScalar(2.4 + 5.6 * s)); launchV.y = 2.2 + 3.6 * s;
+      return true;
+    }
+    function drawDots(show) {
+      const pb = me.bodies?.pelvis.position;
+      dots.forEach((d, i) => {
+        d.visible = show && !!pb;
+        if (!d.visible) return;
+        const tt = (i + 1) * 0.055;
+        d.position.set(pb.x + launchV.x * tt, pb.y + launchV.y * tt - 4.91 * tt * tt, pb.z + launchV.z * tt);
+        d.material.opacity = 0.95 * (1 - i / dots.length);
+        if (d.position.y < 0.02) d.visible = false;
+      });
+    }
     renderer.domElement.addEventListener('pointerdown', e => {
       e.preventDefault();
-      if (!(state === 'ready' || state === 'play')) return;
-      swipe = { x: e.clientX, y: e.clientY, t: performance.now() };
+      if (aim || !canLaunch()) return;
+      aim = { x: e.clientX, y: e.clientY };
+      launchV.set(0, 0, 0);
       try { renderer.domElement.setPointerCapture?.(e.pointerId); } catch {}
+      if (state === 'play') { me.h.face.open = 0.2; me.h.face.brow = 0.9; me.h.face.smile = -0.3; }
     }, { passive: false });
-    function endSwipe(e) {
-      if (!swipe) return;
-      const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y, len = Math.hypot(dx, dy);
-      swipe = null;
-      if (len < 14 || swipeCD > 0 || !(state === 'ready' || state === 'play')) return;
-      const s = Math.min(1, len / (Math.min(stage.clientWidth, stage.clientHeight) * 0.4));
-      const dir = camRight.clone().multiplyScalar(dx / len).addScaledVector(camFwd, -dy / len).normalize();
+    renderer.domElement.addEventListener('pointermove', e => { if (aim) drawDots(aimVel(e.clientX, e.clientY)); });
+    function launch(e) {
+      if (!aim) return;
+      const ok = aimVel(e.clientX, e.clientY);
+      aim = null; drawDots(false);
+      if (!ok || !canLaunch()) return;
       if (state === 'ready') wake();
-      const air = me.bodies.pelvis.position.y > 1.1 ? 0.5 : 1;
-      const v = dir.multiplyScalar((2.2 + 4.3 * s) * air);
-      const vy = (2.0 + 2.6 * s) * air;
       // 胴だけを強く引っぱり、頭や手足は遅れてついてくる（ぐにゃっと振り回される）
       const core = Math.random() < 0.5 ? 'pelvis' : 'chest';
       const share = { pelvis: 1.0, chest: 1.0, head: 0.35, thighL: 0.55, thighR: 0.55, uarmL: 0.3, uarmR: 0.3, farmL: 0.1, farmR: 0.1, shinL: 0.2, shinR: 0.2 };
       for (const n in me.bodies) {
-        const b = me.bodies[n], k = (n === core ? 1.55 : share[n]) * (n === 'pelvis' || n === 'chest' ? 1.1 : 1) * 1.25;
+        const b = me.bodies[n], k = (n === core ? 1.55 : share[n]) * (n === 'pelvis' || n === 'chest' ? 1.1 : 1) * 1.05;
         b.wakeUp();
-        b.velocity.set(b.velocity.x * 0.3 + v.x * k, Math.max(b.velocity.y, 0) * 0.3 + vy * k, b.velocity.z * 0.3 + v.z * k);
+        b.velocity.set(b.velocity.x * 0.2 + launchV.x * k, launchV.y * k, b.velocity.z * 0.2 + launchV.z * k);
         if (n !== 'pelvis' && n !== 'chest') b.angularVelocity.set(rnd(-9, 9), rnd(-6, 6), rnd(-9, 9));
       }
       me.bodies.chest.angularVelocity.set(rnd(-4, 4), rnd(-3, 3), rnd(-4, 4));
       me.h.face.open = 0.85; me.h.face.brow = 1; me.h.face.smile = -0.2; me.ragT = 0; me.oofCD = 0.4;
-      swipeCD = 0.18;
-      if (Math.random() < 0.6) sLaunch(me);
+      sLaunch(me);
     }
-    for (const ev of ['pointerup', 'pointercancel']) renderer.domElement.addEventListener(ev, endSwipe);
+    for (const ev of ['pointerup', 'pointercancel']) renderer.domElement.addEventListener(ev, launch);
     stage.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 
     // ---------- ゲーム ----------
@@ -755,7 +777,7 @@
       return q.z < 1 && Math.abs(q.x) < 0.97 && Math.abs(q.y) < 0.97;
     }
     function shutter() {
-      state = 'shot'; endT = 0; swipe = null;
+      state = 'shot'; endT = 0; aim = null; drawDots(false);
       sShutter();
       flashEl.style.transition = 'none'; flashEl.style.opacity = '1';
       requestAnimationFrame(() => { flashEl.style.transition = 'opacity .6s'; flashEl.style.opacity = '0'; });
@@ -769,7 +791,7 @@
     const STEP = 1 / 60;
     let clock = 0;
     function step(dt) {
-      clock += dt; thudCD -= dt; swipeCD -= dt;
+      clock += dt; thudCD -= dt;
       if (state === 'play') {
         timer -= dt;
         // セルフタイマー: ランプの点滅とピッがだんだん速くなる
@@ -932,7 +954,7 @@
       h.auto = true; h.pose = 'stand'; h.walkSpeed = 0;
     }
     function start() {
-      swipe = null;
+      aim = null; drawDots(false);
       for (const p of people) {
         resetPerson(p);
         p.h.root.position.copy(p.home);
@@ -979,7 +1001,7 @@
     renderer.render(scene, camera);
     world.step(STEP);
     requestAnimationFrame(t0 => { last = t0; loop(t0); });
-    /*TEST*/if (location.search.includes('test')) window.__t = { people, me, world, get state() { return state; }, set timer(v) { timer = v; }, camera, swipe(dx, dy) { const r = renderer.domElement.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, pointerId: 9, bubbles: true })); endSwipe({ clientX: x + dx, clientY: y + dy }); }, img: () => resultImage()?.toDataURL('image/png') };
+    /*TEST*/if (location.search.includes('test')) window.__t = { people, me, world, get state() { return state; }, set timer(v) { timer = v; }, camera, swipe(dx, dy) { const r = renderer.domElement.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; aim = { x, y }; launch({ clientX: x - dx, clientY: y - dy }); }, img: () => resultImage()?.toDataURL('image/png') };
   </script>
 </body>
 </html>
