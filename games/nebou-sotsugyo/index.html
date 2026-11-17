@@ -43,9 +43,9 @@
     #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
     #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     /* セルフタイマーのランプ */
-    #led { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 12px; background: rgba(25,25,30,.75); pointer-events: none; z-index: 2; }
-    #led b { width: 14px; height: 14px; border-radius: 50%; background: #4a1414; box-shadow: inset 0 0 3px #000; }
-    #led b.on { background: #ff3a2a; box-shadow: 0 0 10px 3px rgba(255,60,40,.8), inset 0 0 2px #fff; }
+    #led { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 12px; background: rgba(25,25,30,.75); pointer-events: none; z-index: 2; }
+    #led span { min-width: 1.6em; text-align: center; font: 800 clamp(20px, 4.5vmin, 30px)/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: #fff; font-variant-numeric: tabular-nums; }
+    #led span.hurry { color: #ff5a3a; }
     #led svg { width: 22px; height: 16px; display: block; }
     #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 3; }
     #arrow { position: absolute; left: 0; top: 0; width: 56px; height: 56px; display: none; pointer-events: none; z-index: 2; }
@@ -75,7 +75,7 @@
   </header>
   <main style="display:contents">
   <div id="stage">
-    <div id="led"><svg viewBox="0 0 22 16"><rect x="1" y="3" width="20" height="12" rx="2.5" fill="#ddd"/><rect x="7" y="1" width="8" height="3" rx="1" fill="#ddd"/><circle cx="11" cy="9" r="4" fill="#333"/><circle cx="11" cy="9" r="2" fill="#6a8aa8"/></svg><b></b><b></b><b></b></div>
+    <div id="led"><svg viewBox="0 0 22 16"><rect x="1" y="3" width="20" height="12" rx="2.5" fill="#ddd"/><rect x="7" y="1" width="8" height="3" rx="1" fill="#ddd"/><circle cx="11" cy="9" r="4" fill="#333"/><circle cx="11" cy="9" r="2" fill="#6a8aa8"/></svg><span id="sec">12</span></div>
     <div id="flash"></div>
     <canvas id="print"></canvas>
     <div id="arrow"><svg viewBox="0 0 56 56"><circle cx="28" cy="28" r="26" fill="rgba(25,25,30,.72)"/><path d="M18 20h20v16H18z" fill="#eee" transform="rotate(0)"/><path d="M44 28l8-6v12z" fill="#ff5a3a"/></svg></div>
@@ -95,7 +95,7 @@
     window.PHOTO_READY = true;
 
     const SHARE_URL = 'https://keifurukawafunnych.com/games/nebou-sotsugyo/';
-    const TIMER = 15;
+    const TIMER = 12;
 
     // ---------- 長押しで拡大鏡やメニューが出ないように ----------
     document.addEventListener('touchstart', e => { if (!e.target.closest('a, button, select, input')) e.preventDefault(); }, { passive: false });
@@ -652,7 +652,14 @@
 
     // ---------- 画面サイズとカメラ（自分を追いかける） ----------
     const controls = document.getElementById('controls');
-    const ledEl = document.getElementById('led'), leds = [...ledEl.querySelectorAll('b')];
+    const ledEl = document.getElementById('led'), secEl = document.getElementById('sec');
+    let shownSec = -1;
+    // 残り秒数（変わった時だけ書き換える）
+    function drawSec() {
+      const n = Math.max(0, Math.ceil(timer));
+      if (n === shownSec) return; shownSec = n;
+      secEl.textContent = n; secEl.classList.toggle('hurry', n <= 3 && state === 'play');
+    }
     const arrowEl = document.getElementById('arrow');
     const camRight = new THREE.Vector3(), camFwd = new THREE.Vector3(), camDir = new THREE.Vector3();
     const camTarget = new THREE.Vector3(), camLook = new THREE.Vector3();
@@ -787,7 +794,7 @@
       setLeds(false); tripodLed().material.emissiveIntensity = 0;
       needPhoto = true;
     }
-    function setLeds(on, k = 0) { leds.forEach((l, i) => l.classList.toggle('on', on && i <= k)); }
+    function setLeds() {}
     const STEP = 1 / 60;
     let clock = 0;
     function step(dt) {
@@ -801,6 +808,7 @@
         else if (ledOn && beepT < period * 0.5) { ledOn = false; setLeds(false); tripodLed().material.emissiveIntensity = 0; }
         if (timer <= 0) shutter();
       }
+      drawSec();
       if (state !== 'shot' && state !== 'result') world.step(STEP);
       while (toppleQ.length) { const { p, vel } = toppleQ.shift(); topple(p, vel); }
       clockSec.rotation.z = -Math.floor(clock) / 60 * Math.PI * 2;
