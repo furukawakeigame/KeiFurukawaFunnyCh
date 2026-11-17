@@ -372,12 +372,12 @@
       }
       const J = (a, b, pivot, o) => joints.push({ a, b, pivot: pivot.clone(), ...o });
       const up = V3(0, 1, 0), down = V3(0, -1, 0);
-      J('pelvis', 'chest', P.spine, { axisA: up, axisB: up, angle: 0.5, twist: 0.4 });
-      J('chest', 'head', P.neck.clone().add(V3(0, 0.03 * k, 0)), { axisA: up, axisB: up, angle: 0.65, twist: 0.7 });
+      J('pelvis', 'chest', P.spine, { axisA: up, axisB: up, angle: 0.7, twist: 0.5 });
+      J('chest', 'head', P.neck.clone().add(V3(0, 0.03 * k, 0)), { axisA: up, axisB: up, angle: 0.85, twist: 0.8 });
       for (const [s, sg] of [['L', 1], ['R', -1]]) {
-        J('chest', 'uarm' + s, P['shoulder' + s], { axisA: V3(sg * Math.sin(0.9), -Math.cos(0.9), 0.15), axisB: down, angle: 1.45, twist: 0.8 });
+        J('chest', 'uarm' + s, P['shoulder' + s], { axisA: V3(sg * Math.sin(0.9), -Math.cos(0.9), 0.15), axisB: down, angle: 1.7, twist: 0.9 });
         J('uarm' + s, 'farm' + s, P['elbow' + s], { axisA: V3(0, -Math.cos(1.15), Math.sin(1.15)), axisB: down, angle: 1.2, twist: 0.3, hinge: true });
-        J('pelvis', 'thigh' + s, P['hip' + s], { axisA: V3(sg * 0.25, -Math.cos(0.55), Math.sin(0.55)), axisB: down, angle: 1.05, twist: 0.4 });
+        J('pelvis', 'thigh' + s, P['hip' + s], { axisA: V3(sg * 0.25, -Math.cos(0.55), Math.sin(0.55)), axisB: down, angle: 1.25, twist: 0.5 });
         J('thigh' + s, 'shin' + s, P['knee' + s], { axisA: V3(0, -Math.cos(1.15), -Math.sin(1.15)), axisB: down, angle: 1.2, twist: 0.2, hinge: true });
       }
       const rest = {};
@@ -452,7 +452,8 @@
         bone.getWorldPosition(TV); bone.getWorldQuaternion(TQ);
         const c = rig.rest[n].clone().applyQuaternion(TQ).add(TV);
         const shape = part.radius ? new CANNON.Sphere(part.radius) : new CANNON.Box(cv(part.half));
-        const b = new CANNON.Body({ mass: part.mass, shape, position: cv(c), quaternion: new CANNON.Quaternion(TQ.x, TQ.y, TQ.z, TQ.w), linearDamping: 0.04, angularDamping: 0.25 });
+        const limb = n !== 'pelvis' && n !== 'chest';
+        const b = new CANNON.Body({ mass: part.mass, shape, position: cv(c), quaternion: new CANNON.Quaternion(TQ.x, TQ.y, TQ.z, TQ.w), linearDamping: limb ? 0.02 : 0.04, angularDamping: limb ? 0.08 : 0.2 });
         b.sleepSpeedLimit = 0.25; b.sleepTimeLimit = 0.6;
         b.person = p; b.part = n;
         if (vel) b.velocity.set(vel.x, vel.y, vel.z);
@@ -724,8 +725,16 @@
       const air = me.bodies.pelvis.position.y > 1.1 ? 0.5 : 1;
       const v = dir.multiplyScalar((2.2 + 4.3 * s) * air);
       const vy = (2.0 + 2.6 * s) * air;
-      for (const n in me.bodies) { const b = me.bodies[n]; b.wakeUp(); b.velocity.set(b.velocity.x * 0.3 + v.x, Math.max(b.velocity.y, 0) * 0.3 + vy, b.velocity.z * 0.3 + v.z); }
-      me.bodies.chest.angularVelocity.set(rnd(-3, 3), rnd(-2, 2), rnd(-3, 3));
+      // 胴だけを強く引っぱり、頭や手足は遅れてついてくる（ぐにゃっと振り回される）
+      const core = Math.random() < 0.5 ? 'pelvis' : 'chest';
+      const share = { pelvis: 1.0, chest: 1.0, head: 0.35, thighL: 0.55, thighR: 0.55, uarmL: 0.3, uarmR: 0.3, farmL: 0.1, farmR: 0.1, shinL: 0.2, shinR: 0.2 };
+      for (const n in me.bodies) {
+        const b = me.bodies[n], k = (n === core ? 1.55 : share[n]) * (n === 'pelvis' || n === 'chest' ? 1.1 : 1) * 1.25;
+        b.wakeUp();
+        b.velocity.set(b.velocity.x * 0.3 + v.x * k, Math.max(b.velocity.y, 0) * 0.3 + vy * k, b.velocity.z * 0.3 + v.z * k);
+        if (n !== 'pelvis' && n !== 'chest') b.angularVelocity.set(rnd(-9, 9), rnd(-6, 6), rnd(-9, 9));
+      }
+      me.bodies.chest.angularVelocity.set(rnd(-4, 4), rnd(-3, 3), rnd(-4, 4));
       me.h.face.open = 0.85; me.h.face.brow = 1; me.h.face.smile = -0.2; me.ragT = 0; me.oofCD = 0.4;
       swipeCD = 0.18;
       if (Math.random() < 0.6) sLaunch(me);
