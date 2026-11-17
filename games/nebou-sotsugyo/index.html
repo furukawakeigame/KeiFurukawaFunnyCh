@@ -48,6 +48,8 @@
     #led b.on { background: #ff3a2a; box-shadow: 0 0 10px 3px rgba(255,60,40,.8), inset 0 0 2px #fff; }
     #led svg { width: 22px; height: 16px; display: block; }
     #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 3; }
+    #arrow { position: absolute; left: 0; top: 0; width: 56px; height: 56px; display: none; pointer-events: none; z-index: 2; }
+    #arrow svg { width: 56px; height: 56px; display: block; }
     /* 撮れた卒業写真のプリント */
     #print { position: absolute; left: 50%; top: calc(56px + (100% - 56px - var(--reserve, 160px)) / 2); transform: translate(-50%, -50%) rotate(-1.5deg); max-width: min(92%, 900px); max-height: calc(100% - var(--reserve, 160px) - 76px); display: none; box-shadow: 0 10px 30px rgba(40,20,30,.4); z-index: 2; pointer-events: none; }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
@@ -76,6 +78,7 @@
     <div id="led"><svg viewBox="0 0 22 16"><rect x="1" y="3" width="20" height="12" rx="2.5" fill="#ddd"/><rect x="7" y="1" width="8" height="3" rx="1" fill="#ddd"/><circle cx="11" cy="9" r="4" fill="#333"/><circle cx="11" cy="9" r="2" fill="#6a8aa8"/></svg><b></b><b></b><b></b></div>
     <div id="flash"></div>
     <canvas id="print"></canvas>
+    <div id="arrow"><svg viewBox="0 0 56 56"><circle cx="28" cy="28" r="26" fill="rgba(25,25,30,.72)"/><path d="M18 20h20v16H18z" fill="#eee" transform="rotate(0)"/><path d="M44 28l8-6v12z" fill="#ff5a3a"/></svg></div>
     <div id="msg"></div>
   </div>
   <div id="controls"></div>
@@ -92,7 +95,7 @@
     window.PHOTO_READY = true;
 
     const SHARE_URL = 'https://keifurukawafunnych.com/games/nebou-sotsugyo/';
-    const TIMER = 12;
+    const TIMER = 15;
 
     // ---------- 長押しで拡大鏡やメニューが出ないように ----------
     document.addEventListener('touchstart', e => { if (!e.target.closest('a, button, select, input')) e.preventDefault(); }, { passive: false });
@@ -551,7 +554,7 @@
     const tripodLed = () => window.__tripod.userData.led;
 
     // ---------- 寝坊した自分のベッド ----------
-    const BED = V3(7.0, 0, 0.7), MAT_TOP = 0.5;
+    const BED = V3(21.5, 0, 2.2), MAT_TOP = 0.5;
     let blanket, zzz = [];
     {
       const bed = new THREE.Group(); bed.position.copy(BED);
@@ -577,6 +580,54 @@
       for (let i = 0; i < 3; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: zt, transparent: true, depthWrite: false })); s.scale.setScalar(0.18); scene.add(s); zzz.push({ s, t: i / 3 }); }
     }
 
+    // ---------- ベッドから撮影場所までの道（障害物） ----------
+    const cones = [];
+    {
+      const wood = mat('#8a6a4a', 0.85), green = [mat('#3f6a2e', 0.9), mat('#4c7a32', 0.9)], brick = mat('#a8603e', 0.9), metal = new THREE.MeshStandardMaterial({ color: '#7a8590', roughness: 0.4, metalness: 0.6 });
+      const block = (x, y, z, w, h, d, m) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); scene.add(shade(b)); staticBox(x, y, z, w / 2, h / 2, d / 2); return b; };
+      // 道の両側の植え込み（飛び越えると遠回り）
+      for (let x = 4; x < 25; x += 1.6) for (const z of [-1.9, 6.0]) { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), pick(green)); b.position.set(x + rnd(-0.2, 0.2), 0.42, z); b.scale.set(0.95, 0.5, 0.6); scene.add(shade(b)); }
+      for (const z of [-1.9, 6.0]) staticBox(14.5, 0.45, z, 10.5, 0.45, 0.5);
+      // 花壇（右側だけ通れる）
+      block(17.6, 0.25, 0.9, 0.9, 0.5, 4.6, brick);
+      for (let i = 0; i < 12; i++) { const f = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), pick([mat('#f06a8a', 0.6), mat('#ffd23a', 0.6), mat('#ffffff', 0.6), mat('#b08aff', 0.6)])); f.position.set(17.6 + rnd(-0.3, 0.3), 0.56, 0.9 + rnd(-2.1, 2.1)); scene.add(f); }
+      // 自転車置き場（左側だけ通れる）
+      for (let i = 0; i < 6; i++) {
+        const bk = new THREE.Group(); bk.position.set(14.2, 0, 1.6 + i * 0.62); bk.rotation.y = Math.PI / 2;
+        for (const x of [-0.42, 0.42]) { const wh = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.025, 6, 20), mat('#222', 0.5)); wh.position.set(x, 0.32, 0); bk.add(wh); }
+        const fr = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.04, 0.04), pick([mat('#c8302a', 0.4), mat('#2a6ac8', 0.4), mat('#e0e0e0', 0.4)])); fr.position.y = 0.55; fr.rotation.z = 0.15; bk.add(fr);
+        const sd = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.1), mat('#111', 0.6)); sd.position.set(-0.2, 0.72, 0); bk.add(sd);
+        scene.add(shade(bk));
+      }
+      staticBox(14.2, 0.45, 3.15, 0.2, 0.45, 1.95);
+      // ベンチ
+      for (const [x, z] of [[12.5, -0.6], [9.5, 4.7]]) {
+        const b = new THREE.Group(); b.position.set(x, 0, z);
+        for (let i = 0; i < 3; i++) { const sl = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.04, 0.12), wood); sl.position.set(0, 0.45, -0.15 + i * 0.15); b.add(sl); }
+        for (const xx of [-0.7, 0.7]) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.45, 0.4), metal); l.position.set(xx, 0.22, 0); b.add(l); }
+        scene.add(shade(b)); staticBox(x, 0.25, z, 0.8, 0.25, 0.22);
+      }
+      // 低いブロック塀（全部ふさいでいるので飛び越える）
+      block(11.0, 0.3, 2.05, 0.3, 0.6, 7.4, mat('#b8b2a6', 0.95));
+      // 三角コーン（ぶつかると倒れる）
+      const coneM = mat('#f0602a', 0.5), stripe = mat('#f4f4f0', 0.5);
+      for (const [x, z] of [[8.2, 0.4], [7.6, 1.6], [8.4, 2.8], [7.4, 3.8], [6.6, 0.9], [6.4, 2.6]]) {
+        const g = new THREE.Group();
+        const c = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.5, 14), coneM); c.position.y = 0.05; g.add(c);
+        const st = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.11, 0.08, 14), stripe); st.position.y = 0.06; g.add(st);
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.04, 0.36), coneM); base.position.y = -0.18; g.add(base);
+        scene.add(shade(g));
+        const body = new CANNON.Body({ mass: 1.2, shape: new CANNON.Box(new CANNON.Vec3(0.13, 0.25, 0.13)), linearDamping: 0.1, angularDamping: 0.2 });
+        body.sleepSpeedLimit = 0.3; world.addBody(body);
+        cones.push({ g, body, home: V3(x, 0.25, z) });
+      }
+      // 地面に引いた白線のスタート地点風の目印はなし。撮影場所の手前に大きな鉢植え
+      block(4.6, 0.35, -0.6, 0.6, 0.7, 0.6, mat('#7a5a40', 0.9));
+      block(4.2, 0.35, 4.2, 0.6, 0.7, 0.6, mat('#7a5a40', 0.9));
+      for (const [x, z] of [[4.6, -0.6], [4.2, 4.2]]) { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 1), pick(green)); b.position.set(x, 0.95, z); scene.add(shade(b)); }
+    }
+    function resetCones() { for (const c of cones) { c.body.position.set(c.home.x, c.home.y, c.home.z); c.body.quaternion.set(0, 0, 0, 1); c.body.velocity.set(0, 0, 0); c.body.angularVelocity.set(0, 0, 0); c.body.sleep(); } }
+
     // ---------- 欠席者用の顔写真（きちんとした姿で、先に撮っておく） ----------
     let portrait = null;
     function makePortrait() {
@@ -598,36 +649,59 @@
       h.dispose();
     }
 
-    // ---------- 画面サイズ（見物人の視点） ----------
+    // ---------- 画面サイズとカメラ（自分を追いかける） ----------
     const controls = document.getElementById('controls');
     const ledEl = document.getElementById('led'), leds = [...ledEl.querySelectorAll('b')];
-    const camRight = new THREE.Vector3(), camFwd = new THREE.Vector3();
-    let reserve = 160;
+    const arrowEl = document.getElementById('arrow');
+    const camRight = new THREE.Vector3(), camFwd = new THREE.Vector3(), camDir = new THREE.Vector3();
+    const camTarget = new THREE.Vector3(), camLook = new THREE.Vector3();
+    let reserve = 160, camD = 8, viewTop = 96;
     function resize() {
       const w = stage.clientWidth, H = stage.clientHeight;
       renderer.setSize(w, H, false);
       const btnH = Math.min(72, Math.max(56, 0.08 * Math.min(innerWidth, innerHeight))) + 12;
       reserve = Math.max(0, stage.getBoundingClientRect().bottom - controls.getBoundingClientRect().bottom) + btnH;
       stage.style.setProperty('--reserve', reserve + 'px');
-      const top = 96, h = Math.max(140, H - reserve - top);
+      const h = Math.max(140, H - reserve - viewTop);
       camera.aspect = w / h;
-      camera.setViewOffset(w, h, 0, -top, w, H);
-      // 横長なら前から、縦長ならベッドの後ろから、ベッドとひな壇が両方入る向きで見る
+      camera.fov = camera.aspect < 1 ? 55 : 42;
+      camera.setViewOffset(w, h, 0, -viewTop, w, H);
+      camera.updateProjectionMatrix();
+      // 横長なら横から（道が左右）、縦長なら後ろから（道が上下）
       const k = THREE.MathUtils.clamp((camera.aspect - 0.65) / 0.75, 0, 1);
-      const dir = new THREE.Vector3(THREE.MathUtils.lerp(-1, -0.42, k), 0, THREE.MathUtils.lerp(-0.42, -1, k)).normalize();
-      const target = V3(THREE.MathUtils.lerp(3.8, 3.4, k), 0.6, 0.0);
-      const pts = [V3(-2.5, 0, 0.3), V3(-2.5, 2.6, -1.4), V3(2.5, 2.6, -1.4), V3(2.5, 0, 0.3), V3(BED.x + 0.55, 0, BED.z + 1.1), V3(BED.x - 0.55, 0, BED.z + 1.1), V3(BED.x + 0.55, 1.0, BED.z - 1.1), V3(BED.x - 1.0, 1.0, BED.z - 1.0)];
-      const inside = () => { camera.updateProjectionMatrix(); camera.updateMatrixWorld(); return pts.every(p => { const q = p.clone().project(camera); const sy = (1 - q.y) / 2 * H; return Math.abs(q.x) < 0.96 && sy > top && sy < H - reserve && q.z < 1; }); };
-      let d = 5;
-      for (let i = 0; i < 80; i++) {
-        camera.position.copy(target).addScaledVector(dir, -d); camera.position.y = 1.2 + d * 0.5;
-        camera.lookAt(target);
-        if (inside()) break;
-        d += 0.3;
-      }
-      camRight.setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
-      camFwd.set(-camRight.z, 0, camRight.x); // 画面の上 = 奥
-      if (camFwd.dot(dir) < 0) camFwd.negate();
+      camDir.set(THREE.MathUtils.lerp(-1, -0.35, k), 0, THREE.MathUtils.lerp(-0.3, -1, k)).normalize();
+      camD = THREE.MathUtils.lerp(8.5, 10, k);
+      camRight.set(-camDir.z, 0, camDir.x);
+      camFwd.copy(camDir);
+      placeCamera(1, true);
+    }
+    function placeCamera(dt, snap) {
+      const pb = me.bodies?.pelvis.position;
+      const want = pb ? V3(pb.x, 0, pb.z) : BED.clone();
+      // 少し先（撮影場所の方）を見せる。撮影場所に近づいたら写真の範囲が入るところで止める
+      want.x = Math.max(want.x - 2.2, 2.2); want.z = THREE.MathUtils.clamp(want.z, 0, 3.5);
+      camTarget.lerp(want, snap ? 1 : 1 - Math.exp(-dt * 3));
+      camera.position.copy(camTarget).addScaledVector(camDir, -camD); camera.position.y = 1.0 + camD * 0.55;
+      camLook.copy(camTarget).setY(0.6);
+      camera.lookAt(camLook); camera.updateMatrixWorld();
+      // 影は見ているあたりだけ
+      sun.position.copy(camTarget).add(V3(-5, 10, 9)); sun.target.position.copy(camTarget);
+    }
+    // 撮影場所が画面の外なら、端に矢印を出す
+    const SPOT = V3(0, 1.2, 1.0);
+    let arrowShown = null;
+    function drawArrow() {
+      const w = stage.clientWidth, H = stage.clientHeight, q = SPOT.clone().project(camera);
+      let x = (q.x + 1) / 2 * w, y = (1 - q.y) / 2 * H;
+      const off = q.z > 1 || x < 0 || x > w || y < viewTop || y > H - reserve;
+      const show = off && state !== 'result' && state !== 'shot';
+      if (show !== arrowShown) { arrowShown = show; arrowEl.style.display = show ? 'flex' : 'none'; }
+      if (!show) return;
+      if (q.z > 1) { x = w - x; y = H - y; }
+      const cx = w / 2, cy = (viewTop + H - reserve) / 2, dx = x - cx, dy = y - cy;
+      const sc = Math.min((w / 2 - 40) / Math.abs(dx || 1e-3), ((H - reserve - viewTop) / 2 - 40) / Math.abs(dy || 1e-3));
+      arrowEl.style.transform = `translate(${cx + dx * sc - 28}px, ${cy + dy * sc - 28}px)`;
+      arrowEl.querySelector('svg').style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
     }
     addEventListener('resize', resize);
 
@@ -731,7 +805,7 @@
         pt.ph += dt; const s = pt.s.position;
         s.y -= pt.v * dt; s.x += Math.sin(pt.ph * 1.3) * 0.4 * dt + 0.15 * dt; s.z += Math.cos(pt.ph) * 0.2 * dt;
         pt.s.material.rotation = pt.ph * 2;
-        if (s.y < 0) { s.y = rnd(4, 6); s.x = rnd(-6, 10); s.z = rnd(-5, 5); }
+        if (s.y < 0) { s.y = rnd(4, 6); s.x = camTarget.x + rnd(-7, 7); s.z = camTarget.z + rnd(-5, 5); }
       }
       if (state === 'shot') { endT += dt; if (endT > 0.9) finish(); }
     }
@@ -857,8 +931,9 @@
       me.h.face.blink = 1; me.h.face.smile = 0.1; me.h.face.brow = 0;
       blanket.position.set(BED.x, MAT_TOP + 0.24, BED.z + 0.35); blanket.rotation.set(0, 0, 0); blanketT = -1;
       state = 'ready'; timer = TIMER; knocked = 0; inPhoto = false; setLeds(false); tripodLed().material.emissiveIntensity = 0;
+      resetCones();
       printEl.style.display = 'none';
-      renderControls(); resize();
+      renderControls(); resize(); placeCamera(1, true);
     }
     function finish() {
       state = 'result';
@@ -871,6 +946,8 @@
       const dt = Math.min(0.05, (now - last) / 1000); last = now;
       acc += dt;
       while (acc >= STEP) { step(STEP); acc -= STEP; }
+      placeCamera(dt); drawArrow();
+      for (const c of cones) { c.g.position.copy(c.body.position); c.g.quaternion.copy(c.body.quaternion); }
       if (needPhoto) { needPhoto = false; takePhoto(); showResult(); prepareShare(); }
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
