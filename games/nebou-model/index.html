@@ -873,13 +873,25 @@
       const b = me.bodies.head.position, q = V3(b.x, b.y, b.z).project(photoCam);
       return q.z < 1 && Math.abs(q.x) < 0.97 && Math.abs(q.y) < 0.97;
     }
+    // どんな体勢でも、顔だけカメラの方へ向ける（首はぐいっと回る）
+    const AM = new THREE.Matrix4(), AQ = new THREE.Quaternion(), AQ2 = new THREE.Quaternion(), AP = new THREE.Vector3(), AU = new THREE.Vector3();
+    function faceCamera(p) {
+      const j = p.h.j;
+      j.head.updateWorldMatrix(true, false);
+      j.head.getWorldPosition(AP); j.head.getWorldQuaternion(AQ);
+      AU.set(0, 1, 0).applyQuaternion(AQ).lerp(V3(0, 1, 0), 0.5).normalize(); // 頭の傾きは少し残す
+      AM.lookAt(photoCam.position, AP, AU); AQ.setFromRotationMatrix(AM);
+      j.neck.getWorldQuaternion(AQ2);
+      j.head.quaternion.copy(AQ2.invert().multiply(AQ));
+      p.h.lookAt(null);
+    }
     function shutter() {
       state = 'shot'; endT = 0; aim = null; drawDots(false);
       sShutter();
       flashEl.style.transition = 'none'; flashEl.style.opacity = '1';
       requestAnimationFrame(() => { flashEl.style.transition = 'opacity .6s'; flashEl.style.opacity = '0'; });
       // シャッターの瞬間だけ、みんな（倒れた人も自分も）カメラを見てにっこり
-      for (const p of [...people, me]) { p.h.face.smile = 1; p.h.face.open = 0.25; p.h.face.brow = 0.3; p.h.face.blink = 0; p.h.lookAt(photoCam.position); }
+      for (const p of [...people, me]) { p.h.face.smile = 1; p.h.face.open = 0.25; p.h.face.brow = 0.3; p.h.face.blink = 0; p.h.lookAt(photoCam.position); if (p.rag) { syncRagdoll(p); faceCamera(p); } }
       inPhoto = headInPhoto();
       // 間に合わなければ、猫が真ん中で表紙を飾る
       if (!inPhoto) { catG.position.set(0, 0, 1.1); catG.rotation.y = 0; catG.scale.setScalar(0.62); }
@@ -908,6 +920,7 @@
         p.oofCD = (p.oofCD || 0) - dt;
         if (p.rag) {
           syncRagdoll(p); p.ragT += dt;
+          if (state === 'shot' || state === 'result') faceCamera(p);
           if (state === 'play' && p.ragT > 1.4 && p.oofCD < 0) { p.h.face.open = 0.12; p.h.face.brow = p.me ? 0.6 : -0.3; p.h.face.smile = -0.15; }
         } else {
           if (p.shockT > 0) { p.shockT -= dt; if (p.shockT <= 0) { p.h.face.brow = 0.2; p.h.face.open = 0; p.h.face.smile = 0.45; } }
@@ -1097,7 +1110,7 @@
     renderer.render(scene, camera);
     world.step(STEP);
     requestAnimationFrame(t0 => { last = t0; loop(t0); });
-    /*TEST*/if (location.search.includes('test')) window.__t = { people, me, world, get introT() { return introT; }, skip: endIntro, get state() { return state; }, set timer(v) { timer = v; }, camera, swipe(dx, dy) { const r = renderer.domElement.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; aim = { x, y }; launch({ clientX: x - dx, clientY: y - dy }); }, img: () => resultImage()?.toDataURL('image/png') };
+    /*TEST*/if (location.search.includes('test')) window.__t = { place(x, z) { const pb = me.bodies.pelvis.position, dx = x - pb.x, dz = z - pb.z; for (const n in me.bodies) { const b = me.bodies[n]; b.position.x += dx; b.position.z += dz; b.velocity.set(0, 0, 0); b.angularVelocity.set(0, 0, 0); } }, people, me, world, get introT() { return introT; }, skip: endIntro, get state() { return state; }, set timer(v) { timer = v; }, camera, swipe(dx, dy) { const r = renderer.domElement.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; aim = { x, y }; launch({ clientX: x - dx, clientY: y - dy }); }, img: () => resultImage()?.toDataURL('image/png') };
   </script>
 </body>
 </html>
