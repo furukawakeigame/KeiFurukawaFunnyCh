@@ -54,8 +54,13 @@
     #bubble::after { content: ""; position: absolute; left: 50%; bottom: -12px; margin-left: -10px; border: 10px solid transparent; border-top: 12px solid #fff; border-bottom: 0; }
     #arrow { position: absolute; left: 0; top: 0; width: 56px; height: 56px; display: none; pointer-events: none; z-index: 2; }
     #arrow svg { width: 56px; height: 56px; display: block; }
+    /* フィルターの見本 */
+    #filters { position: absolute; left: 0; right: 0; bottom: 160px; display: none; justify-content: center; gap: clamp(6px, 1.6vmin, 12px); padding: 0 12px; z-index: 3; }
+    #filters .flt { width: clamp(48px, 7.5vmin, 66px); aspect-ratio: 3 / 4; padding: 0; border: 3px solid rgba(255,255,255,.7); border-radius: 6px; overflow: hidden; background: #000; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.3); }
+    #filters .flt.on { border-color: #fff; outline: 3px solid #2f6fb0; transform: translateY(-4px); }
+    #filters canvas { display: block; width: 100%; height: 100%; }
     /* 撮れた卒業写真のプリント */
-    #print { position: absolute; left: 50%; top: calc(56px + (100% - 56px - var(--reserve, 160px)) / 2); transform: translate(-50%, -50%) rotate(-1.5deg); display: none; box-shadow: 0 10px 30px rgba(40,20,30,.4); z-index: 2; pointer-events: none; }
+    #print { position: absolute; left: 50%; top: calc(56px + (100% - 56px - var(--reserve, 160px) - var(--fh, 0px)) / 2); transform: translate(-50%, -50%) rotate(-1.5deg); display: none; box-shadow: 0 10px 30px rgba(40,20,30,.4); z-index: 2; pointer-events: none; }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
     /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
     #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; z-index: 4; }
@@ -84,6 +89,7 @@
     <div id="fade"></div>
     <div id="bubble"></div>
     <canvas id="print"></canvas>
+    <div id="filters"></div>
     <div id="arrow"><svg viewBox="0 0 56 56"><circle cx="28" cy="28" r="26" fill="rgba(25,25,30,.72)"/><path d="M18 20h20v16H18z" fill="#eee" transform="rotate(0)"/><path d="M44 28l8-6v12z" fill="#ff5a3a"/></svg></div>
     <div id="msg"></div>
   </div>
@@ -991,40 +997,62 @@
       shareCache = null;
     }
     const font = (s, mono) => mono ? `800 ${s}px ui-monospace, "SF Mono", Menlo, Consolas, monospace` : `900 ${s}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans KR", "Noto Sans Thai", sans-serif`;
-    // フィルム風の加工: 色あせたトーン、暗部は青緑・明部はあたたかく、ビネット、光漏れ、粒子
-    function filmGrade(g, W, H) {
+    // 写真の加工（プレイヤーが選べる）
+    const FILTERS = ['film', 'soft', 'pop', 'mono', 'none'];
+    let filter = store.get('filter', 'film');
+    if (!FILTERS.includes(filter)) filter = 'film';
+    const P = {
+      // 黒の浮き, コントラスト, 彩度, 暗部の色, 明部の色, 明るさ, ビネット, 粒子, 光漏れ
+      film: { lift: 0.06, con: 0.55, sat: 0.78, sh: [-0.06, 0.03, 0.09], hi: [0.1, 0.035, -0.08], ex: 0, vig: 0.58, grain: 0.08, leak: 'rgba(255,150,80,.75)' },
+      soft: { lift: 0.14, con: 0.2, sat: 0.72, sh: [0.04, 0.0, 0.05], hi: [0.05, 0.02, 0.0], ex: 0.1, vig: 0.15, grain: 0.03, leak: 'rgba(255,190,200,.55)' },
+      pop: { lift: 0.0, con: 0.85, sat: 1.45, sh: [0.0, -0.02, 0.04], hi: [0.05, 0.03, -0.02], ex: 0.04, vig: 0.3, grain: 0.02, leak: null },
+      mono: { lift: 0.04, con: 0.8, sat: 0, sh: [0, 0, 0], hi: [0.02, 0.01, -0.01], ex: 0.02, vig: 0.6, grain: 0.1, leak: null },
+    };
+    function grade(g, W, H, kind) {
+      const o = P[kind]; if (!o) return;
       const im = g.getImageData(0, 0, W, H), d = im.data;
       const curve = new Float32Array(256);
-      for (let i = 0; i < 256; i++) { const x = i / 255, sc = x * x * (3 - 2 * x); curve[i] = 0.06 + 0.88 * (x * 0.45 + sc * 0.55); } // 黒を少し浮かせたS字
+      for (let i = 0; i < 256; i++) { const x = i / 255, sc = x * x * (3 - 2 * x); curve[i] = Math.min(1, o.lift + (1 - o.lift * 1.6) * (x * (1 - o.con) + sc * o.con) + o.ex); }
       const cx = W / 2, cy = H * 0.52, R = Math.hypot(cx, cy);
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
         const i = (y * W + x) * 4;
         let r = curve[d[i]], gg = curve[d[i + 1]], b = curve[d[i + 2]];
         const l = 0.3 * r + 0.59 * gg + 0.11 * b;
-        // 彩度を少し落とす
-        r = l + (r - l) * 0.78; gg = l + (gg - l) * 0.78; b = l + (b - l) * 0.78;
-        // 暗部は青緑、明部はあたたかく
+        r = l + (r - l) * o.sat; gg = l + (gg - l) * o.sat; b = l + (b - l) * o.sat;
         const sh = 1 - l, hi = l;
-        r += -0.06 * sh + 0.1 * hi; gg += 0.03 * sh + 0.035 * hi; b += 0.09 * sh - 0.08 * hi;
-        // ビネット
-        const v = 1 - 0.58 * Math.pow(Math.hypot(x - cx, y - cy) / R, 2.2);
-        // 粒子
-        const n = (Math.random() - 0.5) * 0.08;
+        r += o.sh[0] * sh + o.hi[0] * hi; gg += o.sh[1] * sh + o.hi[1] * hi; b += o.sh[2] * sh + o.hi[2] * hi;
+        const v = 1 - o.vig * Math.pow(Math.hypot(x - cx, y - cy) / R, 2.2);
+        const n = (Math.random() - 0.5) * o.grain;
         d[i] = Math.max(0, Math.min(255, (r * v + n) * 255));
         d[i + 1] = Math.max(0, Math.min(255, (gg * v + n) * 255));
         d[i + 2] = Math.max(0, Math.min(255, (b * v + n) * 255));
       }
       g.putImageData(im, 0, 0);
-      // 左上からの光漏れ
-      g.save(); g.globalCompositeOperation = 'screen';
-      const lk = g.createRadialGradient(-40, H * 0.18, 10, -40, H * 0.18, W * 0.75);
-      lk.addColorStop(0, 'rgba(255,150,80,.75)'); lk.addColorStop(0.45, 'rgba(255,110,70,.3)'); lk.addColorStop(1, 'rgba(255,100,60,0)');
-      g.fillStyle = lk; g.fillRect(0, 0, W, H);
-      // 右下にも弱い光
-      const lk2 = g.createRadialGradient(W + 40, H * 0.85, 10, W + 40, H * 0.85, W * 0.6);
-      lk2.addColorStop(0, 'rgba(255,200,120,.35)'); lk2.addColorStop(1, 'rgba(255,200,120,0)');
-      g.fillStyle = lk2; g.fillRect(0, 0, W, H);
-      g.restore();
+      if (o.leak) {
+        g.save(); g.globalCompositeOperation = 'screen';
+        const lk = g.createRadialGradient(-W * 0.04, H * 0.18, 1, -W * 0.04, H * 0.18, W * 0.75);
+        lk.addColorStop(0, o.leak); lk.addColorStop(1, 'rgba(255,120,80,0)');
+        g.fillStyle = lk; g.fillRect(0, 0, W, H);
+        const lk2 = g.createRadialGradient(W * 1.04, H * 0.85, 1, W * 1.04, H * 0.85, W * 0.6);
+        lk2.addColorStop(0, 'rgba(255,210,140,.3)'); lk2.addColorStop(1, 'rgba(255,210,140,0)');
+        g.fillStyle = lk2; g.fillRect(0, 0, W, H);
+        g.restore();
+      }
+    }
+    // フィルターの見本（小さい表紙）を並べる
+    const filtersEl = document.getElementById('filters');
+    function drawFilterButtons() {
+      filtersEl.innerHTML = '';
+      if (!snap || state !== 'result') { filtersEl.style.display = 'none'; return; }
+      filtersEl.style.display = 'flex';
+      for (const k of FILTERS) {
+        const b = document.createElement('button'); b.className = 'flt' + (k === filter ? ' on' : ''); b.setAttribute('aria-label', k);
+        const c = document.createElement('canvas'); c.width = 60; c.height = 80;
+        const g = c.getContext('2d'); g.drawImage(snap, 0, 0, 60, 80); grade(g, 60, 80, k);
+        b.append(c);
+        b.addEventListener('click', () => { if (filter === k) return; filter = k; store.set('filter', k); shareCache = null; showResult(); prepareShare(); drawFilterButtons(); });
+        filtersEl.append(b);
+      }
     }
     // 雑誌の表紙: 写真の上に雑誌名のロゴだけ
     function printImage() {
@@ -1032,7 +1060,7 @@
       const c = document.createElement('canvas'); c.width = 900; c.height = 1200;
       const g = c.getContext('2d');
       g.drawImage(snap, 0, 0);
-      filmGrade(g, 900, 1200);
+      grade(g, 900, 1200, filter);
       const sh = g.createLinearGradient(0, 0, 0, 260); sh.addColorStop(0, 'rgba(0,0,0,.28)'); sh.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = sh; g.fillRect(0, 0, 900, 260);
       g.textAlign = 'center'; g.textBaseline = 'alphabetic';
       g.font = '900 210px "Didot", "Bodoni 72", "Playfair Display", Georgia, "Times New Roman", serif';
@@ -1058,13 +1086,15 @@
       printEl.style.display = 'block';
       fitPrint();
     }
+    const filtersH = () => state === 'result' ? Math.min(96, Math.max(70, 0.1 * Math.min(innerWidth, innerHeight))) + 10 : 0;
     // プリントの縦横比を保ったまま、ボタンの上の空いた所に収める
     function fitPrint() {
       if (!printEl.width) return;
       const w = stage.clientWidth, H = stage.clientHeight;
-      const mw = Math.min(w * 0.92, 900), mh = Math.max(80, H - reserve - 76);
+      const mw = Math.min(w * 0.92, 900), mh = Math.max(80, H - reserve - 76 - filtersH());
       const sc = Math.min(mw / printEl.width, mh / printEl.height);
       printEl.style.width = printEl.width * sc + 'px'; printEl.style.height = printEl.height * sc + 'px';
+      stage.style.setProperty('--fh', filtersH() + 'px'); filtersEl.style.bottom = reserve + 'px';
     }
     const shareText = () => inPhoto ? t('shareHit')(knocked) : t('shareMiss');
     function renderControls() {
@@ -1098,12 +1128,12 @@
     }
     function prepareShare() {
       if (!snap) return;
-      const key = lang;
+      const key = lang + filter;
       if (shareCache?.key === key) return;
       shareCache = { key, file: null };
       resultImage().toBlob(b => { if (b && shareCache?.key === key) shareCache.file = new File([b], 'nebou-model.png', { type: 'image/png' }); }, 'image/png');
     }
-    const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
+    const shareFile = () => shareCache?.key === lang + filter ? shareCache.file : null;
 
     function resetPerson(p) {
       unragdoll(p);
@@ -1134,12 +1164,12 @@
       blanket.position.set(BED.x, MAT_TOP + 0.24, BED.z + 0.35); blanket.rotation.set(0, 0, 0); blanketT = -1;
       state = 'ready'; timer = TIMER; knocked = 0; inPhoto = false; setLeds(false); tripodLed().material.emissiveIntensity = 0;
       resetCones();
-      printEl.style.display = 'none';
+      printEl.style.display = 'none'; filtersEl.style.display = 'none';
       renderControls(); resize(); placeCamera(1, true);
     }
     function finish() {
       state = 'result';
-      renderControls();
+      renderControls(); fitPrint(); drawFilterButtons();
     }
 
     // ---------- ループ ----------
@@ -1163,7 +1193,7 @@
     renderer.render(scene, camera);
     world.step(STEP);
     requestAnimationFrame(t0 => { last = t0; loop(t0); });
-    /*TEST*/if (location.search.includes('test')) window.__t = { place(x, z) { const pb = me.bodies.pelvis.position, dx = x - pb.x, dz = z - pb.z; for (const n in me.bodies) { const b = me.bodies[n]; b.position.x += dx; b.position.z += dz; b.velocity.set(0, 0, 0); b.angularVelocity.set(0, 0, 0); } }, people, me, world, get introT() { return introT; }, skip: endIntro, get state() { return state; }, set timer(v) { timer = v; }, camera, swipe(dx, dy) { const r = renderer.domElement.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; aim = { x, y }; launch({ clientX: x - dx, clientY: y - dy }); }, img: () => resultImage()?.toDataURL('image/png') };
+    /*TEST*/if (location.search.includes('test')) window.__t = { pickFilter(k) { [...document.querySelectorAll('#filters .flt')][FILTERS.indexOf(k)]?.click(); }, place(x, z) { const pb = me.bodies.pelvis.position, dx = x - pb.x, dz = z - pb.z; for (const n in me.bodies) { const b = me.bodies[n]; b.position.x += dx; b.position.z += dz; b.velocity.set(0, 0, 0); b.angularVelocity.set(0, 0, 0); } }, people, me, world, get introT() { return introT; }, skip: endIntro, get state() { return state; }, set timer(v) { timer = v; }, camera, swipe(dx, dy) { const r = renderer.domElement.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; aim = { x, y }; launch({ clientX: x - dx, clientY: y - dy }); }, img: () => resultImage()?.toDataURL('image/png') };
   </script>
 </body>
 </html>
