@@ -42,22 +42,14 @@
     header svg { width: 18px; height: 18px; display: block; }
     #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
     #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
-    /* 写真に写る範囲（外側を少し暗く） */
-    #frame { position: absolute; border: 3px solid rgba(255,255,255,.95); box-shadow: 0 0 0 9999px rgba(20,30,45,.22); pointer-events: none; border-radius: 2px; z-index: 1; }
-    #frame i { position: absolute; width: 22px; height: 22px; border: 0 solid #fff; }
-    #frame i:nth-child(1) { left: -9px; top: -9px; border-width: 5px 0 0 5px; }
-    #frame i:nth-child(2) { right: -9px; top: -9px; border-width: 5px 5px 0 0; }
-    #frame i:nth-child(3) { left: -9px; bottom: -9px; border-width: 0 0 5px 5px; }
-    #frame i:nth-child(4) { right: -9px; bottom: -9px; border-width: 0 5px 5px 0; }
     /* セルフタイマーのランプ */
-    #led { position: absolute; transform: translate(-50%, -100%); display: flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 12px; background: rgba(25,25,30,.75); pointer-events: none; z-index: 2; }
+    #led { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 12px; background: rgba(25,25,30,.75); pointer-events: none; z-index: 2; }
     #led b { width: 14px; height: 14px; border-radius: 50%; background: #4a1414; box-shadow: inset 0 0 3px #000; }
     #led b.on { background: #ff3a2a; box-shadow: 0 0 10px 3px rgba(255,60,40,.8), inset 0 0 2px #fff; }
     #led svg { width: 22px; height: 16px; display: block; }
     #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 3; }
-    /* 結果は写真の右下に、昔のカメラの日付みたいに写し込む */
-    #result { position: absolute; display: none; align-items: flex-end; justify-content: flex-end; padding: 0 3% 2.5%; pointer-events: none; z-index: 2; }
-    #result b { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: clamp(22px, 6vmin, 58px); font-weight: 800; color: #ffa53a; text-shadow: 0 0 6px rgba(255,120,20,.85), 0 2px 2px rgba(80,30,0,.6); white-space: nowrap; letter-spacing: .02em; }
+    /* 撮れた卒業写真のプリント */
+    #print { position: absolute; left: 50%; top: calc(56px + (100% - 56px - var(--reserve, 160px)) / 2); transform: translate(-50%, -50%) rotate(-1.5deg); max-width: min(92%, 900px); max-height: calc(100% - var(--reserve, 160px) - 76px); display: none; box-shadow: 0 10px 30px rgba(40,20,30,.4); z-index: 2; pointer-events: none; }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
     /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
     #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; z-index: 4; }
@@ -81,10 +73,9 @@
   </header>
   <main style="display:contents">
   <div id="stage">
-    <div id="frame"><i></i><i></i><i></i><i></i></div>
     <div id="led"><svg viewBox="0 0 22 16"><rect x="1" y="3" width="20" height="12" rx="2.5" fill="#ddd"/><rect x="7" y="1" width="8" height="3" rx="1" fill="#ddd"/><circle cx="11" cy="9" r="4" fill="#333"/><circle cx="11" cy="9" r="2" fill="#6a8aa8"/></svg><b></b><b></b><b></b></div>
     <div id="flash"></div>
-    <div id="result"><b></b></div>
+    <canvas id="print"></canvas>
     <div id="msg"></div>
   </div>
   <div id="controls"></div>
@@ -101,7 +92,7 @@
     window.PHOTO_READY = true;
 
     const SHARE_URL = 'https://keifurukawafunnych.com/games/nebou-sotsugyo/';
-    const TIMER = 10;
+    const TIMER = 12;
 
     // ---------- 長押しで拡大鏡やメニューが出ないように ----------
     document.addEventListener('touchstart', e => { if (!e.target.closest('a, button, select, input')) e.preventDefault(); }, { passive: false });
@@ -115,14 +106,14 @@
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
-      ja: { title: '寝坊の卒業写真', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', hit: n => `巻き込み${n}人`, miss: '写れず',
-        shareHit: n => `寝坊した卒業式、集合写真には間に合った（巻き込み${n}人） #寝坊の卒業写真ゲーム`, shareMiss: '寝坊した卒業式、集合写真にも写れなかった #寝坊の卒業写真ゲーム' },
-      ko: { title: '늦잠 잔 졸업사진', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', hit: n => `휘말림 ${n}명`, miss: '못 찍힘',
-        shareHit: n => `늦잠 잔 졸업식, 단체사진에는 겨우 들어갔다 (휘말림 ${n}명) #寝坊の卒業写真ゲーム`, shareMiss: '늦잠 잔 졸업식, 단체사진에도 못 찍혔다 #寝坊の卒業写真ゲーム' },
-      en: { title: 'Overslept Graduation Photo', back: '← Back to top', again: 'Play again', post: 'Post on X', hit: n => `${n} knocked over`, miss: 'Not in photo',
-        shareHit: n => `Overslept on graduation day but made the class photo (${n} knocked over) #寝坊の卒業写真ゲーム`, shareMiss: 'Overslept on graduation day and missed the class photo too #寝坊の卒業写真ゲーム' },
-      th: { title: 'ตื่นสายวันรับปริญญา', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', hit: n => `ชนล้ม ${n} คน`, miss: 'ไม่ติดรูป',
-        shareHit: n => `ตื่นสายวันจบการศึกษา แต่ทันถ่ายรูปหมู่ (ชนล้ม ${n} คน) #寝坊の卒業写真ゲーム`, shareMiss: 'ตื่นสายวันจบการศึกษา แล้วยังไม่ทันรูปหมู่อีก #寝坊の卒業写真ゲーム' },
+      ja: { title: '寝坊の卒業写真', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', hit: n => `巻き込み${n}人`, date: '卒業式',
+        shareHit: n => `寝坊した卒業式、集合写真には間に合った（巻き込み${n}人） #寝坊の卒業写真ゲーム`, shareMiss: '寝坊した卒業式、集合写真は欠席扱いになった #寝坊の卒業写真ゲーム' },
+      ko: { title: '늦잠 잔 졸업사진', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', hit: n => `휘말림 ${n}명`, date: '졸업식',
+        shareHit: n => `늦잠 잔 졸업식, 단체사진에는 겨우 들어갔다 (휘말림 ${n}명) #寝坊の卒業写真ゲーム`, shareMiss: '늦잠 잔 졸업식, 단체사진은 결석 처리됐다 #寝坊の卒業写真ゲーム' },
+      en: { title: 'Overslept Graduation Photo', back: '← Back to top', again: 'Play again', post: 'Post on X', hit: n => `${n} knocked over`, date: 'Graduation Day',
+        shareHit: n => `Overslept on graduation day but made the class photo (${n} knocked over) #寝坊の卒業写真ゲーム`, shareMiss: 'Overslept on graduation day and ended up as the absent inset in the class photo #寝坊の卒業写真ゲーム' },
+      th: { title: 'ตื่นสายวันรับปริญญา', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', hit: n => `ชนล้ม ${n} คน`, date: 'วันจบการศึกษา',
+        shareHit: n => `ตื่นสายวันจบการศึกษา แต่ทันถ่ายรูปหมู่ (ชนล้ม ${n} คน) #寝坊の卒業写真ゲーム`, shareMiss: 'ตื่นสายวันจบการศึกษา ในรูปหมู่เลยกลายเป็นคนขาด #寝坊の卒業写真ゲーム' },
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -445,7 +436,6 @@
       lighten(h); scene.add(h.root);
       return { h, f0: 135, rig: buildRig(h), me: true, bodies: null, cons: [] };
     })();
-    const START = V3(0.95, 0, 4.0);
 
     const TQ = new THREE.Quaternion(), TV = new THREE.Vector3();
     const toppleQ = [];
@@ -536,152 +526,174 @@
       for (const q of people) if (!q.rag && q.home.distanceTo(p.home) < 1.3) { q.h.face.brow = 1; q.h.face.open = 0.45; q.h.face.smile = -0.1; q.shockT = 1.2; }
     }
 
-    // ---------- 写真の枠 ----------
-    const FW = 5.3, FH = 3.05;
-    const frameEl = document.getElementById('frame'), ledEl = document.getElementById('led'), leds = [...ledEl.querySelectorAll('b')];
-    let frameRect = { x: 0, y: 0, w: 1, h: 1 };
+    // ---------- 写真を撮る三脚カメラ（写る範囲） ----------
+    const TRIPOD = V3(0, 1.5, 7.4), PV = 27, PHOTO_A = 1.5;
+    const photoCam = new THREE.PerspectiveCamera(PV, PHOTO_A, 0.1, 200);
+    photoCam.position.copy(TRIPOD); photoCam.lookAt(0, 1.4, FZ); photoCam.updateMatrixWorld(); photoCam.updateProjectionMatrix();
+    {
+      const tp = new THREE.Group(); tp.position.set(TRIPOD.x, 0, TRIPOD.z + 0.25);
+      const metal = new THREE.MeshStandardMaterial({ color: '#2a2a2e', roughness: 0.4, metalness: 0.6 });
+      for (let i = 0; i < 3; i++) { const a = i / 3 * Math.PI * 2; const l = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1.55, 6), metal); l.position.set(Math.sin(a) * 0.22, 0.72, Math.cos(a) * 0.22); l.rotation.set(Math.cos(a) * 0.28, 0, -Math.sin(a) * 0.28); tp.add(l); }
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.11, 0.09), metal); body.position.y = 1.5; tp.add(body);
+      const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.09, 16), mat('#111', 0.3)); lens.rotation.x = Math.PI / 2; lens.position.set(0, 1.5, -0.08); tp.add(lens);
+      const led = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), new THREE.MeshStandardMaterial({ color: '#ff3a2a', emissive: '#ff2a1a', emissiveIntensity: 0 })); led.position.set(0.055, 1.54, -0.046); tp.add(led); tp.userData.led = led;
+      scene.add(shade(tp)); window.__tripod = tp;
+      // 写る範囲の両端に白線（地面）
+      const lineM = new THREE.MeshStandardMaterial({ color: '#f6f3ea', roughness: 1 });
+      const half = Math.tan(THREE.MathUtils.degToRad(PV / 2)) * PHOTO_A;
+      for (const s of [-1, 1]) {
+        const a = Math.atan(half), len = (TRIPOD.z - FZ + 1.2) / Math.cos(a);
+        const g = new THREE.Group(); g.position.set(TRIPOD.x, 0.006, TRIPOD.z); g.rotation.y = -s * a;
+        const ln = new THREE.Mesh(new THREE.PlaneGeometry(0.06, len - 1), lineM); ln.rotation.x = -Math.PI / 2; ln.position.z = -(len + 1) / 2; ln.receiveShadow = true;
+        g.add(ln); scene.add(g);
+      }
+    }
+    const tripodLed = () => window.__tripod.userData.led;
 
-    // ---------- 画面サイズ ----------
+    // ---------- 寝坊した自分のベッド ----------
+    const BED = V3(7.0, 0, 0.7), MAT_TOP = 0.5;
+    let blanket, zzz = [];
+    {
+      const bed = new THREE.Group(); bed.position.copy(BED);
+      const wood = mat('#8a6040', 0.7);
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.3, 2.1), wood); frame.position.y = 0.2; bed.add(frame);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.9, 0.06), wood); head.position.set(0, 0.45, -1.05); bed.add(head);
+      const mattress = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.16, 2.0), mat('#f4f2ec', 0.9)); mattress.position.y = 0.42; bed.add(mattress);
+      const pillow = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), mat('#ffffff', 0.9)); pillow.scale.set(0.33, 0.07, 0.18); pillow.position.set(0, 0.55, -0.78); bed.add(pillow);
+      const bt = canvasTex(128, 128, (c, w, h) => { c.fillStyle = '#8ab4e0'; c.fillRect(0, 0, w, h); c.fillStyle = '#f2f6fa'; for (let y = 0; y < h; y += 32) for (let x = 0; x < w; x += 32) if ((x + y) / 32 % 2 === 0) c.fillRect(x, y, 32, 32); }, [2, 3]);
+      blanket = new THREE.Mesh(new THREE.BoxGeometry(1.04, 0.07, 1.25), new THREE.MeshStandardMaterial({ map: bt, roughness: 0.95 }));
+      blanket.position.set(BED.x, MAT_TOP + 0.24, BED.z + 0.35); scene.add(shade(blanket));
+      const stand = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.38), wood); stand.position.set(-0.8, 0.25, -0.8); bed.add(stand);
+      // 止まった目覚まし時計
+      const ck = new THREE.Group(); ck.position.set(-0.8, 0.56, -0.8); ck.rotation.y = 0.6; bed.add(ck);
+      const cb = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.05, 20), mat('#c8302a', 0.4)); cb.rotation.x = Math.PI / 2; cb.position.y = 0.07; ck.add(cb);
+      const cf = new THREE.Mesh(new THREE.CircleGeometry(0.058, 20), mat('#fff', 0.5)); cf.position.set(0, 0.07, 0.026); ck.add(cf);
+      for (const s of [-1, 1]) { const bell = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat('#d8b04a', 0.3)); bell.position.set(s * 0.045, 0.125, 0); bell.rotation.z = -s * 0.5; ck.add(bell); }
+      scene.add(shade(bed));
+      staticBox(BED.x, 0.25, BED.z, 0.52, 0.25, 1.05);
+      staticBox(BED.x, 0.45, BED.z - 1.05, 0.52, 0.45, 0.03);
+      staticBox(BED.x - 0.8, 0.25, BED.z - 0.8, 0.21, 0.25, 0.19);
+      const zt = canvasTex(64, 64, g => { g.fillStyle = '#ffffff'; g.strokeStyle = '#3a4a6a'; g.lineWidth = 6; g.font = 'bold 54px sans-serif'; g.textAlign = 'center'; g.strokeText('Z', 32, 52); g.fillText('Z', 32, 52); });
+      for (let i = 0; i < 3; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: zt, transparent: true, depthWrite: false })); s.scale.setScalar(0.18); scene.add(s); zzz.push({ s, t: i / 3 }); }
+    }
+
+    // ---------- 欠席者用の顔写真（きちんとした姿で、先に撮っておく） ----------
+    let portrait = null;
+    function makePortrait() {
+      const ps = new THREE.Scene();
+      ps.background = new THREE.Color('#7ea6d4');
+      ps.add(new THREE.HemisphereLight('#ffffff', '#8a8aa0', 1.4));
+      const l = new THREE.DirectionalLight('#fff', 1.6); l.position.set(1, 2, 4); ps.add(l);
+      const h = makeHuman({ sex: 'male', age: 'adult', height: 1.72, top: '#1b2030', sleeve: 'long', bottom: 'pants', bottomColor: '#1b2030', hair: 'short', hairColor: '#2a1d14', seed: 424242 });
+      ps.add(h.root); h.face.smile = 0.35; h.face.blink = 0;
+      for (let i = 0; i < 10; i++) h.update(0.1);
+      h.face.blink = 0; h.update(0.001);
+      const cam = new THREE.PerspectiveCamera(20, 0.8, 0.1, 20); cam.position.set(0, h.height - 0.13, 1.25); cam.lookAt(0, h.height - 0.15, 0);
+      const W = renderer.domElement.width, H = renderer.domElement.height;
+      cam.aspect = W / H; cam.fov = H / W > 1.25 ? 20 : 20 * 1.25 * H / W; cam.updateProjectionMatrix();
+      renderer.render(ps, cam);
+      const ch = Math.min(H, W * 1.25), cw = ch * 0.8;
+      portrait = document.createElement('canvas'); portrait.width = 240; portrait.height = 300;
+      portrait.getContext('2d').drawImage(renderer.domElement, (W - cw) / 2, (H - ch) / 2, cw, ch, 0, 0, 240, 300);
+      h.dispose();
+    }
+
+    // ---------- 画面サイズ（見物人の視点） ----------
     const controls = document.getElementById('controls');
+    const ledEl = document.getElementById('led'), leds = [...ledEl.querySelectorAll('b')];
+    const camRight = new THREE.Vector3(), camFwd = new THREE.Vector3();
+    let reserve = 160;
     function resize() {
       const w = stage.clientWidth, H = stage.clientHeight;
       renderer.setSize(w, H, false);
       const btnH = Math.min(72, Math.max(56, 0.08 * Math.min(innerWidth, innerHeight))) + 12;
-      const reserve = Math.max(0, stage.getBoundingClientRect().bottom - controls.getBoundingClientRect().bottom) + btnH;
-      const top = 58, h = Math.max(140, H - reserve - top);
+      reserve = Math.max(0, stage.getBoundingClientRect().bottom - controls.getBoundingClientRect().bottom) + btnH;
+      stage.style.setProperty('--reserve', reserve + 'px');
+      const top = 96, h = Math.max(140, H - reserve - top);
       camera.aspect = w / h;
       camera.setViewOffset(w, h, 0, -top, w, H);
-      // 写真の枠と、手前の自分が入るまでカメラを引く
-      const cy = FH / 2;
-      const inside = () => {
-        camera.updateProjectionMatrix(); camera.updateMatrixWorld();
-        const pts = [V3(-FW / 2 - 0.15, FH + 0.25, FZ), V3(FW / 2 + 0.15, -0.05, FZ), V3(-FW / 2 - 0.15, -0.05, FZ), V3(START.x + 0.4, 0, START.z + 0.2), V3(START.x - 0.4, 1.9, START.z)];
-        return pts.every(p => { const q = p.clone().project(camera); const sy = (1 - q.y) / 2 * H; return Math.abs(q.x) < 1 && sy > top && sy < H - reserve && q.z < 1; });
-      };
-      let d = 6;
-      for (let i = 0; i < 60; i++) {
-        camera.position.set(0, 1.9 + d * 0.06, FZ + d);
-        camera.lookAt(0, cy - 0.35, FZ);
+      // 横長なら前から、縦長ならベッドの後ろから、ベッドとひな壇が両方入る向きで見る
+      const k = THREE.MathUtils.clamp((camera.aspect - 0.65) / 0.75, 0, 1);
+      const dir = new THREE.Vector3(THREE.MathUtils.lerp(-1, -0.42, k), 0, THREE.MathUtils.lerp(-0.42, -1, k)).normalize();
+      const target = V3(THREE.MathUtils.lerp(3.8, 3.4, k), 0.6, 0.0);
+      const pts = [V3(-2.5, 0, 0.3), V3(-2.5, 2.6, -1.4), V3(2.5, 2.6, -1.4), V3(2.5, 0, 0.3), V3(BED.x + 0.55, 0, BED.z + 1.1), V3(BED.x - 0.55, 0, BED.z + 1.1), V3(BED.x + 0.55, 1.0, BED.z - 1.1), V3(BED.x - 1.0, 1.0, BED.z - 1.0)];
+      const inside = () => { camera.updateProjectionMatrix(); camera.updateMatrixWorld(); return pts.every(p => { const q = p.clone().project(camera); const sy = (1 - q.y) / 2 * H; return Math.abs(q.x) < 0.96 && sy > top && sy < H - reserve && q.z < 1; }); };
+      let d = 5;
+      for (let i = 0; i < 80; i++) {
+        camera.position.copy(target).addScaledVector(dir, -d); camera.position.y = 1.2 + d * 0.5;
+        camera.lookAt(target);
         if (inside()) break;
-        d += 0.35;
+        d += 0.3;
       }
-      const pr = v => { const q = v.clone().project(camera); return { x: (q.x + 1) / 2 * w, y: (1 - q.y) / 2 * H }; };
-      const a = pr(V3(-FW / 2, FH, FZ)), b = pr(V3(FW / 2, 0, FZ));
-      frameRect = { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
-      Object.assign(frameEl.style, { left: a.x + 'px', top: a.y + 'px', width: frameRect.w + 'px', height: frameRect.h + 'px' });
-      Object.assign(document.getElementById('result').style, { left: a.x + 'px', top: a.y + 'px', width: frameRect.w + 'px', height: frameRect.h + 'px' });
-      Object.assign(ledEl.style, { left: (a.x + b.x) / 2 + 'px', top: a.y - 8 + 'px' });
+      camRight.setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
+      camFwd.set(-camRight.z, 0, camRight.x); // 画面の上 = 奥
+      if (camFwd.dot(dir) < 0) camFwd.negate();
     }
     addEventListener('resize', resize);
 
-    // ---------- 入力: 自分を引っぱって飛ばす ----------
-    const dotTex = canvasTex(32, 32, g => { g.fillStyle = '#fff'; g.beginPath(); g.arc(16, 16, 12, 0, 7); g.fill(); g.strokeStyle = 'rgba(40,50,70,.6)'; g.lineWidth = 3; g.stroke(); });
-    const dots = [];
-    for (let i = 0; i < 18; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, transparent: true, depthTest: false, opacity: 0.9 })); s.scale.setScalar(0.15); s.visible = false; s.renderOrder = 10; scene.add(s); dots.push(s); }
-    let aim = null; // { sx, sy, from }
-    const launchVel = new THREE.Vector3();
-    function mePos() {
-      if (me.rag) { const b = me.bodies.pelvis.position; return V3(b.x, b.y, b.z); }
-      me.h.j.pelvis.getWorldPosition(TV); return TV.clone();
-    }
-    function computeLaunch(px, py) {
-      const dx = aim.sx - px, dy = aim.sy - py, len = Math.hypot(dx, dy);
-      const full = Math.min(stage.clientWidth, stage.clientHeight) * 0.38;
-      const s = Math.min(1, len / full);
-      if (len < 8) { launchVel.set(0, 0, 0); return 0; }
-      const ux = dx / len, uy = -dy / len; // 画面の上向きが「奥＋上」
-      launchVel.set(ux * 5.5 * s, 2.5 + 5.2 * s * Math.max(0.2, uy), -Math.max(-0.3, uy) * 6.5 * s);
-      return s;
-    }
-    function drawDots(show) {
-      const p0 = aim ? aim.from : mePos();
-      dots.forEach((d, i) => {
-        d.visible = show;
-        if (!show) return;
-        const tt = (i + 1) * 0.06;
-        d.position.set(p0.x + launchVel.x * tt, p0.y + launchVel.y * tt - 4.91 * tt * tt, p0.z + launchVel.z * tt);
-        d.material.opacity = 0.9 * (1 - i / dots.length);
-        if (d.position.y < 0) d.visible = false;
-      });
-    }
-    function canGrab() {
-      if (!me.rag) return true;
-      const v = me.bodies.pelvis.velocity; return v.length() < 3.2;
-    }
+    // ---------- 入力: スワイプで体を飛ばす ----------
+    let swipe = null, swipeCD = 0;
     renderer.domElement.addEventListener('pointerdown', e => {
       e.preventDefault();
-      if (!(state === 'ready' || state === 'play') || aim || !canGrab()) return;
-      const r = renderer.domElement.getBoundingClientRect();
-      const px = e.clientX - r.left, py = e.clientY - r.top;
-      // 自分の体の近くを押したらつかむ
-      let near = false;
-      const check = wp => { const q = wp.clone().project(camera); const sx = (q.x + 1) / 2 * r.width, sy = (1 - q.y) / 2 * r.height; if (Math.hypot(sx - px, sy - py) < Math.max(56, r.height * 0.07)) near = true; };
-      if (me.rag) for (const n in me.bodies) { const b = me.bodies[n].position; check(V3(b.x, b.y, b.z)); }
-      else for (const n of ['pelvis', 'spine', 'head', 'kneeL', 'kneeR', 'elbowL', 'elbowR']) { me.h.j[n].getWorldPosition(TV); check(TV.clone()); }
-      if (!near) return;
-      if (state === 'ready') { state = 'play'; timer = TIMER; beepT = 0; }
-      aim = { sx: px, sy: py, from: mePos() };
-      launchVel.set(0, 0, 0);
-      sPull(me);
-      me.h.face.open = 0.2; me.h.face.brow = 0.8; me.h.face.smile = -0.2;
+      if (!(state === 'ready' || state === 'play')) return;
+      swipe = { x: e.clientX, y: e.clientY, t: performance.now() };
       renderer.domElement.setPointerCapture?.(e.pointerId);
     }, { passive: false });
-    renderer.domElement.addEventListener('pointermove', e => {
-      if (!aim) return;
-      const r = renderer.domElement.getBoundingClientRect();
-      const s = computeLaunch(e.clientX - r.left, e.clientY - r.top);
-      drawDots(s > 0);
-    });
-    function launch() {
-      if (!aim) return;
-      const v = launchVel.clone();
-      aim = null; drawDots(false);
-      if (v.lengthSq() < 0.5) return;
-      if (!me.rag) ragdoll(me);
-      for (const n in me.bodies) { const b = me.bodies[n]; b.wakeUp(); b.velocity.set(v.x, v.y, v.z); }
-      // 少し回転させる
-      me.bodies.pelvis.angularVelocity.set(rnd(-3, 3), rnd(-2, 2), rnd(-3, 3));
-      me.bodies.chest.angularVelocity.set(rnd(-4, 4), rnd(-2, 2), rnd(-4, 4));
-      me.h.face.open = 0.9; me.h.face.brow = 1; me.h.face.smile = -0.2; me.ragT = 0; me.oofCD = 0.5;
-      sLaunch(me);
+    function endSwipe(e) {
+      if (!swipe) return;
+      const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y, len = Math.hypot(dx, dy);
+      swipe = null;
+      if (len < 14 || swipeCD > 0 || !(state === 'ready' || state === 'play')) return;
+      const s = Math.min(1, len / (Math.min(stage.clientWidth, stage.clientHeight) * 0.4));
+      const dir = camRight.clone().multiplyScalar(dx / len).addScaledVector(camFwd, -dy / len).normalize();
+      if (state === 'ready') wake();
+      const air = me.bodies.pelvis.position.y > 1.1 ? 0.5 : 1;
+      const v = dir.multiplyScalar((2.2 + 4.3 * s) * air);
+      const vy = (2.0 + 2.6 * s) * air;
+      for (const n in me.bodies) { const b = me.bodies[n]; b.wakeUp(); b.velocity.set(b.velocity.x * 0.3 + v.x, Math.max(b.velocity.y, 0) * 0.3 + vy, b.velocity.z * 0.3 + v.z); }
+      me.bodies.chest.angularVelocity.set(rnd(-3, 3), rnd(-2, 2), rnd(-3, 3));
+      me.h.face.open = 0.85; me.h.face.brow = 1; me.h.face.smile = -0.2; me.ragT = 0; me.oofCD = 0.4;
+      swipeCD = 0.18;
+      if (Math.random() < 0.6) sLaunch(me);
     }
-    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) renderer.domElement.addEventListener(ev, launch);
+    for (const ev of ['pointerup', 'pointercancel']) renderer.domElement.addEventListener(ev, endSwipe);
     stage.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 
     // ---------- ゲーム ----------
-    let state = 'ready', timer = TIMER, beepT = 0, endT = 0, inPhoto = false, needSnap = false, ledOn = false, pantT = 0;
-    const flashEl = document.getElementById('flash'), resultEl = document.getElementById('result');
-    function headScreen(p) {
-      let hp;
-      if (p.rag) { const b = p.bodies.head.position; hp = V3(b.x, b.y, b.z); }
-      else { p.h.j.head.getWorldPosition(TV); hp = TV.clone().add(V3(0, 0.1, 0)); }
-      const r = renderer.domElement.getBoundingClientRect(), q = hp.project(camera);
-      return { x: (q.x + 1) / 2 * r.width, y: (1 - q.y) / 2 * r.height, ok: q.z < 1 };
+    let state = 'ready', timer = TIMER, beepT = 0, endT = 0, inPhoto = false, needPhoto = false, ledOn = false, blanketT = -1;
+    const flashEl = document.getElementById('flash'), printEl = document.getElementById('print');
+    function wake() {
+      state = 'play'; timer = TIMER; beepT = 0; blanketT = 0;
+      me.h.face.blink = 0;
+      sWa(me);
+    }
+    function headInPhoto() {
+      const b = me.bodies.head.position, q = V3(b.x, b.y, b.z).project(photoCam);
+      return q.z < 1 && Math.abs(q.x) < 0.97 && Math.abs(q.y) < 0.97;
     }
     function shutter() {
-      state = 'shot'; endT = 0;
-      aim = null; drawDots(false);
+      state = 'shot'; endT = 0; swipe = null;
       sShutter();
       flashEl.style.transition = 'none'; flashEl.style.opacity = '1';
       requestAnimationFrame(() => { flashEl.style.transition = 'opacity .6s'; flashEl.style.opacity = '0'; });
       // シャッターの瞬間だけ、みんな（倒れた人も自分も）カメラを見てにっこり
-      for (const p of [...people, me]) { p.h.face.smile = 1; p.h.face.open = 0.25; p.h.face.brow = 0.3; p.h.lookAt(camera.position); }
-      const s = headScreen(me);
-      inPhoto = s.ok && s.x > frameRect.x && s.x < frameRect.x + frameRect.w && s.y > frameRect.y && s.y < frameRect.y + frameRect.h;
-      setLeds(false);
+      for (const p of [...people, me]) { p.h.face.smile = 1; p.h.face.open = 0.25; p.h.face.brow = 0.3; p.h.face.blink = 0; p.h.lookAt(photoCam.position); }
+      inPhoto = headInPhoto();
+      setLeds(false); tripodLed().material.emissiveIntensity = 0;
+      needPhoto = true;
     }
     function setLeds(on, k = 0) { leds.forEach((l, i) => l.classList.toggle('on', on && i <= k)); }
     const STEP = 1 / 60;
     let clock = 0;
     function step(dt) {
-      clock += dt; thudCD -= dt;
+      clock += dt; thudCD -= dt; swipeCD -= dt;
       if (state === 'play') {
         timer -= dt;
         // セルフタイマー: ランプの点滅とピッがだんだん速くなる
         const period = Math.max(0.12, 0.9 * (timer / TIMER) + 0.1);
         beepT -= dt;
-        if (beepT <= 0) { beepT = period; ledOn = true; setLeds(true, timer < 3 ? 2 : timer < 6 ? 1 : 0); sBeep(timer < 3); }
-        else if (ledOn && beepT < period * 0.5) { ledOn = false; setLeds(false); }
+        if (beepT <= 0) { beepT = period; ledOn = true; setLeds(true, timer < 3.5 ? 2 : timer < 7 ? 1 : 0); tripodLed().material.emissiveIntensity = 3; sBeep(timer < 3.5); }
+        else if (ledOn && beepT < period * 0.5) { ledOn = false; setLeds(false); tripodLed().material.emissiveIntensity = 0; }
         if (timer <= 0) shutter();
       }
       if (state !== 'shot' && state !== 'result') world.step(STEP);
@@ -691,36 +703,100 @@
         p.oofCD = (p.oofCD || 0) - dt;
         if (p.rag) {
           syncRagdoll(p); p.ragT += dt;
-          if (state === 'play' && p.ragT > 1.6 && p.oofCD < 0 && !(p.me && aim)) { p.h.face.open = 0.12; p.h.face.brow = -0.3; p.h.face.smile = -0.15; }
-        } else if (!p.me) {
+          if (state === 'play' && p.ragT > 1.4 && p.oofCD < 0) { p.h.face.open = 0.12; p.h.face.brow = p.me ? 0.6 : -0.3; p.h.face.smile = -0.15; }
+        } else {
           if (p.shockT > 0) { p.shockT -= dt; if (p.shockT <= 0) { p.h.face.brow = 0.2; p.h.face.open = 0; p.h.face.smile = 0.45; } }
-          if (state !== 'shot') p.h.lookAt(camera.position);
+          if (state !== 'shot') p.h.lookAt(photoCam.position);
         }
         p.h.update(dt);
       }
-      // 寝坊した自分は、最初は息を切らして足踏み
-      if (!me.rag) {
-        me.h.root.position.copy(START); me.h.root.rotation.y = -2.25; // 横顔（寝ぐせと食パン）が見える向き
-        me.h.walkSpeed = state === 'ready' || state === 'play' ? 1.6 : 0;
-        if (!aim) { me.h.face.open = 0.35 + 0.15 * Math.sin(clock * 9); me.h.face.brow = 0.9; me.h.face.smile = -0.3; }
-        me.h.lookAt(camera.position);
-        pantT -= dt; if (pantT < 0 && state === 'play') { pantT = 0.75; sPant(); }
+      // 寝ている間は目を閉じて Zzz
+      const sleeping = state === 'ready';
+      if (sleeping) { me.h.face.blink = 1; me.h.face.open = 0.15 + 0.08 * Math.sin(clock * 2); }
+      const hp = me.bodies?.head.position;
+      zzz.forEach(z => {
+        z.t = (z.t + dt * 0.45) % 1;
+        z.s.visible = sleeping && !!hp;
+        if (hp) { z.s.position.set(hp.x + 0.1 + z.t * 0.25, hp.y + 0.15 + z.t * 0.7, hp.z + Math.sin(z.t * 6) * 0.05); z.s.material.opacity = Math.sin(z.t * Math.PI); z.s.scale.setScalar(0.1 + z.t * 0.15); }
+      });
+      // 起きた瞬間、布団が飛ぶ
+      if (blanketT >= 0) {
+        blanketT += dt;
+        const q = Math.min(1, blanketT / 0.7);
+        blanket.position.set(BED.x + 1.4 * q, MAT_TOP + 0.24 + Math.sin(q * Math.PI) * 0.9 - q * 0.35, BED.z + 0.35 + 0.6 * q);
+        blanket.rotation.set(q * 1.2, 0, -q * 2.4);
+        if (q >= 1) blanketT = -1;
       }
       for (const pt of petals) {
         pt.ph += dt; const s = pt.s.position;
         s.y -= pt.v * dt; s.x += Math.sin(pt.ph * 1.3) * 0.4 * dt + 0.15 * dt; s.z += Math.cos(pt.ph) * 0.2 * dt;
         pt.s.material.rotation = pt.ph * 2;
-        if (s.y < 0) { s.y = rnd(4, 6); s.x = rnd(-7, 7); s.z = rnd(-6, 4); }
+        if (s.y < 0) { s.y = rnd(4, 6); s.x = rnd(-6, 10); s.z = rnd(-5, 5); }
       }
       if (state === 'shot') { endT += dt; if (endT > 0.9) finish(); }
     }
 
-    // ---------- 表示 ----------
-    const resultStr = () => inPhoto ? t('hit')(knocked) : t('miss');
+    // ---------- 結果: 撮れた卒業写真をプリントにする ----------
+    let snap = null, shareCache = null;
+    function takePhoto() {
+      // 三脚カメラの絵を、画面いっぱいに描いてから 3:2 で切り抜く
+      const W = renderer.domElement.width, H = renderer.domElement.height;
+      const cw = Math.min(W, H * PHOTO_A), ch = cw / PHOTO_A;
+      photoCam.aspect = W / H;
+      photoCam.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(PV / 2)) * H / ch));
+      photoCam.updateProjectionMatrix();
+      zzz.forEach(z => z.s.visible = false);
+      renderer.render(scene, photoCam);
+      snap = document.createElement('canvas'); snap.width = 1200; snap.height = 800;
+      snap.getContext('2d').drawImage(renderer.domElement, (W - cw) / 2, (H - ch) / 2, cw, ch, 0, 0, 1200, 800);
+      photoCam.aspect = PHOTO_A; photoCam.fov = PV; photoCam.updateProjectionMatrix();
+      shareCache = null;
+    }
+    const font = (s, mono) => mono ? `800 ${s}px ui-monospace, "SF Mono", Menlo, Consolas, monospace` : `900 ${s}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans KR", "Noto Sans Thai", sans-serif`;
+    function printImage() {
+      if (!snap) return null;
+      const B = 26, BOT = 110, c = document.createElement('canvas'); c.width = 1200 + B * 2; c.height = 800 + B + BOT;
+      const g = c.getContext('2d');
+      g.fillStyle = '#fbfaf6'; g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(snap, B, B);
+      if (inPhoto) {
+        // 写真の右下に日付のような文字
+        g.font = font(58, true); g.textAlign = 'right';
+        g.shadowColor = 'rgba(255,120,20,.9)'; g.shadowBlur = 10; g.fillStyle = '#ffa53a';
+        g.fillText(t('hit')(knocked), B + 1200 - 34, B + 800 - 30); g.shadowColor = 'transparent';
+      } else if (portrait) {
+        // 欠席扱い: 右上に丸い枠で顔写真
+        const cx = B + 1200 - 128, cy = B + 150, rx = 92, ry = 112;
+        g.save(); g.shadowColor = 'rgba(0,0,0,.35)'; g.shadowBlur = 14; g.fillStyle = '#fff'; g.beginPath(); g.ellipse(cx, cy, rx + 8, ry + 8, 0, 0, 7); g.fill(); g.restore();
+        g.save(); g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, 7); g.clip(); g.drawImage(portrait, cx - rx, cy - ry, rx * 2, ry * 2); g.restore();
+      }
+      const fit = (str, x, y, size, max, color, align) => { g.font = font(size); const w = g.measureText(str).width; if (w > max) g.font = font(size * max / w); g.fillStyle = color; g.textAlign = align; g.fillText(str, x, y); };
+      fit(t('title'), B + 6, c.height - 40, 46, 700, '#6a7a8a', 'left');
+      fit(t('date'), c.width - B - 6, c.height - 40, 40, 400, '#8a9aaa', 'right');
+      return c;
+    }
+    function resultImage() {
+      const p = printImage(); if (!p) return null;
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      const bg = g.createLinearGradient(0, 0, 0, 1080); bg.addColorStop(0, '#f6c9d6'); bg.addColorStop(1, '#e898b0'); g.fillStyle = bg; g.fillRect(0, 0, 1080, 1080);
+      g.fillStyle = 'rgba(255,255,255,.55)'; for (let i = 0; i < 40; i++) { g.save(); g.translate(Math.random() * 1080, Math.random() * 1080); g.rotate(Math.random() * 6); g.beginPath(); g.ellipse(0, 0, 9, 15, 0, 0, 7); g.fill(); g.restore(); }
+      const sc = 1000 / p.width, pw = p.width * sc, ph = p.height * sc;
+      g.save(); g.translate(540, 540); g.rotate(-0.025);
+      g.shadowColor = 'rgba(80,20,40,.35)'; g.shadowBlur = 30; g.shadowOffsetY = 10;
+      g.drawImage(p, -pw / 2, -ph / 2, pw, ph); g.restore();
+      return c;
+    }
+    function showResult() {
+      const p = printImage(); if (!p) return;
+      printEl.width = p.width; printEl.height = p.height; printEl.getContext('2d').drawImage(p, 0, 0);
+      printEl.style.display = 'block';
+    }
     const shareText = () => inPhoto ? t('shareHit')(knocked) : t('shareMiss');
     function renderControls() {
       controls.innerHTML = '';
       controls.classList.toggle('hide', state !== 'result');
+      ledEl.style.display = state === 'result' ? 'none' : 'flex';
       if (state !== 'result') return;
       const b = document.createElement('button');
       b.className = 'go'; b.textContent = t('again');
@@ -746,36 +822,6 @@
       });
       controls.append(a);
     }
-    function showResult() { resultEl.children[0].textContent = resultStr(); }
-
-    // 結果画像: 撮れた卒業写真をプリント風にする
-    let snap = null, shareCache = null;
-    function takeSnap() {
-      const src = renderer.domElement, sc = src.width / stage.clientWidth, fr = frameRect;
-      snap = document.createElement('canvas');
-      snap.width = 1000; snap.height = Math.round(1000 * fr.h / fr.w);
-      snap.getContext('2d').drawImage(src, fr.x * sc, fr.y * sc, fr.w * sc, fr.h * sc, 0, 0, snap.width, snap.height);
-      shareCache = null;
-    }
-    function resultImage() {
-      if (!snap) return null;
-      const c = document.createElement('canvas'); c.width = c.height = 1080;
-      const g = c.getContext('2d');
-      const bg = g.createLinearGradient(0, 0, 0, 1080); bg.addColorStop(0, '#f6c9d6'); bg.addColorStop(1, '#e898b0'); g.fillStyle = bg; g.fillRect(0, 0, 1080, 1080);
-      g.fillStyle = 'rgba(255,255,255,.55)'; for (let i = 0; i < 40; i++) { g.save(); g.translate(Math.random() * 1080, Math.random() * 1080); g.rotate(Math.random() * 6); g.beginPath(); g.ellipse(0, 0, 9, 15, 0, 0, 7); g.fill(); g.restore(); }
-      const pw = snap.width + 40, ph = snap.height + 170, px = (1080 - pw) / 2, py = (1080 - ph) / 2;
-      g.save(); g.translate(540, 540); g.rotate(-0.02); g.translate(-540, -540);
-      g.shadowColor = 'rgba(80,20,40,.35)'; g.shadowBlur = 30; g.shadowOffsetY = 10;
-      g.fillStyle = '#fbfaf6'; g.fillRect(px, py, pw, ph);
-      g.shadowColor = 'transparent';
-      g.drawImage(snap, px + 20, py + 20);
-      const font = s => `900 ${s}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans KR", "Noto Sans Thai", sans-serif`;
-      const fit = (str, x, y, size, max, color, align) => { g.font = font(size); const w = g.measureText(str).width; if (w > max) g.font = font(size * max / w); g.fillStyle = color; g.textAlign = align; g.fillText(str, x, y); };
-      fit(resultStr(), px + pw - 30, py + ph - 45, 84, pw * 0.55, inPhoto ? '#1f3550' : '#9a3040', 'right');
-      fit(t('title'), px + 30, py + ph - 52, 40, pw * 0.38, '#6a7a8a', 'left');
-      g.restore();
-      return c;
-    }
     function prepareShare() {
       if (!snap) return;
       const key = lang;
@@ -794,7 +840,7 @@
       h.auto = true; h.pose = 'stand'; h.walkSpeed = 0;
     }
     function start() {
-      aim = null; drawDots(false);
+      swipe = null;
       for (const p of people) {
         resetPerson(p);
         p.h.root.position.copy(p.home);
@@ -802,16 +848,20 @@
         standBox(p);
         for (let i = 0; i < 6; i++) p.h.update(0.1);
       }
-      resetPerson(me); me.h.root.position.copy(START);
-      state = 'ready'; timer = TIMER; knocked = 0; inPhoto = false; setLeds(false);
-      resultEl.style.display = 'none';
+      // 自分はベッドで仰向けに寝ている（最初からぐにゃぐにゃ）
+      resetPerson(me);
+      for (let i = 0; i < 6; i++) me.h.update(0.1);
+      me.h.root.position.set(BED.x, MAT_TOP + 0.13, BED.z + 0.95);
+      me.h.root.rotation.set(-Math.PI / 2, 0, 0);
+      ragdoll(me);
+      me.h.face.blink = 1; me.h.face.smile = 0.1; me.h.face.brow = 0;
+      blanket.position.set(BED.x, MAT_TOP + 0.24, BED.z + 0.35); blanket.rotation.set(0, 0, 0); blanketT = -1;
+      state = 'ready'; timer = TIMER; knocked = 0; inPhoto = false; setLeds(false); tripodLed().material.emissiveIntensity = 0;
+      printEl.style.display = 'none';
       renderControls(); resize();
     }
     function finish() {
       state = 'result';
-      showResult();
-      resultEl.style.display = 'flex';
-      snap = null; needSnap = true;
       renderControls();
     }
 
@@ -821,19 +871,20 @@
       const dt = Math.min(0.05, (now - last) / 1000); last = now;
       acc += dt;
       while (acc >= STEP) { step(STEP); acc -= STEP; }
-      if (needSnap) { renderer.render(scene, camera); needSnap = false; takeSnap(); prepareShare(); }
+      if (needPhoto) { needPhoto = false; takePhoto(); showResult(); prepareShare(); }
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
     }
 
     resize();
+    makePortrait();
     start();
     applyLang();
     renderer.compile(scene, camera);
     renderer.render(scene, camera);
     world.step(STEP);
     requestAnimationFrame(t0 => { last = t0; loop(t0); });
-    /*TEST*/if (location.search.includes('test')) window.__t = { people, me, world, get state() { return state; }, set timer(v) { timer = v; }, camera, mePos, fling(v) { aim = { sx: 0, sy: 0, from: mePos() }; launchVel.set(v[0], v[1], v[2]); launch(); }, img: () => resultImage()?.toDataURL('image/png') };
+    /*TEST*/if (location.search.includes('test')) window.__t = { people, me, world, get state() { return state; }, set timer(v) { timer = v; }, camera, swipe(dx, dy) { const r = renderer.domElement.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, pointerId: 9, bubbles: true })); endSwipe({ clientX: x + dx, clientY: y + dy }); }, img: () => resultImage()?.toDataURL('image/png') };
   </script>
 </body>
 </html>
