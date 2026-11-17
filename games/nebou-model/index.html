@@ -48,6 +48,10 @@
     #led span.hurry { color: #ff5a3a; }
     #led svg { width: 22px; height: 16px; display: block; }
     #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 3; }
+    #fade { position: absolute; inset: 0; background: #0a0c18; opacity: 1; pointer-events: none; z-index: 3; }
+    /* カットシーンのふきだし */
+    #bubble { position: absolute; left: 0; top: 0; display: none; max-width: min(80vw, 420px); padding: 12px 18px; border-radius: 18px; background: #fff; color: #222; font-weight: 800; font-size: clamp(18px, 4.4vmin, 30px); line-height: 1.35; text-align: center; box-shadow: 0 4px 14px rgba(0,0,0,.25); pointer-events: none; z-index: 2; transform: translate(-50%, -100%); white-space: pre-line; }
+    #bubble::after { content: ""; position: absolute; left: 50%; bottom: -12px; margin-left: -10px; border: 10px solid transparent; border-top: 12px solid #fff; border-bottom: 0; }
     #arrow { position: absolute; left: 0; top: 0; width: 56px; height: 56px; display: none; pointer-events: none; z-index: 2; }
     #arrow svg { width: 56px; height: 56px; display: block; }
     /* 撮れた卒業写真のプリント */
@@ -77,6 +81,8 @@
   <div id="stage">
     <div id="led"><svg viewBox="0 0 22 16"><rect x="1" y="3" width="20" height="12" rx="2.5" fill="#ddd"/><rect x="7" y="1" width="8" height="3" rx="1" fill="#ddd"/><circle cx="11" cy="9" r="4" fill="#333"/><circle cx="11" cy="9" r="2" fill="#6a8aa8"/></svg><span id="sec">10</span></div>
     <div id="flash"></div>
+    <div id="fade"></div>
+    <div id="bubble"></div>
     <canvas id="print"></canvas>
     <div id="arrow"><svg viewBox="0 0 56 56"><circle cx="28" cy="28" r="26" fill="rgba(25,25,30,.72)"/><path d="M18 20h20v16H18z" fill="#eee" transform="rotate(0)"/><path d="M44 28l8-6v12z" fill="#ff5a3a"/></svg></div>
     <div id="msg"></div>
@@ -110,13 +116,13 @@
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
       ja: { title: '寝坊モデル', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿',
-        shareHit: n => `寝坊したけど、雑誌の表紙に写れた（巻き込み${n}人） #寝坊モデルゲーム`, shareMiss: '寝坊して、雑誌の表紙を猫に取られた #寝坊モデルゲーム' },
+        intro1: '明日の撮影、がんばるぞ', intro2: '寝坊した…！', shareHit: () => '寝坊したけど、雑誌の表紙に写れた #寝坊モデルゲーム', shareMiss: '寝坊して、雑誌の表紙を猫に取られた #寝坊モデルゲーム' },
       ko: { title: '늦잠 모델', back: '← 처음으로', again: '다시 하기', post: 'X에 게시',
-        shareHit: n => `늦잠 잤지만 잡지 표지에 찍혔다 (휘말림 ${n}명) #寝坊モデルゲーム`, shareMiss: '늦잠 자서 잡지 표지를 고양이에게 뺏겼다 #寝坊モデルゲーム' },
+        intro1: '내일 촬영, 힘내자', intro2: '늦잠 잤다…!', shareHit: () => '늦잠 잤지만 잡지 표지에 찍혔다 #寝坊モデルゲーム', shareMiss: '늦잠 자서 잡지 표지를 고양이에게 뺏겼다 #寝坊モデルゲーム' },
       en: { title: 'Overslept Model', back: '← Back to top', again: 'Play again', post: 'Post on X',
-        shareHit: n => `Overslept but still made the magazine cover (${n} knocked over) #寝坊モデルゲーム`, shareMiss: 'Overslept and a cat took my magazine cover #寝坊モデルゲーム' },
+        intro1: 'Big shoot tomorrow. Let’s do this!', intro2: 'I overslept…!', shareHit: () => 'Overslept but still made the magazine cover #寝坊モデルゲーム', shareMiss: 'Overslept and a cat took my magazine cover #寝坊モデルゲーム' },
       th: { title: 'นางแบบตื่นสาย', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X',
-        shareHit: n => `ตื่นสายแต่ยังทันขึ้นปกนิตยสาร (ชนล้ม ${n} คน) #寝坊モデルゲーム`, shareMiss: 'ตื่นสายจนแมวได้ขึ้นปกนิตยสารแทน #寝坊モデルゲーム' },
+        intro1: 'พรุ่งนี้ถ่ายแบบ สู้ๆ', intro2: 'ตื่นสายแล้ว…!', shareHit: () => 'ตื่นสายแต่ยังทันขึ้นปกนิตยสาร #寝坊モデルゲーム', shareMiss: 'ตื่นสายจนแมวได้ขึ้นปกนิตยสารแทน #寝坊モデルゲーム' },
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -234,7 +240,7 @@
     scene.background = canvasTex(4, 256, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#4a8ed6'); gr.addColorStop(0.6, '#a8cdee'); gr.addColorStop(1, '#f2eef0'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
     scene.fog = new THREE.Fog('#e8e8f0', 20, 60);
     const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
-    scene.add(new THREE.HemisphereLight('#eef4ff', '#8a7a68', 1.2));
+    const hemi = new THREE.HemisphereLight('#eef4ff', '#8a7a68', 1.2); scene.add(hemi);
     const sun = new THREE.DirectionalLight('#fff4e4', 2.4);
     sun.position.set(-5, 10, 9); sun.target.position.set(0, 0, -0.5);
     sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.normalBias = 0.02; sun.shadow.bias = -0.0004;
@@ -432,20 +438,6 @@
       }
     }
     const people = [];
-    // ポーズを取るモデルたち
-    const LOOKS = [
-      { sex: 'female', top: '#e8486a', sleeve: 'short', bottom: 'skirt', bottomColor: '#f4f0e8', hair: 'long', pose: 'hips' },
-      { sex: 'male', top: '#f2e6c8', sleeve: 'long', bottom: 'pants', bottomColor: '#3a5a8a', hair: 'short', pose: 'stand' },
-      { sex: 'female', top: '#1f1f22', sleeve: 'long', bottom: 'pants', bottomColor: '#1f1f22', hair: 'bob', pose: 'peace' },
-      { sex: 'male', top: '#4a8a6a', sleeve: 'short', bottom: 'pants', bottomColor: '#d8c8a8', hair: 'bangs', pose: 'point' },
-      { sex: 'female', top: '#f4c430', sleeve: 'short', bottom: 'skirt', bottomColor: '#2a3a5a', hair: 'ponytail', pose: 'hips' },
-    ];
-    const SPOTS = [[-1.0, -0.55], [-0.5, -0.1], [0, -0.6], [0.5, -0.1], [1.0, -0.55]];
-    LOOKS.forEach((o, i) => {
-      const h = makeHuman({ ...o, age: 'adult', height: o.sex === 'female' ? rnd(1.66, 1.76) : rnd(1.78, 1.86), build: rnd(0.88, 0.98), seed: Math.floor(Math.random() * 1e9) });
-      lighten(h); scene.add(h.root);
-      people.push({ h, f0: o.sex === 'female' ? rnd(215, 255) : rnd(110, 135), rig: buildRig(h), home: V3(SPOTS[i][0], 0, SPOTS[i][1]), pose: o.pose, bodies: null, cons: [] });
-    });
     // カメラマン（三脚の横）
     const cameraman = makeHuman({ sex: 'male', age: 'adult', top: '#3a3a40', sleeve: 'long', bottom: 'pants', bottomColor: '#5a4a3a', hair: 'short', glasses: true, seed: 777 });
     lighten(cameraman); scene.add(cameraman.root);
@@ -455,16 +447,16 @@
     const me = (() => {
       const h = makeHuman({ sex: 'male', age: 'adult', height: 1.8, top: '#9cc4e8', sleeve: 'long', bottom: 'pants', bottomColor: '#9cc4e8', hair: 'short', hairColor: '#2a1d14', seed: 424242 });
       const k = h.height / 1.7, a = (h.height - (h.j.pelvis.position.y + h.j.spine.position.y + h.j.neck.position.y + h.j.head.position.y)) / 2;
-      const hm = mat('#2a1d14', 0.6);
+      const hm = mat('#2a1d14', 0.6), spikes = [];
       for (const [x, z, rz, rx] of [[0.02, -0.03, -0.5, -0.4], [-0.05, 0.0, 0.6, 0.1], [0.06, 0.04, -0.9, 0.3], [-0.02, -0.07, 0.2, -0.9]]) {
-        const c = new THREE.Mesh(new THREE.ConeGeometry(0.025 * k, 0.11 * k, 6), hm); c.position.set(x * k, a * 2.02, z * k + 0.01); c.rotation.set(rx, 0, rz); h.j.head.add(c);
+        const c = new THREE.Mesh(new THREE.ConeGeometry(0.025 * k, 0.11 * k, 6), hm); c.position.set(x * k, a * 2.02, z * k + 0.01); c.rotation.set(rx, 0, rz); h.j.head.add(c); spikes.push(c);
       }
       const toast = new THREE.Group(); toast.position.set(0.01, a * 0.52, a * 0.98); toast.rotation.set(0.15, 0.2, 0.25); h.j.head.add(toast);
       const bread = new THREE.Mesh(new THREE.BoxGeometry(0.11 * k, 0.1 * k, 0.012 * k), [mat('#b8823e'), mat('#b8823e'), mat('#b8823e'), mat('#b8823e'), mat('#f2d9a0', 0.9), mat('#f2d9a0', 0.9)]);
       bread.position.set(0, -0.035 * k, 0.03 * k); toast.add(bread);
       const top = new THREE.Mesh(new THREE.CylinderGeometry(0.055 * k, 0.055 * k, 0.012 * k, 16, 1, false, 0, Math.PI), mat('#b8823e')); top.rotation.set(Math.PI / 2, 0, Math.PI / 2); top.position.set(0, 0.015 * k, 0.03 * k); toast.add(top);
       lighten(h); scene.add(h.root);
-      return { h, f0: 135, rig: buildRig(h), me: true, bodies: null, cons: [] };
+      return { h, f0: 135, rig: buildRig(h), me: true, bodies: null, cons: [], toast, spikes };
     })();
 
     const TQ = new THREE.Quaternion(), TV = new THREE.Vector3();
@@ -579,7 +571,7 @@
 
     // ---------- 寝坊した自分のベッド ----------
     const BED = V3(21.5, 0, 2.2), MAT_TOP = 0.5;
-    let blanket, zzz = [];
+    let blanket, zzz = [], lamp;
     {
       const bed = new THREE.Group(); bed.position.copy(BED);
       const wood = mat('#8a6040', 0.7);
@@ -591,6 +583,7 @@
       blanket = new THREE.Mesh(new THREE.BoxGeometry(1.04, 0.07, 1.25), new THREE.MeshStandardMaterial({ map: bt, roughness: 0.95 }));
       blanket.position.set(BED.x, MAT_TOP + 0.24, BED.z + 0.35); scene.add(shade(blanket));
       const stand = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.38), wood); stand.position.set(-0.8, 0.25, -0.8); bed.add(stand);
+      lamp = new THREE.PointLight('#ffc88a', 0, 4, 1.5); lamp.position.set(BED.x - 0.75, 1.0, BED.z - 0.75); scene.add(lamp);
       // 止まった目覚まし時計
       const ck = new THREE.Group(); ck.position.set(-0.8, 0.56, -0.8); ck.rotation.y = 0.6; bed.add(ck);
       const cb = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.05, 20), mat('#c8302a', 0.4)); cb.rotation.x = Math.PI / 2; cb.position.y = 0.07; ck.add(cb);
@@ -706,15 +699,34 @@
       camFwd.copy(camDir);
       placeCamera(1, true);
     }
+    const gamePos = new THREE.Vector3(), IC = { p: new THREE.Vector3(), l: new THREE.Vector3(), u: new THREE.Vector3() };
+    const ease = x => x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2;
+    // カットシーンのカメラ: 寄りの画 → 顔のドアップ → 引いてゲームの画へ
+    function introCamera() {
+      const b = me.bodies.head.position, hp = V3(b.x, b.y, b.z), t = introT;
+      if (t < 3.6) {
+        const k = Math.min(1, t / 3.6);
+        IC.p.copy(hp).add(V3(1.7 - 0.35 * k, 1.15 - 0.2 * k, 1.9 - 0.4 * k)); IC.l.copy(hp).add(V3(0, -0.1, 0.35)); IC.u.set(0, 1, 0);
+      } else if (t < 5.4) {
+        IC.p.copy(hp).add(V3(0.02, 0.5 - (t - 3.6) * 0.03, 0.08)); IC.l.copy(hp); IC.u.set(0, 0, -1);
+        if (t > 4.45 && t < 4.75) IC.p.x += Math.sin(t * 90) * 0.012;
+      } else {
+        const k = ease(Math.min(1, (t - 5.4) / 1.4));
+        IC.p.copy(hp).add(V3(0.02, 0.5, 0.08)).lerp(gamePos, k); IC.l.copy(hp).lerp(camLook, k); IC.u.set(0, 0, -1).lerp(V3(0, 1, 0), k).normalize();
+      }
+      camera.up.copy(IC.u); camera.position.copy(IC.p); camera.lookAt(IC.l);
+    }
     function placeCamera(dt, snap) {
       const pb = me.bodies?.pelvis.position;
       const want = pb ? V3(pb.x, 0, pb.z) : BED.clone();
       // 少し先（撮影場所の方）を見せる。撮影場所に近づいたら写真の範囲が入るところで止める
       want.x = Math.max(want.x - 2.2, 2.2); want.z = THREE.MathUtils.clamp(want.z, 0, 3.5);
       camTarget.lerp(want, snap ? 1 : 1 - Math.exp(-dt * 3));
-      camera.position.copy(camTarget).addScaledVector(camDir, -camD); camera.position.y = 1.0 + camD * 0.55;
+      gamePos.copy(camTarget).addScaledVector(camDir, -camD); gamePos.y = 1.0 + camD * 0.55;
       camLook.copy(camTarget).setY(0.6);
-      camera.lookAt(camLook); camera.updateMatrixWorld();
+      if (state === 'intro' && me.bodies) introCamera();
+      else { camera.up.set(0, 1, 0); camera.position.copy(gamePos); camera.lookAt(camLook); }
+      camera.updateMatrixWorld();
       // 影は見ているあたりだけ
       sun.position.copy(camTarget).add(V3(-5, 10, 9)); sun.target.position.copy(camTarget);
     }
@@ -725,7 +737,7 @@
       const w = stage.clientWidth, H = stage.clientHeight, q = SPOT.clone().project(camera);
       let x = (q.x + 1) / 2 * w, y = (1 - q.y) / 2 * H;
       const off = q.z > 1 || x < 0 || x > w || y < viewTop || y > H - reserve;
-      const show = off && state !== 'result' && state !== 'shot';
+      const show = off && state !== 'result' && state !== 'shot' && state !== 'intro';
       if (show !== arrowShown) { arrowShown = show; arrowEl.style.display = show ? 'flex' : 'none'; }
       if (!show) return;
       if (q.z > 1) { x = w - x; y = H - y; }
@@ -797,6 +809,61 @@
     // ---------- ゲーム ----------
     let state = 'ready', timer = TIMER, beepT = 0, endT = 0, inPhoto = false, needPhoto = false, ledOn = false, blanketT = -1;
     const flashEl = document.getElementById('flash'), printEl = document.getElementById('print');
+    // ---------- カットシーン ----------
+    const fadeEl = document.getElementById('fade'), bubbleEl = document.getElementById('bubble');
+    let introT = 0, introSound = false, introEv = 0, bubbleKey = null;
+    const NIGHT = new THREE.Color('#0e1530'), dayBg = scene.background, dayFog = scene.fog.color.clone();
+    function setNight(on) {
+      hemi.intensity = on ? 0.22 : 1.2; hemi.color.set(on ? '#7a8ac8' : '#eef4ff');
+      sun.intensity = on ? 0 : 2.4; lamp.intensity = on ? 3.2 : 0;
+      scene.background = on ? NIGHT : dayBg; scene.fog.color.copy(on ? NIGHT : dayFog);
+    }
+    function speak(f0, n, delay = 0) { for (let i = 0; i < n; i++) voice(f0 * (0.95 + Math.random() * 0.15), [pick(['a', 'i', 'u', 'e', 'o'])], 0.13, 0.32, { delay: delay + i * 0.15, p0: 1.05, p1: 0.95, shake: 0.02 }); }
+    const dressMe = (hair, toast) => { me.spikes.forEach(c => c.visible = hair); me.toast.visible = toast; };
+    function beginIntro(withSound) {
+      state = 'intro'; introT = 0; introEv = 0; introSound = withSound;
+      start(true);
+      state = 'intro';
+      me.h.face.blink = 0; me.h.face.brow = 0.5; me.h.face.smile = 0.5; me.h.face.open = 0;
+      setNight(true); bubbleKey = null; bubbleEl.style.display = 'none'; dressMe(false, false);
+      controls.classList.add('hide'); ledEl.style.display = 'none';
+    }
+    function endIntro() {
+      setNight(false); fadeEl.style.opacity = '0'; bubbleKey = null; bubbleEl.style.display = 'none';
+      state = 'ready'; dressMe(true, true);
+      me.h.face.blink = 0; me.h.face.brow = 1; me.h.face.open = 0.35; me.h.face.smile = -0.3;
+      ledEl.style.display = 'flex'; renderControls();
+    }
+    function introTick(dt) {
+      introT += dt;
+      const t = introT;
+      // 暗転（最初・夜から朝へ）
+      const f = t < 0.5 ? 1 - t / 0.5 : t < 3.1 ? 0 : t < 3.6 ? (t - 3.1) / 0.5 : t < 4.1 ? 1 - (t - 3.6) / 0.5 : 0;
+      fadeEl.style.opacity = f.toFixed(2);
+      const ev = (n, at, fn) => { if (introEv < n && t >= at) { introEv = n; fn(); } };
+      ev(1, 0.6, () => { bubbleKey = 'intro1'; if (introSound) speak(me.f0, 9); me.talk = 1.4; });
+      ev(2, 2.6, () => { bubbleKey = null; me.h.face.blink = 1; me.h.face.smile = 0.3; });
+      ev(3, 3.6, () => { setNight(false); dressMe(true, false); });
+      ev(4, 4.5, () => { me.h.face.blink = 0; me.h.face.brow = 1; me.h.face.open = 0.3; me.h.face.smile = -0.2; if (introSound) { voice(me.f0 * 1.2, ['a'], 0.18, 0.4, { p0: 1.0, p1: 1.4, breath: 0.4 }); burst(0.08, 0.3, 'bandpass', 1800, 2); } });
+      ev(5, 5.6, () => { bubbleKey = 'intro2'; me.h.face.open = 0.6; me.talk = 0.9; if (introSound) { voice(me.f0 * 1.15, ['e', 'e', 'e'], 0.7, 0.45, { p0: 1.1, p1: 1.5, shake: 0.06 }); } });
+      ev(6, 7.4, endIntro);
+      if (me.talk > 0) { me.talk -= dt; me.h.face.open = 0.25 + 0.25 * Math.abs(Math.sin(t * 14)); if (me.talk <= 0) me.h.face.open = 0.2; }
+    }
+    function drawBubble() {
+      if (!bubbleKey || !me.bodies) { if (bubbleEl.style.display !== 'none') bubbleEl.style.display = 'none'; return; }
+      const b = me.bodies.head.position, q = V3(b.x, b.y + 0.3, b.z).project(camera);
+      const w = stage.clientWidth, H = stage.clientHeight;
+      const x = THREE.MathUtils.clamp((q.x + 1) / 2 * w, 120, w - 120), y = THREE.MathUtils.clamp((1 - q.y) / 2 * H, 140, H - 40);
+      const txt = t(bubbleKey);
+      if (bubbleEl.textContent !== txt) bubbleEl.textContent = txt;
+      bubbleEl.style.display = 'block';
+      bubbleEl.style.left = x + 'px'; bubbleEl.style.top = y + 'px';
+    }
+    // 開いた直後は音が出せないので、最初のタップで声つきでやり直し、2回目のタップで飛ばす
+    addEventListener('pointerdown', () => {
+      if (state !== 'intro') return;
+      if (!introSound) beginIntro(true); else endIntro();
+    });
     function wake() {
       state = 'play'; timer = TIMER; beepT = 0; blanketT = 0;
       me.h.face.blink = 0;
@@ -850,7 +917,8 @@
       }
       cameraman.lookAt(photoCam.position.clone().setZ(-0.3)); cameraman.update(dt);
       // 寝ている間は目を閉じて Zzz
-      const sleeping = state === 'ready';
+      if (state === 'intro') introTick(dt);
+      const sleeping = state === 'intro' && introT > 2.6 && introT < 4.5;
       if (sleeping) { me.h.face.blink = 1; me.h.face.open = 0.15 + 0.08 * Math.sin(clock * 2); }
       const hp = me.bodies?.head.position;
       zzz.forEach(z => {
@@ -936,7 +1004,7 @@
     function renderControls() {
       controls.innerHTML = '';
       controls.classList.toggle('hide', state !== 'result');
-      ledEl.style.display = state === 'result' ? 'none' : 'flex';
+      ledEl.style.display = state === 'result' || state === 'intro' ? 'none' : 'flex';
       if (state !== 'result') return;
       const b = document.createElement('button');
       b.className = 'go'; b.textContent = t('again');
@@ -995,7 +1063,8 @@
       me.h.root.position.set(BED.x, MAT_TOP + 0.13, BED.z + 0.95);
       me.h.root.rotation.set(-Math.PI / 2, 0, 0);
       ragdoll(me);
-      me.h.face.blink = 1; me.h.face.smile = 0.1; me.h.face.brow = 0;
+      me.h.face.blink = 0; me.h.face.smile = -0.3; me.h.face.brow = 1; me.h.face.open = 0.35;
+      fadeEl.style.opacity = '0'; setNight(false); dressMe(true, true);
       blanket.position.set(BED.x, MAT_TOP + 0.24, BED.z + 0.35); blanket.rotation.set(0, 0, 0); blanketT = -1;
       state = 'ready'; timer = TIMER; knocked = 0; inPhoto = false; setLeds(false); tripodLed().material.emissiveIntensity = 0;
       resetCones();
@@ -1015,19 +1084,20 @@
       while (acc >= STEP) { step(STEP); acc -= STEP; }
       placeCamera(dt); drawArrow();
       for (const c of cones) { c.g.position.copy(c.body.position); c.g.quaternion.copy(c.body.quaternion); }
+      drawBubble();
       if (needPhoto) { needPhoto = false; takePhoto(); showResult(); prepareShare(); }
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
     }
 
     resize();
-    start();
+    beginIntro(false);
     applyLang();
     renderer.compile(scene, camera);
     renderer.render(scene, camera);
     world.step(STEP);
     requestAnimationFrame(t0 => { last = t0; loop(t0); });
-    /*TEST*/if (location.search.includes('test')) window.__t = { people, me, world, get state() { return state; }, set timer(v) { timer = v; }, camera, swipe(dx, dy) { const r = renderer.domElement.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; aim = { x, y }; launch({ clientX: x - dx, clientY: y - dy }); }, img: () => resultImage()?.toDataURL('image/png') };
+    /*TEST*/if (location.search.includes('test')) window.__t = { people, me, world, get introT() { return introT; }, skip: endIntro, get state() { return state; }, set timer(v) { timer = v; }, camera, swipe(dx, dy) { const r = renderer.domElement.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; aim = { x, y }; launch({ clientX: x - dx, clientY: y - dy }); }, img: () => resultImage()?.toDataURL('image/png') };
   </script>
 </body>
 </html>
