@@ -29,6 +29,8 @@ The full flow (企画 → 仕様 → 実装 → 確認 → デプロイ) is the 
 2. Copy an existing `<li>` in `index.html` (the icon-style one) and update the links (`games/<game-name>/`), icon path, title, and description. Every game on the top page shows its icon.
 3. Add the game's URL to `sitemap.xml`, and give the game page a `<meta name="description">` (same one-liner as the top page) and `<link rel="canonical">`, a `VideoGame` JSON-LD block, and one `<h1>` with the game title (visually hidden if the game shows no title), with the game itself wrapped in `<main>`. The top-page icon's `alt` is the game title. No `og:description` — share cards stay title + icon only.
 
+People in games use the realistic human model `.claude/skills/make-game/human.js` (copy it into the game folder; preview with `human-preview.html` next to it), not primitive-shape dolls.
+
 ## View counts
 
 Each game card on the top page shows its all-time Google Analytics page views. The browser can't read GA directly, so `.claude/ga-views.gs` runs as a free Google Apps Script web app (owner's Google account, Analytics Data API advanced service) and returns `{ "/games/<name>/": views }`, cached for 1 hour. Its deploy URL goes in `VIEWS_URL` in `index.html`; if empty, no counts are shown. When a game is renamed, add the old path to `OLD_PATHS` there so its past views carry over.
