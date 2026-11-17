@@ -122,13 +122,13 @@
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
       ja: { title: '寝坊モデル', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿',
-        intro1: '明日の撮影、がんばるぞ', intro2: '寝坊した…！', shareHit: () => '寝坊したけど、雑誌の表紙に写れた #寝坊モデルゲーム', shareMiss: '寝坊して、雑誌の表紙を猫に取られた #寝坊モデルゲーム' },
+        intro1: '明日の撮影、がんばるぞ', intro2: '寝坊した…！', v1: 'aiaoaueianauo', v2: 'eouia', shareHit: () => '寝坊したけど、雑誌の表紙に写れた #寝坊モデルゲーム', shareMiss: '寝坊して、雑誌の表紙を猫に取られた #寝坊モデルゲーム' },
       ko: { title: '늦잠 모델', back: '← 처음으로', again: '다시 하기', post: 'X에 게시',
-        intro1: '내일 촬영, 힘내자', intro2: '늦잠 잤다…!', shareHit: () => '늦잠 잤지만 잡지 표지에 찍혔다 #寝坊モデルゲーム', shareMiss: '늦잠 자서 잡지 표지를 고양이에게 뺏겼다 #寝坊モデルゲーム' },
+        intro1: '내일 촬영, 힘내자', intro2: '늦잠 잤다…!', v1: 'eiaoieea', v2: 'uaaa', shareHit: () => '늦잠 잤지만 잡지 표지에 찍혔다 #寝坊モデルゲーム', shareMiss: '늦잠 자서 잡지 표지를 고양이에게 뺏겼다 #寝坊モデルゲーム' },
       en: { title: 'Overslept Model', back: '← Back to top', again: 'Play again', post: 'Post on X',
-        intro1: 'Big shoot tomorrow. Let’s do this!', intro2: 'I overslept…!', shareHit: () => 'Overslept but still made the magazine cover #寝坊モデルゲーム', shareMiss: 'Overslept and a cat took my magazine cover #寝坊モデルゲーム' },
+        intro1: 'Big shoot tomorrow. Let’s do this!', intro2: 'I overslept…!', v1: 'iuuooeui', v2: 'aoee', shareHit: () => 'Overslept but still made the magazine cover #寝坊モデルゲーム', shareMiss: 'Overslept and a cat took my magazine cover #寝坊モデルゲーム' },
       th: { title: 'นางแบบตื่นสาย', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X',
-        intro1: 'พรุ่งนี้ถ่ายแบบ สู้ๆ', intro2: 'ตื่นสายแล้ว…!', shareHit: () => 'ตื่นสายแต่ยังทันขึ้นปกนิตยสาร #寝坊モデルゲーム', shareMiss: 'ตื่นสายจนแมวได้ขึ้นปกนิตยสารแทน #寝坊モデルゲーム' },
+        intro1: 'พรุ่งนี้ถ่ายแบบ สู้ๆ', intro2: 'ตื่นสายแล้ว…!', v1: 'uiaeuu', v2: 'uaae', shareHit: () => 'ตื่นสายแต่ยังทันขึ้นปกนิตยสาร #寝坊モデルゲーム', shareMiss: 'ตื่นสายจนแมวได้ขึ้นปกนิตยสารแทน #寝坊モデルゲーム' },
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -196,7 +196,40 @@
       o.connect(g).connect(master); o.start(now); o.stop(now + dur + 0.02);
     }
     // 声: のこぎり波（声帯）＋息を、母音ごとの共鳴（フォルマント）に通す
-    const VOWEL = { a: [800, 1200, 2600], i: [300, 2300, 3000], u: [350, 1250, 2500], e: [500, 1900, 2600], o: [500, 850, 2500], w: [300, 700, 2400] };
+    const VOWEL = { a: [800, 1200, 2600], i: [300, 2300, 3000], u: [350, 1250, 2500], e: [500, 1900, 2600], o: [500, 850, 2500], w: [300, 700, 2400], n: [280, 1000, 2400] };
+    // セリフをしゃべる: 母音を1拍ずつ切り替え、拍の間で音量を落とす。高く出て下がる（rise で語尾を上げる）
+    function say(f0, vowels, mora = 0.13, vol = 0.45, rise = 0, delay = 0) {
+      if (!live()) return vowels.length * mora;
+      const seq = vowels.split(''), n = seq.length, dur = n * mora, now = ac.currentTime + delay;
+      const o = ac.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0 * 1.2, now);
+      o.frequency.linearRampToValueAtTime(f0 * 1.35, now + mora * 1.5);
+      o.frequency.linearRampToValueAtTime(f0 * 0.9, now + dur * 0.85);
+      o.frequency.linearRampToValueAtTime(f0 * (0.75 + rise), now + dur);
+      const vib = ac.createOscillator(); vib.frequency.value = 5 + Math.random() * 2;
+      const vg = ac.createGain(); vg.gain.value = f0 * 0.03; vib.connect(vg).connect(o.frequency);
+      const ns = ac.createBufferSource(); ns.buffer = noiseBuf;
+      const ng = ac.createGain(); ng.gain.value = 0.15;
+      const src = ac.createGain(); o.connect(src); ns.connect(ng).connect(src);
+      const out = ac.createGain(); out.gain.setValueAtTime(0, now);
+      for (let i = 0; i < n; i++) {
+        const t0 = now + i * mora * (0.9 + Math.random() * 0.2) * (i ? 1 : 0);
+        out.gain.linearRampToValueAtTime(vol * (i === n - 1 ? 0.8 : 1), t0 + mora * 0.25);
+        out.gain.linearRampToValueAtTime(vol * 0.35, t0 + mora * 0.95);
+      }
+      out.gain.linearRampToValueAtTime(0.0001, now + dur + 0.05);
+      const k = f0 > 260 ? 1.15 : 1;
+      [1, 0.6, 0.25].forEach((amp, fi) => {
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = fi === 0 ? 6 : 9;
+        seq.forEach((v, si) => bp.frequency[si ? 'linearRampToValueAtTime' : 'setValueAtTime'](VOWEL[v][fi] * k, now + si * mora + (si ? mora * 0.3 : 0)));
+        const g = ac.createGain(); g.gain.value = amp * 3;
+        src.connect(bp).connect(g).connect(out);
+      });
+      out.connect(master);
+      o.start(now); vib.start(now); ns.start(now, Math.random());
+      o.stop(now + dur + 0.1); vib.stop(now + dur + 0.1); ns.stop(now + dur + 0.1);
+      return dur;
+    }
     function voice(f0, seq, dur, vol = 0.4, { delay = 0, p0 = 1.2, p1 = 0.75, shake = 0.04, breath = 0.12 } = {}) {
       if (!live()) return;
       const now = ac.currentTime + delay;
@@ -306,7 +339,8 @@
         // 日よけ
         const aw = new THREE.Mesh(new THREE.BoxGeometry(w - 0.3, 0.06, 1.1), new THREE.MeshStandardMaterial({ map: stripes(col), roughness: 0.8 })); aw.position.set(x0 + w / 2, 2.85, FRONT_Z + 0.5); aw.rotation.x = 0.32; scene.add(shade(aw));
         // 看板
-        const sign = canvasTex(256, 64, (c, cw, ch) => { c.fillStyle = col; c.fillRect(0, 0, cw, ch); c.fillStyle = bg; c.font = 'bold 40px "Hiragino Sans", "Noto Sans JP", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(name, cw / 2, ch / 2 + 2); });
+        const plain = x0 < 0 && x0 + w > 0; // 撮影場所の後ろの店は、表紙のロゴとまぎれないよう文字なし
+        const sign = canvasTex(256, 64, (c, cw, ch) => { c.fillStyle = col; c.fillRect(0, 0, cw, ch); if (plain) { c.strokeStyle = bg; c.lineWidth = 3; c.strokeRect(10, 10, cw - 20, ch - 20); return; } c.fillStyle = bg; c.font = 'bold 40px "Hiragino Sans", "Noto Sans JP", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(name, cw / 2, ch / 2 + 2); });
         const sp = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w - 0.6, 3.2), 0.8), new THREE.MeshStandardMaterial({ map: sign, roughness: 0.6 })); sp.position.set(x0 + w / 2, 3.5, fz + 0.02); scene.add(sp);
       }
       let x = -14, i = 0;
@@ -843,7 +877,6 @@
       sun.intensity = on ? 0 : 2.4; lamp.intensity = on ? 3.2 : 0;
       scene.background = on ? NIGHT : dayBg; scene.fog.color.copy(on ? NIGHT : dayFog);
     }
-    function speak(f0, n, delay = 0) { for (let i = 0; i < n; i++) voice(f0 * (0.95 + Math.random() * 0.15), [pick(['a', 'i', 'u', 'e', 'o'])], 0.13, 0.32, { delay: delay + i * 0.15, p0: 1.05, p1: 0.95, shake: 0.02 }); }
     const dressMe = (hair, toast) => { me.spikes.forEach(c => c.visible = hair); me.toast.visible = toast; };
     function beginIntro(withSound) {
       state = 'intro'; introT = 0; introEv = 0; introSound = withSound;
@@ -866,11 +899,11 @@
       const f = t < 0.5 ? 1 - t / 0.5 : t < 3.1 ? 0 : t < 3.6 ? (t - 3.1) / 0.5 : t < 4.1 ? 1 - (t - 3.6) / 0.5 : 0;
       fadeEl.style.opacity = f.toFixed(2);
       const ev = (n, at, fn) => { if (introEv < n && t >= at) { introEv = n; fn(); } };
-      ev(1, 0.6, () => { bubbleKey = 'intro1'; if (introSound) speak(me.f0, 9); me.talk = 1.4; });
+      ev(1, 0.6, () => { bubbleKey = 'intro1'; const d = introSound ? say(me.f0, t('v1'), 0.13, 0.45, 0.05) : 0; me.talk = introSound ? d : 1.4; });
       ev(2, 2.6, () => { bubbleKey = null; me.h.face.blink = 1; me.h.face.smile = 0.3; });
       ev(3, 3.6, () => { setNight(false); dressMe(true, false); });
       ev(4, 4.5, () => { me.h.face.blink = 0; me.h.face.brow = 1; me.h.face.open = 0.3; me.h.face.smile = -0.2; if (introSound) { voice(me.f0 * 1.2, ['a'], 0.18, 0.4, { p0: 1.0, p1: 1.4, breath: 0.4 }); burst(0.08, 0.3, 'bandpass', 1800, 2); } });
-      ev(5, 5.6, () => { bubbleKey = 'intro2'; me.h.face.open = 0.6; me.talk = 0.9; if (introSound) { voice(me.f0 * 1.15, ['e', 'e', 'e'], 0.7, 0.45, { p0: 1.1, p1: 1.5, shake: 0.06 }); } });
+      ev(5, 5.6, () => { bubbleKey = 'intro2'; me.h.face.open = 0.6; const d = introSound ? say(me.f0 * 1.15, t('v2'), 0.15, 0.55, 0.45) : 0; me.talk = introSound ? d : 0.9; });
       ev(6, 7.4, endIntro);
       if (me.talk > 0) { me.talk -= dt; me.h.face.open = 0.25 + 0.25 * Math.abs(Math.sin(t * 14)); if (me.talk <= 0) me.h.face.open = 0.2; }
     }
@@ -896,7 +929,8 @@
     }
     function headInPhoto() {
       const b = me.bodies.head.position, q = V3(b.x, b.y, b.z).project(photoCam);
-      return q.z < 1 && Math.abs(q.x) < 0.97 && Math.abs(q.y) < 0.97;
+      // 頭の中心が写真の枠に入っていれば写れたことにする（下端ぎりぎりも含める）
+      return q.z < 1 && Math.abs(q.x) < 0.99 && q.y > -1.02 && q.y < 0.95;
     }
     // どんな体勢でも、顔だけカメラの方へ向ける（首はぐいっと回る）
     const AM = new THREE.Matrix4(), AQ = new THREE.Quaternion(), AQ2 = new THREE.Quaternion(), AP = new THREE.Vector3(), AU = new THREE.Vector3();
