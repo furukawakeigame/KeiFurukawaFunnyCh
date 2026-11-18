@@ -46,7 +46,8 @@
     #launch { background: #ffb4a2; font-size: clamp(20px, 3.2vmin, 30px); padding: 10px 22px; }
     #launch.pulse { animation: pulse 1.2s ease-in-out infinite; }
     @keyframes pulse { 50% { scale: 1.08; } }
-    #clear { width: 46px; height: 46px; padding: 0; }
+    #clear, #sym { width: 46px; height: 46px; padding: 0; }
+    #sym.on { background: #ffe08a; }
     .ctrl { width: clamp(64px, 11vmin, 96px); height: clamp(64px, 11vmin, 96px); padding: 0; background: rgba(255,253,246,.8); bottom: calc(84px + env(safe-area-inset-bottom)); }
     .ctrl.on { background: #ffe08a; }
     #left { left: 14px; } #right { right: 14px; }
@@ -86,6 +87,9 @@
     </button>
     <button id="clear" class="btn sk" hidden aria-label="clear">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2d2a32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16M9 6V4h6v2M6 7l1 13h10l1-13M10 10.5v6.5M14 10.5v6.5"/></svg>
+    </button>
+    <button id="sym" class="btn sk" hidden aria-label="symmetry">
+      <svg width="28" height="24" viewBox="0 0 28 24" fill="none" stroke="#2d2a32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2v20" stroke-dasharray="2 3"/><path d="M17 5l7 10v4h-7z" fill="#e8574a"/><path id="symOne" d="M11 5L4 15v4h7z" fill="#e8574a"/></svg>
     </button>
     <button id="left" class="btn sk ctrl" hidden aria-label="left">
       <svg width="44" height="44" viewBox="0 0 40 40" fill="none" stroke="#2d2a32" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M30 28c-2-9-8-13-16-13M18 9l-6 6 6 6"/></svg>
@@ -342,7 +346,6 @@ const PARTS = {
 };
 const CATS = ['nose', 'body', 'engine', 'side'];
 const BYCAT = Object.fromEntries(CATS.map(c => [c, Object.keys(PARTS).filter(k => PARTS[k].cat === c)]));
-const MAXSTACK = 16;
 
 // ================= hand-drawn drawing =================
 const INK = '#2d2a32';
@@ -549,32 +552,154 @@ function drawPart(g, id, x, y, s, frame, mirror = false, alpha = 1) {
 }
 
 // ================= the rocket being built =================
-// stack[0] is the top. each entry: { id, side } where side is a side part id fitted on both sides
-const DEFAULT = [{ id: 'catpod', side: null }, { id: 'tankS', side: null }, { id: 'engS', side: 'fin' }];
-let stack = (() => { const s = store.get('rocket', null); if (Array.isArray(s) && s.every(e => PARTS[e?.id] && PARTS[e.id].cat !== 'side' && (!e.side || PARTS[e.side]?.cat === 'side'))) return s.slice(0, MAXSTACK); return DEFAULT.map(e => ({ ...e })); })();
-const saveRocket = () => store.set('rocket', stack);
+// the rocket is a tree of parts: rk[i] = { id, p, at } where p is the parent's index (-1 for the first part)
+// and at is the side of the parent it hangs on: 't' above, 'b' below, 'l' left, 'r' right
+const MAXPARTS = 40;
+const DIRS = { t: [0, 1], b: [0, -1], l: [-1, 0], r: [1, 0] };
+const OPP = { t: 'b', b: 't', l: 'r', r: 'l' };
+const DEFAULT = [{ id: 'catpod', p: -1 }, { id: 'tankS', p: 0, at: 'b' }, { id: 'engS', p: 1, at: 'b' }, { id: 'fin', p: 2, at: 'l' }, { id: 'fin', p: 2, at: 'r' }];
+function validRocket(a) {
+  if (!Array.isArray(a) || a.length > MAXPARTS) return false;
+  if (!a.every(e => e && PARTS[e.id] && (e.p === -1 || (Number.isInteger(e.p) && e.p >= 0 && e.p < a.length && DIRS[e.at])))) return false;
+  if (a.length && a.filter(e => e.p === -1).length !== 1) return false;
+  // every part must hang from the first one (no loops)
+  const seen = new Set(), kids = a.map(() => []); let root = -1;
+  a.forEach((e, i) => e.p < 0 ? root = i : kids[e.p].push(i));
+  const q = a.length ? [root] : []; while (q.length) { const i = q.pop(); if (seen.has(i)) return false; seen.add(i); q.push(...kids[i]); }
+  return seen.size === a.length;
+}
+function fromOldStack(s) {
+  if (!Array.isArray(s) || !s.every(e => PARTS[e?.id])) return null;
+  const out = []; let prev = -1;
+  for (const e of s) {
+    const i = out.length; out.push(prev < 0 ? { id: e.id, p: -1 } : { id: e.id, p: prev, at: 'b' }); prev = i;
+    if (e.side && PARTS[e.side]) { out.push({ id: e.side, p: i, at: 'l' }, { id: e.side, p: i, at: 'r' }); }
+  }
+  return validRocket(out) ? out : null;
+}
+let rk = (() => {
+  const s = store.get('rocket2', null); if (validRocket(s)) return s;
+  return fromOldStack(store.get('rocket', null)) || DEFAULT.map(e => ({ ...e }));
+})();
+const saveRocket = () => store.set('rocket2', rk);
+let symmetry = store.get('sym', true);
 
-// part positions in blocks; origin at the bottom centre of the stack, y up
-function layout(st) {
-  const H = st.reduce((a, e) => a + PARTS[e.id].h, 0);
-  const out = []; let y = H, stage = 0;
-  // stages counted from the bottom: decouplers split the stack
-  const stageOf = []; { let sg = 0; for (let i = st.length - 1; i >= 0; i--) { stageOf[i] = sg; if (PARTS[st[i].id].decoup) sg++; } }
-  st.forEach((e, i) => {
-    const d = PARTS[e.id], top = y, bot = y - d.h; y = bot;
-    out.push({ id: e.id, x: 0, y: (top + bot) / 2, w: d.w, h: d.h, side: 0, seg: i, stage: stageOf[i] });
-    if (e.side) {
-      const sd = PARTS[e.side];
-      const sy = sd.lift ? top + sd.h / 2 - .25 : sd.solar || sd.rcs ? (top + bot) / 2 : bot + sd.h / 2;
-      for (const sgn of [-1, 1]) out.push({ id: e.side, x: sgn * (d.w / 2 + sd.w / 2 - .04), y: sy, w: sd.w, h: sd.h, side: sgn, seg: i, stage: stageOf[i] });
-    }
+// where a part sits relative to its parent (centres, in blocks)
+function offsetFrom(dp, dc, at) {
+  const [dx, dy] = DIRS[at];
+  if (dy) return [0, dy * (dp.h / 2 + dc.h / 2)];
+  // side parts: fins line up with the bottom, balloons float high, panels sit in the middle
+  const y = dc.cat !== 'side' ? 0 : dc.lift ? dp.h / 2 + dc.h / 2 - .25 : dc.solar || dc.rcs ? 0 : -dp.h / 2 + dc.h / 2;
+  return [dx * (dp.w / 2 + dc.w / 2 - (dc.cat === 'side' ? .04 : 0)), y];
+}
+// part positions in blocks; the lowest point sits on y = 0, the first part on x = 0
+function layout(a) {
+  if (!a.length) return { parts: [], H: 0, minX: -.5, maxX: .5, maxStage: 0 };
+  const kids = a.map(() => []); let root = 0;
+  a.forEach((e, i) => e.p < 0 ? root = i : kids[e.p].push(i));
+  const pos = []; pos[root] = [0, 0];
+  const q = [root];
+  while (q.length) {
+    const i = q.shift();
+    for (const c of kids[i]) { const [ox, oy] = offsetFrom(PARTS[a[i].id], PARTS[a[c].id], a[c].at); pos[c] = [pos[i][0] + ox, pos[i][1] + oy]; q.push(c); }
+  }
+  let minB = Infinity;
+  a.forEach((e, i) => { if (pos[i]) minB = Math.min(minB, pos[i][1] - PARTS[e.id].h / 2); });
+  const parts = [];
+  a.forEach((e, i) => {
+    if (!pos[i]) return;
+    const d = PARTS[e.id];
+    parts.push({ id: e.id, idx: i, x: pos[i][0], y: pos[i][1] - minB, w: d.w, h: d.h, side: d.cat === 'side' ? DIRS[e.at][0] || 1 : 0 });
   });
-  return { parts: out, H, maxStage: stageOf.length ? stageOf[0] : 0 };
+  // stages: walk from the topmost part; each decoupler on the way starts a new (earlier) stage
+  const byIdx = []; parts.forEach(p => byIdx[p.idx] = p);
+  const adj = a.map(() => []); a.forEach((e, i) => { if (e.p >= 0) { adj[i].push(e.p); adj[e.p].push(i); } });
+  const top = parts.reduce((b, p) => (!b || p.y + p.h / 2 > b.y + b.h / 2 + 1e-6 || (Math.abs(p.y + p.h / 2 - b.y - b.h / 2) < 1e-6 && p.side === 0 && b.side !== 0)) ? p : b, null);
+  const lvl = []; lvl[top.idx] = PARTS[top.id].decoup ? 1 : 0;
+  const st = [top.idx];
+  while (st.length) { const i = st.pop(); for (const j of adj[i]) if (lvl[j] === undefined) { lvl[j] = lvl[i] + (PARTS[a[j].id].decoup ? 1 : 0); st.push(j); } }
+  const maxL = Math.max(...parts.map(p => lvl[p.idx])), minL = lvl[top.idx];
+  parts.forEach(p => p.stage = maxL - lvl[p.idx]);
+  return { parts, H: Math.max(...parts.map(p => p.y + p.h / 2)), minX: Math.min(...parts.map(p => p.x - p.w / 2)), maxX: Math.max(...parts.map(p => p.x + p.w / 2)), maxStage: maxL - minL };
+}
+
+// is a slot of part i taken (by a child, or by its own parent)?
+function slotTaken(a, i, s) { return (a[i].p >= 0 && OPP[a[i].at] === s) || a.some(e => e.p === i && e.at === s); }
+const overlap = (x, y, w, h, q, m = .06) => Math.abs(x - q.x) < (w + q.w) / 2 - m && Math.abs(y - q.y) < (h + q.h) / 2 - m;
+// every place a part could go: { p, at, insert (child index pushed further out) or -1, x, y }
+function candidates(id, a = rk, lay = layout(a)) {
+  const d = PARTS[id], out = [];
+  if (a.length >= MAXPARTS) return out;
+  for (const q of lay.parts) {
+    const pd = PARTS[q.id], i = q.idx;
+    if (pd.cat === 'side') continue;                 // side parts are the ends of branches
+    for (const s of ['t', 'b', 'l', 'r']) {
+      if (d.cat === 'side' && (s === 't' || s === 'b')) continue;
+      if (d.cat === 'nose' && s !== 't') continue;
+      if (pd.cat === 'nose' && s === 't') continue;
+      let insert = -1;
+      if (slotTaken(a, i, s)) {
+        // a part can slide in between two stacked parts
+        if (d.cat === 'side' || s === 'l' || s === 'r') continue;
+        const c = a.findIndex(e => e.p === i && e.at === s);
+        if (c < 0) continue;                         // that slot holds the parent: offered from the parent's side
+        if (PARTS[a[c].id].cat === 'nose' && s === 'b') continue;
+        insert = c;
+      }
+      const [ox, oy] = offsetFrom(pd, d, s), x = q.x + ox, y = q.y + oy;
+      if (insert < 0 && lay.parts.some(o => overlap(x, y, d.w, d.h, o))) continue;
+      out.push({ p: i, at: s, insert, x, y });
+    }
+  }
+  return out;
+}
+// the mirror image of a candidate, if there is a free one
+function twinOf(c, id, cands, lay = layout(rk)) {
+  if (Math.abs(c.x) < .05) return null;
+  const d = PARTS[id];
+  const ok = cands.filter(o => o !== c && Math.abs(o.x + c.x) < .05 && Math.abs(o.y - c.y) < .05 && o.insert < 0 === c.insert < 0 && !overlap(o.x, o.y, d.w, d.h, { x: c.x, y: c.y, w: d.w, h: d.h }));
+  // prefer the spot on the parent's own mirror twin
+  const par = lay.parts.find(q => q.idx === c.p), mp = par && Math.abs(par.x) < .05 ? c.p : mirrorOf(c.p, lay);
+  const at = c.at === 'l' ? 'r' : c.at === 'r' ? 'l' : c.at;
+  return ok.find(o => o.p === mp && o.at === at) || ok[0] || null;
+}
+// put a part on: returns the indices of the new parts
+function attach(id, c) {
+  const n = rk.length;
+  if (c.root) { rk = [{ id, p: -1 }]; return [0]; }
+  rk.push({ id, p: c.p, at: c.at });
+  if (c.insert >= 0) { rk[c.insert].p = n; }
+  return [n];
+}
+// take a part off; the part below (or above) it closes the gap, anything else hanging from it goes too
+function removePart(i) {
+  const a = rk, N = a[i];
+  const kids = a.map((e, j) => j).filter(j => a[j].p === i);
+  let cont = -1;
+  if (N.p >= 0) { if (N.at === 't' || N.at === 'b') cont = kids.find(j => a[j].at === N.at) ?? -1; }
+  else cont = kids.find(j => a[j].at === 'b') ?? kids.find(j => a[j].at === 't') ?? kids.find(j => PARTS[a[j].id].cat !== 'side') ?? -1;
+  const gone = new Set([i]);
+  const sub = j => { gone.add(j); a.forEach((e, k) => { if (e.p === j) sub(k); }); };
+  kids.forEach(j => { if (j !== cont) sub(j); });
+  const nodes = a; // the same objects stay in the rocket, so callers can still find them
+  if (cont >= 0) { nodes[cont].p = N.p; if (N.p >= 0) nodes[cont].at = N.at; else delete nodes[cont].at; }
+  const map = []; const out = [];
+  nodes.forEach((e, j) => { if (!gone.has(j)) { map[j] = out.length; out.push(e); } });
+  out.forEach(e => { if (e.p >= 0) e.p = map[e.p]; });
+  rk = out;
+  return [...gone];
+}
+// the part standing in the mirror position of part i (same kind), if any
+function mirrorOf(i, lay = layout(rk)) {
+  const q = lay.parts.find(p => p.idx === i);
+  if (!q || Math.abs(q.x) < .05) return -1;
+  const m = lay.parts.find(p => p.idx !== i && p.id === q.id && Math.abs(p.x + q.x) < .05 && Math.abs(p.y - q.y) < .05);
+  return m ? m.idx : -1;
 }
 
 // rough numbers for the build gauges
 function buildStats() {
-  const { parts } = layout(stack);
+  const { parts } = layout(rk);
   let m = 0, T = 0, fuel = 0, fuel0 = 0, lift = 0;
   for (const p of parts) { const d = PARTS[p.id]; m += d.m + (d.fuel || 0); fuel += (d.fuel || 0) + (d.own ? d.own * .35 : 0) + (d.solar ? 1 : 0) + (d.space && d.T ? 2 : 0); if (p.stage === 0) fuel0 += d.fuel || 0; lift += d.lift || 0; }
   for (const p of parts) { const d = PARTS[p.id]; if (!d.T) continue; if (p.side) T += d.T; else if (p.stage === 0 && (d.own || fuel0 > 0)) T += d.T * (d.space ? .25 : 1); }
@@ -591,23 +716,23 @@ const spaceK = y => clamp((y - 300) / 700, 0, 1);
 
 // centre of mass, centre of pressure and inertia for a set of parts (fuel levels by stage)
 function aero(parts, _t, fuelK) {
-  let m = 0, my = 0, A = 0, Ay = 0, front = 0;
+  let m = 0, my = 0, mx = 0, A = 0, Ay = 0, front = 0, minX = Infinity, maxX = -Infinity;
   for (const p of parts) {
     const d = PARTS[p.id]; const fm = (d.fuel || 0) * (fuelK ? fuelK(p) : 1);
-    const pm = d.m + fm; m += pm; my += pm * p.y;
+    const pm = d.m + fm; m += pm; my += pm * p.y; mx += pm * p.x;
     const a = p.w * p.h * (d.fin ? 3 * d.fin / (d.fin > 1 ? 2 : 1) : d.lift ? .2 : 1);
     A += a; Ay += a * p.y;
-    front = Math.max(front, Math.abs(p.x) + p.w / 2);
+    front += 0; minX = Math.min(minX, p.x - p.w / 2); maxX = Math.max(maxX, p.x + p.w / 2); front = maxX - minX;
   }
-  const comY = m ? my / m : 0, cpY = A ? Ay / A : 0;
+  const comY = m ? my / m : 0, comX = m ? mx / m : 0, cpY = A ? Ay / A : 0;
   let I = .3;
-  for (const p of parts) { const d = PARTS[p.id], pm = d.m + (d.fuel || 0) * (fuelK ? fuelK(p) : 1); I += pm * ((p.y - comY) ** 2 + p.x * p.x + p.h * p.h / 12); }
-  return { m, comY, cpY, margin: comY - cpY, Aside: A, front: front * 2, I };
+  for (const p of parts) { const d = PARTS[p.id], pm = d.m + (d.fuel || 0) * (fuelK ? fuelK(p) : 1); I += pm * ((p.y - comY) ** 2 + (p.x - comX) ** 2 + (p.h * p.h + p.w * p.w) / 12); }
+  return { m, comX, comY, cpY, margin: comY - cpY, Aside: A, front: Math.max(1, front), I };
 }
 
 let R = null; // the flying rocket
 function makeFlight() {
-  const lay = layout(stack);
+  const lay = layout(rk);
   const parts = lay.parts.map(p => ({ ...p, own: PARTS[p.id].own || 0, burning: false }));
   const fuel = [], fuelMax = [];
   for (let s = 0; s <= lay.maxStage; s++) { fuel[s] = 0; fuelMax[s] = 0; }
@@ -616,16 +741,17 @@ function makeFlight() {
         onPad: true, padT: 0, t: 0, maxY: 0, chuteOpen: false, fallT: 0, sepT: 0, alive: true, landed: false, onMoon: false,
         thrust: 0, mix: { fire: 0, jet: 0, ion: 0, spark: 0, water: 0 }, everLift: false, padShake: 0 };
   recalc();
-  R.y = R.comY; R.x = 0;
+  R.y = R.comY; R.x = R.comX;
   R.y0 = R.comY; R.top0 = R.top - R.bot;
 }
 function fuelK(p) { return R.fuelMax[p.stage] ? R.fuel[p.stage] / R.fuelMax[p.stage] : 0; }
 function recalc() {
   const a = aero(R.parts, 0, fuelK);
   // keep the world position of the parts when the centre of mass moves
-  if (R.comY !== undefined) { const dy = a.comY - R.comY; R.x += Math.sin(R.th) * dy; R.y += Math.cos(R.th) * dy; }
+  if (R.comY !== undefined && R.parts.length) { const dx = a.comX - R.comX, dy = a.comY - R.comY, c = Math.cos(R.th), sn = Math.sin(R.th); R.x += dx * c + dy * sn; R.y += -dx * sn + dy * c; }
+  if (!R.parts.length) return;
   Object.assign(R, a);
-  const top = R.parts.filter(p => !p.side).sort((p, q) => q.y - p.y)[0];
+  const top = R.parts.filter(p => !p.side).sort((p, q) => (q.y + q.h / 2) - (p.y + p.h / 2))[0];
   const nd = top ? PARTS[top.id] : null;
   R.cd = (nd && nd.cd ? nd.cd : 1) + R.parts.reduce((s, p) => s + (PARTS[p.id].cdAdd || 0) * .5, 0);
   R.gyro = R.parts.filter(p => PARTS[p.id].gyro).length;
@@ -635,10 +761,11 @@ function recalc() {
   R.hasChute = R.parts.some(p => PARTS[p.id].chute);
   R.balloons = R.parts.filter(p => PARTS[p.id].lift);
   R.ys = R.parts.map(p => p.y - p.h / 2); R.top = Math.max(...R.parts.map(p => p.y + p.h / 2)) - R.comY; R.bot = Math.min(...R.ys) - R.comY;
-  R.halfW = R.parts.filter(p => !p.side).reduce((s, p) => Math.max(s, p.w / 2), .3);
+  R.corners = [];
+  for (const p of R.parts) for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) R.corners.push([p.x + sx * p.w / 2, p.y + sy * p.h / 2]);
 }
 // world position of a point given in rocket block coordinates
-function toWorld(lx, ly, st = R) { const dy = ly - st.comY, c = Math.cos(st.th), s = Math.sin(st.th); return [st.x + lx * c + dy * s, st.y - lx * s + dy * c]; }
+function toWorld(lx, ly, st = R) { const dx = lx - st.comX, dy = ly - st.comY, c = Math.cos(st.th), s = Math.sin(st.th); return [st.x + dx * c + dy * s, st.y - dx * s + dy * c]; }
 
 let windT = Math.random() * 100;
 const windAt = (tt, y) => (Math.sin(tt * .35 + windT) * 1.6 + Math.sin(tt * 1.1 + windT * 2) * .9) * clamp(1 - y / 600, 0, 1);
@@ -646,7 +773,8 @@ const windAt = (tt, y) => (Math.sin(tt * .35 + windT) * 1.6 + Math.sin(tt * 1.1 
 function detach(list, kind) {
   for (const p of list) {
     const [wx, wy] = toWorld(p.x, p.y);
-    debris.push({ id: p.id, x: wx, y: wy, vx: R.vx + (p.side || (Math.random() - .5)) * (kind === 'stage' ? .5 : 3), vy: R.vy - 1, th: R.th, w: (p.side || (Math.random() - .5)) * 1.5, mirror: p.side < 0, life: 6 });
+    const out = p.side || Math.sign(p.x - R.comX) || (Math.random() - .5);
+    debris.push({ id: p.id, x: wx, y: wy, vx: R.vx + out * (kind === 'stage' ? 1 : 3), vy: R.vy - 1, th: R.th, w: out * 1.5, mirror: p.side < 0, life: 6 });
   }
   R.parts = R.parts.filter(p => !list.includes(p));
   recalc();
@@ -657,7 +785,7 @@ function physStep(dt, u) {
   const alt = r.y - r.y0, rh = rho(alt), sp = spaceK(alt);
   const g = G0 * (RE / (RE + Math.max(0, alt))) ** 2;
   // --- engines ---
-  let T = 0, gim = 0, usedFuel = 0;
+  let T = 0, gim = 0, usedFuel = 0, tauT = 0;
   const mix = { fire: 0, jet: 0, ion: 0, spark: 0, water: 0 };
   let stageCan = false, stageEngines = 0;
   for (const p of r.parts) {
@@ -665,7 +793,7 @@ function physStep(dt, u) {
     if (!d.T) continue;
     if (p.side) {
       // side boosters fire from lift-off until empty, then fall away
-      if (p.own > 0) { p.own -= dt; p.burning = true; T += d.T * (1 + .1 * sp); mix.fire += d.T / 60; }
+      if (p.own > 0) { p.own -= dt; p.burning = true; const f = d.T * (1 + .1 * sp); T += f; tauT -= (p.x - r.comX) * f; mix.fire += d.T / 60; }
       continue;
     }
     if (p.stage !== r.active) continue;
@@ -679,7 +807,7 @@ function physStep(dt, u) {
     stageCan = true;
     if (f <= 0) continue;
     p.burning = true;
-    T += d.T * f; if (d.gimbal) gim += f;
+    T += d.T * f; tauT -= (p.x - r.comX) * d.T * f; if (d.gimbal) gim += f;
     mix[d.fx] += f * d.T / (d.fx === 'ion' ? 4 : 50);
   }
   if (usedFuel) { r.fuel[r.active] = Math.max(0, r.fuel[r.active] - usedFuel); }
@@ -702,7 +830,7 @@ function physStep(dt, u) {
   } else r.sepT = 0;
   // balloons pop high up
   let lift = 0;
-  for (const p of r.balloons) lift += PARTS[p.id].lift * (.45 + .55 * rh);
+  for (const p of r.balloons) { const L2 = PARTS[p.id].lift * (.45 + .55 * rh); lift += L2; tauT -= ((p.x - r.comX) * Math.cos(r.th) + (p.y - r.comY) * Math.sin(r.th)) * L2; }
   if (r.balloons.length && alt > 300) { const bl = r.balloons; for (const p of bl) { const [wx, wy] = toWorld(p.x, p.y); spawnPuff(wx, wy, 6, COL.yellow); } r.parts = r.parts.filter(p => !bl.includes(p)); recalc(); sfx.balloon(); setTimeout(sfx.balloon, 90); }
   // --- forces ---
   const s = Math.sin(r.th), c = Math.cos(r.th);
@@ -716,7 +844,8 @@ function physStep(dt, u) {
   if (r.chuteOpen) area += 60;
   if (spd > 0) { const Fd = q * area * KD * 2; Fx -= Fd * rvx / spd; Fy -= Fd * rvy / spd; }
   // --- torque ---
-  let tau = -KS * q * r.Aside * r.margin * Math.sin(alpha);
+  // thrust or balloons off to one side twist the rocket
+  let tau = tauT * .3 - KS * q * r.Aside * r.margin * Math.sin(alpha);
   tau -= KDA * q * r.Aside * r.w * (1 + Math.abs(r.margin)) + .25 * r.w * r.I;
   const thrFrac = T > 0 ? 1 : 0;
   const ctrl = 1 + r.gyro * 3 + r.rcs * 5 * (.2 + .8 * sp) + r.fins * Math.min(q, 500) / 500 * 6 + gim * 7 * thrFrac;
@@ -729,6 +858,7 @@ function physStep(dt, u) {
   // --- launch pad ---
   if (r.onPad) {
     r.padT += dt;
+    if (!r.parts.length) return;
     if (Fy <= 0 || r.padT < .05) { r.vx = r.vy = 0; r.w = 0; r.th = 0; r.padShake = T > 0 ? Math.min(1, T / (r.m * g)) : 0; return; }
     r.onPad = false; r.everLift = true;
   }
@@ -742,7 +872,7 @@ function physStep(dt, u) {
   // tumbling sideways through thick air rips it apart
   if (q > 140 && Math.abs(alpha) > 1.25 && Math.abs(alpha) < Math.PI - .5) return 'breakup';
   // ground
-  const low = Math.min(toWorld(0, R.bot + R.comY)[1], toWorld(0, R.top + R.comY)[1]);
+  let low = Infinity; for (const [lx, ly] of r.corners) low = Math.min(low, toWorld(lx, ly)[1]);
   if (low <= 0 && r.vy < 0) return (spd > 7 && !r.chuteOpen) ? 'crash' : 'land';
   // moon
   const dm = Math.hypot(r.x - moonX, r.y - (MOON_Y + MOON_R));
@@ -807,8 +937,7 @@ function stepObstacles(dt) {
 }
 function hitObstacle() {
   if (!R.parts.length) return null;
-  const [ax, ay] = toWorld(0, R.bot + R.comY), [bx, by] = toWorld(0, R.top + R.comY);
-  const rad = R.halfW * .85;
+  const segs = R.parts.map(p => { const rr = Math.min(p.w, p.h) * .45, half = Math.max(0, Math.max(p.w, p.h) / 2 - rr), vert = p.h >= p.w; return [toWorld(p.x - (vert ? 0 : half), p.y - (vert ? half : 0)), toWorld(p.x + (vert ? 0 : half), p.y + (vert ? half : 0)), rr]; });
   for (const o of obstacles) {
     let px = o.x, py = o.y, rr = o.r;
     if (o.kind === 'plane') { // the plane is long: test the nearest point on its body
@@ -816,9 +945,11 @@ function hitObstacle() {
     }
     if (o.kind === 'storm' && Math.sin(o.ph * 2.2) < .55) rr *= .0; // the cloud only bites when it flashes
     if (rr <= 0) continue;
-    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
-    const k = clamp(((px - ax) * dx + (py - ay) * dy) / l2, 0, 1);
-    if (Math.hypot(ax + dx * k - px, ay + dy * k - py) < rad + rr) return o;
+    for (const [[ax, ay], [bx, by], rad] of segs) {
+      const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+      const k = clamp(((px - ax) * dx + (py - ay) * dy) / l2, 0, 1);
+      if (Math.hypot(ax + dx * k - px, ay + dy * k - py) < rad + rr) return o;
+    }
   }
   return null;
 }
@@ -831,7 +962,7 @@ let touched = store.get('touched', false);
 
 function launch() {
   if (state !== 'build') return;
-  if (!stack.length) return;
+  if (!rk.length) return;
   saveRocket();
   makeFlight();
   debris = []; particles = []; ejectCat = null; resetObstacles();
@@ -885,10 +1016,13 @@ function showResult() {
 $('again').onclick = () => { $('result').hidden = true; state = 'build'; launch(); };
 $('edit').onclick = () => toBuild();
 $('launch').onclick = () => launch();
-$('clear').onclick = () => { if (!stack.length) return; for (const p of layout(stack).parts) { const [sx, sy] = buildToScreen(p.x, p.y); poofs.push({ x: sx, y: sy, t: 0 }); } stack = []; saveRocket(); sfx.pop(); layoutBuild(); };
+$('clear').onclick = () => { if (!rk.length) return; for (const p of layout(rk).parts) { const [sx, sy] = buildToScreen(p.x, p.y); poofs.push({ x: sx, y: sy, t: 0 }); } rk = []; saveRocket(); sfx.pop(); layoutBuild(); };
+function updSym() { $('sym').classList.toggle('on', symmetry); $('symOne').style.display = symmetry ? '' : 'none'; }
+$('sym').onclick = () => { symmetry = !symmetry; store.set('sym', symmetry); updSym(); sfx.tab(); };
+updSym();
 function setUI() {
   $('launch').hidden = state !== 'build';
-  $('clear').hidden = state !== 'build';
+  $('clear').hidden = $('sym').hidden = state !== 'build';
   $('left').hidden = $('right').hidden = state !== 'flight';
   $('result').hidden = state !== 'result';
   $('launch').classList.toggle('pulse', !touched);
@@ -992,22 +1126,24 @@ function layoutBuild() {
   }
   tray.scroll = clamp(tray.scroll, 0, tray.maxScroll);
   // fit the rocket (plus some room to drop parts above it) in the build area
-  const lay = layout(stack);
-  const rw = lay.parts.reduce((s, p) => Math.max(s, Math.abs(p.x) + p.w / 2), .8) * 2;
-  const needH = Math.max(lay.H + 2.6, 5.5), needW = Math.max(rw + 1.6, 3.6);
+  const lay = layout(rk);
+  const rw = lay.maxX - lay.minX;
+  const needH = Math.max(lay.H + 2.6, 5.5), needW = Math.max(rw + 2.4, 3.6);
   const sc = clamp(Math.min((buildArea.h - 20) / needH, (buildArea.w * (vertical ? .5 : .6)) / needW), 14, 120);
   buildCam.scale = sc;
   buildCam.groundY = buildArea.y + buildArea.h - Math.max(18, sc * .6);
-  buildCam.cx = buildArea.x + buildArea.w / 2;
+  buildCam.cx = buildArea.x + buildArea.w / 2 - (lay.minX + lay.maxX) / 2 * sc;
   // DOM buttons beside the rocket
-  const lb = $('launch'), cb = $('clear');
+  const lb = $('launch'), cb = $('clear'), sb = $('sym');
   if (!vertical) {
     lb.style.right = '14px'; lb.style.left = 'auto'; lb.style.top = '60px'; lb.style.bottom = 'auto';
     cb.style.left = '14px'; cb.style.right = 'auto'; cb.style.bottom = (H - tray.y + 12) + 'px'; cb.style.top = 'auto';
+    sb.style.left = '68px'; sb.style.bottom = cb.style.bottom; sb.style.top = 'auto';
     gaugeBox = { x: 14, y: 60, w: clamp(W * .2, 70, 120), h: 0 };
   } else {
     lb.style.left = 'auto'; lb.style.right = (W - tray.x + 12) + 'px'; lb.style.bottom = (BOTTOM + 4) + 'px'; lb.style.top = 'auto';
     cb.style.left = '14px'; cb.style.right = 'auto'; cb.style.bottom = (BOTTOM + 4) + 'px'; cb.style.top = 'auto';
+    sb.style.left = '68px'; sb.style.bottom = cb.style.bottom; sb.style.top = 'auto';
     gaugeBox = { x: 14, y: 56, w: clamp(W * .14, 64, 110), h: 0 };
   }
 }
@@ -1029,69 +1165,68 @@ function trayHit(x, y) {
 }
 function partHit(x, y) {
   const [bx, by] = screenToBuild(x, y);
-  const lay = layout(stack);
-  // side parts first (they are drawn on top), then the stack
-
   let hit = null;
-  for (const p of lay.parts) {
+  for (const p of layout(rk).parts) {
     if (Math.abs(bx - p.x) <= p.w / 2 + .08 && Math.abs(by - p.y) <= p.h / 2 + .05) { if (!hit || p.side) hit = p; }
   }
   return hit;
 }
-// where a dragged part would go: { kind: 'insert', index } or { kind: 'side', seg }
+// where a dragged part would go: the nearest free spot (and its mirror twin when symmetry is on)
 function dropTarget(id, sx, sy) {
   const d = PARTS[id];
   const [bx, by] = screenToBuild(sx, sy);
-  const lay = layout(stack);
-  const rw = lay.parts.reduce((s, p) => Math.max(s, Math.abs(p.x) + p.w / 2), .6);
-  if (d.cat === 'side') {
-    if (!stack.length) return null;
-    if (Math.abs(bx) > rw + 2.5 || by < -1 || by > lay.H + 1) return null;
-    let bestI = -1, bd = Infinity;
-    lay.parts.filter(p => !p.side).forEach(p => { const dd = Math.abs(by - p.y); if (dd < bd) { bd = dd; bestI = p.seg; } });
-    return bestI >= 0 ? { kind: 'side', seg: bestI } : null;
-  }
-  if (stack.length >= MAXSTACK) return null;
-  if (Math.abs(bx) > rw + 2.5 || by < -1.5 || by > lay.H + 2.5) return null;
-  if (!stack.length) return { kind: 'insert', index: 0 };
-  // boundaries between parts: index k sits at the top of stack[k]
-  let y = lay.H, bestK = 0, bd = Infinity;
-  for (let k = 0; k <= stack.length; k++) {
-    const dd = Math.abs(by - y - (k === 0 ? d.h * .3 : k === stack.length ? -d.h * .3 : 0));
-    if (dd < bd) { bd = dd; bestK = k; }
-    if (k < stack.length) y -= PARTS[stack[k].id].h;
-  }
-  return { kind: 'insert', index: bestK };
+  if (!rk.length) return Math.abs(bx) < 3 && by > -1.5 && by < 6 ? { main: { root: true, x: 0, y: d.h / 2 } } : null;
+  const lay = layout(rk), cands = candidates(id, rk, lay);
+  let best = null, bd = Infinity;
+  for (const c of cands) { const dd = Math.hypot(c.x - bx, c.y - by); if (dd < bd) { bd = dd; best = c; } }
+  if (!best || bd > Math.max(1.6, Math.max(d.w, d.h) * .9)) return null;
+  return { main: best, twin: symmetry ? twinOf(best, id, cands) : null };
 }
-function place(id, side, tgt) {
+function place(id, tgt) {
   if (!tgt) return false;
-  if (tgt.kind === 'side') { stack[tgt.seg].side = id; }
-  else { stack.splice(tgt.index, 0, { id, side: side || null }); }
+  const made = attach(id, tgt.main);
+  if (tgt.twin) {
+    // the twin's indices are still valid: attach() only appends
+    made.push(...attach(id, tgt.twin));
+  }
   saveRocket(); sfx.snap(); layoutBuild();
-  // a little "pop" where it landed
-  const lay = layout(stack);
-  const p = tgt.kind === 'side' ? lay.parts.filter(q => q.seg === tgt.seg && q.side) : lay.parts.filter(q => q.seg === tgt.index && !q.side);
-  for (const q of p) { const [sx, sy] = buildToScreen(q.x, q.y); snapFx.push({ x: sx, y: sy, t: 0, r: q.h * buildCam.scale * .6 }); }
+  const lay = layout(rk);
+  for (const q of lay.parts.filter(q => made.includes(q.idx))) { const [sx, sy] = buildToScreen(q.x, q.y); snapFx.push({ x: sx, y: sy, t: 0, r: Math.max(q.w, q.h) * buildCam.scale * .5 }); }
   return true;
+}
+// the up-down spine through the first part
+function spine() {
+  if (!rk.length) return [];
+  const root = rk.findIndex(e => e.p < 0), out = [root];
+  const kid = (i, s) => rk.findIndex(e => e.p === i && e.at === s);
+  for (let i = kid(root, 't'); i >= 0; i = kid(i, 't')) out.unshift(i);
+  for (let i = kid(root, 'b'); i >= 0; i = kid(i, 'b')) out.push(i);
+  return out;
 }
 // a tap on a part in the tray puts it somewhere sensible
 function autoAdd(id) {
   const d = PARTS[id];
-  if (d.cat === 'side') {
-    if (!stack.length) return;
-    const prefLow = d.fin || d.rcs ? 1 : 0;
-    let seg = -1;
-    const order = [...stack.keys()].reverse();
-    if (prefLow) seg = order.find(i => !stack[i].side) ?? order[0];
-    else seg = order.find(i => !stack[i].side && PARTS[stack[i].id].cat === 'body') ?? order.find(i => !stack[i].side) ?? order[0];
-    place(id, null, { kind: 'side', seg });
-    return;
+  if (!rk.length) { place(id, { main: { root: true } }); return; }
+  let lay = layout(rk), cands = candidates(id, rk, lay), sp = spine();
+  const pick = (i, s, ins = -1) => cands.find(c => c.p === i && c.at === s && (ins < 0 || c.insert === ins));
+  let c = null;
+  if (d.cat === 'nose') {
+    if (PARTS[rk[sp[0]].id].cat === 'nose') { removePart(sp[0]); lay = layout(rk); cands = candidates(id, rk, lay); sp = spine(); }
+    c = pick(sp[0], 't');
+  } else if (d.cat === 'body') {
+    const k = sp.findIndex(i => PARTS[rk[i].id].cat === 'engine');
+    if (k > 0) { const up = sp[k - 1], lo = sp[k]; c = rk[lo].p === up ? pick(up, 'b', lo) : pick(lo, 't', up); }
+    if (!c) c = pick(sp[sp.length - 1], 'b') || pick(sp[0], 't');
+  } else if (d.cat === 'engine') {
+    c = pick(sp[sp.length - 1], 'b');
+  } else {
+    // side parts: fins go low, the rest prefer a tank-like part, from the bottom up
+    const order = [...sp].reverse();
+    const pref = d.fin || d.rcs ? order : [...order.filter(i => PARTS[rk[i].id].cat === 'body'), ...order];
+    for (const i of pref) { c = symmetry ? (pick(i, 'r') && pick(i, 'l') ? pick(i, 'r') : null) : (pick(i, 'r') || pick(i, 'l')); if (c) break; }
   }
-  if (stack.length >= MAXSTACK) return;
-  let index = stack.length;
-  if (d.cat === 'nose') index = 0;
-  if (d.cat === 'body') { const e = stack.findIndex(e => PARTS[e.id].cat === 'engine'); index = e < 0 ? stack.length : e; }
-  place(id, null, { kind: 'insert', index });
+  if (!c) { poofs.push({ x: buildCam.cx, y: buildCam.groundY - 40, t: 0 }); sfx.pop(); return; }
+  place(id, { main: c, twin: symmetry ? twinOf(c, id, cands) : null });
 }
 function markTouched() { if (!touched) { touched = true; store.set('touched', true); setUI(); } }
 
@@ -1121,14 +1256,18 @@ cv.addEventListener('pointermove', e => {
     return;
   }
   if (pending.type === 'part' && Math.hypot(dx, dy) > 8) {
-    const p = pending.p;
-    let id, side = null;
-    if (p.side) { id = stack[p.seg].side; stack[p.seg].side = null; }
-    else { id = stack[p.seg].id; side = stack[p.seg].side; stack.splice(p.seg, 1); }
+    const id = pending.p.id;
+    takeOff(pending.p.idx);
     layoutBuild();
-    startDrag(id, side, x, y, e.pointerId); pending = null;
+    startDrag(id, null, x, y, e.pointerId); pending = null;
   }
 });
+// remove a part (and its mirror twin when symmetry is on)
+function takeOff(i) {
+  const m = symmetry ? mirrorOf(i) : -1;
+  const targets = [i, m].filter(j => j >= 0).map(j => rk[j]);
+  for (const obj of targets) { const j = rk.indexOf(obj); if (j >= 0) removePart(j); }
+}
 function startDrag(id, side, x, y, pid) {
   const off = coarse ? Math.max(30, PARTS[id].h * buildCam.scale * .5 + 20) : 0; // lift the part above the finger
   drag = { id, side, x, y, pid, off, tgt: null }; drag.tgt = dropTarget(id, x, y - off);
@@ -1138,17 +1277,17 @@ function endPointer(e) {
   touchDir.delete(e.pointerId);
   if (state !== 'build') return;
   if (drag && drag.pid === e.pointerId) {
-    const ok = place(drag.id, drag.side, drag.tgt);
+    const ok = place(drag.id, drag.tgt);
     if (!ok) { poofs.push({ x: drag.x, y: drag.y - drag.off, t: 0 }); sfx.pop(); saveRocket(); layoutBuild(); }
     drag = null; return;
   }
   if (!pending || pending.pid !== e.pointerId) return;
   if (pending.type === 'tray' && !pending.scrolling) { autoAdd(pending.id); markTouched(); }
   if (pending.type === 'part') {
-    const p = pending.p;
-    const [sx, sy] = buildToScreen(p.x, p.y);
-    if (p.side) { stack[p.seg].side = null; poofs.push({ x: sx, y: sy, t: 0 }); const [sx2] = buildToScreen(-p.x, p.y); poofs.push({ x: sx2, y: sy, t: 0 }); }
-    else { stack.splice(p.seg, 1); poofs.push({ x: sx, y: sy, t: 0 }); }
+    // puffs on every part that disappears (the part itself, its twin and anything hanging only from them)
+    const before = layout(rk).parts.map(q => ({ obj: rk[q.idx], x: q.x, y: q.y }));
+    takeOff(pending.p.idx);
+    for (const b of before) if (!rk.includes(b.obj)) { const [sx, sy] = buildToScreen(b.x, b.y); poofs.push({ x: sx, y: sy, t: 0 }); }
     sfx.pop(); saveRocket(); layoutBuild(); markTouched();
   }
   pending = null;
@@ -1619,26 +1758,30 @@ function drawBuild(fdt, frame) {
   const s = buildCam.scale;
   drawPaper(0, 0, 0, 0, s);
   const toS = buildToScreen;
-  layoutH = layout(stack).H;
+  layoutH = layout(rk).H;
   drawGround((x, y) => toS(x, y), s, frame);
   drawPad(toS, s, frame);
   // rocket
-  const lay = layout(stack);
-  // wobble a little while nothing is held, like a doodle on paper
+  const lay = layout(rk);
   drawRocketParts(ctx, lay.parts, (x, y) => toS(x, y), s, frame);
   // drop preview
   if (drag) {
     const tgt = drag.tgt;
     if (tgt) {
       ctx.save(); ctx.strokeStyle = COL.red; ctx.lineWidth = 3; ctx.setLineDash([7, 6]);
-      if (tgt.kind === 'insert') {
-        let y = lay.H; for (let k = 0; k < tgt.index; k++) y -= PARTS[stack[k].id].h;
-        const [x0, sy] = toS(-1.2, y), [x1] = toS(1.2, y);
-        ctx.beginPath(); ctx.moveTo(x0, sy); ctx.lineTo(x1, sy); ctx.stroke();
-      } else {
-        const seg = lay.parts.find(p => p.seg === tgt.seg && !p.side), sd = PARTS[drag.id];
-        for (const sgn of [-1, 1]) { const [cx, cy] = toS(sgn * (seg.w / 2 + sd.w / 2), seg.y); ctx.strokeRect(cx - sd.w * s / 2, cy - sd.h * s / 2, sd.w * s, sd.h * s); }
+      const sd = PARTS[drag.id];
+      for (const c of [tgt.main, tgt.twin]) {
+        if (!c) continue;
+        const [cx, cy] = toS(c.x, c.y);
+        if (c.insert >= 0) {
+          // sliding in between: a line where the gap opens
+          const par = lay.parts.find(q => q.idx === c.p), yy = c.at === 'b' ? par.y - par.h / 2 : par.y + par.h / 2;
+          const [x0, ly] = toS(par.x - par.w / 2 - .3, yy), [x1] = toS(par.x + par.w / 2 + .3, yy);
+          ctx.beginPath(); ctx.moveTo(x0, ly); ctx.lineTo(x1, ly); ctx.stroke();
+        } else ctx.strokeRect(cx - sd.w * s / 2, cy - sd.h * s / 2, sd.w * s, sd.h * s);
       }
+      // the twin shows as a faint copy of the part
+      if (tgt.twin && tgt.twin.insert < 0) { const [cx, cy] = toS(tgt.twin.x, tgt.twin.y); drawPart(ctx, drag.id, cx, cy, s, frame, PARTS[drag.id].cat === 'side' && tgt.twin.at === 'l', .45); }
       ctx.restore();
     }
     drawPart(ctx, drag.id, drag.x, drag.y - drag.off, s, frame, false, tgt ? 1 : .55);
@@ -1673,7 +1816,7 @@ function drawFlight(fdt, k, frame) {
   let rx = lerp(prevR.x, R.x, k), ry = lerp(prevR.y, R.y, k);
   if (ejectCat && state !== 'flight') { rx = ejectCat.x; ry = ejectCat.y + 1; }
   const rth = prevR.th + wrapA(R.th - prevR.th) * k;
-  const pose = { x: rx, y: ry, th: rth, comY: R.comY };
+  const pose = { x: rx, y: ry, th: rth, comX: R.comX, comY: R.comY };
   // camera: zoom out with speed, keep the rocket a little below the middle
   const spd = Math.hypot(R.vx, R.vy);
   const rocketLen = Math.max(4, R.top - R.bot);
@@ -1720,7 +1863,7 @@ function drawFlight(fdt, k, frame) {
     const toS = (lx, ly) => { const [wx, wy] = toWorld(lx, ly, pose); const [a, b] = worldToScreen(wx, wy); return [a + shake, b]; };
     // chute canopy above the nose
     if (R.chuteOpen) {
-      const [nx, ny] = toS(0, R.top + R.comY);
+      const [nx, ny] = toS(R.comX, R.top + R.comY);
       const p = Pen(ctx, s, 600 + frame), cw = s * 3.4, ch = s * 2;
       const tx2 = nx - Math.sin(rth) * s * 3.2, ty2 = ny - Math.cos(rth) * s * 3.2;
       for (const sgn of [-1, 1]) p.line([[nx, ny], [tx2 + sgn * cw * .5, ty2]], false, 1.2);
