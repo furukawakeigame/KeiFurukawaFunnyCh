@@ -3,10 +3,12 @@
 // 各ゲームの </body> の直前で読み込む:
 //   <script src="../../ad.js" data-result="#result"></script>
 // data-result には「結果を表示している間だけ見える要素」の CSS セレクタを書く。
-// その要素が見えている間だけ、画面上部（ヘッダーの下）に広告カードを出す。
-// 結果が白いパネル（ボタン入り）のゲームは data-ad-in="<パネルのセレクタ>" も書くと、
-// 広告をパネルの一番上に入れる（広告 → 結果 → ボタン の順になり、ボタンから離れる）。
-// 決まった要素がないゲームは data-result を書かず、JS から resultAd(true) / resultAd(false) を呼ぶ。
+// 決まった要素がないゲームは data-result を書かず、JS から resultAd(true) / resultAd(false) を呼ぶ
+// （毎フレーム呼んでよい。変わった時だけ動く）。
+//
+// 結果が出ている間だけ、ヘッダーのすぐ下に広告を出す。広告がゲームの絵や結果に重ならないよう、
+// ヘッダー以外の画面全体を下（ボタンのある側）へ向かって縮めて、上に広告の帯を空ける。
+// ゲームの描画や配置の計算は変えず、見た目だけ縮める（CSS の scale / translate）。
 //
 // ・広告は1回の訪問につき1回だけ読み込む（結果が出るたびに入れ替えると AdSense の規約違反になる）
 // ・adsbygoogle.js は最初の結果が出た時に読み込む（プレイ中を重くしないため）
@@ -18,57 +20,44 @@
 
   const me = document.currentScript;
   const selector = me && me.dataset.result;
-  const inSel = me && me.dataset.adIn;
   const MIN_H = 600; // これより背の低い画面では出さない
+  const SKIP = new Set(['SCRIPT', 'STYLE', 'LINK', 'NOSCRIPT', 'TEMPLATE', 'HEADER']);
 
   const style = document.createElement('style');
   style.textContent = `
     #result-ad { position: fixed; left: 50%; transform: translateX(-50%); z-index: 2147483000;
-      width: min(calc(100vw - 24px), 352px); box-sizing: border-box; padding: 6px 10px 10px;
-      background: #fff; border-radius: 16px; box-shadow: 0 4px 16px rgba(0,0,0,.18); display: none; }
+      width: min(calc(100vw - 24px), 352px); box-sizing: border-box; padding: 4px 8px 8px;
+      background: #fff; border-radius: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.15); display: none; }
     #result-ad.on { display: block; }
-    #result-ad.inline { position: static; transform: none; width: min(calc(100vw - 32px), 352px); max-width: 100%; margin: 0 auto 20px; padding: 4px 0 0;
-      align-self: center; flex-shrink: 0;
-      box-shadow: none; border-radius: 10px; text-align: left; }
-    #result-ad.inline .label { padding: 0 8px; }
-    #result-ad .label { font: 11px/1.4 system-ui, sans-serif; color: #889; margin: 0 0 4px; }
+    #result-ad .label { font: 11px/1.4 system-ui, sans-serif; color: #889; margin: 0 0 3px; }
     #result-ad ins { display: block; width: 100%; }
     #result-ad:has(ins[data-ad-status="unfilled"]) { display: none !important; }`;
   document.head.append(style);
 
-  let box = null, filled = false, on = false;
+  let box = null, filled = false, on = false, scale = 1;
+  const shrunk = new Map(); // 縮めた要素 → 元の style.scale / style.translate
 
   function build() {
     box = document.createElement('div');
     box.id = 'result-ad';
     box.innerHTML = '<p class="label"></p>';
-    const panel = inSel && document.querySelector(inSel);
-    if (panel) { box.classList.add('inline'); panel.prepend(box); }
-    else document.body.append(box);
+    document.body.append(box);
   }
 
   // ラベルは、ゲームが今表示している言語に合わせる（ヘッダーの「トップへ戻る」リンクの文字で判断する）
   function label() {
     const back = document.querySelector('header a');
     const t = back ? back.textContent : document.title;
-    return /[\u3040-\u30ff]/.test(t) ? '広告' : /[\uac00-\ud7af]/.test(t) ? '광고'
-      : /[\u0e00-\u0e7f]/.test(t) ? 'โฆษณา' : 'Advertisement';
-  }
-
-  function place() {
-    box.querySelector('.label').textContent = label();
-    if (box.classList.contains('inline')) return;
-    const header = document.querySelector('header');
-    const top = header ? Math.max(8, header.getBoundingClientRect().bottom + 8) : 12;
-    box.style.top = top + 'px';
+    return /[぀-ヿ]/.test(t) ? '広告' : /[가-힯]/.test(t) ? '광고'
+      : /[฀-๿]/.test(t) ? 'โฆษณา' : 'Advertisement';
   }
 
   function fill() {
     filled = true;
     const ins = document.createElement('ins');
     ins.className = 'adsbygoogle';
-    // パネルの中で、画面に余裕があるときだけ大きい広告（300×250）。それ以外は横長（320×100）
-    ins.style.height = (box.classList.contains('inline') && innerHeight >= 900 ? 250 : 100) + 'px';
+    // 背の高い画面は 320×100、それ以外は 320×50（ゲームを縮めすぎないため）
+    ins.style.height = (innerHeight >= 800 ? 100 : 50) + 'px';
     ins.dataset.adClient = CLIENT;
     ins.dataset.adSlot = SLOT;
     box.append(ins);
@@ -79,27 +68,63 @@
     (window.adsbygoogle = window.adsbygoogle || []).push({});
   }
 
+  // 画面の一番外側の要素（header と広告以外）。display: contents の要素はその中身を見る
+  function layers(root = document.body, out = []) {
+    for (const el of root.children) {
+      if (el === box || SKIP.has(el.tagName)) continue;
+      if (getComputedStyle(el).display === 'contents') layers(el, out);
+      else out.push(el);
+    }
+    return out;
+  }
+
+  // 見えている要素を、画面の下の真ん中を中心に scale 倍に縮める（まだ縮めていないものだけ）
+  function shrink() {
+    const cx = innerWidth / 2, cy = innerHeight;
+    for (const el of layers()) {
+      if (shrunk.has(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) continue; // 非表示の要素は、見えたら縮める
+      // 要素自身の transform の平行移動を引いて、変形の中心（要素の中心）を求める
+      const m = new DOMMatrix(getComputedStyle(el).transform === 'none' ? undefined : getComputedStyle(el).transform);
+      const ox = r.left + r.width / 2 - m.e, oy = r.top + r.height / 2 - m.f;
+      shrunk.set(el, [el.style.scale, el.style.translate]);
+      el.style.translate = `${(1 - scale) * (cx - ox)}px ${(1 - scale) * (cy - oy)}px`;
+      el.style.scale = scale;
+    }
+  }
+
+  function unshrink() {
+    for (const [el, [s, t]] of shrunk) { el.style.scale = s; el.style.translate = t; }
+    shrunk.clear();
+  }
+
   window.resultAd = show => {
     if (show === on) return;
+    if (show && innerHeight < MIN_H) return;
     on = show;
     if (show) {
-      if (innerHeight < MIN_H) { on = false; return; }
       if (!box) build();
-      place();
-      box.classList.add('on');
+      box.querySelector('.label').textContent = label();
+      const header = document.querySelector('header');
+      box.style.top = (header ? Math.max(6, header.getBoundingClientRect().bottom + 6) : 6) + 'px';
       if (!filled) fill();
-      // パネルの大きさが変わったので、ゲームに配置を計算し直してもらう
-      if (box.classList.contains('inline')) dispatchEvent(new Event('resize'));
-    } else if (box) {
-      box.classList.remove('on');
+      box.classList.add('on');
+      scale = Math.min(1, (innerHeight - box.getBoundingClientRect().bottom - 8) / innerHeight);
+      shrunk.clear();
+      shrink();
+    } else {
+      if (box) box.classList.remove('on');
+      unshrink();
     }
   };
 
-  // data-result の要素が見えているかを 0.4 秒ごとに確かめる
-  if (selector) {
-    const visible = el => el && (el.checkVisibility
-      ? el.checkVisibility({ opacityProperty: true, visibilityProperty: true })
-      : el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden');
-    setInterval(() => resultAd(visible(document.querySelector(selector))), 400);
-  }
+  // data-result の要素が見えているかを 0.4 秒ごとに確かめる（結果中は、あとから出た要素も縮める）
+  const visible = el => el && (el.checkVisibility
+    ? el.checkVisibility({ opacityProperty: true, visibilityProperty: true })
+    : el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden');
+  setInterval(() => {
+    if (selector) resultAd(visible(document.querySelector(selector)));
+    if (on) shrink();
+  }, 400);
 })();

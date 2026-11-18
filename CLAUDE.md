@@ -36,9 +36,9 @@ People in games use the realistic human model `.claude/skills/make-game/human.js
 - Non-game pages (`index.html`, `about.html`, `privacy.html`, `404.html`) load the AdSense script (`ca-pub-6939356439579496`); ads there come from AdSense Auto ads (switched on in the dashboard). Because `ad.js` also loads the AdSense script on game pages, `/games/` must be excluded from Auto ads in the AdSense dashboard (otherwise Auto ads would also appear inside games).
 - **Result-screen banner** (owner's decision, knowing AdSense discourages display ads near games): every game with a result screen loads the shared `ad.js` at the end of `<body>` — the one exception to "games are self-contained", so the ad unit ID lives in one place (`SLOT` in `ad.js`; empty = no ads anywhere). See the comment at the top of `ad.js`:
   - `data-result="<selector>"`: the ad shows while that element is visible.
-  - `data-ad-in="<selector>"`: for white result panels with buttons, the ad goes at the top of the panel (ad → result → buttons, like 「倒立振子ゲーム」). Otherwise it is a card under the header.
   - No result element: call `window.resultAd?.(isResult)` from the game loop instead.
-  - One ad per page view (never refreshed), loaded only at the first result, not shown on screens shorter than 600px. Keep the ad at least ~150px from buttons.
+  - While the ad shows, `ad.js` visually shrinks everything except the header toward the bottom-center (CSS `scale`/`translate`, no relayout) and puts the ad in the freed strip under the header, so the ad never covers the game, the result or the 見せ場, and stays far from the buttons (AdSense policy: no ads over content, none next to buttons).
+  - One ad per page view (never refreshed), loaded only at the first result, not shown on screens shorter than 600px.
 - Toy/maker games without a result screen get no ad. Full-screen ads before the result (H5 Games Ads, `adBreak()`) need a separate approval the owner applied for.
 
 ## View counts
