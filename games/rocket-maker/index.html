@@ -46,7 +46,10 @@
     #launch { background: #ffb4a2; font-size: clamp(20px, 3.2vmin, 30px); padding: 10px 22px; }
     #launch.pulse { animation: pulse 1.2s ease-in-out infinite; }
     @keyframes pulse { 50% { scale: 1.08; } }
-    #clear { width: 46px; height: 46px; padding: 0; }
+    #clear { width: 46px; height: 46px; padding: 0; transition: scale .12s, background .12s; }
+    #clear.armed { animation: wiggle .6s ease-in-out infinite; }
+    #clear.hot { background: #ff8a7a; scale: 1.25; animation: none; }
+    @keyframes wiggle { 25% { rotate: -8deg; } 75% { rotate: 8deg; } }
     #abort { left: 12px; top: 56px; font-size: 16px; padding: 6px 12px; background: #fffdf6; }
     #result { position: fixed; left: 0; right: 0; top: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: calc(58px + 2vh) 16px 0; pointer-events: none; }
     #result[hidden] { display: none; }
@@ -1234,7 +1237,8 @@ cv.addEventListener('pointermove', e => {
   }
   if (drag && drag.pid === e.pointerId) {
     drag.x = x; drag.y = y;
-    const t2 = dropTarget(drag.id, x - drag.offX, y - drag.offY);
+    drag.bin = overBin(x, y); binState(true, drag.bin);
+    const t2 = drag.bin ? null : dropTarget(drag.id, x - drag.offX, y - drag.offY);
     if (t2 && drag.tgt && (t2.x !== drag.tgt.x || t2.y !== drag.tgt.y)) noise(.025, { f0: 2400, q: 8, vol: .08 }); // a light tick per cell
     drag.tgt = t2; return;
   }
@@ -1260,10 +1264,14 @@ cv.addEventListener('pointermove', e => {
 });
 // remove one part
 function takeOff(i) { rk.splice(i, 1); }
+// is the finger over the bin? (a little margin so it is easy to hit)
+function overBin(x, y) { const b = $('clear'); if (b.hidden) return false; const r = b.getBoundingClientRect(); return x > r.left - 14 && x < r.right + 14 && y > r.top - 14 && y < r.bottom + 14; }
+function binState(arm, hot) { $('clear').classList.toggle('armed', arm && !hot); $('clear').classList.toggle('hot', hot); }
 // from: where a part already on the rocket came from (it goes back there if dropped on a taken spot)
 function startDrag(id, from, x, y, pid, offX = 0, offY = null) {
   if (offY === null) offY = coarse ? Math.max(30, PARTS[id].h * buildCam.scale * .5 + 20) : 0; // lift a new part above the finger
   drag = { id, from, x, y, pid, offX, offY, tgt: null }; drag.tgt = dropTarget(id, x - offX, y - offY);
+  binState(true, false);
   tip = { id, t: 0 }; markTouched();
 }
 function endPointer(e) {
@@ -1271,9 +1279,11 @@ function endPointer(e) {
   if (state !== 'build') return;
   if (drag && drag.pid === e.pointerId) {
     const t2 = drag.tgt;
-    if (t2 && t2.ok) place(drag.id, t2.x, t2.y, drag.from?.o);
-    else if (t2 && drag.from) { rk.push({ id: drag.id, ...drag.from }); saveRocket(); sfx.thud(); }     // spot taken: back where it was
-    else { poofs.push({ x: drag.x - drag.offX, y: drag.y - drag.offY, t: 0 }); if (t2) frameFlash = .6; sfx.pop(); saveRocket(); }
+    binState(false, false);
+    if (drag.bin || overBin(drag.x, drag.y)) { poofs.push({ x: drag.x, y: drag.y, t: 0 }); sfx.pop(); saveRocket(); }     // into the bin: gone
+    else if (t2 && t2.ok) place(drag.id, t2.x, t2.y, drag.from?.o);
+    else if (drag.from) { rk.push({ id: drag.id, ...drag.from }); saveRocket(); sfx.thud(); if (t2) frameFlash = .6; }     // nowhere to go: back where it was
+    else { poofs.push({ x: drag.x - drag.offX, y: drag.y - drag.offY, t: 0 }); if (t2) frameFlash = .6; sfx.pop(); }
     drag = null; layoutBuild(); return;
   }
   if (!pending || pending.pid !== e.pointerId) return;
@@ -1287,13 +1297,13 @@ function endPointer(e) {
       e0.o = (e0.o || 1) % n + 1;
       snapFx.push({ x: sx, y: sy, t: 0, r: buildCam.scale * .4 }); sfx.tab(); saveRocket(); pending = null; return;
     }
-    takeOff(pending.p.idx); poofs.push({ x: sx, y: sy, t: 0 });
-    sfx.pop(); saveRocket(); layoutBuild(); markTouched();
+    // other parts: a tap just tells what it is (drag it to the bin to throw it away)
+    tip = { id: e0.id, t: 0 }; snapFx.push({ x: sx, y: sy, t: 0, r: buildCam.scale * .3 });
   }
   pending = null;
 }
 cv.addEventListener('pointerup', endPointer);
-cv.addEventListener('pointercancel', e => { if (drag && drag.pid === e.pointerId) { drag.tgt = null; } endPointer(e); });
+cv.addEventListener('pointercancel', e => { if (drag && drag.pid === e.pointerId) { drag.tgt = null; drag.bin = false; } endPointer(e); });
 cv.addEventListener('wheel', e => {
   e.preventDefault();
   if (state === 'build' && trayHit(e.clientX, e.clientY)) { tray.scroll = clamp(tray.scroll + (e.deltaY || e.deltaX), 0, tray.maxScroll); return; }
