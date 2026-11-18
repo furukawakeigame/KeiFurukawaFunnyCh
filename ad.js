@@ -21,6 +21,8 @@
   const me = document.currentScript;
   const selector = me && me.dataset.result;
   const MIN_H = 600; // これより背の低い画面では出さない
+  const GAP = 150;    // 広告とボタンの間に空ける距離（AdSense の推奨）
+  const MIN_SCALE = 0.55; // これより縮めないと離せないときは、広告を出さない
   const SKIP = new Set(['SCRIPT', 'STYLE', 'LINK', 'NOSCRIPT', 'TEMPLATE', 'HEADER']);
 
   const style = document.createElement('style');
@@ -34,13 +36,20 @@
     #result-ad:has(ins[data-ad-status="unfilled"]) { display: none !important; }`;
   document.head.append(style);
 
-  let box = null, filled = false, on = false, scale = 1;
+  let box = null, filled = false, on = false, shown = false, blocked = false, scale = 1;
   const shrunk = new Map(); // 縮めた要素 → 元の style.scale / style.translate
 
   function build() {
     box = document.createElement('div');
     box.id = 'result-ad';
     box.innerHTML = '<p class="label"></p>';
+    const ins = document.createElement('ins');
+    ins.className = 'adsbygoogle';
+    // 背の高い画面は 320×100、それ以外は 320×50（ゲームを縮めすぎないため）
+    ins.style.height = (innerHeight >= 800 ? 100 : 50) + 'px';
+    ins.dataset.adClient = CLIENT;
+    ins.dataset.adSlot = SLOT;
+    box.append(ins);
     document.body.append(box);
   }
 
@@ -54,13 +63,6 @@
 
   function fill() {
     filled = true;
-    const ins = document.createElement('ins');
-    ins.className = 'adsbygoogle';
-    // 背の高い画面は 320×100、それ以外は 320×50（ゲームを縮めすぎないため）
-    ins.style.height = (innerHeight >= 800 ? 100 : 50) + 'px';
-    ins.dataset.adClient = CLIENT;
-    ins.dataset.adSlot = SLOT;
-    box.append(ins);
     const s = document.createElement('script');
     s.async = true; s.crossOrigin = 'anonymous';
     s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=' + CLIENT;
@@ -94,6 +96,38 @@
     }
   }
 
+  // 押せる部品（ヘッダーと広告の中は除く）で、画面に見えているもの
+  function buttons() {
+    return [...document.querySelectorAll('button, a[href], input, select, [role=button]')].filter(el => {
+      if (el.closest('header') || box.contains(el)) return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && r.top < innerHeight && r.bottom > 0 &&
+        (el.checkVisibility ? el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) : true);
+    });
+  }
+
+  // 縮めたあとでも、ボタンが広告から GAP 以上離れる倍率
+  function scaleForButtons(adBottom) {
+    let s = 1;
+    for (const el of buttons()) {
+      const top = el.getBoundingClientRect().top;
+      s = Math.min(s, (innerHeight - adBottom - GAP) / (innerHeight - top));
+    }
+    return s;
+  }
+
+  function tooClose() {
+    const adBottom = box.getBoundingClientRect().bottom;
+    return buttons().some(el => el.getBoundingClientRect().top < adBottom + GAP);
+  }
+
+  function hideAd() {
+    if (shown && on) blocked = true; // この結果の間はもう出さない（出たり消えたりしないように）
+    shown = false;
+    if (box) box.classList.remove('on');
+    unshrink();
+  }
+
   function unshrink() {
     for (const [el, [s, t]] of shrunk) { el.style.scale = s; el.style.translate = t; }
     shrunk.clear();
@@ -101,23 +135,26 @@
 
   window.resultAd = show => {
     if (show === on) return;
-    if (show && innerHeight < MIN_H) return;
     on = show;
-    if (show) {
-      if (!box) build();
-      box.querySelector('.label').textContent = label();
-      const header = document.querySelector('header');
-      box.style.top = (header ? Math.max(6, header.getBoundingClientRect().bottom + 6) : 6) + 'px';
-      if (!filled) fill();
-      box.classList.add('on');
-      scale = Math.min(1, (innerHeight - box.getBoundingClientRect().bottom - 8) / innerHeight);
-      shrunk.clear();
-      shrink();
-    } else {
-      if (box) box.classList.remove('on');
-      unshrink();
-    }
+    if (!show) { hideAd(); blocked = false; return; }
+    tryShow();
   };
+
+  function tryShow() {
+    if (innerHeight < MIN_H || blocked) return;
+    if (!box) build();
+    box.querySelector('.label').textContent = label();
+    const header = document.querySelector('header');
+    box.style.top = (header ? Math.max(6, header.getBoundingClientRect().bottom + 6) : 6) + 'px';
+    box.classList.add('on');
+    const adBottom = box.getBoundingClientRect().bottom;
+    scale = Math.min(1, (innerHeight - adBottom - 8) / innerHeight, scaleForButtons(adBottom));
+    if (scale < MIN_SCALE) { box.classList.remove('on'); return; } // ボタンから離せないので出さない
+    if (!filled) fill();
+    shown = true;
+    shrunk.clear();
+    shrink();
+  }
 
   // data-result の要素が見えているかを 0.4 秒ごとに確かめる（結果中は、あとから出た要素も縮める）
   const visible = el => el && (el.checkVisibility
@@ -125,6 +162,7 @@
     : el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden');
   setInterval(() => {
     if (selector) resultAd(visible(document.querySelector(selector)));
-    if (on) shrink();
+    if (shown) { shrink(); if (tooClose()) hideAd(); } // あとから広告の近くにボタンが出たら、広告をやめる
+    else if (on) tryShow(); // ボタンが動いている途中などで出せなかったら、もう一度試す
   }, 400);
 })();
