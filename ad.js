@@ -13,7 +13,7 @@
 // ・背の低い画面（横向きスマホなど）では出さない
 (() => {
   const CLIENT = 'ca-pub-6939356439579496';
-  const SLOT = ''; // AdSense の広告ユニット「結果画面」の data-ad-slot（10桁）。空なら何もしない
+  const SLOT = '1935432497'; // AdSense の広告ユニット「結果画面」の data-ad-slot（10桁）。空なら何もしない
   if (!SLOT) { window.resultAd = () => {}; return; }
 
   const me = document.currentScript;
