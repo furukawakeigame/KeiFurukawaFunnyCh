@@ -47,9 +47,6 @@
     #launch.pulse { animation: pulse 1.2s ease-in-out infinite; }
     @keyframes pulse { 50% { scale: 1.08; } }
     #clear { width: 46px; height: 46px; padding: 0; }
-    .ctrl { width: clamp(64px, 11vmin, 96px); height: clamp(64px, 11vmin, 96px); padding: 0; background: rgba(255,253,246,.8); bottom: calc(84px + env(safe-area-inset-bottom)); }
-    .ctrl.on { background: #ffe08a; }
-    #left { left: 14px; } #right { right: 14px; }
     #result { position: fixed; left: 0; right: 0; top: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: calc(58px + 2vh) 16px 0; pointer-events: none; }
     #result[hidden] { display: none; }
     #result > * { pointer-events: auto; }
@@ -86,12 +83,6 @@
     </button>
     <button id="clear" class="btn sk" hidden aria-label="clear">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2d2a32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16M9 6V4h6v2M6 7l1 13h10l1-13M10 10.5v6.5M14 10.5v6.5"/></svg>
-    </button>
-    <button id="left" class="btn sk ctrl" hidden aria-label="left">
-      <svg width="44" height="44" viewBox="0 0 40 40" fill="none" stroke="#2d2a32" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M30 28c-2-9-8-13-16-13M18 9l-6 6 6 6"/></svg>
-    </button>
-    <button id="right" class="btn sk ctrl" hidden aria-label="right">
-      <svg width="44" height="44" viewBox="0 0 40 40" fill="none" stroke="#2d2a32" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10 28c2-9 8-13 16-13M22 9l6 6-6 6"/></svg>
     </button>
     <div id="result" hidden>
       <p class="big" id="rAlt"></p>
@@ -828,7 +819,7 @@ function physStep(dt, u) {
   const thrFrac = T > 0 ? 1 : 0;
   const ctrl = 1 + r.gyro * 3 + r.rcs * 5 * (.2 + .8 * sp) + r.fins * Math.min(q, 500) / 500 * 6 + gim * 7 * thrFrac;
   tau += u * ctrl;
-  if (!u && r.gyro) tau -= r.gyro * 2.5 * r.w;          // gyros hold the heading
+  if (Math.abs(u) < .05 && r.gyro) tau -= r.gyro * 2.5 * r.w;          // gyros hold the heading
   // gusty air nudges every rocket; fins pull it back, an unstable one runs away with it
   tau += Math.min(q, 400) * .004 * (Math.sin(r.t * 3.1 + windT) + Math.sin(r.t * 5.7) * .6);
   if (r.wobble) tau += r.wobble * Math.min(q, 400) * .012 * Math.sin(r.t * 7.3) * Math.sin(r.t * 2.1);
@@ -935,11 +926,12 @@ function hitObstacle() {
 // ================= game state =================
 let state = 'build';     // build | flight | over | result
 let overT = 0, overKind = '', result = null, best = store.get('best', 0), bestMoon = store.get('bestMoon', false);
-let keysL = false, keysR = false, touchDir = new Map(), prevR = null, warp = 1;
+let keysL = false, keysR = false, steerDrag = null, prevR = null, warp = 1, steered = store.get('steered', false);
 let touched = store.get('touched', false);
 
 function launch() {
   if (state !== 'build') return;
+  steerDrag = null;
   if (!rk.length) return;
   saveRocket();
   makeFlight();
@@ -999,7 +991,6 @@ $('clear').onclick = () => { if (!rk.length) return; for (const p of layout(rk).
 function setUI() {
   $('launch').hidden = state !== 'build';
   $('clear').hidden = state !== 'build';
-  $('left').hidden = $('right').hidden = state !== 'flight';
   $('result').hidden = state !== 'result';
   $('launch').classList.toggle('pulse', !touched);
 }
@@ -1203,7 +1194,7 @@ function markTouched() { if (!touched) { touched = true; store.set('touched', tr
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
   const x = e.clientX, y = e.clientY;
-  if (state === 'flight') { touchDir.set(e.pointerId, x < W / 2 ? -1 : 1); return; }
+  if (state === 'flight') { if (!steerDrag) { steerDrag = { pid: e.pointerId, x0: x, y0: y, x }; cv.setPointerCapture(e.pointerId); } return; }
   if (state !== 'build') return;
   cv.setPointerCapture(e.pointerId);
   const th = trayHit(x, y);
@@ -1215,7 +1206,16 @@ cv.addEventListener('pointerdown', e => {
 });
 cv.addEventListener('pointermove', e => {
   const x = e.clientX, y = e.clientY;
-  if (state === 'flight') { if (touchDir.has(e.pointerId)) touchDir.set(e.pointerId, x < W / 2 ? -1 : 1); return; }
+  if (state === 'flight') {
+    if (steerDrag && steerDrag.pid === e.pointerId) {
+      steerDrag.x = x;
+      // past full lock the centre follows the finger, so turning back answers at once
+      const R2 = STEER_PX();
+      if (x - steerDrag.x0 > R2) steerDrag.x0 = x - R2; else if (steerDrag.x0 - x > R2) steerDrag.x0 = x + R2;
+      if (!steered && Math.abs(x - steerDrag.x0) > 10) { steered = true; store.set('steered', true); }
+    }
+    return;
+  }
   if (drag && drag.pid === e.pointerId) { drag.x = x; drag.y = y; drag.tgt = dropTarget(drag.id, x, y - drag.off); return; }
   if (!pending || pending.pid !== e.pointerId) return;
   const dx = x - pending.x0, dy = y - pending.y0;
@@ -1240,7 +1240,7 @@ function startDrag(id, side, x, y, pid) {
   tip = { id, t: 0 }; markTouched();
 }
 function endPointer(e) {
-  touchDir.delete(e.pointerId);
+  if (steerDrag && steerDrag.pid === e.pointerId) steerDrag = null;
   if (state !== 'build') return;
   if (drag && drag.pid === e.pointerId) {
     const ok = place(drag.id, drag.tgt);
@@ -1269,17 +1269,32 @@ addEventListener('keydown', e => {
   if ((e.key === ' ' || e.key === 'Enter') && state === 'build' && document.activeElement?.tagName !== 'SELECT') { e.preventDefault(); launch(); }
 });
 addEventListener('keyup', e => { if (keyDir[e.key] === 'L') keysL = false; if (keyDir[e.key] === 'R') keysR = false; });
-addEventListener('blur', () => { keysL = keysR = false; touchDir.clear(); });
-for (const [id, dir] of [['left', -1], ['right', 1]]) {
-  const b = $(id);
-  b.addEventListener('pointerdown', e => { e.preventDefault(); touchDir.set('b' + id + e.pointerId, dir); b.classList.add('on'); });
-  const up = e => { touchDir.delete('b' + id + e.pointerId); b.classList.remove('on'); };
-  b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('pointerleave', up);
-}
+addEventListener('blur', () => { keysL = keysR = false; steerDrag = null; });
+// dragging sideways steers: how far the finger moves from where it went down sets how hard
+const STEER_PX = () => clamp(Math.min(W, H) * .12, 45, 90);
 function steer() {
   let u = (keysR ? 1 : 0) - (keysL ? 1 : 0);
-  for (const v of touchDir.values()) u += v;
+  if (steerDrag) u += (steerDrag.x - steerDrag.x0) / STEER_PX();
   return clamp(u, -1, 1);
+}
+// the steering knob under the finger, and a hint before the first steer
+function drawSteer(g) {
+  const p = Pen(g, 40, 61 + frame), R2 = STEER_PX();
+  if (steerDrag) {
+    const { x0, y0 } = steerDrag, kx = x0 + clamp(steerDrag.x - x0, -R2, R2);
+    g.save(); g.globalAlpha = .8;
+    p.line([[x0 - R2, y0], [x0 + R2, y0]], false, 3);
+    for (const sgn of [-1, 1]) p.line([[x0 + sgn * (R2 - 10), y0 - 8], [x0 + sgn * R2, y0], [x0 + sgn * (R2 - 10), y0 + 8]], false, 3);
+    p.shape(p.ell(kx, y0, 18, 18, 14), '#ffe08a', 2.5);
+    g.restore();
+  } else if (!steered && state === 'flight') {
+    const t2 = performance.now() / 1000, cx = W / 2, cy = H - BOTTOM - 60, off = Math.sin(t2 * 3) * 34;
+    g.save(); g.globalAlpha = .75;
+    p.line([[cx - 70, cy], [cx + 70, cy]], false, 3, COL.red);
+    for (const sgn of [-1, 1]) p.line([[cx + sgn * 58, cy - 10], [cx + sgn * 72, cy], [cx + sgn * 58, cy + 10]], false, 3, COL.red);
+    p.shape(p.ell(cx + off, cy, 16, 16, 14), '#fffdf6', 2.5);
+    g.restore();
+  }
 }
 // no long-press magnifier / menus
 document.addEventListener('touchstart', e => { if (!e.target.closest('a, button, select, input')) e.preventDefault(); }, { passive: false });
@@ -1569,7 +1584,7 @@ function drawMoonArrow(g) {
 
 // altimeter: a pencil line on the right with clouds, space and the Moon marked
 function drawAltimeter(g, alt) {
-  const x = W - 22, y0 = H - BOTTOM - clamp(11 * Math.min(W, H) / 100, 64, 96) - 30, y1 = 70;
+  const x = W - 22, y0 = H - BOTTOM - 24, y1 = 70;
   const pos = a => y0 - (Math.log10(1 + Math.max(0, a) / 10) / Math.log10(1 + MOON_Y / 10)) * (y0 - y1);
   const p = Pen(g, 30, 5);
   p.line([[x, y0], [x, y1]], false, 2.2);
@@ -1584,7 +1599,7 @@ function drawFuelGauge(g) {
   const f = R.fuelMax[R.active] ? R.fuel[R.active] / R.fuelMax[R.active] : 0;
   const own = R.parts.filter(p => PARTS[p.id].own && (p.stage === R.active || p.side)).map(p => p.own / PARTS[p.id].own);
   const k = R.fuelMax[R.active] ? f : own.length ? Math.max(...own) : 0;
-  const x = 18, y0 = H - BOTTOM - clamp(11 * Math.min(W, H) / 100, 64, 96) - 30, h = Math.min(160, (H - BOTTOM - 260) * .6), w = 16;
+  const x = 18, y0 = H - BOTTOM - 24, h = Math.min(170, (H - BOTTOM - 140) * .5), w = 16;
   const p = Pen(g, 30, 9);
   drop(g, x + w / 2, y0 - h - 18, 8);
   p.fill(p.rect(x, y0 - h * k, w, h * k), k > .25 ? COL.orange : COL.red);
@@ -1867,6 +1882,7 @@ function drawFlight(fdt, k, frame) {
   ctx.restore();
   // HUD
   if (state === 'flight') {
+    drawSteer(ctx);
     drawAltimeter(ctx, R.y - R.y0);
     drawFuelGauge(ctx);
     if (R.y - R.y0 > 600 && !moonVisible) drawMoonArrow(ctx);
