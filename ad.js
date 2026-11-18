@@ -111,7 +111,7 @@
     let s = 1;
     for (const el of buttons()) {
       const top = el.getBoundingClientRect().top;
-      s = Math.min(s, (innerHeight - adBottom - GAP) / (innerHeight - top));
+      s = Math.min(s, (innerHeight - adBottom - GAP - 4) / (innerHeight - top)); // 4px of slack so rounding never lands a button just inside the gap
     }
     return s;
   }
