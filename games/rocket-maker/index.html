@@ -1177,7 +1177,7 @@ const screenToBuild = (sx, sy) => [(sx - buildCam.cx) / buildCam.scale, (buildCa
 const worldToScreen = (x, y) => [W / 2 + (x - cam.x) * cam.scale, H * cam.sy - (y - cam.y) * cam.scale];
 
 // ================= build interaction =================
-let pending = null, drag = null, tip = null, poofs = [], snapFx = [];
+let pending = null, drag = null, tip = null, poofs = [], snapFx = [], nudge = null;
 function inRect(x, y, r) { return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
 function cellRect(c) { return tray.vertical ? { ...c, y: c.y - tray.scroll } : { ...c, x: c.x - tray.scroll }; }
 function trayHit(x, y) {
@@ -1212,40 +1212,6 @@ function place(id, tgt) {
   const lay = layout(rk);
   for (const q of lay.parts.filter(q => made.includes(q.idx))) { const [sx, sy] = buildToScreen(q.x, q.y); snapFx.push({ x: sx, y: sy, t: 0, r: Math.max(q.w, q.h) * buildCam.scale * .5 }); }
   return true;
-}
-// the up-down spine through the first part
-function spine() {
-  if (!rk.length) return [];
-  const root = rk.findIndex(e => e.p < 0), out = [root];
-  const kid = (i, s) => rk.findIndex(e => e.p === i && e.at === s);
-  for (let i = kid(root, 't'); i >= 0; i = kid(i, 't')) out.unshift(i);
-  for (let i = kid(root, 'b'); i >= 0; i = kid(i, 'b')) out.push(i);
-  return out;
-}
-// a tap on a part in the tray puts it somewhere sensible
-function autoAdd(id) {
-  const d = PARTS[id];
-  if (!rk.length) { place(id, { main: { root: true } }); return; }
-  let lay = layout(rk), cands = candidates(id, rk, lay), sp = spine();
-  const pick = (i, s, ins = -1) => cands.find(c => c.p === i && c.at === s && (ins < 0 || c.insert === ins));
-  let c = null;
-  if (d.cat === 'nose') {
-    if (PARTS[rk[sp[0]].id].cat === 'nose') { removePart(sp[0]); lay = layout(rk); cands = candidates(id, rk, lay); sp = spine(); }
-    c = pick(sp[0], 't');
-  } else if (d.cat === 'body') {
-    const k = sp.findIndex(i => PARTS[rk[i].id].cat === 'engine');
-    if (k > 0) { const up = sp[k - 1], lo = sp[k]; c = rk[lo].p === up ? pick(up, 'b', lo) : pick(lo, 't', up); }
-    if (!c) c = pick(sp[sp.length - 1], 'b') || pick(sp[0], 't');
-  } else if (d.cat === 'engine') {
-    c = pick(sp[sp.length - 1], 'b');
-  } else {
-    // side parts: fins go low, the rest prefer a tank-like part, from the bottom up
-    const order = [...sp].reverse();
-    const pref = d.fin || d.rcs ? order : [...order.filter(i => PARTS[rk[i].id].cat === 'body'), ...order];
-    for (const i of pref) { c = pick(i, 'r') || pick(i, 'l'); if (c) break; }
-  }
-  if (!c) { frameFlash = .6; sfx.pop(); return; }
-  place(id, { main: c });
 }
 function markTouched() { if (!touched) { touched = true; store.set('touched', true); setUI(); } }
 
@@ -1350,7 +1316,8 @@ function endPointer(e) {
     drag = null; return;
   }
   if (!pending || pending.pid !== e.pointerId) return;
-  if (pending.type === 'tray' && !pending.scrolling) { autoAdd(pending.id); markTouched(); }
+  // a tap only shows what the part is; the part hops toward the rocket to show it wants dragging
+  if (pending.type === 'tray' && !pending.scrolling) { tip = { id: pending.id, t: 0 }; nudge = { id: pending.id, t0: performance.now() }; }
   if (pending.type === 'part') {
     // puffs on every part that disappears (the part itself and anything hanging only from it)
     const before = layout(rk).parts.map(q => ({ obj: rk[q.idx], x: q.x, y: q.y }));
@@ -1752,6 +1719,7 @@ function catIcon(g, cat, x, y, s, on) {
   drawPart(g, ic, x, y, s * .55, 0, false, on ? 1 : .65);
 }
 function drawTray(g, frame) {
+  if (nudge) { nudge.t = (performance.now() - nudge.t0) / 1000; if (nudge.t > .5) nudge = null; }
   const p = Pen(g, 40, 3);
   // paper strip behind the tray
   const bx = tray.vertical ? tray.x : 0, by = tray.vertical ? tray.y - 6 : tray.y - 6;
@@ -1773,8 +1741,11 @@ function drawTray(g, frame) {
     if (r.x > W || r.x + r.w < 0 || r.y > H || r.y + r.h < tray.y - 2) continue;
     const box = p.rrect(r.x, r.y, r.w, r.h, 10);
     p.fill(box, tip?.id === c.id ? '#fff3c4' : '#fffdf6', false); p.line(box, true, 1.6, '#7a7480');
-    const d = PARTS[c.id], k = Math.min(r.w * .78 / (d.w + (d.cat === 'side' ? 0 : 0)), r.h * .78 / d.h);
-    drawPart(g, c.id, r.x + r.w / 2, r.y + r.h / 2, Math.min(k, r.w * .7), frame);
+    const d = PARTS[c.id], k = Math.min(r.w * .78 / d.w, r.h * .78 / d.h);
+    let hop = 0;
+    if (nudge && nudge.id === c.id) hop = Math.sin(Math.min(1, nudge.t / .5) * Math.PI * 2) * Math.max(0, 1 - nudge.t / .5) * r.h * .25;
+    const hx = tray.vertical ? -Math.abs(hop) : 0, hy = tray.vertical ? 0 : -Math.abs(hop);
+    drawPart(g, c.id, r.x + r.w / 2 + hx, r.y + r.h / 2 + hy, Math.min(k, r.w * .7), frame);
   }
   g.restore();
   // scroll hint: a fade at the edge
