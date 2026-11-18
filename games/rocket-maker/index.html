@@ -757,9 +757,11 @@ function physStep(dt, u) {
   let T = 0, gim = 0, usedFuel = 0, tauT = 0;
   const mix = { fire: 0, jet: 0, ion: 0, spark: 0, water: 0 };
   let stageCan = false, stageEngines = 0;
+  const stunned = r.stun > 0; if (stunned) r.stun -= dt;
   for (const p of r.parts) {
     const d = PARTS[p.id]; p.burning = false;
     if (!d.T) continue;
+    if (stunned) { stageCan = true; continue; }       // struck by lightning: engines cough for a moment
     if (p.side) {
       // side boosters fire from lift-off until empty, then fall away
       if (p.own > 0) { p.own -= dt; p.burning = true; const f = d.T * (1 + .1 * sp); T += f; tauT -= (p.x - r.comX) * f; mix.fire += d.T / 60; }
@@ -899,28 +901,61 @@ function stepObstacles(dt) {
   for (const o of obstacles) {
     o.ph += dt;
     if (o.kind === 'ufo') { o.x = o.bx + Math.sin(o.ph * .8) * 14; o.y += Math.sin(o.ph * 1.7) * dt * 2; }
-    else { o.x += o.vx * dt; o.y += o.vy * dt; }
+    else { if (o.hit && o.kind === 'bird') o.vy -= 6 * dt; o.x += o.vx * dt; o.y += o.vy * dt; }
   }
   const alt = R.y;
   obstacles = obstacles.filter(o => o.y > alt - 400 && Math.abs(o.x - R.x) < 600);
 }
 function hitObstacle() {
-  if (!R.parts.length) return null;
-  const segs = R.parts.map(p => { const rr = Math.min(p.w, p.h) * .45, half = Math.max(0, Math.max(p.w, p.h) / 2 - rr), vert = p.h >= p.w; return [toWorld(p.x - (vert ? 0 : half), p.y - (vert ? half : 0)), toWorld(p.x + (vert ? 0 : half), p.y + (vert ? half : 0)), rr]; });
+  if (!R.parts.length || R.inv > 0) return null;
+  const segs = R.parts.map(p => { const rr = Math.min(p.w, p.h) * .45, half = Math.max(0, Math.max(p.w, p.h) / 2 - rr), vert = p.h >= p.w; return [toWorld(p.x - (vert ? 0 : half), p.y - (vert ? half : 0)), toWorld(p.x + (vert ? 0 : half), p.y + (vert ? half : 0)), rr, p]; });
   for (const o of obstacles) {
+    if (o.hit) continue;
     let px = o.x, py = o.y, rr = o.r;
     if (o.kind === 'plane') { // the plane is long: test the nearest point on its body
       const k = clamp((R.x - (o.x - o.len / 2)) / o.len, 0, 1); px = o.x - o.len / 2 + k * o.len; rr = 1;
     }
     if (o.kind === 'storm' && Math.sin(o.ph * 2.2) < .55) rr *= .0; // the cloud only bites when it flashes
     if (rr <= 0) continue;
-    for (const [[ax, ay], [bx, by], rad] of segs) {
+    for (const [[ax, ay], [bx, by], rad, part] of segs) {
       const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
       const k = clamp(((px - ax) * dx + (py - ay) * dy) / l2, 0, 1);
-      if (Math.hypot(ax + dx * k - px, ay + dy * k - py) < rad + rr) return o;
+      if (Math.hypot(ax + dx * k - px, ay + dy * k - py) < rad + rr * (o.kind === 'bird' ? .8 : 1)) return { o, part, px, py };
     }
   }
   return null;
+}
+// what a collision does: birds bonk, lightning stuns the engines, anything big knocks off the part it hit
+function handleHit({ o, part, px, py }) {
+  o.hit = true; R.inv = .6;
+  const [wx, wy] = toWorld(part.x, part.y);
+  const side = Math.sign(wx - px) || (Math.random() < .5 ? -1 : 1);   // pushed away from the obstacle
+  if (o.kind === 'bird') {
+    R.w -= side * 1.2 / R.I; R.vx += side * 6 / R.m; R.vy *= .96;   // heavier rockets barely notice
+    o.vy = 3; o.vx = -side * 4;
+    for (let i = 0; i < 7; i++) particles.push({ kind: 'puff', x: px, y: py, vx: (Math.random() - .5) * 6, vy: Math.random() * 4, r: .18, grow: .1, life: .9, max: .9, color: '#ffffff' });
+    sfx.thud(); tone(1800, 900, .12, { type: 'triangle', vol: .12, delay: .03 });
+    return;
+  }
+  if (o.kind === 'storm') {
+    R.stun = 1; R.w += (Math.random() - .5) * 2 / R.I;
+    for (let i = 0; i < 10; i++) particles.push({ kind: 'puff', front: 1, x: wx, y: wy, vx: (Math.random() - .5) * 8, vy: (Math.random() - .5) * 8, r: .15, grow: .2, life: .5, max: .5, color: COL.yellow });
+    sfx.zap();
+    return;
+  }
+  // plane, satellite, UFO, meteor: the part that was hit breaks off
+  const k = o.kind === 'meteor' ? 1.4 : 1;
+  R.w -= side * 4 * k / R.I; R.vx += side * 12 * k / R.m; R.vy *= .9;
+  debris.push({ id: part.id, x: wx, y: wy, vx: R.vx + side * 9, vy: R.vy + 4, th: R.th, w: side * 6, mirror: part.side < 0, life: 6, burnt: true });
+  R.parts = R.parts.filter(q => q !== part);
+  R.balloons = R.balloons.filter(q => q !== part);
+  if (R.parts.length) recalc();
+  for (let i = 0; i < 12; i++) particles.push({ kind: 'puff', front: 1, x: wx, y: wy, vx: (Math.random() - .5) * 9, vy: (Math.random() - .5) * 9, r: .3, grow: 1.2, life: .6, max: .6, color: [COL.orange, COL.yellow, '#999'][i % 3] });
+  particles.push({ kind: 'boom', front: 1, x: wx, y: wy, vx: 0, vy: 0, r: 1, life: .3, max: .5 });
+  sfx.boom(.45);
+  if (o.kind === 'meteor') o.r = 0;                 // the rock shatters too
+  else { o.vx *= .6; o.vy = -6; }
+  if (PARTS[part.id].cats) setTimeout(() => meow(false), 150);
 }
 
 // ================= game state =================
@@ -1475,9 +1510,11 @@ function drawObstacle(g, o, frame) {
   if (sx < -s * 10 || sx > W + s * 10 || sy < -s * 10 || sy > H + s * 10) return;
   const p = Pen(g, s, 77 + frame + (o.seed || 0) % 50);
   if (o.kind === 'bird') {
-    const f = Math.sin(o.ph * 12) * .5, d = Math.sign(o.vx) || 1;
+    if (o.hit) { g.save(); g.translate(sx, sy); g.rotate(o.ph * 9); g.translate(-sx, -sy); }
+    const f = o.hit ? .3 : Math.sin(o.ph * 12) * .5, d = Math.sign(o.vx) || 1;
     p.line([[sx - s * .7, sy - s * f * .6], [sx - s * .25, sy - s * .1], [sx, sy + s * .1], [sx + s * .25, sy - s * .1], [sx + s * .7, sy - s * f * .6]], false, Math.max(1.5, s * .1));
     p.dot(sx + d * s * .05, sy + s * .08, Math.max(1.5, s * .12), INK);
+    if (o.hit) g.restore();
   } else if (o.kind === 'plane') {
     const d = Math.sign(o.vx) || 1, Lh = o.len * s / 2;
     g.save(); g.translate(sx, sy); g.scale(d, 1);
@@ -1909,8 +1946,12 @@ function update(dt) {
       stepObstacles(DT);
       for (const d of debris) { d.vy -= G0 * DT; d.x += d.vx * DT; d.y += d.vy * DT; d.th += d.w * DT; if (d.y < 0) { d.y = 0; d.vy = 0; d.vx *= .9; d.w *= .9; } }
       if (res) { endFlight(res); break; }
+      if (R.inv > 0) R.inv -= DT;
       const hit = hitObstacle();
-      if (hit) { if (hit.kind === 'storm') sfx.zap(); else if (hit.kind === 'bird') sfx.thud(); endFlight('hit'); break; }
+      if (hit) {
+        handleHit(hit);
+        if (!R.parts.length) { R.parts = []; endFlight('hit'); break; }
+      }
       // out of push and heading down: the flight is over
       const altNow = R.y - R.y0;
       if (R.thrust === 0 && !R.onPad && R.vy < 0) {
