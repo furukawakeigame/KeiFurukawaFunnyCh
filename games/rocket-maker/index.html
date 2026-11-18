@@ -1110,6 +1110,7 @@ function resize() {
   W = innerWidth; H = innerHeight;
   cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  buildView = null;
   layoutBuild();
 }
 addEventListener('resize', resize);
@@ -1149,6 +1150,7 @@ function layoutBuild() {
   buildCam.scale = sc;
   buildCam.groundY = buildArea.y + buildArea.h - Math.max(18, sc * .6);
   buildCam.cx = buildArea.x + buildArea.w / 2 - (lay.minX + lay.maxX) / 2 * sc;
+  if (buildView) { buildCam.scale = buildView.scale; buildCam.cx = buildView.cx; buildCam.groundY = buildView.gy; }
   // DOM buttons beside the rocket
   const lb = $('launch'), cb = $('clear');
   if (!vertical) {
@@ -1240,20 +1242,60 @@ function autoAdd(id) {
 }
 function markTouched() { if (!touched) { touched = true; store.set('touched', true); setUI(); } }
 
+const capture = id => { try { cv.setPointerCapture(id); } catch {} };
+// ---- pinch zoom: in the workshop it zooms and pans the view, in flight it zooms the camera ----
+const touches = new Map();
+let pinch = null, buildView = null, flightZoom = 1, lastTap = 0;
+const curView = () => ({ scale: buildCam.scale, cx: buildCam.cx, gy: buildCam.groundY });
+function pinchInfo() { const [a, b] = [...touches.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }; }
+function zoomBuildAt(sx, sy, k) {
+  const v = curView(), ns = clamp(v.scale * k, 8, 220), kk = ns / v.scale;
+  buildView = { scale: ns, cx: sx - (sx - v.cx) * kk, gy: sy - (sy - v.gy) * kk };
+  layoutBuild();
+}
+cv.addEventListener('pointerdown', e => {
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size === 2 && !drag && (state === 'build' || state === 'flight' || state === 'over' || state === 'result')) {
+    pending = null; steerDrag = null; lastTap = 0;
+    pinch = { ...pinchInfo(), view: curView(), fz: flightZoom };
+  }
+});
+cv.addEventListener('pointermove', e => {
+  if (!touches.has(e.pointerId)) return;
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (!pinch || touches.size < 2) return;
+  const info = pinchInfo();
+  if (state === 'build') {
+    const v = pinch.view, ns = clamp(v.scale * info.d / pinch.d, 8, 220), kk = ns / v.scale;
+    buildView = { scale: ns, cx: info.mx - (pinch.mx - v.cx) * kk, gy: info.my - (pinch.my - v.gy) * kk };
+    layoutBuild();
+  } else flightZoom = clamp(pinch.fz * info.d / pinch.d, .4, 3);
+});
+const dropTouch = e => { touches.delete(e.pointerId); if (pinch && touches.size < 2) { pinch = null; pending = null; } };
+cv.addEventListener('pointerup', dropTouch);
+cv.addEventListener('pointercancel', dropTouch);
+
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
+  if (pinch) return;
   const x = e.clientX, y = e.clientY;
-  if (state === 'flight') { if (!steerDrag) { steerDrag = { pid: e.pointerId, x0: x, y0: y, x }; cv.setPointerCapture(e.pointerId); } return; }
+  if (state === 'flight') { if (!steerDrag) { steerDrag = { pid: e.pointerId, x0: x, y0: y, x }; capture(e.pointerId); } return; }
   if (state !== 'build') return;
-  cv.setPointerCapture(e.pointerId);
+  capture(e.pointerId);
   const th = trayHit(x, y);
   if (th?.tab) { tray.cat = th.tab; tray.scroll = 0; layoutBuild(); sfx.tab(); return; }
   if (th?.id) { pending = { type: 'tray', id: th.id, x0: x, y0: y, s0: tray.scroll, pid: e.pointerId }; tip = { id: th.id, t: 0 }; sfx.pick(); return; }
   if (th?.tray) { pending = { type: 'scroll', x0: x, y0: y, s0: tray.scroll, pid: e.pointerId }; return; }
   const p = partHit(x, y);
-  if (p) { pending = { type: 'part', p, x0: x, y0: y, pid: e.pointerId }; tip = { id: p.id, t: 0 }; }
+  if (p) { pending = { type: 'part', p, x0: x, y0: y, pid: e.pointerId }; tip = { id: p.id, t: 0 }; return; }
+  // empty paper: drag to move the view, double-tap to fit the rocket again
+  const now = performance.now();
+  if (now - lastTap < 320 && buildView) { buildView = null; layoutBuild(); lastTap = 0; return; }
+  lastTap = now;
+  pending = { type: 'pan', x0: x, y0: y, view: curView(), pid: e.pointerId };
 });
 cv.addEventListener('pointermove', e => {
+  if (pinch) return;
   const x = e.clientX, y = e.clientY;
   if (state === 'flight') {
     if (steerDrag && steerDrag.pid === e.pointerId) {
@@ -1268,6 +1310,10 @@ cv.addEventListener('pointermove', e => {
   if (drag && drag.pid === e.pointerId) { drag.x = x; drag.y = y; drag.tgt = dropTarget(drag.id, x, y - drag.off); return; }
   if (!pending || pending.pid !== e.pointerId) return;
   const dx = x - pending.x0, dy = y - pending.y0;
+  if (pending.type === 'pan') {
+    if (Math.hypot(dx, dy) > 4 || pending.moved) { pending.moved = true; buildView = { scale: pending.view.scale, cx: pending.view.cx + dx, gy: pending.view.gy + dy }; layoutBuild(); }
+    return;
+  }
   const along = tray.vertical ? dy : dx, across = tray.vertical ? -dx : -dy;
   if (pending.type === 'tray' || pending.type === 'scroll') {
     if (pending.type === 'tray' && across > 12 && across > Math.abs(along)) { startDrag(pending.id, null, x, y, e.pointerId); pending = null; return; }
@@ -1309,7 +1355,13 @@ function endPointer(e) {
 }
 cv.addEventListener('pointerup', endPointer);
 cv.addEventListener('pointercancel', e => { if (drag && drag.pid === e.pointerId) { drag.tgt = null; } endPointer(e); });
-cv.addEventListener('wheel', e => { if (state === 'build' && trayHit(e.clientX, e.clientY)) { tray.scroll = clamp(tray.scroll + (e.deltaY || e.deltaX), 0, tray.maxScroll); e.preventDefault(); } }, { passive: false });
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (state === 'build' && trayHit(e.clientX, e.clientY)) { tray.scroll = clamp(tray.scroll + (e.deltaY || e.deltaX), 0, tray.maxScroll); return; }
+  const k = Math.exp(-clamp(e.deltaY, -100, 100) * .0015);
+  if (state === 'build') zoomBuildAt(e.clientX, e.clientY, k);
+  else flightZoom = clamp(flightZoom * k, .4, 3);
+}, { passive: false });
 
 // flight controls
 const keyDir = { ArrowLeft: 'L', a: 'L', A: 'L', ArrowRight: 'R', d: 'R', D: 'R' };
@@ -1855,7 +1907,7 @@ function drawFlight(fdt, k, frame) {
   if (state === 'over' || state === 'result') viewU = clamp(rocketLen * 3 + 6, 10, 60);
   if (overKind === 'moon') viewU = rocketLen * 2.6 + 8;
   const avail = Math.min(W, H - BOTTOM - 60);
-  const tScale = avail / viewU;
+  const tScale = avail / viewU * flightZoom;
   cam.scale = lerp(cam.scale, tScale, Math.min(1, fdt * 2.5));
   const sy = state === 'result' ? .64 : .55;
   cam.sy = lerp(cam.sy, sy, Math.min(1, fdt * 3));
