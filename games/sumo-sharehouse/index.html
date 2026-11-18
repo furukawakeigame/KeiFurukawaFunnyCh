@@ -361,7 +361,7 @@
     function buildRoom(w, d) {
       RW = w; RD = d; X0 = -w / 2; X1 = w / 2; Z0 = -d / 2; Z1 = d / 2;
       // 待つ場所: 横長の画面では右手前、縦長では正面
-      if (w > d) WAIT.set(X1 + 0.75, 0, Z1 + 0.85); else WAIT.set(0, 0, Z1 + 1.25);
+      if (w > d) WAIT.set(X1 + 0.7, 0, Z1 + 0.65); else WAIT.set(0, 0, Z1 + 1.25);
       buildPath();
       houseG.clear(); walls.length = 0;
       // 土台と縁側
@@ -605,7 +605,7 @@
     const splinterM = mat('#9a6a3e', 0.7);
     const sphG = new THREE.SphereGeometry(1, 8, 6), boxG = new THREE.BoxGeometry(1, 1, 1);
     function particle(m, geo, x, y, z, vx, vy, vz, s, life, grav = 9.8) {
-      const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.scale.setScalar(s); scene.add(o);
+      const o = new THREE.Mesh(geo, m === dustM ? m.clone() : m); o.position.set(x, y, z); o.scale.setScalar(s); scene.add(o);
       parts.push({ o, vx, vy, vz, life, t: 0, s, grav, spin: geo === boxG ? [rnd(-9, 9), rnd(-9, 9)] : null });
     }
     function stepParts(dt) {
@@ -614,9 +614,9 @@
         p.vy -= p.grav * dt; p.o.position.x += p.vx * dt; p.o.position.y += p.vy * dt; p.o.position.z += p.vz * dt;
         if (p.o.position.y < 0.02) { p.o.position.y = 0.02; p.vy *= -0.3; p.vx *= 0.6; p.vz *= 0.6; }
         if (p.spin) { p.o.rotation.x += p.spin[0] * dt; p.o.rotation.z += p.spin[1] * dt; }
-        const k = 1 - p.t / p.life; p.o.scale.setScalar(p.s * Math.max(0.01, p.grav === 0 ? 1 + p.t * 2 : Math.min(1, k * 3)));
-        if (p.grav === 0) p.o.material === dustM && (p.vx *= 0.97, p.vz *= 0.97);
-        if (p.t >= p.life) { scene.remove(p.o); parts.splice(i, 1); }
+        const k = 1 - p.t / p.life; p.o.scale.setScalar(p.s * Math.max(0.01, p.grav === 0 ? 1 + p.t * 1.2 : Math.min(1, k * 3)));
+        if (p.grav === 0) { p.vx *= 0.96; p.vz *= 0.96; p.vy *= 0.96; p.o.material.opacity = 0.55 * k * k; }
+        if (p.t >= p.life) { scene.remove(p.o); if (p.o.material !== sweatM && p.o.material !== splinterM) p.o.material.dispose(); parts.splice(i, 1); }
       }
     }
 
@@ -632,14 +632,16 @@
 
     // ---------- カメラ（部屋と待ち場所が必ず入る） ----------
     const VIEW_TOP = 52;
-    let reserve = 160, camElev = 0.9;
+    let reserve = 160, camElev = 0.9, zoom = 1;
     const camTarget = new THREE.Vector3(), camBase = new THREE.Vector3();
     function btnH() { return Math.min(72, Math.max(56, 0.08 * Math.min(innerWidth, innerHeight))); }
-    function viewAspect() { const w = stage.clientWidth, H = stage.clientHeight; return w / Math.max(140, H - (80 + btnH() + 14) - VIEW_TOP); }
+    // プレイ中はボタンがないので、下は X の投稿文の分（80px）だけ空ける。結果ではカメラを引くのでボタンが重なってもよい
+    const RESERVE = 92;
+    function viewAspect() { const w = stage.clientWidth, H = stage.clientHeight; return w / Math.max(140, H - RESERVE - VIEW_TOP); }
     function resize() {
       const w = stage.clientWidth, H = stage.clientHeight;
       renderer.setSize(w, H, false);
-      reserve = 80 + btnH() + 14;
+      reserve = RESERVE;
       const h = Math.max(140, H - reserve - VIEW_TOP);
       camera.aspect = w / h;
       camera.fov = camera.aspect < 0.8 ? 46 : 38;
@@ -686,7 +688,7 @@
       const portrait = viewAspect() < 0.9;
       buildRoom(portrait ? 2.7 : 3.6, portrait ? 3.6 : 2.7);
       resize();
-      state = 'play'; score = 0; pressure = pressS = 0; overT = 0; calmT = 0; burstT = 0; snap = null; shareCache = null;
+      state = 'play'; zoom = 1; score = 0; pressure = pressS = 0; overT = 0; calmT = 0; burstT = 0; snap = null; shareCache = null;
       scoreEl.classList.remove('on');
       spawn();
       renderControls();
@@ -697,15 +699,16 @@
       sCrash();
       for (const R of rikishi) {
         if (R.state === 'wait' || R.state === 'drop') { R.h.face.open = 0.6; R.h.face.brow = 1; continue; }
-        const ang = Math.atan2(R.z - (Z0 + Z1) / 2 + 0.3, R.x + rnd(-0.3, 0.3));
-        const sp = rnd(1.6, 3.0);
+        let ang = Math.atan2(R.z - (Z0 + Z1) / 2 + 0.3, R.x + rnd(-0.3, 0.3));
+        if (Math.sin(ang) > 0) ang = Math.atan2(-Math.sin(ang) * 0.5, Math.cos(ang) || rnd(-1, 1)); // 手前（カメラの方）には飛ばさない
+        const sp = rnd(1.3, 2.5);
         R.state = 'fly'; R.vx = Math.cos(ang) * sp; R.vz = Math.sin(ang) * sp; R.y = 0; R.vy = rnd(4.5, 7);
         R.spin = { ax: rnd(-6, 6), az: rnd(-6, 6), rx: 0, rz: 0, bounces: 0 };
         R.h.face.open = 0.9; R.h.face.brow = 1; R.h.face.smile = -0.3;
         if (Math.random() < 0.5) voice(R.f0 * 1.2, ['w', 'a', 'a'], rnd(0.6, 0.9), 0.3, { delay: rnd(0, 0.25), p0: 1.1, p1: 1.5, shake: 0.08 });
       }
       for (const w of walls) w.av = rnd(0.5, 1.2);
-      for (let i = 0; i < 40; i++) { const a = rnd(0, Math.PI * 2); particle(dustM, sphG, rnd(X0, X1), rnd(0.1, 1.2), rnd(Z0, Z1), Math.cos(a) * rnd(1, 3), rnd(0, 1), Math.sin(a) * rnd(1, 3), rnd(0.15, 0.35), rnd(1.2, 2), 0); }
+      for (let i = 0; i < 26; i++) { const a = rnd(0, Math.PI * 2), wl = pick([[X0, rnd(Z0, Z1)], [X1, rnd(Z0, Z1)], [rnd(X0, X1), Z0]]); particle(dustM, sphG, wl[0], rnd(0.05, 0.6), wl[1], Math.cos(a) * rnd(1, 2.5), rnd(0.2, 0.8), Math.sin(a) * rnd(1, 2.5), rnd(0.12, 0.22), rnd(0.9, 1.5), 0); }
       for (let i = 0; i < 30; i++) { const w = pick(walls), a = rnd(0, Math.PI * 2); particle(splinterM, boxG, rnd(X0, X1), rnd(0.5, 2.2), rnd(Z0, Z1) * 0.5 + (w === walls[0] ? Z0 : 0), Math.cos(a) * rnd(2, 5), rnd(2, 6), Math.sin(a) * rnd(2, 5), rnd(0.04, 0.1), rnd(1.5, 2.5)); }
       hint.visible = false;
     }
@@ -792,7 +795,7 @@
         if (w.axis === 'z') { w.pivot.rotation.x = -w.ang; w.body.position.z = -o * 0.3; } else { w.pivot.rotation.z = -w.sign * w.ang; w.body.position.x = w.sign * o * 0.3; }
       }
       stepParts(dt);
-      if (state === 'burst') { burstT += dt; if (burstT > 0.55 && !snap) needShot = true; if (burstT > 1.8) finish(); }
+      if (state === 'burst') { burstT += dt; if (burstT > 1.75 && !snap) needShot = true; if (burstT > 1.8) finish(); }
       shake = Math.max(0, shake - dt * 0.6);
     }
 
@@ -801,7 +804,7 @@
         const x = lerp(R.px, R.x, alpha), z = lerp(R.pz, R.z, alpha);
         R.outer.position.set(x, R.y, z);
         R.squash.scale.set(R.sc.x, R.sc.y, R.sc.z);
-        if (R.spin) { R.squash.rotation.x = R.spin.rx * 0.5; R.squash.rotation.z = R.spin.rz * 0.5; if (R.spin.bounces >= 3) { R.squash.rotation.x = lerp(R.squash.rotation.x, Math.round(R.squash.rotation.x / Math.PI) * Math.PI, 0.1); } R.squash.position.y = R.hy * 0.35 * Math.min(1, Math.abs(Math.sin(R.spin.rx * 0.5)) + Math.abs(Math.sin(R.spin.rz * 0.5))); }
+        if (R.spin) { R.squash.rotation.x = R.spin.rx * 0.5; R.squash.rotation.z = R.spin.rz * 0.5; if (R.spin.bounces >= 3) { const sn = a => Math.round(a / (Math.PI / 2)) * (Math.PI / 2); R.spin.rx = lerp(R.spin.rx, sn(R.spin.rx * 0.5) * 2, 0.08); R.spin.rz = lerp(R.spin.rz, sn(R.spin.rz * 0.5) * 2, 0.08); R.squash.rotation.x = R.spin.rx * 0.5; R.squash.rotation.z = R.spin.rz * 0.5; } R.squash.position.y = R.hy * 0.35 * Math.min(1, Math.abs(Math.sin(R.spin.rx * 0.5)) + Math.abs(Math.sin(R.spin.rz * 0.5))); }
         else { R.squash.rotation.set(0, 0, 0); R.squash.position.y = 0; }
       }
     }
@@ -822,6 +825,7 @@
       const cy = (top + bot) / 2;
       c.getContext('2d').drawImage(renderer.domElement, (W - side) / 2, cy - side / 2, side, side, 0, 0, 1080, 1080);
       snap = c;
+      if (state === 'result') prepareShare();
     }
     const font = s => `900 ${s}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans KR", "Noto Sans Thai", sans-serif`;
     function resultImage() {
@@ -892,14 +896,15 @@
         hint.userData.arrow.position.z = -0.7 - k * 0.4; hint.userData.arrow.material.opacity = 0.75 * Math.sin(k * Math.PI);
         hint.userData.ring.scale.setScalar(1 + 0.08 * Math.sin(clock * 5));
       }
-      camera.position.copy(camBase);
+      const zt = state === 'burst' || state === 'result' ? (RD > RW ? 1.7 : 1.35) : 1;
+      zoom += (zt - zoom) * (1 - Math.exp(-dt * 2.5));
+      camera.position.copy(camBase).sub(camTarget).multiplyScalar(zoom).add(camTarget);
       if (shake > 0) camera.position.add(V.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(shake * 0.25));
       renderer.render(scene, camera);
       if (needShot) { needShot = false; takeShot(); }
       requestAnimationFrame(loop);
     }
 
-    window.__sumo = { rikishi, camera, get state() { return state; }, get pressure() { return pressure; }, get score() { return score; }, WAIT, room: () => ({ X0, X1, Z0, Z1 }), V3: THREE.Vector3, advance: s => { for (let i = 0; i < s / STEP; i++) step(STEP); } }; // DEBUG
     reset();
     applyLang();
     prepareNext();
