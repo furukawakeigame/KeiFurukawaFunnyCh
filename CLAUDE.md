@@ -31,6 +31,10 @@ The full flow (企画 → 仕様 → 実装 → 確認 → デプロイ) is the 
 
 People in games use the realistic human model `.claude/skills/make-game/human.js` (copy it into the game folder; preview with `human-preview.html` next to it), not primitive-shape dolls.
 
+## Ads (AdSense)
+
+Only the non-game pages (`index.html`, `about.html`, `privacy.html`, `404.html`) load the AdSense script (`ca-pub-6939356439579496`); ads there are placed by AdSense Auto ads, switched on in the AdSense dashboard. **Never put AdSense display ads on game pages**: AdSense policy forbids normal display ads next to game windows and play/retry buttons (accidental clicks), and every game here is full-screen. In-game ads (e.g. a full-screen ad before the result screen) need H5 Games Ads (Ad Placement API, `adBreak()`), a separate beta the owner applied for; add them only after it is approved.
+
 ## View counts
 
 Each game card on the top page shows its all-time Google Analytics page views. The browser can't read GA directly, so `.claude/ga-views.gs` runs as a free Google Apps Script web app (owner's Google account, Analytics Data API advanced service) and returns `{ "/games/<name>/": views }`, cached for 1 hour. Its deploy URL goes in `VIEWS_URL` in `index.html`; if empty, no counts are shown. When a game is renamed, add the old path to `OLD_PATHS` there so its past views carry over.

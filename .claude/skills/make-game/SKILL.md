@@ -84,6 +84,7 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
   - アイコン `games/<フォルダ名>/icon.png`（正方形のPNG、512×512 推奨）。トップページの一覧に表示する。ユーザーが用意していなければ、ゲームの絵を使って Canvas で描くなどして作り、見せてOKをもらう。ゲームのページにも `<link rel="icon" href="icon.png">` と `<link rel="apple-touch-icon" href="icon.png">` を入れる。
   - トップページの一覧用に、アイコンを縮小した `games/<フォルダ名>/thumb.webp`（192×192、WebP、画質85くらい）も作る（512pxのPNGを70個並べるとトップページが重くなるため）。Python があれば Pillow で `Image.open('icon.png').resize((192,192), Image.LANCZOS).save('thumb.webp', 'WEBP', quality=85)`、なければブラウザで `icon.png` を192×192の Canvas に描き、`canvas.toBlob(cb, 'image/webp', 0.85)` で書き出す。
   - `<head>` の先頭（`<head>` の直後）に、トップページと同じ Google アナリティクスのタグ（`G-9E13VFBMWN`）をそのままコピーして入れる。
+  - **AdSense の広告コード（`adsbygoogle.js`）はゲームのページには入れない**。普通のバナー広告をゲーム画面やボタンの近くに置くのは AdSense の規約違反になる。ゲーム内の広告は H5 Games Ads が承認されてから入れる（CLAUDE.md の「Ads」を参照）。
   - X などにURLを貼ったときにアイコンとタイトルが出るよう、`<head>` にカード用の meta タグを入れる。`og:url` と `og:image` だけは相対パスでは読まれないので、公開URLを `https://` から書く。カードはタイトルとアイコンだけにし、**`og:description` は入れない**。検索対策（SEO）として、`<title>` の直後に検索結果用の説明文 `<meta name="description">`（トップページの一覧と同じ一言説明）と `<link rel="canonical">`（公開URL）、ゲームの情報を検索エンジンに伝える構造化データ（`VideoGame`）を入れる。
   - **ページに `<h1>` を1つ入れる**（SEO）: 画面に出すタイトルがあればそれを `<h1>` にする（JSで言語ごとに書き換える場合も、HTMLには日本語のタイトルを最初から書いておく）。画面にタイトルを出さないゲームは、`<body>` の直後に見えない `<h1>` を置く:
     `<h1 style="position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">タイトル</h1>`
