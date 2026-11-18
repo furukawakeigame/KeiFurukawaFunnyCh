@@ -47,6 +47,7 @@
     #launch.pulse { animation: pulse 1.2s ease-in-out infinite; }
     @keyframes pulse { 50% { scale: 1.08; } }
     #clear { width: 46px; height: 46px; padding: 0; }
+    #abort { left: 12px; top: 56px; font-size: 16px; padding: 6px 12px; background: #fffdf6; }
     #result { position: fixed; left: 0; right: 0; top: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: calc(58px + 2vh) 16px 0; pointer-events: none; }
     #result[hidden] { display: none; }
     #result > * { pointer-events: auto; }
@@ -83,6 +84,10 @@
     </button>
     <button id="clear" class="btn sk" hidden aria-label="clear">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2d2a32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16M9 6V4h6v2M6 7l1 13h10l1-13M10 10.5v6.5M14 10.5v6.5"/></svg>
+    </button>
+    <button id="abort" class="btn sk" hidden>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2d2a32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5a4 4 0 0 0-5 5L4 16v4h4l5.5-5.5a4 4 0 0 0 5-5l-2.5 2.5-2.5-.5-.5-2.5z" fill="#b8e0d2"/></svg>
+      <span id="abortT"></span>
     </button>
     <div id="result" hidden>
       <p class="big" id="rAlt"></p>
@@ -159,7 +164,7 @@ function applyLang() {
   $('lang').value = lang;
   $('back').textContent = t('back');
   $('launchT').textContent = t('launch');
-  $('again').textContent = t('again'); $('edit').textContent = t('edit'); $('share').textContent = t('share');
+  $('again').textContent = t('again'); $('edit').textContent = t('edit'); $('abortT').textContent = t('edit'); $('share').textContent = t('share');
   if (!$('result').hidden) showResult();
 }
 $('lang').onchange = () => { lang = $('lang').value; store.set('lang', lang); applyLang(); };
@@ -1020,12 +1025,21 @@ function showResult() {
 }
 $('again').onclick = () => { $('result').hidden = true; state = 'build'; launch(); };
 $('edit').onclick = () => toBuild();
+// stop the flight at any moment and go back to building (the height so far still counts for the best)
+function abortFlight() {
+  if (state !== 'flight' && state !== 'over') return;
+  if (R) { const km = Math.round(R.maxY) / 10; if (km > best) { best = km; store.set('best', best); } }
+  steerDrag = null; particles = []; debris = []; ejectCat = null; obstacles = [];
+  sfx.tab(); toBuild();
+}
+$('abort').onclick = abortFlight;
 $('launch').onclick = () => launch();
 $('clear').onclick = () => { if (!rk.length) return; for (const p of layout(rk).parts) { const [sx, sy] = buildToScreen(p.x, p.y); poofs.push({ x: sx, y: sy, t: 0 }); } rk = []; saveRocket(); sfx.pop(); layoutBuild(); };
 
 function setUI() {
   $('launch').hidden = state !== 'build';
   $('clear').hidden = state !== 'build';
+  $('abort').hidden = state !== 'flight' && state !== 'over';
   $('result').hidden = state !== 'result';
   $('launch').classList.toggle('pulse', !touched);
 }
@@ -1301,6 +1315,7 @@ cv.addEventListener('wheel', e => { if (state === 'build' && trayHit(e.clientX, 
 const keyDir = { ArrowLeft: 'L', a: 'L', A: 'L', ArrowRight: 'R', d: 'R', D: 'R' };
 addEventListener('keydown', e => {
   if (keyDir[e.key]) { e.preventDefault(); if (keyDir[e.key] === 'L') keysL = true; else keysR = true; }
+  if (e.key === 'Escape') abortFlight();
   if ((e.key === ' ' || e.key === 'Enter') && state === 'build' && document.activeElement?.tagName !== 'SELECT') { e.preventDefault(); launch(); }
 });
 addEventListener('keyup', e => { if (keyDir[e.key] === 'L') keysL = false; if (keyDir[e.key] === 'R') keysR = false; });
