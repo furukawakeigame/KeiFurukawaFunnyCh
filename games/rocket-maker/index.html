@@ -328,7 +328,7 @@ const PARTS = {
   engL: { cat: 'engine', w: 1, h: 1.5, m: .8, T: 55, burn: .45, fx: 'fire' },
   vector: { cat: 'engine', w: 1, h: 1, m: .5, T: 24, burn: .18, gimbal: 1, fx: 'fire' },
   jet: { cat: 'engine', w: 1, h: 1.5, m: .7, T: 24, burn: .06, air: 1, fx: 'jet' },
-  ion: { cat: 'engine', w: 1, h: 1, m: .35, T: 6, burn: .025, fx: 'ion' },
+  ion: { cat: 'engine', w: 1, h: 1, m: .35, T: 8, burn: .025, fx: 'ion' },
   firework: { cat: 'engine', w: 0.5, h: 1.5, m: .45, T: 46, own: 1.5, fx: 'spark' },
   bottle: { cat: 'engine', w: 1, h: 1.5, m: .2, T: 34, own: 1.1, fx: 'water' },
   fin: { cat: 'side', w: 0.5, h: 1, m: .08, fin: 1 },
@@ -336,7 +336,7 @@ const PARTS = {
   booster: { cat: 'side', w: 0.5, h: 2, m: .45, T: 30, own: 4.5, sep: 1, fx: 'fire' },
   rcs: { cat: 'side', w: 0.5, h: 0.5, m: .1, rcs: 1 },
   balloon: { cat: 'side', w: 1, h: 1.5, m: .02, lift: 3.2 },
-  solar: { cat: 'side', w: 1, h: 0.5, m: .1, solar: .04 },
+  solar: { cat: 'side', w: 1, h: 0.5, m: .1, solar: .02 },
   sidetank: { cat: 'side', w: 0.5, h: 1.5, m: .1, fuel: .8 },
 };
 const CATS = ['nose', 'body', 'engine', 'side'];
@@ -635,7 +635,7 @@ function layout(a, onlyMain = false) {
 function buildStats() {
   const { parts } = layout(rk, true);
   let m = 0, T = 0, fuel = 0, fuel0 = 0, lift = 0;
-  for (const p of parts) { const d = PARTS[p.id]; m += d.m + (d.fuel || 0); fuel += (d.fuel || 0) + (d.own ? d.own * .35 : 0) + (d.solar ? 1 : 0) + (d.space && d.T ? 2 : 0); if (p.stage === 0) fuel0 += d.fuel || 0; lift += d.lift || 0; }
+  for (const p of parts) { const d = PARTS[p.id]; m += d.m + (d.fuel || 0); fuel += (d.fuel || 0) + (d.own ? d.own * .35 : 0) + (p.id === 'ion' ? 2 : 0); if (p.stage === 0) fuel0 += d.fuel || 0; lift += d.lift || 0; }
   for (const p of parts) { const d = PARTS[p.id]; if (!d.T) continue; if (p.side) T += d.T; else if (p.stage === 0 && (d.own || fuel0 > 0)) T += d.T * (d.space ? .25 : 1); }
   const a = aero(parts, 0);
   return { twr: m ? (T + lift) / (m * G0) : 0, fuel, margin: parts.length ? a.margin : 0, n: parts.length };
@@ -723,6 +723,10 @@ function physStep(dt, u) {
   const mix = { fire: 0, jet: 0, ion: 0, spark: 0, water: 0 };
   let stageCan = false, stageEngines = 0;
   const stunned = r.stun > 0; if (stunned) r.stun -= dt;
+  // solar panels power the ion engines of their own stage: +3 thrust each, up to two panels per ion engine
+  const ions = r.parts.filter(p => p.id === 'ion' && p.stage === r.active).length;
+  const panels = r.parts.filter(p => PARTS[p.id].solar && p.stage === r.active).length;
+  const ionBoost = ions ? 3 * Math.min(panels, ions * 2) / ions : 0;
   for (const p of r.parts) {
     const d = PARTS[p.id]; p.burning = false;
     if (!d.T) continue;
@@ -738,6 +742,7 @@ function physStep(dt, u) {
     if (d.own) { if (p.own <= 0) continue; p.own -= dt; }
     else { if (r.fuel[r.active] <= 0) continue; usedFuel += d.burn * dt; }
     if (d.air) f = clamp(.15 + thick * 1.1, .15, 1);   // jets love thick low air
+    if (p.id === 'ion') f *= (d.T + ionBoost) / d.T;
     stageCan = true;
     if (f <= 0) continue;
     p.burning = true;
@@ -745,13 +750,6 @@ function physStep(dt, u) {
     mix[d.fx] += f * d.T / (d.fx === 'ion' ? 4 : 50);
   }
   if (usedFuel) { r.fuel[r.active] = Math.max(0, r.fuel[r.active] - usedFuel); }
-  // solar panels trickle fuel back in space
-  const solar = r.parts.reduce((s, p) => s + (PARTS[p.id].solar || 0), 0);
-  // each panel can only give back so much over a flight (so nothing climbs for ever)
-  if (r.solarLeft === undefined) r.solarLeft = r.parts.filter(p => PARTS[p.id].solar).length * .6;
-  // a panel only tops up its own stage, and only while that stage is the one burning
-  const mySolar = r.parts.reduce((s2, p) => s2 + (p.stage === r.active ? PARTS[p.id].solar || 0 : 0), 0);
-  if (mySolar && r.solarLeft > 0 && r.fuelMax[r.active] > 0) { const add = Math.min(mySolar * .5 * dt, r.solarLeft, r.fuelMax[r.active] - r.fuel[r.active]); r.fuel[r.active] += add; r.solarLeft -= add; }
   r.thrust = T; r.mix = mix;
   // spent boosters fall away
   const spent = r.parts.filter(p => p.side && PARTS[p.id].sep && p.own <= 0);
@@ -1768,8 +1766,8 @@ function partStats(id) {
   const d = PARTS[id];
   return [
     ['w', clamp(Math.ceil((d.m + (d.fuel || 0)) / .5), 1, 5)],
-    ['p', d.T ? clamp(Math.ceil(d.T / 16), 1, 5) : d.lift ? 2 : 0],
-    ['f', d.fuel ? clamp(Math.ceil(d.fuel / .7), 1, 5) : d.own ? clamp(Math.ceil(d.own / .8), 1, 4) : d.solar ? 1 : 0],
+    ['p', d.T ? clamp(Math.ceil(d.T / 16), 1, 5) : d.lift ? 2 : d.solar ? 1 : 0],
+    ['f', d.fuel ? clamp(Math.ceil(d.fuel / .7), 1, 5) : d.own ? clamp(Math.ceil(d.own / .8), 1, 4) : 0],
     ['c', d.gyro ? 4 : d.rcs ? 4 : d.gimbal ? 4 : d.fin ? Math.ceil(d.fin * 1.5) : 0],
   ];
 }
@@ -2001,10 +1999,13 @@ function update(dt) {
       }
       // out of push and heading down: the flight is over
       const altNow = R.y - R.y0;
-      if (R.thrust < R.m * G0 * .9 && !R.onPad && R.vy < 0) {
+      // heading down for a while: the flight is over. engines still burning get longer to win it back,
+      // and a very long flight ends anyway
+      if (!R.onPad && R.vy < (R.thrust > 0 ? -1.5 : 0)) {
         R.fallT += DT;
-        if (R.maxY > 250 && R.fallT > (R.chuteOpen ? 2.5 : 1.6)) { endFlight(R.chuteOpen ? 'chuteEnd' : 'fall'); break; }
+        if (R.maxY > 250 && R.fallT > (R.chuteOpen ? 2.5 : R.thrust > 0 ? 4 : 1.6)) { endFlight(R.chuteOpen ? 'chuteEnd' : 'fall'); break; }
       } else R.fallT = 0;
+      if (R.t > 240 && R.vy < 0) { endFlight('fall'); break; }
       // never left the pad
       if (R.onPad && R.padT > 1.2 && R.thrust === 0 && R.active >= R.maxStage) { endFlight('pad'); break; }
       if (R.onPad && R.padT > 6 && R.active >= R.maxStage) { endFlight('pad'); break; }
