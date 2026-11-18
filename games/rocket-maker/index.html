@@ -749,19 +749,25 @@ function physStep(dt, u) {
   const solar = r.parts.reduce((s, p) => s + (PARTS[p.id].solar || 0), 0);
   // each panel can only give back so much over a flight (so nothing climbs for ever)
   if (r.solarLeft === undefined) r.solarLeft = r.parts.filter(p => PARTS[p.id].solar).length * .6;
-  if (solar && r.solarLeft > 0 && r.fuelMax[r.active] > 0) { const add = Math.min(solar * .5 * dt, r.solarLeft, r.fuelMax[r.active] - r.fuel[r.active]); r.fuel[r.active] += add; r.solarLeft -= add; }
+  // a panel only tops up its own stage, and only while that stage is the one burning
+  const mySolar = r.parts.reduce((s2, p) => s2 + (p.stage === r.active ? PARTS[p.id].solar || 0 : 0), 0);
+  if (mySolar && r.solarLeft > 0 && r.fuelMax[r.active] > 0) { const add = Math.min(mySolar * .5 * dt, r.solarLeft, r.fuelMax[r.active] - r.fuel[r.active]); r.fuel[r.active] += add; r.solarLeft -= add; }
   r.thrust = T; r.mix = mix;
   // spent boosters fall away
   const spent = r.parts.filter(p => p.side && PARTS[p.id].sep && p.own <= 0);
   if (spent.length) { detach(spent, 'booster'); sfx.decouple(); }
   // stage separation when the bottom stage can no longer push
-  if (!stageCan && r.active < r.maxStage && (r.everLift || stageEngines === 0)) {
+  // drop the stage when it is spent, or when it sits on the pad for 2 s without being able to lift the rocket
+  const stuck = r.onPad && r.padT > 2 && T < r.m * g;
+  if ((!stageCan || stuck) && r.active < r.maxStage) {
     r.sepT += dt;
     if (r.sepT > .25) {
       r.sepT = 0;
       const drop = r.parts.filter(p => p.stage === r.active);
       r.active++;
       detach(drop, 'stage'); sfx.decouple(); spawnPuff(r.x, r.y + r.bot, 8, '#ffffff');
+      // still on the pad: what is left settles down onto it and gets a fresh try
+      if (r.onPad && r.parts.length) { let low = Infinity; for (const [lx, ly] of r.corners) low = Math.min(low, toWorld(lx, ly)[1]); r.y -= low; r.padT = 0; }
     }
   } else r.sepT = 0;
   // balloons pop high up
@@ -2000,8 +2006,8 @@ function update(dt) {
         if (R.maxY > 250 && R.fallT > (R.chuteOpen ? 2.5 : 1.6)) { endFlight(R.chuteOpen ? 'chuteEnd' : 'fall'); break; }
       } else R.fallT = 0;
       // never left the pad
-      if (R.onPad && R.t > 1.2 && R.thrust === 0) { endFlight('pad'); break; }
-      if (R.onPad && R.t > 6) { endFlight('pad'); break; }
+      if (R.onPad && R.padT > 1.2 && R.thrust === 0 && R.active >= R.maxStage) { endFlight('pad'); break; }
+      if (R.onPad && R.padT > 6 && R.active >= R.maxStage) { endFlight('pad'); break; }
     }
     if (steps >= 120 || state !== 'flight') acc = 0;
     if (state === 'flight') {
