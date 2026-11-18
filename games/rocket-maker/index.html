@@ -653,11 +653,19 @@ function candidates(id, a = rk, lay = layout(a)) {
   return out;
 }
 // put a part on: returns the indices of the new parts
+// the rocket with one more part (a copy; used for the drop preview and for placing)
+function withPart(a, id, c) {
+  if (c.root) return { a: [{ id, p: -1 }], n: 0 };
+  const b = a.map(e => ({ ...e })), n = b.length;
+  b.push({ id, p: c.p, at: c.at });
+  if (c.insert >= 0) b[c.insert].p = n;
+  return { a: b, n };
+}
 function attach(id, c) {
-  const n = rk.length;
   if (c.root) { rk = [{ id, p: -1 }]; return [0]; }
+  const n = rk.length;
   rk.push({ id, p: c.p, at: c.at });
-  if (c.insert >= 0) { rk[c.insert].p = n; }
+  if (c.insert >= 0) rk[c.insert].p = n;
   return [n];
 }
 // take a part off; the part below (or above) it closes the gap, anything else hanging from it goes too
@@ -1203,6 +1211,9 @@ function dropTarget(id, sx, sy) {
   let best = null, bd = Infinity;
   for (const c of cands) { const dd = Math.hypot(c.x - bx, c.y - by); if (dd < bd) { bd = dd; best = c; } }
   if (!best || bd > Math.max(1.6, Math.max(d.w, d.h) * .9)) return null;
+  // keep the current spot unless another one is clearly closer (no flicker between two close spots)
+  const prev = drag?.tgt?.main, same = prev && cands.find(c => c.p === prev.p && c.at === prev.at && c.insert === prev.insert);
+  if (same && same !== best && Math.hypot(same.x - bx, same.y - by) < bd + .35) best = same;
   return { main: best };
 }
 function place(id, tgt) {
@@ -1845,26 +1856,20 @@ function drawBuild(fdt, frame) {
   drawFrame(fdt, frame);
   // rocket
   const lay = layout(rk);
-  drawRocketParts(ctx, lay.parts, (x, y) => toS(x, y), s, frame);
-  // drop preview
+  // while a part hovers over a free spot, show the rocket exactly as it will be once dropped
+  let shown = lay, fresh = -1;
+  if (drag && drag.tgt) { const w = withPart(rk, drag.id, drag.tgt.main); shown = layout(w.a); fresh = w.n; }
+  drawRocketParts(ctx, shown.parts, (x, y) => toS(x, y), s, frame);
+  // drop preview: a red dashed outline round the new part, and a faint copy under the finger
   if (drag) {
-    const tgt = drag.tgt;
-    if (tgt) {
-      ctx.save(); ctx.strokeStyle = COL.red; ctx.lineWidth = 3; ctx.setLineDash([7, 6]);
-      const sd = PARTS[drag.id];
-      for (const c of [tgt.main]) {
-        if (!c) continue;
-        const [cx, cy] = toS(c.x, c.y);
-        if (c.insert >= 0) {
-          // sliding in between: a line where the gap opens
-          const par = lay.parts.find(q => q.idx === c.p), yy = c.at === 'b' ? par.y - par.h / 2 : par.y + par.h / 2;
-          const [x0, ly] = toS(par.x - par.w / 2 - .3, yy), [x1] = toS(par.x + par.w / 2 + .3, yy);
-          ctx.beginPath(); ctx.moveTo(x0, ly); ctx.lineTo(x1, ly); ctx.stroke();
-        } else ctx.strokeRect(cx - sd.w * s / 2, cy - sd.h * s / 2, sd.w * s, sd.h * s);
-      }
+    const q = fresh >= 0 && shown.parts.find(p => p.idx === fresh);
+    if (q) {
+      const [cx, cy] = toS(q.x, q.y), pulse = .5 + .5 * Math.sin(performance.now() / 120);
+      ctx.save(); ctx.strokeStyle = COL.red; ctx.lineWidth = 2.5; ctx.setLineDash([6, 5]); ctx.globalAlpha = .6 + .4 * pulse;
+      ctx.strokeRect(cx - q.w * s / 2 - 3, cy - q.h * s / 2 - 3, q.w * s + 6, q.h * s + 6);
       ctx.restore();
     }
-    drawPart(ctx, drag.id, drag.x, drag.y - drag.off, s, frame, PARTS[drag.id].cat === 'side' && tgt?.main?.at === 'l', tgt ? 1 : .55);
+    drawPart(ctx, drag.id, drag.x, drag.y - drag.off, s, frame, PARTS[drag.id].cat === 'side' && drag.tgt?.main?.at === 'l', q ? .35 : .6);
   }
   // effects
   for (let i = snapFx.length - 1; i >= 0; i--) { const f = snapFx[i]; f.t += fdt; if (f.t > .35) { snapFx.splice(i, 1); continue; } ctx.strokeStyle = `rgba(45,42,50,${1 - f.t / .35})`; ctx.lineWidth = 2; for (let j = 0; j < 8; j++) { const a = j / 8 * Math.PI * 2, r0 = f.r * .6 + f.t * 80, r1 = r0 + 8; ctx.beginPath(); ctx.moveTo(f.x + Math.cos(a) * r0, f.y + Math.sin(a) * r0); ctx.lineTo(f.x + Math.cos(a) * r1, f.y + Math.sin(a) * r1); ctx.stroke(); } }
