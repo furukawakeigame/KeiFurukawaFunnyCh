@@ -555,7 +555,7 @@ const inFrame = (id, x, y) => x >= 0 && y >= 0 && x + cw(id) <= GW && y + ch(id)
 const cellsOverlap = (a, b) => a.x < b.x + cw(b.id) && b.x < a.x + cw(a.id) && a.y < b.y + ch(b.id) && b.y < a.y + ch(a.id);
 function validRocket(a) {
   if (!Array.isArray(a) || a.length > 60) return false;
-  if (!a.every(e => e && PARTS[e.id] && Number.isInteger(e.x) && Number.isInteger(e.y) && inFrame(e.id, e.x, e.y))) return false;
+  if (!a.every(e => e && PARTS[e.id] && Number.isInteger(e.x) && Number.isInteger(e.y) && inFrame(e.id, e.x, e.y) && (e.o === undefined || Number.isInteger(e.o)))) return false;
   for (let i = 0; i < a.length; i++) for (let j = i + 1; j < a.length; j++) if (cellsOverlap(a[i], a[j])) return false;
   return true;
 }
@@ -601,20 +601,28 @@ function layout(a, onlyMain = false) {
     const e = a[p.idx], nb = adj[p.idx].map(j => a[j]).find(o => o.x + cw(o.id) === e.x || o.x === e.x + cw(e.id));
     p.side = nb ? (nb.x + cw(nb.id) === e.x ? 1 : -1) : (p.x >= 0 ? 1 : -1);
   }
-  // stages: from the topmost part of the main body, every decoupler crossed starts an earlier stage
+  // stages: each decoupler has an order number (o). at step k every decoupler numbered k or less lets go,
+  // and whatever is no longer joined to the top part falls away with it. stage 0 burns and drops first.
   const mainParts = parts.filter(p => p.attached);
-  const lvl = [];
+  const drop = [];
+  let maxStage = 0;
   if (mainParts.length) {
     const top = mainParts.reduce((b, p) => p.y + p.h / 2 > b.y + b.h / 2 ? p : b);
-    lvl[top.idx] = PARTS[top.id].decoup ? 1 : 0;
-    const dq = [top.idx];
-    while (dq.length) {
-      const i = dq.shift();
-      for (const j of adj[i]) { const L = lvl[i] + (PARTS[a[j].id].decoup ? 1 : 0); if (lvl[j] === undefined || L < lvl[j]) { lvl[j] = L; dq.push(j); } }
+    const decs = mainParts.filter(p => PARTS[p.id].decoup && p.idx !== top.idx).map(p => p.idx);
+    const orders = [...new Set(decs.map(i => a[i].o || 1))].sort((x, y) => x - y);
+    const cut = new Set();
+    for (const k of orders) {
+      decs.forEach(i => { if ((a[i].o || 1) <= k) cut.add(i); });
+      const seen = new Set([top.idx]), st = [top.idx];
+      while (st.length) { const i = st.pop(); for (const j of adj[i]) if (!seen.has(j) && !cut.has(j) && main.has(j)) { seen.add(j); st.push(j); } }
+      for (const q of mainParts) if (!seen.has(q.idx) && drop[q.idx] === undefined) drop[q.idx] = k;
     }
+    const steps = [...new Set(mainParts.map(q => drop[q.idx]).filter(v => v !== undefined))].sort((x, y) => x - y);
+    maxStage = steps.length;
+    mainParts.forEach(q => q.stage = drop[q.idx] === undefined ? maxStage : steps.indexOf(drop[q.idx]));
   }
-  const ls = mainParts.map(p => lvl[p.idx]), maxL = ls.length ? Math.max(...ls) : 0, minL = ls.length ? Math.min(...ls) : 0;
-  parts.forEach(p => p.stage = p.attached ? maxL - lvl[p.idx] : 0);
+  parts.forEach(p => { if (!p.attached) p.stage = 0; });
+  const maxL = maxStage, minL = 0;
   // in flight only the main body counts: it stands on its lowest part
   if (onlyMain) { const minB = Math.min(...parts.map(p => p.y - p.h / 2)); parts.forEach(p => p.y -= minB); }
   return { parts, H: Math.max(...parts.map(p => p.y + p.h / 2)), minX: Math.min(...parts.map(p => p.x - p.w / 2)), maxX: Math.max(...parts.map(p => p.x + p.w / 2)), maxStage: maxL - minL };
@@ -1149,8 +1157,10 @@ function dropTarget(id, sx, sy) {
   if (ok) { const a = [...rk, { id, x, y }]; joined = groups(a).main.has(a.length - 1); }
   return { x, y, ok, joined };
 }
-function place(id, x, y) {
-  rk.push({ id, x, y });
+function place(id, x, y, o) {
+  // a new decoupler lets go after all the others
+  if (PARTS[id].decoup && o === undefined) o = rk.filter(e => PARTS[e.id].decoup).reduce((m, e) => Math.max(m, e.o || 1), 0) + 1;
+  rk.push(o === undefined ? { id, x, y } : { id, x, y, o });
   saveRocket(); sfx.snap(); layoutBuild();
   const q = layout(rk).parts.find(q => q.idx === rk.length - 1);
   if (q) { const [sx, sy] = buildToScreen(q.x, q.y); snapFx.push({ x: sx, y: sy, t: 0, r: Math.max(q.w, q.h) * buildCam.scale * .5 }); }
@@ -1245,7 +1255,7 @@ cv.addEventListener('pointermove', e => {
     const q = pending.p, e0 = rk[q.idx], [sx, sy] = buildToScreen(q.x, q.y);
     takeOff(q.idx);
     layoutBuild();
-    startDrag(q.id, { x: e0.x, y: e0.y }, x, y, e.pointerId, pending.x0 - sx, pending.y0 - sy); pending = null;
+    startDrag(q.id, e0.o === undefined ? { x: e0.x, y: e0.y } : { x: e0.x, y: e0.y, o: e0.o }, x, y, e.pointerId, pending.x0 - sx, pending.y0 - sy); pending = null;
   }
 });
 // remove one part
@@ -1261,7 +1271,7 @@ function endPointer(e) {
   if (state !== 'build') return;
   if (drag && drag.pid === e.pointerId) {
     const t2 = drag.tgt;
-    if (t2 && t2.ok) place(drag.id, t2.x, t2.y);
+    if (t2 && t2.ok) place(drag.id, t2.x, t2.y, drag.from?.o);
     else if (t2 && drag.from) { rk.push({ id: drag.id, ...drag.from }); saveRocket(); sfx.thud(); }     // spot taken: back where it was
     else { poofs.push({ x: drag.x - drag.offX, y: drag.y - drag.offY, t: 0 }); if (t2) frameFlash = .6; sfx.pop(); saveRocket(); }
     drag = null; layoutBuild(); return;
@@ -1270,7 +1280,13 @@ function endPointer(e) {
   // a tap only shows what the part is; the part hops toward the rocket to show it wants dragging
   if (pending.type === 'tray' && !pending.scrolling) { tip = { id: pending.id, t: 0 }; nudge = { id: pending.id, t0: performance.now() }; }
   if (pending.type === 'part') {
-    const [sx, sy] = buildToScreen(pending.p.x, pending.p.y);
+    const [sx, sy] = buildToScreen(pending.p.x, pending.p.y), e0 = rk[pending.p.idx];
+    if (PARTS[e0.id].decoup) {
+      // a decoupler: tap to change when it lets go (1, 2, ... up to the number of decouplers)
+      const n = Math.max(1, rk.filter(e => PARTS[e.id].decoup).length);
+      e0.o = (e0.o || 1) % n + 1;
+      snapFx.push({ x: sx, y: sy, t: 0, r: buildCam.scale * .4 }); sfx.tab(); saveRocket(); pending = null; return;
+    }
     takeOff(pending.p.idx); poofs.push({ x: sx, y: sy, t: 0 });
     sfx.pop(); saveRocket(); layoutBuild(); markTouched();
   }
@@ -1830,6 +1846,17 @@ function drawBuild(fdt, frame) {
   // loose parts (touching nothing) are drawn faint: they will be left behind
   drawRocketParts(ctx, lay.parts.filter(p => p.attached), (x, y) => toS(x, y), s, frame);
   drawRocketParts(ctx, lay.parts.filter(p => !p.attached), (x, y) => toS(x, y), s, frame, { alpha: .4 });
+  // each decoupler wears its order number on a little tag in its stage colour
+  for (const q of lay.parts) {
+    if (!PARTS[q.id].decoup) continue;
+    const [cx, cy] = toS(q.x, q.y), r = clamp(s * .2, 9, 16);
+    ctx.save(); ctx.globalAlpha = q.attached ? 1 : .5;
+    ctx.fillStyle = q.attached ? STAGE_COL[q.stage % STAGE_COL.length] : '#fff'; ctx.strokeStyle = INK; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = INK; ctx.font = `bold ${r * 1.3}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(rk[q.idx].o || 1), cx, cy + r * .08);
+    ctx.restore();
+  }
   // drop preview: the part sits in the cell it will go to. red dashes = joins the rocket,
   // grey dashes = will be loose, a red cross = that spot is taken
   if (drag) {
