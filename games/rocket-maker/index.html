@@ -569,9 +569,13 @@ function fromOldStack(s) {
   }
   return validRocket(out) ? out : null;
 }
+// the rocket has to fit inside the frame on the launch pad (blocks, centred on the first part)
+const FRAME = { w: 3, h: 8 };
+function fitsFrame(a) { if (!a.length) return true; const l = layout(a); return l.H <= FRAME.h + 1e-6 && l.minX >= -FRAME.w / 2 - 1e-6 && l.maxX <= FRAME.w / 2 + 1e-6; }
 let rk = (() => {
-  const s = store.get('rocket2', null); if (validRocket(s)) return s;
-  return fromOldStack(store.get('rocket', null)) || DEFAULT.map(e => ({ ...e }));
+  let s = store.get('rocket2', null);
+  if (!validRocket(s)) s = fromOldStack(store.get('rocket', null));
+  return s && fitsFrame(s) ? s : DEFAULT.map(e => ({ ...e }));
 })();
 const saveRocket = () => store.set('rocket2', rk);
 
@@ -640,6 +644,9 @@ function candidates(id, a = rk, lay = layout(a)) {
       }
       const [ox, oy] = offsetFrom(pd, d, s), x = q.x + ox, y = q.y + oy;
       if (insert < 0 && lay.parts.some(o => overlap(x, y, d.w, d.h, o))) continue;
+      // stay inside the frame
+      if (Math.abs(x) + d.w / 2 > FRAME.w / 2 + 1e-6) continue;
+      if (insert >= 0 ? lay.H + d.h > FRAME.h + 1e-6 : Math.max(lay.H, y + d.h / 2) - Math.min(0, y - d.h / 2) > FRAME.h + 1e-6) continue;
       out.push({ p: i, at: s, insert, x, y });
     }
   }
@@ -1145,11 +1152,11 @@ function layoutBuild() {
   // fit the rocket (plus some room to drop parts above it) in the build area
   const lay = layout(rk);
   const rw = lay.maxX - lay.minX;
-  const needH = Math.max(lay.H + 2.6, 5.5), needW = Math.max(rw + 2.4, 3.6);
+  const needH = FRAME.h + 1.6, needW = FRAME.w + 2.6;
   const sc = clamp(Math.min((buildArea.h - 20) / needH, (buildArea.w * (vertical ? .5 : .6)) / needW), 14, 120);
   buildCam.scale = sc;
   buildCam.groundY = buildArea.y + buildArea.h - Math.max(18, sc * .6);
-  buildCam.cx = buildArea.x + buildArea.w / 2 - (lay.minX + lay.maxX) / 2 * sc;
+  buildCam.cx = buildArea.x + buildArea.w / 2;
   if (buildView) { buildCam.scale = buildView.scale; buildCam.cx = buildView.cx; buildCam.groundY = buildView.gy; }
   // DOM buttons beside the rocket
   const lb = $('launch'), cb = $('clear');
@@ -1191,7 +1198,7 @@ function partHit(x, y) {
 function dropTarget(id, sx, sy) {
   const d = PARTS[id];
   const [bx, by] = screenToBuild(sx, sy);
-  if (!rk.length) return Math.abs(bx) < 3 && by > -1.5 && by < 6 ? { main: { root: true, x: 0, y: d.h / 2 } } : null;
+  if (!rk.length) return Math.abs(bx) < 3 && by > -1.5 && by < FRAME.h + 1 ? { main: { root: true, x: 0, y: d.h / 2 } } : null;
   const lay = layout(rk), cands = candidates(id, rk, lay);
   let best = null, bd = Infinity;
   for (const c of cands) { const dd = Math.hypot(c.x - bx, c.y - by); if (dd < bd) { bd = dd; best = c; } }
@@ -1237,7 +1244,7 @@ function autoAdd(id) {
     const pref = d.fin || d.rcs ? order : [...order.filter(i => PARTS[rk[i].id].cat === 'body'), ...order];
     for (const i of pref) { c = pick(i, 'r') || pick(i, 'l'); if (c) break; }
   }
-  if (!c) { poofs.push({ x: buildCam.cx, y: buildCam.groundY - 40, t: 0 }); sfx.pop(); return; }
+  if (!c) { frameFlash = .6; sfx.pop(); return; }
   place(id, { main: c });
 }
 function markTouched() { if (!touched) { touched = true; store.set('touched', true); setUI(); } }
@@ -1339,7 +1346,7 @@ function endPointer(e) {
   if (state !== 'build') return;
   if (drag && drag.pid === e.pointerId) {
     const ok = place(drag.id, drag.tgt);
-    if (!ok) { poofs.push({ x: drag.x, y: drag.y - drag.off, t: 0 }); sfx.pop(); saveRocket(); layoutBuild(); }
+    if (!ok) { poofs.push({ x: drag.x, y: drag.y - drag.off, t: 0 }); frameFlash = .6; sfx.pop(); saveRocket(); layoutBuild(); }
     drag = null; return;
   }
   if (!pending || pending.pid !== e.pointerId) return;
@@ -1496,6 +1503,24 @@ function drawGround(toS, s, frame) {
   p.shape(p.rect(hx - u * .3, gy - u * .8, u * .6, u * .8), COL.brown);
   p.shape(p.rect(tx - u * .15, gy - u * 1.1, u * .3, u * 1.1), COL.brown);
   p.shape(p.ell(tx, gy - u * 1.8, u * .8, u * .85, 14), COL.green);
+}
+// the build frame: a pencilled dashed box with block ticks, red for a moment when a part won't fit
+let frameFlash = 0;
+function drawFrame(fdt, frame) {
+  frameFlash = Math.max(0, frameFlash - fdt);
+  const s = buildCam.scale, [x0, y0] = buildToScreen(-FRAME.w / 2, 0), [x1, y1] = buildToScreen(FRAME.w / 2, FRAME.h);
+  const red = frameFlash > 0 && Math.sin(frameFlash * 30) > -.3;
+  const c = red ? COL.red : 'rgba(45,42,50,.55)';
+  const p = Pen(ctx, 30, 990 + frame);
+  ctx.save(); ctx.setLineDash([9, 7]);
+  p.line([[x0, y0], [x0, y1], [x1, y1], [x1, y0]], false, red ? 3 : 2, c);
+  ctx.setLineDash([]);
+  // block ticks up the sides, like a ruler
+  ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.beginPath();
+  for (let i = 1; i < FRAME.h; i++) { const [, y] = buildToScreen(0, i); ctx.moveTo(x0, y); ctx.lineTo(x0 + Math.min(8, s * .15), y); ctx.moveTo(x1, y); ctx.lineTo(x1 - Math.min(8, s * .15), y); }
+  for (let i = 1; i < FRAME.w; i++) { const [x] = buildToScreen(-FRAME.w / 2 + i, 0); ctx.moveTo(x, y1); ctx.lineTo(x, y1 + Math.min(8, s * .15)); }
+  ctx.stroke();
+  ctx.restore();
 }
 function drawPad(toS, s, frame) {
   const p = Pen(ctx, s, 900 + frame);
@@ -1846,6 +1871,7 @@ function drawBuild(fdt, frame) {
   layoutH = layout(rk).H;
   drawGround((x, y) => toS(x, y), s, frame);
   drawPad(toS, s, frame);
+  drawFrame(fdt, frame);
   // rocket
   const lay = layout(rk);
   drawRocketParts(ctx, lay.parts, (x, y) => toS(x, y), s, frame);
