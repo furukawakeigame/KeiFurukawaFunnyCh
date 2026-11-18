@@ -799,6 +799,8 @@ function physStep(dt, u) {
     r.onPad = false; r.everLift = true;
   }
   r.vx += Fx / r.m * dt; r.vy += Fy / r.m * dt;
+  // out in space, steering also slides the rocket sideways a little (more with RCS thrusters): room to dodge and to aim
+  if (sp > .3) r.vx += u * (4 + r.rcs * 4) * sp * dt;
   r.x += r.vx * dt; r.y += r.vy * dt;
   r.w += tau / r.I * dt; r.w = clamp(r.w, -12, 12); r.th = wrapA(r.th + r.w * dt);
   r.q = q; r.alpha = alpha;
@@ -835,9 +837,9 @@ const BANDS = [
   { kind: 'bird', y0: 25, y1: 260, gap: 45 },
   { kind: 'plane', y0: 140, y1: 650, gap: 140 },
   { kind: 'storm', y0: 280, y1: 820, gap: 190 },
-  { kind: 'sat', y0: 1400, y1: 6500, gap: 520 },
-  { kind: 'meteor', y0: 2800, y1: 9600, gap: 420 },
-  { kind: 'ufo', y0: 5200, y1: 9400, gap: 1400 },
+  { kind: 'sat', y0: 1400, y1: 6500, gap: 1000 },
+  { kind: 'meteor', y0: 2800, y1: 9600, gap: 900 },
+  { kind: 'ufo', y0: 5200, y1: 9400, gap: 2400 },
 ];
 let nextSpawn;
 function resetObstacles() {
@@ -855,8 +857,9 @@ function spawnObstacles(viewH) {
       if (b.kind === 'bird') { const n = 2 + (Math.random() * 3 | 0), bx = cx + (Math.random() - .5) * spread * 1.4; for (let k = 0; k < n; k++) obstacles.push({ kind: 'bird', x: bx + k * 1.6 * dir, y: y + (k % 2) * 1.2, vx: -dir * (2.5 + Math.random()), vy: 0, r: .6, ph: Math.random() * 7 }); }
       if (b.kind === 'plane') obstacles.push({ kind: 'plane', x: cx - dir * (spread * .9 + 10), y, vx: dir * (16 + Math.random() * 6), vy: 0, r: 1.6, len: 7, ph: 0 });
       if (b.kind === 'storm') obstacles.push({ kind: 'storm', x: cx + (Math.random() - .5) * spread, y, vx: (Math.random() - .5) * 2, vy: 0, r: 3.6, ph: Math.random() * 7, seed: Math.random() * 1e9 | 0 });
-      if (b.kind === 'sat') obstacles.push({ kind: 'sat', x: cx - dir * spread * .7, y, vx: dir * (8 + Math.random() * 8), vy: 0, r: 2.2, ph: Math.random() * 7 });
-      if (b.kind === 'meteor') obstacles.push({ kind: 'meteor', x: cx + (Math.random() - .5) * spread * 1.2 + dir * spread * .5, y: y + viewH * .3, vx: -dir * (8 + Math.random() * 10), vy: -(14 + Math.random() * 14), r: 1.4 + Math.random() * 2.2, ph: Math.random() * 7, seed: Math.random() * 1e9 | 0 });
+      if (b.kind === 'sat') obstacles.push({ kind: 'sat', x: cx - dir * spread * (.5 + Math.random() * .6), y, vx: dir * (6 + Math.random() * 6), vy: 0, r: 2.2, ph: Math.random() * 7 });
+      // meteors pass beside the path and drift away from it (scenery you can graze, not a wall)
+      if (b.kind === 'meteor') obstacles.push({ kind: 'meteor', x: cx + dir * (5 + Math.random() * spread * .6), y: y + viewH * .3, vx: dir * (2 + Math.random() * 4), vy: -(5 + Math.random() * 7), r: 1.2 + Math.random() * 1.6, ph: Math.random() * 7, seed: Math.random() * 1e9 | 0 });
       if (b.kind === 'ufo') obstacles.push({ kind: 'ufo', x: cx + (Math.random() - .5) * spread, y, vx: 0, vy: 0, r: 2.6, ph: Math.random() * 7, bx: cx });
       nextSpawn[i] += b.gap * (.6 + Math.random() * .8);
     }
@@ -876,6 +879,8 @@ function hitObstacle() {
   const segs = R.parts.map(p => { const rr = Math.min(p.w, p.h) * .45, half = Math.max(0, Math.max(p.w, p.h) / 2 - rr), vert = p.h >= p.w; return [toWorld(p.x - (vert ? 0 : half), p.y - (vert ? half : 0)), toWorld(p.x + (vert ? 0 : half), p.y + (vert ? half : 0)), rr, p]; });
   for (const o of obstacles) {
     if (o.hit) continue;
+    // only what can be seen on screen can hit you
+    { const [sx, sy] = worldToScreen(o.x, o.y), m = (o.kind === 'plane' ? o.len : o.r) * cam.scale; if (sx < -m || sx > W + m || sy < -m || sy > H + m) continue; }
     let px = o.x, py = o.y, rr = o.r;
     if (o.kind === 'plane') { // the plane is long: test the nearest point on its body
       const k = clamp((R.x - (o.x - o.len / 2)) / o.len, 0, 1); px = o.x - o.len / 2 + k * o.len; rr = 1;
@@ -1647,20 +1652,39 @@ function drawMoonArrow(g) {
   const dx = moonX - R.x, dy = MOON_Y + MOON_R - R.y, d = Math.hypot(dx, dy) - MOON_R;
   const a = Math.atan2(dx, dy);
   const cx = W / 2, cy = H * cam.sy;
-  const rad = Math.min(W, H) * .38;
-  const ax = cx + Math.sin(a) * rad, ay = cy - Math.cos(a) * rad;
-  const sz = clamp(60 - d / 200, 22, 56);
+  // pinned to the edge of the screen (inside the header, the gauges and the bottom strip)
+  const ux = Math.sin(a), uy = -Math.cos(a), L0 = 56, R0 = W - 70, T0 = 120, B0 = H - BOTTOM - 50;
+  let t2 = Infinity;
+  if (ux > 0) t2 = Math.min(t2, (R0 - cx) / ux); if (ux < 0) t2 = Math.min(t2, (L0 - cx) / ux);
+  if (uy > 0) t2 = Math.min(t2, (B0 - cy) / uy); if (uy < 0) t2 = Math.min(t2, (T0 - cy) / uy);
+  const ax = cx + ux * t2, ay = cy + uy * t2;
+  const sz = clamp(60 - d / 200, 30, 56);
   g.save(); g.translate(ax, ay);
+  // a big hand-drawn arrow pointing out toward the Moon
+  g.save(); g.rotate(a); g.fillStyle = '#f4d35e'; g.strokeStyle = INK; g.lineWidth = 2.2;
+  g.beginPath(); g.moveTo(0, -sz * 1.05); g.lineTo(sz * .32, -sz * .62); g.lineTo(-sz * .32, -sz * .62); g.closePath(); g.fill(); g.stroke(); g.restore();
   // little moon
   g.fillStyle = '#f1ead2'; g.strokeStyle = INK; g.lineWidth = 2;
   g.beginPath(); g.arc(0, 0, sz * .45, 0, 7); g.fill(); g.stroke();
   g.fillStyle = '#d9cfb0'; g.beginPath(); g.arc(-sz * .12, -sz * .08, sz * .12, 0, 7); g.fill();
-  g.rotate(a);
-  g.beginPath(); g.moveTo(0, -sz * .62); g.lineTo(-sz * .2, -sz * .45); g.moveTo(0, -sz * .62); g.lineTo(sz * .2, -sz * .45); g.stroke();
   g.restore();
 }
 
 // altimeter: a pencil line on the right with clouds, space and the Moon marked
+// obstacles still above the screen: a red triangle at the top edge where they will come in
+function drawWarnings(g) {
+  const p = Pen(g, 30, 77);
+  for (const o of obstacles) {
+    if (o.hit || o.kind === 'bird') continue;
+    const [sx, sy] = worldToScreen(o.x, o.y);
+    if (sy > 0 || sy < -H * 1.5) continue;
+    const x = clamp(sx, 30, W - 50), y = 62, k = 1 - Math.min(1, -sy / (H * 1.5));
+    g.save(); g.globalAlpha = .4 + .6 * k;
+    p.shape([[x, y - 12], [x + 11, y + 8], [x - 11, y + 8]], COL.red, 2);
+    g.fillStyle = '#fff'; g.fillRect(x - 1.5, y - 5, 3, 7); g.fillRect(x - 1.5, y + 4, 3, 2.5);
+    g.restore();
+  }
+}
 function drawAltimeter(g, alt) {
   const x = W - 22, y0 = H - BOTTOM - 24, y1 = 70;
   const pos = a => y0 - (Math.log10(1 + Math.max(0, a) / 10) / Math.log10(1 + MOON_Y / 10)) * (y0 - y1);
@@ -1916,10 +1940,11 @@ function drawFlight(fdt, k, frame) {
   // camera: zoom out with speed, keep the rocket a little below the middle
   const spd = Math.hypot(R.vx, R.vy);
   const rocketLen = Math.max(4, R.top - R.bot);
-  let viewU = clamp(rocketLen * 2.3 + spd * .32, 9, 140);
+  let viewU = clamp(rocketLen * 2.3 + spd * .2, 9, 90);
   if (state === 'over' || state === 'result') viewU = clamp(rocketLen * 3 + 6, 10, 60);
   if (overKind === 'moon') viewU = rocketLen * 2.6 + 8;
-  const avail = Math.min(W, H - BOTTOM - 60);
+  // tall phones use some of their height too, so the rocket and what comes at it stay big enough to see
+  const avail = Math.min(Math.max(W, (H - BOTTOM - 60) * .75), H - BOTTOM - 60);
   const tScale = avail / viewU * flightZoom;
   cam.scale = lerp(cam.scale, tScale, Math.min(1, fdt * 2.5));
   const sy = state === 'result' ? .64 : .55;
@@ -1999,6 +2024,7 @@ function drawFlight(fdt, k, frame) {
   ctx.restore();
   // HUD
   if (state === 'flight') {
+    drawWarnings(ctx);
     drawSteer(ctx);
     drawAltimeter(ctx, R.y - R.y0);
     drawFuelGauge(ctx);
@@ -2013,8 +2039,11 @@ function update(dt) {
   if (state === 'flight') {
     // time runs faster on the long coast through space
     const alt = R.y - R.y0;
-    const coasting = R.thrust < 10 && alt > SPACE_Y + 100;
-    const wt = coasting ? clamp(1 + (alt - SPACE_Y) / 300, 1, 16) : 1;
+    // no fast-forward while something is coming, so there is time to dodge it
+    const viewU = H / cam.scale;
+    const near = obstacles.some(o => !o.hit && o.y > R.y - viewU * .5 && o.y < R.y + viewU * 3 && Math.abs(o.x - R.x) < viewU * 2);
+    const coasting = R.thrust < 10 && alt > SPACE_Y + 100 && !near;
+    const wt = coasting ? clamp(1 + (alt - SPACE_Y) / 300, 1, 8) : 1;
     warp = lerp(warp, wt, Math.min(1, dt * 2));
     const u = steer();
     acc += dt * warp;
