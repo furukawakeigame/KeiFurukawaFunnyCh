@@ -12,10 +12,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ロケットメーカー</title>
-  <meta name="description" content="好きなパーツを組み合わせてロケットを作り、操縦して月を目指す">
+  <meta name="description" content="好きなパーツを組み合わせてロケットを作り、どこまで高く飛べるか挑戦">
   <link rel="canonical" href="https://keifurukawafunnych.com/games/rocket-maker/">
   <script type="application/ld+json">
-  {"@context": "https://schema.org", "@type": "VideoGame", "name": "ロケットメーカー", "description": "好きなパーツを組み合わせてロケットを作り、操縦して月を目指す", "url": "https://keifurukawafunnych.com/games/rocket-maker/", "image": "https://keifurukawafunnych.com/games/rocket-maker/icon.png", "inLanguage": "ja", "gamePlatform": "Web browser", "applicationCategory": "Game", "operatingSystem": "Any", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": 0, "priceCurrency": "JPY"}, "author": {"@type": "Person", "name": "ふるかわけい"}}
+  {"@context": "https://schema.org", "@type": "VideoGame", "name": "ロケットメーカー", "description": "好きなパーツを組み合わせてロケットを作り、どこまで高く飛べるか挑戦", "url": "https://keifurukawafunnych.com/games/rocket-maker/", "image": "https://keifurukawafunnych.com/games/rocket-maker/icon.png", "inLanguage": "ja", "gamePlatform": "Web browser", "applicationCategory": "Game", "operatingSystem": "Any", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": 0, "priceCurrency": "JPY"}, "author": {"@type": "Person", "name": "ふるかわけい"}}
   </script>
   <link rel="icon" href="icon.png">
   <link rel="apple-touch-icon" href="icon.png">
@@ -328,7 +328,7 @@ const PARTS = {
   engL: { cat: 'engine', w: 1, h: 1.5, m: .8, T: 55, burn: .45, fx: 'fire' },
   vector: { cat: 'engine', w: 1, h: 1, m: .5, T: 24, burn: .18, gimbal: 1, fx: 'fire' },
   jet: { cat: 'engine', w: 1, h: 1.5, m: .7, T: 24, burn: .06, air: 1, fx: 'jet' },
-  ion: { cat: 'engine', w: 1, h: 1, m: .35, T: 4, burn: .003, space: 1, fx: 'ion' },
+  ion: { cat: 'engine', w: 1, h: 1, m: .35, T: 6, burn: .025, fx: 'ion' },
   firework: { cat: 'engine', w: 0.5, h: 1.5, m: .45, T: 46, own: 1.5, fx: 'spark' },
   bottle: { cat: 'engine', w: 1, h: 1.5, m: .2, T: 34, own: 1.1, fx: 'water' },
   fin: { cat: 'side', w: 0.5, h: 1, m: .08, fin: 1 },
@@ -642,11 +642,11 @@ function buildStats() {
 }
 
 // ================= physics =================
-const G0 = 4, RE = 2500, KD = .008, KS = .006, KDA = .004;
-const SPACE_Y = 1000, MOON_Y = 10000, MOON_R = 1600;
+const G0 = 4, KD = .008, KS = .006, KDA = .004;
 const DT = 1 / 120;
-const rho = y => Math.exp(-Math.max(0, y) / 200);
-const spaceK = y => clamp((y - 300) / 700, 0, 1);
+// the sky goes on for ever: the air thins out but never runs out, so how high you get depends on the rocket
+const airK = y => Math.exp(-Math.max(0, y) / 250);
+const rho = y => .3 + .7 * airK(y);
 
 // centre of mass, centre of pressure and inertia for a set of parts (fuel levels by stage)
 function aero(parts, _t, fuelK) {
@@ -716,8 +716,8 @@ function detach(list, kind) {
 
 function physStep(dt, u) {
   const r = R; r.t += dt;
-  const alt = r.y - r.y0, rh = rho(alt), sp = spaceK(alt);
-  const g = G0 * (RE / (RE + Math.max(0, alt))) ** 2;
+  const alt = r.y - r.y0, rh = rho(alt), thick = airK(alt);
+  const g = G0;
   // --- engines ---
   let T = 0, gim = 0, usedFuel = 0, tauT = 0;
   const mix = { fire: 0, jet: 0, ion: 0, spark: 0, water: 0 };
@@ -729,7 +729,7 @@ function physStep(dt, u) {
     if (stunned) { stageCan = true; continue; }       // struck by lightning: engines cough for a moment
     if (p.side) {
       // side boosters fire from lift-off until empty, then fall away
-      if (p.own > 0) { p.own -= dt; p.burning = true; const f = d.T * (1 + .1 * sp); T += f; tauT -= (p.x - r.comX) * f; mix.fire += d.T / 60; }
+      if (p.own > 0) { p.own -= dt; p.burning = true; const f = d.T; T += f; tauT -= (p.x - r.comX) * f; mix.fire += d.T / 60; }
       continue;
     }
     if (p.stage !== r.active) continue;
@@ -737,9 +737,7 @@ function physStep(dt, u) {
     let f = 1;
     if (d.own) { if (p.own <= 0) continue; p.own -= dt; }
     else { if (r.fuel[r.active] <= 0) continue; usedFuel += d.burn * dt; }
-    if (d.air) f = clamp((rh - .05) / .35, 0, 1);
-    if (d.space) f = .25 + .75 * sp;
-    if (d.fx === 'fire' || d.fx === 'spark') f *= 1 + .12 * sp;
+    if (d.air) f = clamp(.15 + thick * 1.1, .15, 1);   // jets love thick low air
     stageCan = true;
     if (f <= 0) continue;
     p.burning = true;
@@ -749,7 +747,9 @@ function physStep(dt, u) {
   if (usedFuel) { r.fuel[r.active] = Math.max(0, r.fuel[r.active] - usedFuel); }
   // solar panels trickle fuel back in space
   const solar = r.parts.reduce((s, p) => s + (PARTS[p.id].solar || 0), 0);
-  if (solar && sp > .3 && r.fuelMax[r.active] > 0) r.fuel[r.active] = Math.min(r.fuelMax[r.active], r.fuel[r.active] + solar * sp * dt);
+  // each panel can only give back so much over a flight (so nothing climbs for ever)
+  if (r.solarLeft === undefined) r.solarLeft = r.parts.filter(p => PARTS[p.id].solar).length * .6;
+  if (solar && r.solarLeft > 0 && r.fuelMax[r.active] > 0) { const add = Math.min(solar * .5 * dt, r.solarLeft, r.fuelMax[r.active] - r.fuel[r.active]); r.fuel[r.active] += add; r.solarLeft -= add; }
   r.thrust = T; r.mix = mix;
   // spent boosters fall away
   const spent = r.parts.filter(p => p.side && PARTS[p.id].sep && p.own <= 0);
@@ -784,7 +784,7 @@ function physStep(dt, u) {
   let tau = tauT * .3 - KS * q * r.Aside * r.margin * Math.sin(alpha);
   tau -= KDA * q * r.Aside * r.w * (1 + Math.abs(r.margin)) + .25 * r.w * r.I;
   const thrFrac = T > 0 ? 1 : 0;
-  const ctrl = 1 + r.gyro * 3 + r.rcs * 5 * (.2 + .8 * sp) + r.fins * Math.min(q, 500) / 500 * 6 + gim * 7 * thrFrac;
+  const ctrl = 1 + r.gyro * 3 + r.rcs * 5 + r.fins * Math.min(q, 500) / 500 * 6 + gim * 7 * thrFrac;
   tau += u * ctrl;
   if (Math.abs(u) < .05 && r.gyro) tau -= r.gyro * 2.5 * r.w;          // gyros hold the heading
   // gusty air nudges every rocket; fins pull it back, an unstable one runs away with it
@@ -799,8 +799,8 @@ function physStep(dt, u) {
     r.onPad = false; r.everLift = true;
   }
   r.vx += Fx / r.m * dt; r.vy += Fy / r.m * dt;
-  // out in space, steering also slides the rocket sideways a little (more with RCS thrusters): room to dodge and to aim
-  if (sp > .3) r.vx += u * (4 + r.rcs * 4) * sp * dt;
+  // RCS thrusters also slide the rocket sideways: room to dodge
+  if (r.rcs) r.vx += u * r.rcs * 4 * dt;
   r.x += r.vx * dt; r.y += r.vy * dt;
   r.w += tau / r.I * dt; r.w = clamp(r.w, -12, 12); r.th = wrapA(r.th + r.w * dt);
   r.q = q; r.alpha = alpha;
@@ -812,14 +812,11 @@ function physStep(dt, u) {
   // ground
   let low = Infinity; for (const [lx, ly] of r.corners) low = Math.min(low, toWorld(lx, ly)[1]);
   if (low <= 0 && r.vy < 0) return (spd > 7 && !r.chuteOpen) ? 'crash' : 'land';
-  // moon
-  const dm = Math.hypot(r.x - moonX, r.y - (MOON_Y + MOON_R));
-  if (dm < MOON_R + Math.max(1, r.top * .8)) return 'moon';
   return null;
 }
 
 // ================= world objects =================
-let debris = [], particles = [], obstacles = [], moonX = 0, ejectCat = null;
+let debris = [], particles = [], obstacles = [], ejectCat = null;
 function spawnPuff(x, y, n, color, sp = 3) {
   for (let i = 0; i < n; i++) { const a = Math.random() * 7, v = Math.random() * sp; particles.push({ kind: 'puff', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, r: .3 + Math.random() * .5, grow: 1.2 + Math.random(), life: .6 + Math.random() * .6, max: 1.2, color }); }
 }
@@ -833,13 +830,16 @@ function explode(x, y) {
 }
 
 // obstacle bands (altitude in blocks)
+// the scenery changes with height: birds low, then planes and thunderclouds, migrating geese,
+// weather balloons, fast jets, and far up the odd UFO
 const BANDS = [
-  { kind: 'bird', y0: 25, y1: 260, gap: 45 },
-  { kind: 'plane', y0: 140, y1: 650, gap: 140 },
-  { kind: 'storm', y0: 280, y1: 820, gap: 190 },
-  { kind: 'sat', y0: 1400, y1: 6500, gap: 1000 },
-  { kind: 'meteor', y0: 2800, y1: 9600, gap: 900 },
-  { kind: 'ufo', y0: 5200, y1: 9400, gap: 2400 },
+  { kind: 'bird', y0: 25, y1: 400, gap: 45 },
+  { kind: 'plane', y0: 140, y1: 1500, gap: 170 },
+  { kind: 'storm', y0: 280, y1: 2500, gap: 240 },
+  { kind: 'geese', y0: 350, y1: 2200, gap: 260 },
+  { kind: 'wballoon', y0: 700, y1: 1e9, gap: 420 },
+  { kind: 'jet', y0: 1300, y1: 1e9, gap: 360 },
+  { kind: 'ufo', y0: 3000, y1: 1e9, gap: 2000 },
 ];
 let nextSpawn;
 function resetObstacles() {
@@ -857,9 +857,12 @@ function spawnObstacles(viewH) {
       if (b.kind === 'bird') { const n = 2 + (Math.random() * 3 | 0), bx = cx + (Math.random() - .5) * spread * 1.4; for (let k = 0; k < n; k++) obstacles.push({ kind: 'bird', x: bx + k * 1.6 * dir, y: y + (k % 2) * 1.2, vx: -dir * (2.5 + Math.random()), vy: 0, r: .6, ph: Math.random() * 7 }); }
       if (b.kind === 'plane') obstacles.push({ kind: 'plane', x: cx - dir * (spread * .9 + 10), y, vx: dir * (16 + Math.random() * 6), vy: 0, r: 1.6, len: 7, ph: 0 });
       if (b.kind === 'storm') obstacles.push({ kind: 'storm', x: cx + (Math.random() - .5) * spread, y, vx: (Math.random() - .5) * 2, vy: 0, r: 3.6, ph: Math.random() * 7, seed: Math.random() * 1e9 | 0 });
-      if (b.kind === 'sat') obstacles.push({ kind: 'sat', x: cx - dir * spread * (.5 + Math.random() * .6), y, vx: dir * (6 + Math.random() * 6), vy: 0, r: 2.2, ph: Math.random() * 7 });
-      // meteors pass beside the path and drift away from it (scenery you can graze, not a wall)
-      if (b.kind === 'meteor') obstacles.push({ kind: 'meteor', x: cx + dir * (5 + Math.random() * spread * .6), y: y + viewH * .3, vx: dir * (2 + Math.random() * 4), vy: -(5 + Math.random() * 7), r: 1.2 + Math.random() * 1.6, ph: Math.random() * 7, seed: Math.random() * 1e9 | 0 });
+      // geese fly in a V across the sky
+      if (b.kind === 'geese') { const bx = cx - dir * spread * .8; for (let k = 0; k < 7; k++) { const row = Math.ceil(k / 2), side = k % 2 ? 1 : -1; obstacles.push({ kind: 'bird', x: bx - dir * row * 1.4, y: y + side * row * 1.1, vx: dir * 6, vy: 0, r: .6, ph: Math.random() * 7 }); } }
+      // weather balloons drift up slowly; a bump, nothing breaks
+      if (b.kind === 'wballoon') obstacles.push({ kind: 'wballoon', x: cx + (Math.random() - .5) * spread, y, vx: (Math.random() - .5) * 2, vy: 2, r: 1.8, ph: Math.random() * 7 });
+      // jets: like planes but much faster, so watch the warning marks
+      if (b.kind === 'jet') obstacles.push({ kind: 'plane', jet: 1, x: cx - dir * (spread * 1.1 + 12), y, vx: dir * (34 + Math.random() * 10), vy: 0, r: 1.6, len: 7, ph: 0 });
       if (b.kind === 'ufo') obstacles.push({ kind: 'ufo', x: cx + (Math.random() - .5) * spread, y, vx: 0, vy: 0, r: 2.6, ph: Math.random() * 7, bx: cx });
       nextSpawn[i] += b.gap * (.6 + Math.random() * .8);
     }
@@ -900,7 +903,8 @@ function handleHit({ o, part, px, py }) {
   o.hit = true; R.inv = .6;
   const [wx, wy] = toWorld(part.x, part.y);
   const side = Math.sign(wx - px) || (Math.random() < .5 ? -1 : 1);   // pushed away from the obstacle
-  if (o.kind === 'bird') {
+  if (o.kind === 'bird' || o.kind === 'wballoon') {
+    if (o.kind === 'wballoon') { sfx.balloon(); o.vy = -4; }
     R.w -= side * 1.2 / R.I; R.vx += side * 6 / R.m; R.vy *= .96;   // heavier rockets barely notice
     o.vy = 3; o.vx = -side * 4;
     for (let i = 0; i < 7; i++) particles.push({ kind: 'puff', x: px, y: py, vx: (Math.random() - .5) * 6, vy: Math.random() * 4, r: .18, grow: .1, life: .9, max: .9, color: '#ffffff' });
@@ -917,6 +921,9 @@ function handleHit({ o, part, px, py }) {
   const k = o.kind === 'meteor' ? 1.4 : 1;
   R.w -= side * 4 * k / R.I; R.vx += side * 12 * k / R.m; R.vy *= .9;
   debris.push({ id: part.id, x: wx, y: wy, vx: R.vx + side * 9, vy: R.vy + 4, th: R.th, w: side * 6, mirror: part.side < 0, life: 6, burnt: true });
+  // a tank that breaks off takes its share of the fuel with it
+  const pf = PARTS[part.id].fuel || 0, st = part.stage;
+  if (pf && R.fuelMax[st] > 0) { R.fuel[st] *= Math.max(0, 1 - pf / R.fuelMax[st]); R.fuelMax[st] = Math.max(0, R.fuelMax[st] - pf); }
   R.parts = R.parts.filter(q => q !== part);
   R.balloons = R.balloons.filter(q => q !== part);
   if (R.parts.length) recalc();
@@ -943,7 +950,6 @@ function launch() {
   debris = []; particles = []; ejectCat = null; resetObstacles();
   // parts that touch nothing stay behind on the pad
   for (const p of layout(rk).parts) if (!p.attached) debris.push({ id: p.id, x: p.x, y: p.y, vx: 0, vy: 0, th: 0, w: 0, mirror: p.side < 0, life: 1e9 });
-  moonX = (Math.random() - .5) * 2400;
   windT = Math.random() * 100;
   state = 'flight'; overT = 0; overKind = ''; warp = 1;
   prevR = { x: R.x, y: R.y, th: R.th };
@@ -955,23 +961,15 @@ function endFlight(kind) {
   if (state !== 'flight') return;
   state = 'over'; overKind = kind; overT = 0;
   if (kind === 'crash' || kind === 'breakup' || kind === 'hit') { const [wx, wy] = [R.x, R.y]; explode(wx, wy); sfx.boom(); setTimeout(() => meow(false), 350); }
-  if (kind === 'moon') { sfx.land(); setTimeout(sfx.fanfare, 300); setTimeout(() => meow(true), 900); landOnMoon(); }
   if (kind === 'land') { sfx.land(); R.vx = R.vy = 0; setTimeout(() => meow(true), 300); }
   if (kind === 'fall' || kind === 'pad') setTimeout(() => meow(false), 100);
   engineStop();
   setUI();
 }
-function landOnMoon() {
-  const a = Math.atan2(R.x - moonX, R.y - (MOON_Y + MOON_R));
-  R.th = a; R.w = 0; R.vx = R.vy = 0;
-  const d = MOON_R - R.bot; R.x = moonX + Math.sin(a) * d; R.y = MOON_Y + MOON_R + Math.cos(a) * d;
-  R.flagA = a;
-  spawnPuff(moonX + Math.sin(a) * MOON_R, MOON_Y + MOON_R + Math.cos(a) * MOON_R, 14, '#ccc', 4);
-}
 function finish() {
   state = 'result';
-  const moon = overKind === 'moon';
-  const km = moon ? MOON_Y / 10 : Math.round(R.maxY) / 10;
+  const moon = false;
+  const km = Math.round(R.maxY) / 10;
   result = { km, moon };
   if (km > best) { best = km; store.set('best', best); }
   if (moon) { bestMoon = true; store.set('bestMoon', true); }
@@ -1359,7 +1357,7 @@ document.addEventListener('selectstart', e => e.preventDefault());
 
 // ================= drawing: background =================
 const STARS = Array.from({ length: 120 }, (_, i) => { const r = mulberry(i * 31 + 5); return [r(), r(), .6 + r() * 1.6, r()]; });
-const skyStops = [[0, '#eaf5fd'], [350, '#cfe6fa'], [700, '#f7d2a8'], [950, '#7c6fb0'], [1300, '#262c5c'], [2200, '#121633']];
+const skyStops = [[0, '#eaf5fd'], [400, '#d4ebfd'], [1500, '#b0d8f8'], [4000, '#8cc2f1'], [10000, '#6ba8e6']];
 function skyAt(y) {
   for (let i = 0; i < skyStops.length - 1; i++) { const [y0, c0] = skyStops[i], [y1, c1] = skyStops[i + 1]; if (y < y1) return mixC(c0, c1, (y - y0) / (y1 - y0)); }
   return skyStops[skyStops.length - 1][1];
@@ -1372,7 +1370,7 @@ function drawPaper(topY, botY, ox, oy, scale) {
   g.fillStyle = gr; g.fillRect(0, 0, W, H);
   if (ct !== lastBodyBg) { document.body.style.background = ct; lastBodyBg = ct; }
   // paper grain: graph paper lines that scroll with the camera
-  const dark = clamp((Math.max(0, (topY + botY) / 2) - 900) / 500, 0, 1);
+  const dark = 0;
   const sp = 26;
   g.strokeStyle = dark > .5 ? `rgba(255,255,255,${.05 + .03 * dark})` : 'rgba(70,110,170,.13)'; g.lineWidth = 1;
   g.beginPath();
@@ -1415,9 +1413,11 @@ function drawClouds(view) {
   const tile = 48;
   const y0 = Math.floor(view.y0 / tile), y1 = Math.ceil(view.y1 / tile), x0 = Math.floor(view.x0 / tile), x1 = Math.ceil(view.x1 / tile);
   if (y1 - y0 > 40 || x1 - x0 > 40) return;
-  for (let ty = Math.max(1, y0); ty <= Math.min(16, y1); ty++) for (let tx = x0; tx <= x1; tx++) {
+  for (let ty = Math.max(1, y0); ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     const r = mulberry(tx * 7919 + ty * 104729);
-    if (r() < .4) continue;
+    // clouds come in layers: thick bands and clear gaps, all the way up
+    const layer = Math.floor(ty / 6) % 4;
+    if (r() < [.35, .8, .5, .9][layer]) continue;
     const wx = (tx + r()) * tile, wy = (ty + r()) * tile, sz = 10 + r() * 14;
     const [sx, sy] = worldToScreen(wx, wy), px = sz * cam.scale;
     if (px < 6) continue;
@@ -1564,7 +1564,7 @@ function drawObstacle(g, o, frame) {
   } else if (o.kind === 'plane') {
     const d = Math.sign(o.vx) || 1, Lh = o.len * s / 2;
     g.save(); g.translate(sx, sy); g.scale(d, 1);
-    p.shape(p.rrect(-Lh, -s * .55, Lh * 2, s * 1.1, s * .5), COL.white);
+    p.shape(p.rrect(-Lh, -s * .55, Lh * 2, s * 1.1, s * .5), o.jet ? '#d9dde3' : COL.white);
     p.shape([[-s * .6, 0], [s * .8, 0], [-s * .4, s * 1.6], [-s * 1.2, s * 1.6]], COL.sky);
     p.shape([[-Lh + s * .1, -s * .3], [-Lh - s * .2, -s * 1.6], [-Lh + s * 1.2, -s * .4]], COL.red);
     for (let i = 0; i < 4; i++) p.dot(-s * .6 + i * s * .9, -s * .1, Math.max(1.5, s * .16), COL.blue);
@@ -1589,6 +1589,13 @@ function drawObstacle(g, o, frame) {
     const rr = mulberry(o.seed), pts = []; for (let i = 0; i < 9; i++) { const aa = i / 9 * 7; const k = .75 + rr() * .35; pts.push([Math.cos(aa) * o.r * s * k, Math.sin(aa) * o.r * s * k]); }
     p.shape(pts, '#9b8a7a'); p.line(p.ell(o.r * s * .2, -o.r * s * .1, o.r * s * .22, o.r * s * .18, 8), true, p.lw * .7);
     g.restore();
+  } else if (o.kind === 'wballoon') {
+    // a big white weather balloon with its little instrument box
+    const sw = Math.sin(o.ph * 1.3) * s * .15;
+    p.line([[sx + sw, sy + s * 1.6], [sx, sy + s * 3]], false, 1.2);
+    p.shape(p.ell(sx + sw, sy, s * 1.5, s * 1.7, 18), COL.white);
+    p.line([[sx + sw - s * .7, sy - s * .9], [sx + sw - s * .9, sy - s * .3]], false, 1.5, '#cfe3f3');
+    p.shape(p.rect(sx - s * .35, sy + s * 3, s * .7, s * .6), COL.orange);
   } else if (o.kind === 'ufo') {
     g.save(); g.translate(sx, sy);
     p.shape(p.ell(0, -s * .4, s * 1.1, s * .9, 14).filter((_, i) => i >= 7 || i === 0), '#cfe8fb');
@@ -1615,62 +1622,6 @@ function drawEjectCat(g, frame) {
   p.line([[rr * .6, -rr * .9], [rr * .9, -rr * 1.3], [rr * .7, -rr * 1.6], [rr, -rr * 2]], false, 1.5, '#888');
   g.restore();
 }
-function drawMoon(g, frame) {
-  const [sx, sy] = worldToScreen(moonX, MOON_Y + MOON_R), rr = MOON_R * cam.scale;
-  const dist = Math.hypot(sx - W / 2, sy - H / 2);
-  if (dist - rr > Math.hypot(W, H)) return false;
-  // a big circle: plain fill and a doubled pencil outline (cheap at any size), craters with the pen
-  g.save();
-  g.fillStyle = '#f1ead2'; g.beginPath(); g.arc(sx, sy, rr, 0, 7); g.fill();
-  g.strokeStyle = INK; g.lineWidth = 3; g.beginPath(); g.arc(sx, sy, rr, 0, 7); g.stroke();
-  g.globalAlpha = .45; g.lineWidth = 1.5; g.beginPath(); g.arc(sx + 1.5, sy - 1, rr + 2, 0, 7); g.stroke();
-  g.restore();
-  const p = Pen(g, 40, 333 + frame);
-  const r = mulberry(42);
-  for (let i = 0; i < 260; i++) {
-    const a = r() * Math.PI * 2, d = Math.sqrt(r()) * MOON_R * .97, crw = 3 + r() * 40, cr = crw * cam.scale;
-    const cx = sx + Math.cos(a) * d * cam.scale, cy = sy + Math.sin(a) * d * cam.scale;
-    if (cr < 3 || cx < -cr || cx > W + cr || cy < -cr || cy > H + cr) continue;
-    p.shape(p.ell(cx, cy, cr, cr * .8, 14), '#ddd3b4', 1.6);
-  }
-  // small craters along the rim near the camera, so the ground you land on has texture
-  const ca = Math.atan2(cam.x - moonX, cam.y - (MOON_Y + MOON_R)), span = (Math.max(W, H) / cam.scale) / MOON_R;
-  const step = 9 / MOON_R;
-  for (let a = Math.floor((ca - span) / step) * step; a < ca + span; a += step) {
-    const rr2 = mulberry(Math.round(a / step) * 7 + 11);
-    if (rr2() < .35) continue;
-    const d = MOON_R - 2 - rr2() * 14, crw = 1 + rr2() * 3.5;
-    const wx = moonX + Math.sin(a) * d, wy = MOON_Y + MOON_R + Math.cos(a) * d;
-    const [cx, cy] = worldToScreen(wx, wy), cr = crw * cam.scale;
-    if (cx < -cr || cx > W + cr || cy < -cr || cy > H + cr) continue;
-    p.shape(p.ell(cx, cy, cr, cr * .75, 12), '#ddd3b4', 1.6);
-  }
-  return true;
-}
-function drawMoonArrow(g) {
-  // a hand-drawn arrow at the edge of the screen pointing to the Moon
-  const dx = moonX - R.x, dy = MOON_Y + MOON_R - R.y, d = Math.hypot(dx, dy) - MOON_R;
-  const a = Math.atan2(dx, dy);
-  const cx = W / 2, cy = H * cam.sy;
-  // pinned to the edge of the screen (inside the header, the gauges and the bottom strip)
-  const ux = Math.sin(a), uy = -Math.cos(a), L0 = 56, R0 = W - 70, T0 = 120, B0 = H - BOTTOM - 50;
-  let t2 = Infinity;
-  if (ux > 0) t2 = Math.min(t2, (R0 - cx) / ux); if (ux < 0) t2 = Math.min(t2, (L0 - cx) / ux);
-  if (uy > 0) t2 = Math.min(t2, (B0 - cy) / uy); if (uy < 0) t2 = Math.min(t2, (T0 - cy) / uy);
-  const ax = cx + ux * t2, ay = cy + uy * t2;
-  const sz = clamp(60 - d / 200, 30, 56);
-  g.save(); g.translate(ax, ay);
-  // a big hand-drawn arrow pointing out toward the Moon
-  g.save(); g.rotate(a); g.fillStyle = '#f4d35e'; g.strokeStyle = INK; g.lineWidth = 2.2;
-  g.beginPath(); g.moveTo(0, -sz * 1.05); g.lineTo(sz * .32, -sz * .62); g.lineTo(-sz * .32, -sz * .62); g.closePath(); g.fill(); g.stroke(); g.restore();
-  // little moon
-  g.fillStyle = '#f1ead2'; g.strokeStyle = INK; g.lineWidth = 2;
-  g.beginPath(); g.arc(0, 0, sz * .45, 0, 7); g.fill(); g.stroke();
-  g.fillStyle = '#d9cfb0'; g.beginPath(); g.arc(-sz * .12, -sz * .08, sz * .12, 0, 7); g.fill();
-  g.restore();
-}
-
-// altimeter: a pencil line on the right with clouds, space and the Moon marked
 // obstacles still above the screen: a red triangle at the top edge where they will come in
 function drawWarnings(g) {
   const p = Pen(g, 30, 77);
@@ -1685,12 +1636,15 @@ function drawWarnings(g) {
     g.restore();
   }
 }
+// altimeter: a pencil line on the right; its top stretches past your best, with ticks at 10, 100, 1000 km
 function drawAltimeter(g, alt) {
   const x = W - 22, y0 = H - BOTTOM - 24, y1 = 70;
-  const pos = a => y0 - (Math.log10(1 + Math.max(0, a) / 10) / Math.log10(1 + MOON_Y / 10)) * (y0 - y1);
+  const top = Math.max(500, best * 10 * 1.4, alt * 1.25);
+  const pos = a => y0 - (Math.log10(1 + Math.max(0, a) / 10) / Math.log10(1 + top / 10)) * (y0 - y1);
   const p = Pen(g, 30, 5);
   p.line([[x, y0], [x, y1]], false, 2.2);
-  for (const [a, c] of [[300, '#ffffff'], [SPACE_Y, '#262c5c'], [MOON_Y, '#f1ead2']]) { const y = pos(a); g.fillStyle = c; g.strokeStyle = INK; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); g.stroke(); }
+  g.strokeStyle = INK; g.lineWidth = 1.5;
+  for (const km of [1, 10, 100, 1000, 10000]) { if (km * 10 > top) break; const y = pos(km * 10); g.beginPath(); g.moveTo(x - 6, y); g.lineTo(x + 6, y); g.stroke(); }
   if (best > 0) { const y = pos(best * 10); g.strokeStyle = COL.red; g.lineWidth = 2; g.beginPath(); g.moveTo(x - 9, y); g.lineTo(x + 9, y); g.stroke(); g.fillStyle = COL.red; g.beginPath(); g.moveTo(x + 2, y); g.lineTo(x + 2, y - 10); g.lineTo(x + 11, y - 7); g.closePath(); g.fill(); }
   const y = pos(alt);
   g.save(); g.translate(x, y); g.fillStyle = COL.orange; g.strokeStyle = INK; g.lineWidth = 2;
@@ -1820,7 +1774,7 @@ function drawTip(g) {
   g.font = `${clamp(W * .045, 17, 24)}px ${FONT}`;
   const tw = g.measureText(name).width;
   const stats = partStats(id).filter(s => s[1] > 0);
-  const flags = [d.air && 'air', d.space && 'space', d.chute && 'chute', (d.decoup || d.sep) && 'sep', d.wobble && 'wobble', d.solar && 'space', d.rcs && 'space', d.lift && 'air'].filter(Boolean);
+  const flags = [d.air && 'air', d.chute && 'chute', (d.decoup || d.sep) && 'sep', d.wobble && 'wobble', d.lift && 'air'].filter(Boolean);
   const bw = Math.max(tw + 24, stats.length * 64 + 20), bh = 66;
   let bx = clamp((tray.vertical ? buildArea.w / 2 : W / 2) - bw / 2, 8, W - bw - 8);
   let by = tray.vertical ? 56 : tray.y - bh - 14;
@@ -1958,13 +1912,9 @@ function drawFlight(fdt, k, frame) {
   const s = cam.scale;
   const topY = cam.y + H * cam.sy / s - R.y0, botY = cam.y - (H - H * cam.sy) / s - R.y0;
   drawPaper(topY, botY, cam.x * s, cam.y * s, s);
-  const rollT = overKind === 'moon' && R.flagA !== undefined ? -wrapA(R.flagA) : 0;
-  cam.rot = (cam.rot || 0) + wrapA(rollT - (cam.rot || 0)) * Math.min(1, fdt * 2.5);
-  if (state === 'flight') cam.rot = 0;
-  ctx.save(); ctx.translate(W / 2, H * cam.sy); ctx.rotate(cam.rot); ctx.translate(-W / 2, -H * cam.sy);
+  ctx.save();
   const view = { x0: cam.x - W / 2 / s, x1: cam.x + W / 2 / s, y0: cam.y - (H - H * cam.sy) / s, y1: cam.y + H * cam.sy / s };
   drawClouds(view);
-  const moonVisible = drawMoon(ctx, frame);
   drawGround(worldToScreen, s, frame);
   drawPad(worldToScreen, s, frame);
   // debris
@@ -2007,17 +1957,6 @@ function drawFlight(fdt, k, frame) {
       ctx.restore();
     }
     ctx.restore();
-    // flag on the Moon
-    if (overKind === 'moon' && R.flagA !== undefined) {
-      const fa = R.flagA, fx = moonX + Math.sin(fa) * MOON_R, fy = MOON_Y + MOON_R + Math.cos(fa) * MOON_R;
-      const bx = fx + Math.cos(fa) * 4, by = fy - Math.sin(fa) * 4;
-      const [sx, sy2] = worldToScreen(bx, by), up = Math.min(1, overT * 1.5);
-      ctx.save(); ctx.translate(sx, sy2); ctx.rotate(fa);
-      const p = Pen(ctx, s, 700 + frame);
-      p.line([[0, 0], [0, -s * 3.2 * up]], false, Math.max(2, s * .12));
-      if (up >= 1) { p.shape([[0, -s * 3.2], [s * 1.8, -s * 2.8], [0, -s * 2.3]], COL.red); }
-      ctx.restore();
-    }
   }
   drawParticles(ctx, true);
   if (ejectCat) drawEjectCat(ctx, frame);
@@ -2028,8 +1967,6 @@ function drawFlight(fdt, k, frame) {
     drawSteer(ctx);
     drawAltimeter(ctx, R.y - R.y0);
     drawFuelGauge(ctx);
-    if (R.y - R.y0 > 600 && !moonVisible) drawMoonArrow(ctx);
-    else if (R.y - R.y0 > 600) { const [mx, my] = worldToScreen(moonX, MOON_Y + MOON_R); if (Math.hypot(mx - W / 2, my - H / 2) > MOON_R * s + Math.max(W, H) * .2) drawMoonArrow(ctx); }
   }
 }
 
@@ -2039,12 +1976,7 @@ function update(dt) {
   if (state === 'flight') {
     // time runs faster on the long coast through space
     const alt = R.y - R.y0;
-    // no fast-forward while something is coming, so there is time to dodge it
-    const viewU = H / cam.scale;
-    const near = obstacles.some(o => !o.hit && o.y > R.y - viewU * .5 && o.y < R.y + viewU * 3 && Math.abs(o.x - R.x) < viewU * 2);
-    const coasting = R.thrust < 10 && alt > SPACE_Y + 100 && !near;
-    const wt = coasting ? clamp(1 + (alt - SPACE_Y) / 300, 1, 8) : 1;
-    warp = lerp(warp, wt, Math.min(1, dt * 2));
+    warp = 1;
     const u = steer();
     acc += dt * warp;
     let steps = 0;
@@ -2063,15 +1995,13 @@ function update(dt) {
       }
       // out of push and heading down: the flight is over
       const altNow = R.y - R.y0;
-      if (R.thrust === 0 && !R.onPad && R.vy < 0) {
+      if (R.thrust < R.m * G0 * .9 && !R.onPad && R.vy < 0) {
         R.fallT += DT;
         if (R.maxY > 250 && R.fallT > (R.chuteOpen ? 2.5 : 1.6)) { endFlight(R.chuteOpen ? 'chuteEnd' : 'fall'); break; }
       } else R.fallT = 0;
       // never left the pad
       if (R.onPad && R.t > 1.2 && R.thrust === 0) { endFlight('pad'); break; }
       if (R.onPad && R.t > 6) { endFlight('pad'); break; }
-      // flew past the Moon
-      if (altNow > MOON_Y + MOON_R * 2.2) { endFlight('fall'); break; }
     }
     if (steps >= 120 || state !== 'flight') acc = 0;
     if (state === 'flight') {
