@@ -1714,6 +1714,21 @@ function drawTray(g, frame) {
   }
 }
 // gauges for power (thrust against weight), fuel and steadiness
+// colours of the stages in firing order (the first one burns first and drops first)
+const STAGE_COL = ['#ffb36b', '#7cc4ff', '#9be08b', '#d7a6ff', '#ff9ec7'];
+function drawStageOrder(g, n) {
+  if (n <= 0) return;
+  const z = clamp(Math.min(W, H) / 520, 1, 1.9);
+  g.save(); g.translate(gaugeBox.x, gaugeBox.y + 3 * 34 * z + 4); g.scale(z, z);
+  const p = Pen(g, 30, 1300), r = 9, gap = 30;
+  for (let k = 0; k <= Math.min(n, STAGE_COL.length - 1); k++) {
+    const x = 12 + k * gap, y = 10;
+    p.shape(p.ell(x, y, r, r, 12), STAGE_COL[k], 1.6);
+    if (k === 0) flame(g, x, y + 1, .6);
+    if (k < n) p.line([[x + r + 3, y], [x + gap - r - 4, y], [x + gap - r - 8, y - 4], [x + gap - r - 4, y], [x + gap - r - 8, y + 4]], false, 1.6);
+  }
+  g.restore();
+}
 function drawGauges(g, st) {
   const z = clamp(Math.min(W, H) / 520, 1, 1.9);
   g.save(); g.translate(gaugeBox.x, gaugeBox.y); g.scale(z, z);
@@ -1801,6 +1816,17 @@ function drawBuild(fdt, frame) {
   drawFrame(fdt, frame);
   // rocket
   const lay = layout(rk);
+  // stages: a highlighter wash behind each part, one colour per stage (only when there are decouplers)
+  if (lay.maxStage > 0) {
+    const hp = Pen(ctx, s, 1200 + frame);
+    for (const q of lay.parts) {
+      if (!q.attached) continue;
+      const [cx, cy] = toS(q.x, q.y), pad = s * .06;
+      ctx.save(); ctx.globalAlpha = .55;
+      hp.fill(hp.rect(cx - q.w * s / 2 - pad, cy - q.h * s / 2 - pad, q.w * s + pad * 2, q.h * s + pad * 2), STAGE_COL[q.stage % STAGE_COL.length]);
+      ctx.restore();
+    }
+  }
   // loose parts (touching nothing) are drawn faint: they will be left behind
   drawRocketParts(ctx, lay.parts.filter(p => p.attached), (x, y) => toS(x, y), s, frame);
   drawRocketParts(ctx, lay.parts.filter(p => !p.attached), (x, y) => toS(x, y), s, frame, { alpha: .4 });
@@ -1822,6 +1848,7 @@ function drawBuild(fdt, frame) {
   for (let i = snapFx.length - 1; i >= 0; i--) { const f = snapFx[i]; f.t += fdt; if (f.t > .35) { snapFx.splice(i, 1); continue; } ctx.strokeStyle = `rgba(45,42,50,${1 - f.t / .35})`; ctx.lineWidth = 2; for (let j = 0; j < 8; j++) { const a = j / 8 * Math.PI * 2, r0 = f.r * .6 + f.t * 80, r1 = r0 + 8; ctx.beginPath(); ctx.moveTo(f.x + Math.cos(a) * r0, f.y + Math.sin(a) * r0); ctx.lineTo(f.x + Math.cos(a) * r1, f.y + Math.sin(a) * r1); ctx.stroke(); } }
   for (let i = poofs.length - 1; i >= 0; i--) { const f = poofs[i]; f.t += fdt; if (f.t > .45) { poofs.splice(i, 1); continue; } const k = f.t / .45; ctx.fillStyle = `rgba(255,255,255,${1 - k})`; ctx.strokeStyle = `rgba(45,42,50,${(1 - k) * .7})`; ctx.lineWidth = 1.5; for (let j = 0; j < 6; j++) { const a = j / 6 * Math.PI * 2; ctx.beginPath(); ctx.arc(f.x + Math.cos(a) * (8 + k * 30), f.y + Math.sin(a) * (8 + k * 30), 6 + k * 6, 0, 7); ctx.fill(); ctx.stroke(); } }
   drawGauges(ctx, buildStats());
+  drawStageOrder(ctx, lay.maxStage);
   drawTray(ctx, frame);
   // first visit: a dashed arrow from the tray to the rocket
   if (!touched && !drag) {
