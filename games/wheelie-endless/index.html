@@ -39,7 +39,7 @@
     /* the bike's angle, drawn as an arc with the safe band in green */
     #gauge { position: absolute; left: 50%; top: 46px; transform: translateX(-50%); height: clamp(58px, 12vmin, 104px); width: auto; pointer-events: none; transition: opacity .3s; filter: drop-shadow(0 2px 3px rgba(60,30,20,.25)); }
     #gauge.off { opacity: 0; }
-    #hint { position: absolute; width: 50px; height: 100px; margin: -50px 0 0 -25px; filter: drop-shadow(0 2px 3px rgba(60,30,20,.35)); pointer-events: none; display: none; }
+    #hint { position: absolute; width: 100px; height: 50px; margin: -25px 0 0 -50px; filter: drop-shadow(0 2px 3px rgba(60,30,20,.35)); pointer-events: none; display: none; }
     #hint.on { display: block; }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 16px; }
     .panel { position: absolute; left: 0; right: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: calc(54px + 2vh) 16px 0; pointer-events: none; }
@@ -84,10 +84,10 @@
       <line id="gNeedle" x1="34" y1="90" x2="104" y2="90" stroke="#223" stroke-width="5" stroke-linecap="round"/>
       <circle cx="34" cy="90" r="7" fill="#223"/>
     </svg>
-    <svg id="hint" viewBox="0 0 60 120" aria-hidden="true">
-      <path d="M30 4l-12 14h24zM30 116l-12-14h24z" fill="#fff"/>
-      <line x1="30" y1="22" x2="30" y2="98" stroke="rgba(255,255,255,.6)" stroke-width="4" stroke-linecap="round"/>
-      <circle id="hDot" cx="30" cy="60" r="13" fill="#fff" stroke="rgba(60,40,30,.35)" stroke-width="2"/>
+    <svg id="hint" viewBox="0 0 120 60" aria-hidden="true">
+      <path d="M4 30l14-12v24zM116 30l-14-12v24z" fill="#fff"/>
+      <line x1="22" y1="30" x2="98" y2="30" stroke="rgba(255,255,255,.6)" stroke-width="4" stroke-linecap="round"/>
+      <circle id="hDot" cx="60" cy="30" r="13" fill="#fff" stroke="rgba(60,40,30,.35)" stroke-width="2"/>
     </svg>
     <div id="msg"></div>
     <div id="result" class="panel" hidden>
@@ -893,28 +893,28 @@ function stepCrash(dt) {
   if (c.t > 1.4 && S.v <= 0 && c.ground && Math.abs(c.rv.x) < 0.05) { c.done += dt; if (c.done > 0.6) finish(); }
 }
 
-// ---------- input: drag up = lean forward, drag down = lean back ----------
+// ---------- input: drag right = lean forward, drag left = lean back ----------
 const pointers = new Map();
 let keyDir = 0;
-const dragScale = () => Math.min(stage.clientHeight, 760) * 0.26; // px for the lean to go from neutral to full
+const dragScale = () => Math.min(stage.clientWidth, 760) * 0.28; // px for the lean to go from neutral to full
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
   if (state === 'result' || state === 'crash') return;
   cv.setPointerCapture?.(e.pointerId);
   if (state === 'ready') begin();
-  pointers.clear(); pointers.set(e.pointerId, { y: e.clientY, bt: S.bt });
+  pointers.clear(); pointers.set(e.pointerId, { x: e.clientX, bt: S.bt });
 });
 cv.addEventListener('pointermove', e => {
   const p = pointers.get(e.pointerId);
   if (!p || state !== 'play') return;
-  S.bt = THREE.MathUtils.clamp(p.bt + (p.y - e.clientY) / dragScale(), -1, 1);
+  S.bt = THREE.MathUtils.clamp(p.bt + (e.clientX - p.x) / dragScale(), -1, 1);
   // keep the anchor under the finger when it goes past the end, so coming back responds at once
-  if (Math.abs(S.bt) === 1) { p.bt = S.bt; p.y = e.clientY; }
+  if (Math.abs(S.bt) === 1) { p.bt = S.bt; p.x = e.clientX; }
 });
 const up = e => { pointers.delete(e.pointerId); };
 addEventListener('pointerup', up); addEventListener('pointercancel', up);
 const keysHeld = new Set();
-const KEYS = { ArrowUp: 1, w: 1, W: 1, ArrowDown: -1, s: -1, S: -1 };
+const KEYS = { ArrowRight: 1, d: 1, D: 1, ArrowUp: 1, ArrowLeft: -1, a: -1, A: -1, ArrowDown: -1 };
 const updKeys = () => { keyDir = Math.sign([...keysHeld].reduce((n, k) => n + KEYS[k], 0)); };
 addEventListener('keydown', e => {
   if (e.target.closest?.('button, a, select')) return;
@@ -1081,17 +1081,17 @@ function render(alpha, fdt = 0) {
   renderer.render(scene, camera);
   updGauge(ph - s);
 }
-// before the start: a finger sliding up and down beside the bike
+// before the start: a finger sliding left and right beside the bike
 function updHint(dt) {
   const on = state === 'ready';
   $('hint').classList.toggle('on', on);
   if (!on) return;
   hintT += dt;
-  const p = V(S.x + 0.9, H(S.x) + 1.0, 1.5).project(camera);
+  const p = V(S.x + 1.0, H(S.x) - 0.1, 1.2).project(camera);
   const hint = $('hint');
   hint.style.left = ((p.x * 0.5 + 0.5) * stage.clientWidth).toFixed(0) + 'px';
   hint.style.top = ((-p.y * 0.5 + 0.5) * stage.clientHeight).toFixed(0) + 'px';
-  $('hDot').setAttribute('cy', (60 + Math.sin(hintT * 3) * 30).toFixed(1));
+  $('hDot').setAttribute('cx', (60 + Math.sin(hintT * 3) * 30).toFixed(1));
 }
 function loop(now) {
   const fdt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
