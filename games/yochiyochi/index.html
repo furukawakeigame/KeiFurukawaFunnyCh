@@ -104,6 +104,9 @@
     const SHARE_URL = 'https://keifurukawafunnych.com/games/yochiyochi/';
     const GOAL = 60;      // 家の前から駅の改札まで（m）
     const START_Z = 0;
+    // 改札の手前の上り階段（ホームは一段高い）
+    const STAIR_Z = GOAL - 6.5, STAIR_N = 6, RISE = 0.07, TREAD = 0.45, PLAT = STAIR_N * RISE, PLAT_Z = STAIR_Z + STAIR_N * TREAD;
+    const groundY = z => z < STAIR_Z ? 0 : z >= PLAT_Z ? PLAT : (Math.floor((z - STAIR_Z) / TREAD) + 1) * RISE;
 
     // ---------- 長押しで拡大鏡やメニューが出ないように ----------
     document.addEventListener('touchstart', e => { if (!e.target.closest('a, button, select, input')) e.preventDefault(); }, { passive: false });
@@ -118,13 +121,13 @@
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
       ja: { title: 'よちよち出勤', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', best: '最高', sec: s => `${s}秒`,
-        shareFall: d => `駅まで${d}m歩いて、転んだ #よちよち出勤ゲーム`, shareClear: s => `${s}秒で駅に着いた #よちよち出勤ゲーム` },
+        shareClear: s => `${s}秒で駅に着いた #よちよち出勤ゲーム` },
       ko: { title: '비틀비틀 출근', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', best: '최고', sec: s => `${s}초`,
-        shareFall: d => `역까지 ${d}m 걷다가 넘어졌다 #よちよち出勤ゲーム`, shareClear: s => `${s}초 만에 역에 도착했다 #よちよち出勤ゲーム` },
+        shareClear: s => `${s}초 만에 역에 도착했다 #よちよち出勤ゲーム` },
       en: { title: 'Wobbly Commute', back: '← Back to top', again: 'Play again', post: 'Post on X', best: 'Best', sec: s => `${s}s`,
-        shareFall: d => `Walked ${d}m toward the station, then fell over #よちよち出勤ゲーム`, shareClear: s => `Made it to the station in ${s}s #よちよち出勤ゲーム` },
+        shareClear: s => `Made it to the station in ${s}s #よちよち出勤ゲーム` },
       th: { title: 'เดินโซเซไปทำงาน', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', best: 'ดีที่สุด', sec: s => `${s} วินาที`,
-        shareFall: d => `เดินไปสถานีได้ ${d}m แล้วล้ม #よちよち出勤ゲーム`, shareClear: s => `ถึงสถานีใน ${s} วินาที #よちよち出勤ゲーム` },
+        shareClear: s => `ถึงสถานีใน ${s} วินาที #よちよち出勤ゲーム` },
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -229,6 +232,7 @@
     const sUwa = () => { const p = 0.9 + Math.random() * 0.25; voice(F0 * p, Math.random() < 0.5 ? ['u', 'w', 'a', 'a'] : ['o', 'w', 'a', 'a'], 0.5 + Math.random() * 0.2, 0.45, { p0: 1.3, p1: 1.6, shake: 0.07, breath: 0.2 }); };
     const sOof = () => voice(F0 * (0.9 + Math.random() * 0.15), ['u', 'o'], 0.28, 0.35, { p0: 1.0, p1: 0.7, breath: 0.35 });
     const sHuh = () => voice(F0 * (1 + Math.random() * 0.2), ['u', 'u'], 0.12, 0.12, { p0: 1.0, p1: 1.1, breath: 0.6 });
+    const sYoisho = () => { voice(F0 * 0.9, ['o', 'i'], 0.2, 0.3, { p0: 1.0, p1: 1.1, breath: 0.35 }); voice(F0 * 0.95, ['o', 'o'], 0.32, 0.32, { p0: 1.15, p1: 0.8, breath: 0.3, delay: 0.24 }); };
     const sYatta = () => { voice(F0 * 1.2, ['a', 'a'], 0.18, 0.4, { p0: 1.1, p1: 1.25 }); voice(F0 * 1.3, ['a', 'a'], 0.45, 0.45, { p0: 1.3, p1: 0.95, delay: 0.2 }); };
     // スズメのさえずり
     function sBird() {
@@ -398,12 +402,12 @@
 
       // 駅と改札
       {
-        const st = new THREE.Group(); st.position.set(0, 0, GOAL);
+        const st = new THREE.Group(); st.position.set(0, PLAT, GOAL);
         const wallM = mat('#e8e4dc', 0.9), darkM = mat('#3a3e46', 0.6);
         const bld = new THREE.Mesh(new THREE.BoxGeometry(10, 5, 8), wallM); bld.position.set(4.5, 2.5, 6); st.add(bld);
         const roof = new THREE.Mesh(new THREE.BoxGeometry(12, 0.3, 10), darkM); roof.position.set(3.5, 5.15, 5.5); st.add(roof);
         const eave = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.2, 4), darkM); eave.position.set(0.8, 3.2, 1.0); st.add(eave);
-        for (const x of [-0.85, 2.2]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 3.2, 10), darkM); c.position.set(x, 1.6, -0.9); st.add(c); }
+        for (const x of [2.2, 2.2001]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 3.2, 10), darkM); c.position.set(x, 1.6, x > 2.2 ? 2.9 : -0.9); st.add(c); }
         // 看板: 電車の絵といつもの猫
         const sign = canvasTex(512, 128, (c, w, h) => {
           c.fillStyle = '#1f4f8a'; c.fillRect(0, 0, w, h); c.fillStyle = '#ffffff'; c.fillRect(6, 6, w - 12, h - 12); c.fillStyle = '#1f4f8a'; c.fillRect(12, 12, w - 24, h - 24);
@@ -421,16 +425,35 @@
         catSign.rotation.y = -Math.PI / 2; catSign.position.set(-0.54, 3.85, 2.45); st.add(catSign);
         // 改札（腰の高さの箱が並ぶ）
         const gateM = mat('#c8ccd2', 0.4), gateTop = mat('#2a2e36', 0.4);
-        for (const x of [-0.95, 1.25]) {
+        // 改札は奥側だけ（手前に置くと、カメラから会社員が隠れる）
+        for (const x of [0.95]) {
           const g = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.0, 1.4), gateM); g.position.set(x, 0.5, 0.7); st.add(g);
           const tp = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.04, 1.42), gateTop); tp.position.set(x, 1.02, 0.7); st.add(tp);
           const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.33, 0.06, 0.12), new THREE.MeshStandardMaterial({ color: '#3ac46a', emissive: '#3ac46a', emissiveIntensity: 1.2 })); lamp.position.set(x, 0.85, 0.05); st.add(lamp);
-          staticBox(x, 0.5, GOAL + 0.7, 0.15, 0.5, 0.7);
+          staticBox(x, PLAT + 0.5, GOAL + 0.7, 0.15, 0.5, 0.7);
         }
         // 床のタイル
         const tile = canvasTex(128, 128, (c, w, h) => { c.fillStyle = '#c8c2b6'; c.fillRect(0, 0, w, h); for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { c.fillStyle = `hsl(35,${6 + Math.random() * 4}%,${70 + Math.random() * 8}%)`; c.fillRect(x * 32 + 1, y * 32 + 1, 30, 30); } }, [4, 8]);
         const fl = new THREE.Mesh(new THREE.PlaneGeometry(6, 14), new THREE.MeshStandardMaterial({ map: tile, roughness: 0.6 })); fl.rotation.x = -Math.PI / 2; fl.position.set(0.5, 0.003, 6); fl.receiveShadow = true; st.add(fl);
         scene.add(shade(st));
+        // 石の階段と、ホームの土台
+        const stoneTex = canvasTex(128, 128, (c, w, h) => { c.fillStyle = '#b8b2a6'; c.fillRect(0, 0, w, h); noise(c, w, h, 1800, 0.12); }, [3, 1]);
+        const stoneM = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.9 }), edgeM = mat('#f2c230', 0.6);
+        const sx = 0.33, sw = 2.48;
+        for (let i = 0; i < STAIR_N; i++) {
+          const z0 = STAIR_Z + i * TREAD, top = (i + 1) * RISE;
+          const b = new THREE.Mesh(new THREE.BoxGeometry(sw, top, TREAD), stoneM); b.position.set(sx, top / 2, z0 + TREAD / 2); shade(b); scene.add(b);
+          const ed = new THREE.Mesh(new THREE.BoxGeometry(sw, 0.012, 0.05), edgeM); ed.position.set(sx, top + 0.006, z0 + 0.025); scene.add(ed);
+          staticBox(sx, top / 2, z0 + TREAD / 2, sw / 2, top / 2, TREAD / 2);
+        }
+        const platLen = GOAL + 16 - PLAT_Z;
+        const pl = new THREE.Mesh(new THREE.BoxGeometry(sw, PLAT, platLen), stoneM); pl.position.set(sx, PLAT / 2, PLAT_Z + platLen / 2); shade(pl); scene.add(pl);
+        staticBox(sx, PLAT / 2, PLAT_Z + platLen / 2, sw / 2, PLAT / 2, platLen / 2);
+        // 手すり（車道側）
+        const rail = new THREE.MeshStandardMaterial({ color: '#c8ccd2', roughness: 0.3, metalness: 0.7 });
+        const rl = Math.hypot(STAIR_N * TREAD, PLAT);
+        const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, rl, 8), rail); bar.rotation.x = Math.PI / 2 - Math.atan2(PLAT, STAIR_N * TREAD); bar.position.set(-0.85, 0.85 + PLAT / 2, STAIR_Z + STAIR_N * TREAD / 2); scene.add(bar);
+        for (const k of [0, 1]) { const z = STAIR_Z + 0.1 + k * (STAIR_N * TREAD - 0.2), y0 = groundY(z); const pst = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.85 + 0.05, 8), rail); pst.position.set(-0.85, y0 + 0.45, z); scene.add(pst); }
       }
 
       // いつもの猫: ブロック塀の上に座って、こっちを見ている
@@ -540,6 +563,7 @@
         world.addConstraint(c); p.cons.push(c);
         if (jn.hinge) { const hc = new CANNON.HingeConstraint(A, B, { pivotA: pa, pivotB: pb, axisA: new CANNON.Vec3(1, 0, 0), axisB: new CANNON.Vec3(1, 0, 0), collideConnected: false }); hc.enableMotor(); hc.setMotorMaxForce(0); world.addConstraint(hc); p.cons.push(hc); p.motors[jn.b] = hc; }
       }
+      TOTAL_M = Object.values(p.bodies).reduce((a, b) => a + b.mass, 0);
       h.auto = false; h.walkSpeed = 0;
       h.root.position.set(0, 0, 0); h.root.rotation.set(0, 0, 0);
     }
@@ -610,7 +634,9 @@
       return { pitch: Math.atan2(u.z, u.y), roll: Math.atan2(-u.x, u.y), yaw: Math.atan2(f.x, f.z) };
     }
     const ctl = { L: { down: false, t: 0, hold: 0 }, R: { down: false, t: 0, hold: 0 } };
-    let limp = 0; // 1 = 力が抜けてぐにゃぐにゃ
+    let limp = 0, riseK = 0; // limp: 1 = 力が抜けてぐにゃぐにゃ、riseK: 起き上がる糸の強さ
+    let TOTAL_M = 70, riseP = 0;
+    const riseY0 = [0, 0, 0];
     function drive() {
       const B = man.bodies; if (!B) return;
       const m = 1 - limp;
@@ -624,14 +650,15 @@
           muscle(B['uarm' + s], B['farm' + s], -0.25, 25 * m, 0.7);
         }
       }
-      // 脚: 押している方を前へ振り出し、反対の脚で地面をけって体を前へ
+      // 脚: 押している方を前へ振り出し、反対の脚で地面をけって体を前へ（階段の近くでは足を高く上げる）
+      const pz = B.pelvis.position.z, stair = pz > STAIR_Z - 0.45 && pz < PLAT_Z + 0.2;
       for (const s of ['L', 'R']) {
         const me = ctl[s], other = ctl[s === 'L' ? 'R' : 'L'];
         let hip, knee, th = 260, tk = 320;
         if (me.down) {
           const q = Math.min(1, me.t / 0.42);
-          hip = -(0.3 + 0.8 * q);
-          knee = me.t < 0.2 ? 1.0 : 0.12;
+          hip = -(0.3 + 0.8 * q) - (stair ? 0.1 : 0);
+          knee = me.t < (stair ? 0.3 : 0.2) ? (stair ? 1.25 : 1.0) : 0.12;
           th = 200;
         } else if (other.down) {
           hip = 0.38; knee = 0.04; th = 320; tk = 400;
@@ -641,10 +668,27 @@
         motor('thigh' + s, B.pelvis, B['thigh' + s], hip, 12, th * m * k);
         motor('shin' + s, B['thigh' + s], B['shin' + s], knee, 14, tk * m * k);
       }
+      // 階段では手すりにつかまっているつもりで、少し体を持ち上げる
+      if (stair) B.pelvis.force.y += TOTAL_M * 9.82 * 0.22 * m;
+      // 起き上がり: 見えない糸で腰・胸・頭を立ち姿の高さへ引っぱる
+      if (riseK > 0) {
+        const P = man.rig.parts, gy = groundY(B.pelvis.position.z), px = B.pelvis.position.x * 0.5, pz = B.pelvis.position.z;
+        // 目標の高さを、倒れた高さから立ち姿まで少しずつ上げる（一気に跳ね起きないように）
+        const e = riseP * riseP * (3 - 2 * riseP);
+        for (const [b, hgt, share, k] of [[B.pelvis, P.pelvis.center.y, 0.45, 0], [B.chest, P.chest.center.y, 0.4, 1], [B.head, P.head.center.y, 0.15, 2]]) {
+          const M = TOTAL_M * share, v = b.velocity, q = b.position;
+          const ty = THREE.MathUtils.lerp(riseY0[k], gy + hgt, e);
+          b.force.y += M * (30 * (ty - q.y) - 9 * v.y + 9.82) * riseK;
+          b.force.x += M * (20 * (px - q.x) - 8 * v.x) * riseK;
+          b.force.z += M * (20 * (pz - q.z) - 8 * v.z) * riseK * (b === B.pelvis ? 0 : 1);
+        }
+        B.pelvis.velocity.z *= 1 - 0.05 * riseK;
+      }
       // ふらつきの手助け: 腰と胸をまっすぐに保つ。前後に傾きすぎると手助けがなくなって転ぶ
       for (const [b, w] of [[B.pelvis, 1], [B.chest, 0.6]]) {
         const tl = tilt(b);
-        const lean = Math.abs(tl.pitch), help = (lean < 0.4 ? 1 : lean < 0.72 ? 1 - (lean - 0.4) / 0.32 : 0) * m;
+        const l0 = stair ? 0.55 : 0.4, l1 = stair ? 0.95 : 0.72;
+        const lean = Math.abs(tl.pitch), help = Math.max(lean < l0 ? 1 : lean < l1 ? 1 - (lean - l0) / (l1 - l0) : 0, riseK) * m;
         const kp = 650 * w;
         b.torque.x += -(tl.pitch - 0.05) * kp * help;
         b.torque.z += -tl.roll * kp * 1.4 * Math.max(help, 0.6 * m);
@@ -657,6 +701,7 @@
     function press(s, on) {
       const c = ctl[s];
       if (c.down === on) return;
+      if (fallen && on) return;
       if (state === 'ready' && on) startPlay();
       if (state !== 'play' && on) return;
       c.down = on; c.t = 0;
@@ -691,7 +736,7 @@
     footEls.L.innerHTML = footSvg(false); footEls.R.innerHTML = footSvg(true);
     let reserve = 160, viewTop = 92, freeH = 300;
     const camTarget = new THREE.Vector3(), camLook = new THREE.Vector3();
-    let camDist = 6, camAspect = 1;
+    let camDist = 6, camAspect = 1, endK = 0;
     function resize() {
       const w = stage.clientWidth, H = stage.clientHeight;
       renderer.setSize(w, H, false);
@@ -718,10 +763,13 @@
       const pb = man.bodies?.pelvis.position;
       const z = pb ? pb.z : START_Z;
       const lookAhead = state === 'result' ? 0 : 0.6;
-      const want = V3(0, 0, z + lookAhead);
+      const want = V3(0, groundY(z + lookAhead) * 0.8, z + lookAhead);
       camTarget.lerp(want, snap ? 1 : 1 - Math.exp(-dt * 4));
-      camera.position.set(camTarget.x - camDist, 1.0 + camDist * 0.2, camTarget.z - camDist * 0.15);
-      camLook.set(camTarget.x, 0.85, camTarget.z);
+      // 結果では少し引いて、立っている会社員が結果の文字の下に入るようにする
+      endK += ((state === 'result' ? 1 : 0) - endK) * (snap ? 1 : 1 - Math.exp(-dt * 3));
+      const d = camDist * (1 + 0.45 * endK);
+      camera.position.set(camTarget.x - d, camTarget.y + 1.0 + d * 0.2 + endK * 0.4, camTarget.z - d * 0.15);
+      camLook.set(camTarget.x, camTarget.y + 0.85 + endK * 0.75, camTarget.z);
       camera.lookAt(camLook);
       camera.updateMatrixWorld();
       sun.position.copy(camTarget).add(V3(-6, 11, -5)); sun.target.position.copy(camTarget);
@@ -732,23 +780,25 @@
     gaugeEl.innerHTML = `<svg viewBox="0 0 400 30" preserveAspectRatio="none">
       <rect x="22" y="12" width="356" height="6" rx="3" fill="rgba(255,255,255,.7)"/>
       <rect id="gFill" x="22" y="12" width="0" height="6" rx="3" fill="#2f6fb0"/>
-      <rect id="gBest" x="0" y="6" width="3" height="18" rx="1.5" fill="#e0402a"/>
+
       <g fill="#fff" stroke="#3a4a5a" stroke-width="1.5" stroke-linejoin="round"><path d="M4 16 L13 7 L22 16 L22 26 L4 26 Z"/><rect x="10" y="19" width="5" height="7" fill="#3a4a5a" stroke="none"/></g>
       <g transform="translate(378 0)"><rect x="0" y="9" width="21" height="15" rx="4" fill="#fff" stroke="#3a4a5a" stroke-width="1.5"/><rect x="3" y="12" width="6" height="5" fill="#2f6fb0"/><rect x="12" y="12" width="6" height="5" fill="#2f6fb0"/><circle cx="5" cy="26" r="2" fill="#3a4a5a"/><circle cx="16" cy="26" r="2" fill="#3a4a5a"/></g>
+ <circle id="gGhost" cx="22" cy="15" r="6.5" fill="rgba(255,255,255,.55)" stroke="rgba(58,74,90,.55)" stroke-width="1.5" stroke-dasharray="3 2"/>
       <circle id="gMe" cx="22" cy="15" r="6.5" fill="#ffd23a" stroke="#3a4a5a" stroke-width="1.5"/>
     </svg>`;
-    const gFill = gaugeEl.querySelector('#gFill'), gMe = gaugeEl.querySelector('#gMe'), gBest = gaugeEl.querySelector('#gBest');
-    let shownG = -1;
+    const gFill = gaugeEl.querySelector('#gFill'), gMe = gaugeEl.querySelector('#gMe'), gGhost = gaugeEl.querySelector('#gGhost');
+    // 最高記録の時の自分（半透明の丸）を、同じ時間の位置に走らせる
+    const GHOST_DT = 0.25;
+    let ghost = store.get('ghost', null), run = [], runT = 0;
+    let shownG = -1, shownGh = -1;
     function drawGauge() {
       const d = THREE.MathUtils.clamp(dist() / GOAL, 0, 1), x = Math.round(d * 356 * 4) / 4;
-      if (x === shownG) return; shownG = x;
-      gFill.setAttribute('width', x); gMe.setAttribute('cx', 22 + x);
+      if (x !== shownG) { shownG = x; gFill.setAttribute('width', x); gMe.setAttribute('cx', 22 + x); }
+      let gx = -1;
+      if (ghost?.length) { const i = state === 'ready' ? 0 : Math.min(ghost.length - 1, playT / GHOST_DT); const a = ghost[Math.floor(i)], b = ghost[Math.min(ghost.length - 1, Math.floor(i) + 1)]; gx = Math.round(THREE.MathUtils.clamp((a + (b - a) * (i % 1)) / GOAL, 0, 1) * 356 * 4) / 4; }
+      if (gx !== shownGh) { shownGh = gx; gGhost.style.display = gx < 0 ? 'none' : ''; if (gx >= 0) gGhost.setAttribute('cx', 22 + gx); }
     }
-    function drawBest() {
-      const b = store.get('best', 0);
-      gBest.style.display = b > 0.3 && b < GOAL ? '' : 'none';
-      gBest.setAttribute('x', 22 + Math.min(1, b / GOAL) * 356 - 1.5);
-    }
+    function drawBest() { ghost = store.get('ghost', null); shownGh = -2; }
 
     // ---------- 進行 ----------
     let state = 'ready', fallen = false, fallT = 0, oofCD = 0, playT = 0, clearT = 0, result = null, clock = 0;
@@ -763,8 +813,8 @@
       const f = man.h.face; f.open = 0.75; f.brow = 1; f.smile = -0.4;
     }
     function checkFall() {
-      const B = man.bodies;
-      const head = B.head.position.y, pel = B.pelvis.position.y, tl = tilt(B.chest);
+      const B = man.bodies, gy = groundY(B.pelvis.position.z);
+      const head = B.head.position.y - gy, pel = B.pelvis.position.y - gy, tl = tilt(B.chest);
       return head < 1.05 || pel < 0.55 || Math.abs(tl.pitch) > 1.0 || Math.abs(tl.roll) > 0.9;
     }
     const STEP = 1 / 60, SUB = 4;
@@ -773,21 +823,34 @@
       for (const s of ['L', 'R']) if (ctl[s].down) ctl[s].t += dt;
       if (state === 'play') {
         playT += dt;
-        if (!fallen && checkFall()) fall();
+        if (!fallen && riseK < 0.2 && checkFall()) fall();
+        runT += dt; if (runT >= GHOST_DT) { runT -= GHOST_DT; run.push(Math.round(dist() * 10) / 10); }
         if (!fallen && man.bodies.pelvis.position.z > GOAL + 0.9) { state = 'clear'; clearT = 0; result = { clear: true, time: playT }; ctl.L.down = ctl.R.down = false; sYatta(); const f = man.h.face; f.smile = 1; f.open = 0.4; f.brow = 0.5; footEls.L.classList.remove('on'); footEls.R.classList.remove('on'); }
       }
+      // 転んだら少し倒れたままにしてから、自動で起き上がる
       if (fallen) {
         fallT += dt;
-        limp = Math.min(1, limp + dt * 4);
-        if (state === 'play' && fallT > 2.0) { result = { clear: false, dist: dist() }; finish(); }
-      }
+        if (fallT < 1.1) limp = Math.min(1, limp + dt * 4);
+        else {
+          if (riseK === 0) { sYoisho(); riseP = 0; const B = man.bodies; riseY0[0] = B.pelvis.position.y; riseY0[1] = B.chest.position.y; riseY0[2] = B.head.position.y; }
+          riseP = Math.min(1, riseP + dt / 1.2);
+          limp = Math.max(0, limp - dt * 1.6); riseK = Math.min(1, riseK + dt * 1.4);
+          const B = man.bodies, tl = tilt(B.chest), gy = groundY(B.pelvis.position.z);
+          const ok = Math.abs(B.pelvis.position.y - gy - man.rig.parts.pelvis.center.y) < 0.08 && Math.abs(tl.pitch) < 0.2 && Math.abs(tl.roll) < 0.2;
+          if ((ok && fallT > 2.5) || fallT > 4.4) {
+            fallen = false; limp = 0;
+            ctl.L.hold = ctl.R.hold = 0;
+            for (const s of ['L', 'R']) if (keys[s] || [...ptrs.values()].includes(s)) { ctl[s].down = true; ctl[s].t = 0; footEls[s].classList.add('on'); }
+          }
+        }
+      } else riseK = Math.max(0, riseK - dt * 1.6);
       if (state === 'clear') { clearT += dt; if (clearT > 1.6) finish(); }
       for (let i = 0; i < SUB; i++) { drive(); world.step(dt / SUB); }
       syncRagdoll(man);
       // 表情: 歩いている間は必死、倒れた後はぼうぜん
       const f = man.h.face;
       if (!fallen && state !== 'clear') { const busy = ctl.L.down || ctl.R.down; f.brow = busy ? -0.5 : -0.1; f.open = busy ? 0.15 : 0.02; f.smile = busy ? -0.3 : 0; }
-      else if (fallen && fallT > 1.2) { f.open = 0.15; f.brow = 0.7; f.smile = -0.2; }
+      else if (fallen && fallT > 1.1) { f.open = 0.3; f.brow = -0.7; f.smile = -0.4; }
       man.h.update(dt);
       // 猫は会社員の方を見る
       if (catHead && man.bodies) {
@@ -805,24 +868,17 @@
     let shareCache = null, snapImg = null;
     const fmt = x => (Math.floor(x * 10) / 10).toFixed(1);
     const stationSvg = '<svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="15" rx="4" fill="#fff"/><rect x="5" y="6" width="6" height="5" fill="#2f6fb0"/><rect x="13" y="6" width="6" height="5" fill="#2f6fb0"/><circle cx="7" cy="21" r="2" fill="#fff"/><circle cx="17" cy="21" r="2" fill="#fff"/></svg>';
-    const bigText = () => result.clear ? t('sec')(fmt(result.time)) : `${fmt(result.dist)}m`;
-    function bestText() {
-      if (result.clear) { const b = store.get('bestTime', 0); return `${t('best')} ${t('sec')(fmt(b))}`; }
-      return `${t('best')} ${fmt(store.get('best', 0))}m`;
-    }
+    const bigText = () => t('sec')(fmt(result.time));
+    const bestText = () => `${t('best')} ${t('sec')(fmt(store.get('bestTime', 0)))}`;
     function showResult() {
-      document.getElementById('resBig').innerHTML = (result.clear ? stationSvg : '') + `<span>${bigText()}</span>`;
+      document.getElementById('resBig').innerHTML = stationSvg + `<span>${bigText()}</span>`;
       const be = document.getElementById('resBest'); be.textContent = bestText(); be.classList.toggle('new', !!result.isNew);
       resultEl.style.display = 'block';
     }
     function finish() {
       state = 'result';
-      if (result.clear) {
-        const b = store.get('bestTime', 0); result.isNew = !b || result.time < b; if (result.isNew) store.set('bestTime', result.time);
-        store.set('best', GOAL);
-      } else {
-        const b = store.get('best', 0); result.isNew = result.dist > b + 0.05 && b > 0; if (result.dist > b) store.set('best', result.dist);
-      }
+      const b = store.get('bestTime', 0); result.isNew = !b || result.time < b;
+      if (result.isNew) { store.set('bestTime', result.time); run.push(GOAL); store.set('ghost', run); }
       drawBest();
       showResult(); renderControls(); resize();
       for (const s of ['L', 'R']) footEls[s].classList.add('hide');
@@ -852,7 +908,7 @@
       g.font = ff(52); g.globalAlpha = 0.95; g.fillText(t('title'), 540, 320);
       return c;
     }
-    const shareText = () => result.clear ? t('shareClear')(fmt(result.time)) : t('shareFall')(fmt(result.dist));
+    const shareText = () => t('shareClear')(fmt(result.time));
     function renderControls() {
       controls.innerHTML = '';
       controls.classList.toggle('hide', state !== 'result');
@@ -900,7 +956,7 @@
       ragdoll(man);
       h.face.smile = 0; h.face.open = 0; h.face.brow = 0;
       ctl.L = { down: false, t: 0, hold: 0 }; ctl.R = { down: false, t: 0, hold: 0 };
-      fallen = false; limp = 0; result = null; state = 'ready'; snapImg = null; shareCache = null;
+      fallen = false; limp = 0; riseK = 0; run = []; runT = 0; playT = 0; result = null; state = 'ready'; snapImg = null; shareCache = null;
       resultEl.style.display = 'none';
       for (const s of ['L', 'R']) { footEls[s].classList.remove('hide', 'on'); }
       renderControls(); drawBest(); shownG = -1;
@@ -953,7 +1009,7 @@
     for (let i = 0; i < 30; i++) step(STEP); // 立ち姿を落ち着かせる
     renderer.compile(scene, camera);
     renderer.render(scene, camera);
-    window.__game = { renderer, scene, camera, catG, ctl, press, get state() { return state; }, dist, man, get fallen() { return fallen; }, step, restart, tilt };
+    window.__game = { get riseK() { return riseK; }, groundY, renderer, scene, camera, catG, ctl, press, get state() { return state; }, dist, man, get fallen() { return fallen; }, step, restart, tilt };
     requestAnimationFrame(t0 => { last = t0; loop(t0); });
   </script>
   <!-- 結果画面の広告（../../ad.js の説明を参照） -->
