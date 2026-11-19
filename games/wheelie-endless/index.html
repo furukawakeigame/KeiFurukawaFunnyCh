@@ -910,12 +910,16 @@ function createBikeSim(CANNON, P) {
     rear.angularVelocity.set(0, 0, -v / R); front.angularVelocity.set(0, 0, -v / R);
   }
   place(0, R, 0, 0);
-  const hinge = (w, ax) => new CANNON.HingeConstraint(chassis, w, { pivotA: V3(ax - COM.x, -COM.y), axisA: V3(0, 0, 1), pivotB: V3(0, 0, 0), axisB: V3(0, 0, 1), collideConnected: false, maxForce: 1e7 });
-  const rearH = hinge(rear, 0), frontH = hinge(front, WB);
+  // suspension: each wheel hangs from the frame on two springs set in a V (soft up and down, firm enough sideways)
+  const springs = [];
+  const spring = (w, ax, ay, wx) => springs.push(new CANNON.Spring(chassis, w, { localAnchorA: V3(ax - COM.x, ay - COM.y), localAnchorB: V3(0, 0, 0), restLength: Math.hypot(wx - ax, ay), stiffness: P.springK, damping: P.springC }));
+  spring(rear, 0.42, 0.44, 0); spring(rear, -0.32, 0.4, 0);
+  spring(front, 1.18, 0.64, WB); spring(front, 0.88, 0.3, WB);
+  world.addEventListener('preStep', () => { for (const s of springs) s.applyForce(); });
   const lock = new CANNON.LockConstraint(chassis, rider, { maxForce: 1e7 });
-  world.addConstraint(rearH); world.addConstraint(frontH); world.addConstraint(lock);
-  // cannon's motor limit is an impulse per step, so torques are multiplied by dt
-  const motor = (h, speed, torque) => { if (torque <= 0) { h.disableMotor(); return; } h.enableMotor(); h.setMotorSpeed(speed); h.setMotorMaxForce(torque * P.dt); };
+  world.addConstraint(lock);
+  // the engine turns the rear wheel; the frame gets the opposite push (that's what lifts the front)
+  const drive = torque => { rear.torque.z -= torque; chassis.torque.z += torque; };
 
   // the ground: one static box per polyline segment near the bike (wide: the grass beside is at the same height)
   const segBodies = new Map();
@@ -956,15 +960,10 @@ function createBikeSim(CANNON, P) {
     // ctl: { gas: 0..1, brake: 0..1, lean: -1..1 }
     step(dt, ctl) {
       if (sim.riding) {
-        const v = chassis.velocity.x;
-        if (ctl.hold) motor(rearH, 0, P.brakeTorque);
-        else if (ctl.brake > 0 && v < 0.6 && !ctl.gas) motor(rearH, -P.reverse / R * P.motorSign, P.gasTorque * 0.5); // slowly backwards
-        else if (ctl.brake > 0) motor(rearH, 0, P.brakeTorque);
-        else if (ctl.gas > 0) motor(rearH, P.motorSign * P.vMax / R, P.gasTorque * ctl.gas);
-        else motor(rearH, 0, 0);
-        motor(frontH, 0, ctl.brake > 0 && v > 0.6 ? P.brakeTorque * 0.8 : 0);
+        if (ctl.hold) { rear.angularVelocity.scale(0.8, rear.angularVelocity); front.angularVelocity.scale(0.8, front.angularVelocity); }
+        else if (ctl.gas > 0) { const wv = -rear.angularVelocity.z * R; drive(P.gasTorque * ctl.gas * THREE.MathUtils.clamp((P.vMax - wv) / 2, 0, 1) * (0.6 + 0.4 * Math.min(1, Math.max(0, wv) / 6))); } // gentler pull from a standstill
         chassis.torque.z -= ctl.lean * P.leanTorque;
-      }
+      } else { rear.angularVelocity.scale(0.985, rear.angularVelocity); front.angularVelocity.scale(0.985, front.angularVelocity); }
       hit.front = hit.rear = hit.chassis = hit.rider = false;
       world.step(dt);
       syncGround(rear.position.x);
@@ -974,7 +973,6 @@ function createBikeSim(CANNON, P) {
       if (!sim.riding) return;
       sim.riding = false;
       world.removeConstraint(lock);
-      motor(rearH, 0, 90); motor(frontH, 0, 90);
       for (const b of bodies) planar(b, false);
       chassis.angularVelocity.x += (Math.random() < 0.5 ? -1 : 1) * 0.7;
       rider.angularVelocity.x += (Math.random() - 0.5) * 1.5;
@@ -988,7 +986,7 @@ function createBikeSim(CANNON, P) {
 
 // ---------- game state ----------
 const DT = 1 / 120, COM = { x: 0.62, y: 0.42 }, RIDER_C = { x: 0.42, y: 1.02 };
-const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 8.5, mChassis: 68, mWheel: 7, mRider: 55, iChassis: 18, gasTorque: 165, brakeTorque: 300, vMax: 16, reverse: 3, leanTorque: 220, motorSign: 1, dt: DT });
+const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 8.5, mChassis: 48, mWheel: 5, mRider: 42, iChassis: 14, gasTorque: 115, vMax: 16, leanTorque: 190, springK: 12000, springC: 150, dt: DT });
 const S = { x: 0, v: 0, ph: 0, b: 0, bt: 0, gas: 0, far: 0 };
 let state = 'ready', playT = 0, crash = null, finalD = 0, stuckT = 0;
 function syncS() { S.x = sim.rear.position.x; S.v = sim.chassis.velocity.x; S.ph = sim.pitch(); S.far = Math.max(S.far, S.x); }
@@ -1215,6 +1213,8 @@ function render(alpha, fdt = 0) {
   // bike: follows the chassis body; the model's origin is the rear axle
   bikeBase.position.copy(sim.chassis.position); bikeBase.quaternion.copy(sim.chassis.quaternion);
   bike.position.set(-COM.x, -COM.y, 0); bike.rotation.set(0, 0, 0);
+  bikeBase.updateMatrixWorld(true);
+  rearW.position.copy(bike.worldToLocal(tmpV.copy(sim.rear.position))); frontW.position.copy(bike.worldToLocal(tmpV.copy(sim.front.position)));
   qInv.copy(bikeBase.quaternion).invert();
   rearW.quaternion.copy(qInv).multiply(qW.copy(sim.rear.quaternion));
   frontW.quaternion.copy(qInv).multiply(qW.copy(sim.front.quaternion));
@@ -1264,7 +1264,7 @@ renderer.compileAsync?.(scene, camera).catch(() => {});
 window.GAME_READY = true;
 requestAnimationFrame(loop);
 // for automated checks
-window.__game = { sim, bikeBase, camera, riderG, get state() { return state; }, get crash() { return crash; }, get S() { return S; }, crashNow: t => startCrash(t || "rider"), setLean: v => { dragLean = v; }, set best(v) { best = v; } };
+window.__game = { sim, bikeBase, camera, riderG, get state() { return state; }, get crash() { return crash; }, get S() { return S; }, crashNow: t => startCrash(t || "rider"), pts: () => pts, setLean: v => { dragLean = v; }, set best(v) { best = v; } };
   </script>
   <!-- 結果画面の広告（../../ad.js の説明を参照） -->
   <script src="../../ad.js" data-result="#result"></script>
