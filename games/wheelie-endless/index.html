@@ -400,8 +400,9 @@ function addPt(x, y, s = 0) {
       for (let k = 0; k <= 4; k++) { const t = k / 4, u = 1 - t; pts.push({ x: u * u * ax + 2 * u * t * p1.x + t * t * bx, y: u * u * ay + 2 * u * t * p1.y + t * t * by, s: k ? s : p1.s }); }
     }
   }
-  pts.push({ x, y, s }); genX = x; genY = y;
+  pts.push({ x, y, s, f: curFeat }); genX = x; genY = y;
 }
+let curFeat = '';
 function segIndex(x) { // last point with p.x <= x
   let lo = 0, hi = pts.length - 1;
   if (x <= pts[0].x) return 0;
@@ -422,8 +423,8 @@ const FEATS = {
   flat(d) { addPt(genX + rnd(3, 8 - d * 3), genY); },
   hill(d) { const A = rnd(0.5, 1.2 + d * 1.6) * (genY > 3 ? -1 : 1), n = Math.round(rnd(10, 20)), b = genY, x0 = genX; for (let i = 1; i <= n; i++) addPt(x0 + i, b + A * 0.5 * (1 - Math.cos(2 * Math.PI * i / n))); },
   log(d) {
-    const r = rnd(0.16, 0.22 + d * 0.12), b = genY; addPt(genX + 1.5, b); const cx = genX + r;
-    for (let k = 1; k <= 8; k++) { const a = Math.PI * k / 8; addPt(cx - r * Math.cos(a), b + r * Math.sin(a) * 0.95); }
+    const r = rnd(0.16, 0.22 + d * 0.12), b = genY; addPt(genX + 1.5, b); const cx = genX + r * 1.6;
+    for (let k = 1; k <= 8; k++) { const a = Math.PI * k / 8; addPt(cx - r * 1.6 * Math.cos(a), b + r * Math.sin(a) * 0.6); } // a log half sunk in the dirt, with earth banked around it
     decos.push({ type: 'log', x: cx, y: b, r }); addPt(genX + 1.5, b);
   },
   ramp(d) { // up a wooden ramp, along the top, then down (a slope, or a drop off the edge)
@@ -432,14 +433,14 @@ const FEATS = {
     if (Math.random() < 0.35 + d * 0.3) { addPt(genX + 0.04, b, 2); addPt(genX + 2, b); } else addPt(genX + h / rnd(0.4, 0.7), b, 1);
   },
   step(d) { // concrete blocks: up a sharp edge, then off again
-    const h = rnd(0.12, 0.18 + d * 0.22), b = genY; // risers are bevelled (about 60°) so a wheel can climb them
-    addPt(genX + h * 0.55, b + h, 2); addPt(genX + rnd(2, 4), b + h, 2);
-    if (Math.random() < 0.5) { addPt(genX + 0.04, b, 2); } else { addPt(genX + h * 0.55, b + h * 2, 2); addPt(genX + rnd(2, 3.5), b + h * 2, 2); addPt(genX + h * 2 / 0.5, b, 1); }
+    const h = rnd(0.12, 0.18 + d * 0.22), b = genY; // risers are bevelled (45°) so a wheel can climb them
+    addPt(genX + h * 1.0, b + h, 2); addPt(genX + rnd(2, 4), b + h, 2);
+    if (Math.random() < 0.5) { addPt(genX + 0.04, b, 2); } else { addPt(genX + h * 1.0, b + h * 2, 2); addPt(genX + rnd(2, 3.5), b + h * 2, 2); addPt(genX + h * 2 / 0.5, b, 1); }
     addPt(genX + 1.5, b);
   },
   stairs(d) {
     const n = 3 + Math.floor(Math.random() * (2 + d * 2)), h = rnd(0.12, 0.17 + d * 0.08), b = genY;
-    for (let i = 1; i <= n; i++) { addPt(genX + h * 0.55, b + h * i, 2); addPt(genX + rnd(0.9, 1.4), b + h * i, 2); }
+    for (let i = 1; i <= n; i++) { addPt(genX + h * 1.0, b + h * i, 2); addPt(genX + rnd(0.9, 1.4), b + h * i, 2); }
     addPt(genX + h * n / 0.45, b, 1); addPt(genX + 1.5, b);
   },
   gap(d) { // jump over water: a kicker, a pit, a landing ramp
@@ -468,7 +469,7 @@ function extendCourse(toX) {
   while (genX < toX) {
     const d = Math.min(1, genX / 1500);
     if (genX < 25) { addPt(25, 0); continue; }
-    FEATS[pickFeat(d)](d);
+    curFeat = pickFeat(d); FEATS[curFeat](d); curFeat = '';
     addPt(genX + rnd(2.5, 6 - d * 2.5), genY); // a breather between obstacles
   }
 }
@@ -539,7 +540,7 @@ const waterSideMat = new THREE.MeshStandardMaterial({ color: '#2d5f8f', roughnes
 let decoObjs = [];
 function buildDeco(dc) {
   const g = new THREE.Group();
-  if (dc.type === 'log') { const m = new THREE.Mesh(logGeo, logMat); m.scale.set(dc.r, dc.r, 1); m.position.set(dc.x, dc.y + dc.r * 0.55, -0.3); g.add(m); }
+  if (dc.type === 'log') { const m = new THREE.Mesh(logGeo, logMat); m.scale.set(dc.r, dc.r, 1); m.position.set(dc.x, dc.y - dc.r * 0.42, -0.3); g.add(m); }
   if (dc.type === 'crates') {
     const s = Math.min(0.75, (dc.y1 - dc.y0)), nx = Math.max(1, Math.round((dc.x1 - dc.x0) / s)), ny = Math.max(1, Math.round((dc.y1 - dc.y0) / s));
     const cw = (dc.x1 - dc.x0) / nx, ch = (dc.y1 - dc.y0) / ny;
@@ -1006,8 +1007,8 @@ function createBikeSim(CANNON, P) {
 }
 
 // ---------- game state ----------
-const DT = 1 / 120, COM = { x: 0.62, y: 0.42 }, RIDER_C = { x: 0.42, y: 1.02 };
-const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 9.8, mChassis: 55, mWheel: 6, mRider: 65, gasTorque: 120, vMax: 16, leanReach: 0.42, tyreK: 1.5e5, tyreBounce: 0.3, gripG: 100, dt: DT });
+const DT = 1 / 120, COM = { x: 0.68, y: 0.4 }, RIDER_C = { x: 0.46, y: 1.0 }; // weight well forward and low, like a trials bike: the front stays down unless you ask
+const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 9.8, mChassis: 55, mWheel: 6, mRider: 65, gasTorque: 105, vMax: 16, leanReach: 0.42, tyreK: 1.5e5, tyreBounce: 0.12, gripG: 100, dt: DT });
 const S = { x: 0, v: 0, ph: 0, b: 0, bt: 0, gas: 0, far: 0 };
 let state = 'ready', playT = 0, crash = null, finalD = 0, stuckT = 0;
 function syncS() { S.x = sim.rear.position.x; S.v = sim.chassis.velocity.x; S.ph = sim.pitch(); S.far = Math.max(S.far, S.x); }
