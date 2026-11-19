@@ -992,9 +992,9 @@ function createBikeSim(CANNON, P) {
 
 // ---------- game state ----------
 const DT = 1 / 120, COM = { x: 0.62, y: 0.42 }, RIDER_C = { x: 0.42, y: 1.02 };
-const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 9.8, mChassis: 110, mWheel: 10, mRider: 75, iChassis: 45, gasTorque: 300, brakeTorque: 420, vMax: 15, reverse: 3, leanTorque: 330, motorSign: 1, dt: DT });
+const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 8.5, mChassis: 68, mWheel: 7, mRider: 55, iChassis: 18, gasTorque: 165, brakeTorque: 300, vMax: 16, reverse: 3, leanTorque: 220, motorSign: 1, dt: DT });
 const S = { x: 0, v: 0, ph: 0, b: 0, bt: 0, gas: 0, brake: 0, far: 0 };
-let state = 'ready', playT = 0, crash = null, finalD = 0;
+let state = 'ready', playT = 0, crash = null, finalD = 0, stuckT = 0;
 function syncS() { S.x = sim.rear.position.x; S.v = sim.chassis.velocity.x; S.ph = sim.pitch(); S.far = Math.max(S.far, S.x); }
 function reset() {
   runSeed = Math.random() * 100;
@@ -1002,7 +1002,7 @@ function reset() {
   scrapeStop();
   sim.reset(0, 0);
   S.b = S.bt = S.gas = S.brake = 0; S.far = 0; syncS();
-  state = 'ready'; playT = 0; crash = null; finalD = 0;
+  state = 'ready'; playT = 0; crash = null; finalD = 0; stuckT = 0;
   seatRider();
   for (const m of sparks) { m.userData.life = 0; m.position.y = -50; }
   for (const m of dusts) { m.userData.life = 0; m.position.y = -50; }
@@ -1016,14 +1016,17 @@ function step(dt) {
     // the body follows the finger (drag) or the arrow keys, and comes back to the middle when let go
     const kb = keyLean, tgt = dragLean !== null ? dragLean : kb;
     S.bt = tgt;
-    S.b += (S.bt - S.b) * (1 - Math.exp(-dt / 0.08));
+    S.b += (S.bt - S.b) * (1 - Math.exp(-dt / 0.05));
     const gas = state === 'play' ? Math.max(S.gas, keyGas) : 0, brake = state === 'play' ? Math.max(S.brake, keyBrake) : 1;
     extendCourse(S.x + 220);
     sim.step(dt, { gas, brake, hold: state === 'ready', lean: state === 'play' ? S.b : 0 });
     syncS();
     if (state !== 'play') return;
     if (sim.hit.rear && Math.abs(sim.rear.angularVelocity.z * R) > 3 && zoneAt(S.x) === 1 && Math.random() < dt * 20) emitDust(V(S.x - 0.3, H(S.x) + 0.05, (Math.random() - 0.5) * 0.3), 1, 0.22, 0.2, '#c8ab82');
-    if (sim.hit.rider) startCrash('rider');
+    // stuck standing on the tail (or upside down) without the rider touching: count it as a fall
+    const rel = S.ph - Math.atan(slopeAt(S.x));
+    stuckT = Math.abs(rel) > 1.35 && Math.abs(S.v) < 0.8 ? stuckT + dt : 0;
+    if (sim.hit.rider || stuckT > 1.2) startCrash('rider');
     else if (sim.rear.position.y < waterAt(S.x) - 0.1 || sim.chassis.position.y < waterAt(sim.chassis.position.x)) startCrash('water');
   } else if (state === 'crash') stepCrash(dt);
 }
