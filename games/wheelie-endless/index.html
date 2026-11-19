@@ -451,6 +451,7 @@ function pickFeat(d) {
   let r = Math.random() * sum; for (const k in w) { r -= w[k]; if (r <= 0) return k; } return 'flat';
 }
 function extendCourse(toX) {
+  if (!Number.isFinite(toX)) return;
   while (genX < toX) {
     const d = Math.min(1, genX / 1500);
     if (genX < 25) { addPt(25, 0); continue; }
@@ -880,7 +881,7 @@ function createBikeSim(CANNON, P) {
   world.allowSleep = false;
   const GROUND = 1, BIKE = 2, RIDERG = 4;
   const mGround = new CANNON.Material('ground'), mTire = new CANNON.Material('tire'), mBody = new CANNON.Material('body');
-  world.addContactMaterial(new CANNON.ContactMaterial(mTire, mGround, { friction: 1.4, restitution: 0.05, contactEquationStiffness: 2e6, contactEquationRelaxation: 5 }));
+  world.addContactMaterial(new CANNON.ContactMaterial(mTire, mGround, { friction: 1.4, restitution: P.tyreBounce, contactEquationStiffness: P.tyreK, contactEquationRelaxation: 3 }));
   world.addContactMaterial(new CANNON.ContactMaterial(mBody, mGround, { friction: 0.55, restitution: 0.15 }));
   const V3 = (x, y, z = 0) => new CANNON.Vec3(x, y, z);
   const planar = (b, on) => { b.linearFactor.set(1, 1, on ? 0 : 1); b.angularFactor.set(on ? 0 : 1, on ? 0 : 1, 1); };
@@ -910,12 +911,9 @@ function createBikeSim(CANNON, P) {
     rear.angularVelocity.set(0, 0, -v / R); front.angularVelocity.set(0, 0, -v / R);
   }
   place(0, R, 0, 0);
-  // suspension: each wheel hangs from the frame on two springs set in a V (soft up and down, firm enough sideways)
-  const springs = [];
-  const spring = (w, ax, ay, wx) => springs.push(new CANNON.Spring(chassis, w, { localAnchorA: V3(ax - COM.x, ay - COM.y), localAnchorB: V3(0, 0, 0), restLength: Math.hypot(wx - ax, ay), stiffness: P.springK, damping: P.springC }));
-  spring(rear, 0.42, 0.44, 0); spring(rear, -0.32, 0.4, 0);
-  spring(front, 1.18, 0.64, WB); spring(front, 0.88, 0.3, WB);
-  world.addEventListener('preStep', () => { for (const s of springs) s.applyForce(); });
+  // the wheels are held firmly on axles (they can't move into the frame); the bounce comes from soft, springy tyres
+  const axle = (w, ax) => new CANNON.HingeConstraint(chassis, w, { pivotA: V3(ax - COM.x, -COM.y), axisA: V3(0, 0, 1), pivotB: V3(0, 0, 0), axisB: V3(0, 0, 1), collideConnected: false, maxForce: 1e7 });
+  world.addConstraint(axle(rear, 0)); world.addConstraint(axle(front, WB));
   const lock = new CANNON.LockConstraint(chassis, rider, { maxForce: 1e7 });
   world.addConstraint(lock);
   // the engine turns the rear wheel; the frame gets the opposite push (that's what lifts the front)
@@ -989,7 +987,7 @@ function createBikeSim(CANNON, P) {
 
 // ---------- game state ----------
 const DT = 1 / 120, COM = { x: 0.62, y: 0.42 }, RIDER_C = { x: 0.42, y: 1.02 };
-const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 8.5, mChassis: 48, mWheel: 5, mRider: 42, iChassis: 14, gasTorque: 115, vMax: 16, leanTorque: 700, leanRate: 1.6, leanGain: 320, springK: 12000, springC: 150, dt: DT });
+const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 8.5, mChassis: 48, mWheel: 5, mRider: 42, iChassis: 14, gasTorque: 115, vMax: 16, leanTorque: 700, leanRate: 1.6, leanGain: 320, tyreK: 1.5e5, tyreBounce: 0.4, dt: DT });
 const S = { x: 0, v: 0, ph: 0, b: 0, bt: 0, gas: 0, far: 0 };
 let state = 'ready', playT = 0, crash = null, finalD = 0, stuckT = 0;
 function syncS() { S.x = sim.rear.position.x; S.v = sim.chassis.velocity.x; S.ph = sim.pitch(); S.far = Math.max(S.far, S.x); }
@@ -1217,7 +1215,6 @@ function render(alpha, fdt = 0) {
   bikeBase.position.copy(sim.chassis.position); bikeBase.quaternion.copy(sim.chassis.quaternion);
   bike.position.set(-COM.x, -COM.y, 0); bike.rotation.set(0, 0, 0);
   bikeBase.updateMatrixWorld(true);
-  rearW.position.copy(bike.worldToLocal(tmpV.copy(sim.rear.position))); frontW.position.copy(bike.worldToLocal(tmpV.copy(sim.front.position)));
   qInv.copy(bikeBase.quaternion).invert();
   rearW.quaternion.copy(qInv).multiply(qW.copy(sim.rear.quaternion));
   frontW.quaternion.copy(qInv).multiply(qW.copy(sim.front.quaternion));
@@ -1267,7 +1264,7 @@ renderer.compileAsync?.(scene, camera).catch(() => {});
 window.GAME_READY = true;
 requestAnimationFrame(loop);
 // for automated checks
-window.__game = { sim, bikeBase, camera, riderG, get state() { return state; }, get crash() { return crash; }, get S() { return S; }, crashNow: t => startCrash(t || "rider"), pts: () => pts, stepN: n => { for (let i = 0; i < n; i++) step(DT); }, setGas: v => { S.gas = v; begin(); }, setLean: v => { dragLean = v; }, set best(v) { best = v; } };
+window.__game = { sim, bikeBase, camera, riderG, get state() { return state; }, get crash() { return crash; }, get S() { return S; }, crashNow: t => startCrash(t || "rider"), pts: () => pts, H, stepN: n => { for (let i = 0; i < n; i++) step(DT); }, setGas: v => { S.gas = v; begin(); }, setLean: v => { dragLean = v; }, set best(v) { best = v; } };
   </script>
   <!-- 結果画面の広告（../../ad.js の説明を参照） -->
   <script src="../../ad.js" data-result="#result"></script>
