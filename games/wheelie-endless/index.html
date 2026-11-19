@@ -799,8 +799,8 @@ function reach(dz, dy, l1, l2, bendBack) {
 const J = human.j;
 function poseRiding(th, b) {
   // b: the body shift from the player (-1 back .. 1 forward). The hips slide on the seat and the back bends.
-  riderG.position.set(SEAT.x + b * 0.15, SEAT.y + Math.abs(b) * 0.03, 0);
-  const lean = 0.3 + th * 0.8 + b * 0.75, back = th - lean; // back: how far the torso tips back in the world
+  riderG.position.set(SEAT.x + b * 0.2, SEAT.y + Math.abs(b) * 0.05, 0);
+  const lean = 0.3 + th * 0.8 + b * 0.95, back = th - lean; // back: how far the torso tips back in the world
   J.spine.rotation.set(lean, 0, 0);
   J.neck.rotation.set(back * 0.4, 0, 0); J.head.rotation.set(back * 0.5 + 0.05, 0, 0);
   // root-local frame: +z forward, +y up; bike frame -> root local
@@ -899,7 +899,7 @@ function createBikeSim(CANNON, P) {
   rider.addShape(new CANNON.Box(V3(0.15, 0.32, 0.17)));
   const bodies = [chassis, rear, front, rider];
   bodies.forEach(b => { world.addBody(b); planar(b, true); });
-  const damp = crashed => { chassis.angularDamping = crashed ? 0.3 : 0.2; chassis.linearDamping = 0.02; rider.angularDamping = crashed ? 0.3 : 0.1; for (const w of [rear, front]) { w.angularDamping = 0.03; w.linearDamping = 0.02; } };
+  const damp = crashed => { chassis.angularDamping = crashed ? 0.3 : 0.04; chassis.linearDamping = 0.02; rider.angularDamping = crashed ? 0.3 : 0.1; for (const w of [rear, front]) { w.angularDamping = 0.03; w.linearDamping = 0.02; } };
   damp(false);
 
   function place(x, y, ph, v) {
@@ -963,8 +963,8 @@ function createBikeSim(CANNON, P) {
     step(dt, ctl) {
       if (sim.riding) {
         if (ctl.hold) { rear.angularVelocity.scale(0.8, rear.angularVelocity); front.angularVelocity.scale(0.8, front.angularVelocity); }
-        else if (ctl.gas > 0) { const wv = -rear.angularVelocity.z * R; // gentler pull from a standstill, and an anti-wheelie: the engine eases off as the front climbs past ~12°
-          const aw = THREE.MathUtils.clamp(1 - ((ctl.rel || 0) - 0.15) / 0.35, 0.05, 1);
+        else if (ctl.gas > 0) { const wv = -rear.angularVelocity.z * R; // gentler pull from a standstill, and an anti-wheelie: the engine eases off as the front climbs past ~20°
+          const aw = THREE.MathUtils.clamp(1 - ((ctl.rel || 0) - 0.35) / 0.5, 0.2, 1);
           drive(P.gasTorque * ctl.gas * aw * THREE.MathUtils.clamp((P.vMax - wv) / 2, 0, 1) * (0.8 + 0.2 * Math.min(1, Math.max(0, wv) / 6))); }
         // leaning turns the bike toward a spin rate set by how far the finger moved (strong, but it can't run away)
         if (ctl.lean) { const w = chassis.angularVelocity.z, wt = -ctl.lean * P.leanRate; chassis.torque.z += THREE.MathUtils.clamp(P.leanGain * (wt - w), -P.leanTorque, P.leanTorque); }
@@ -991,7 +991,7 @@ function createBikeSim(CANNON, P) {
 
 // ---------- game state ----------
 const DT = 1 / 120, COM = { x: 0.62, y: 0.42 }, RIDER_C = { x: 0.42, y: 1.02 };
-const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 8.5, mChassis: 48, mWheel: 5, mRider: 42, iChassis: 14, gasTorque: 165, vMax: 16, leanTorque: 700, leanRate: 1.6, leanGain: 320, tyreK: 1.5e5, tyreBounce: 0.4, gripG: 90, dt: DT });
+const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 8.5, mChassis: 48, mWheel: 5, mRider: 42, iChassis: 9, gasTorque: 165, vMax: 16, leanTorque: 1000, leanRate: 3.2, leanGain: 380, tyreK: 1.5e5, tyreBounce: 0.4, gripG: 90, dt: DT });
 const S = { x: 0, v: 0, ph: 0, b: 0, bt: 0, gas: 0, far: 0 };
 let state = 'ready', playT = 0, crash = null, finalD = 0, stuckT = 0;
 function syncS() { S.x = sim.rear.position.x; S.v = sim.chassis.velocity.x; S.ph = sim.pitch(); S.far = Math.max(S.far, S.x); }
@@ -1014,7 +1014,7 @@ function step(dt) {
     // the body follows the finger (drag) or the arrow keys, and comes back to the middle when let go
     const kb = keyLean, tgt = dragLean !== null ? dragLean : kb;
     S.bt = tgt;
-    S.b += (S.bt - S.b) * (1 - Math.exp(-dt / 0.05));
+    S.b += (S.bt - S.b) * (1 - Math.exp(-dt / 0.03));
     const gas = state === 'play' ? Math.max(S.gas, keyGas) : 0;
     extendCourse(S.x + 220);
     sim.step(dt, { gas, brake: 0, hold: state === 'ready', lean: state === 'play' ? S.b : 0, rel: S.ph - Math.atan(slopeAt(S.x)) });
@@ -1073,7 +1073,7 @@ function stepCrash(dt) {
 // let go = the engine lets off and the bike rolls on by itself
 const pointers = new Map();
 let dragLean = null, keyLean = 0, keyGas = 0;
-const dragScale = () => Math.min(stage.clientWidth, 760) * 0.2;
+const dragScale = () => Math.min(stage.clientWidth, 760) * 0.16;
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
   if (state === 'result' || state === 'crash') return;
