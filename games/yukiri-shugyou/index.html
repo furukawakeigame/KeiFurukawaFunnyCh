@@ -267,8 +267,6 @@
     const sStep = () => { burst(0.06, [[300, 2, 1], [900, 3, 0.3]], 0.25); };
     const sClick = () => { burst(0.03, [[2500, 10, 1]], 0.4); tone('square', 120, 60, 0.05, 0.05); };
     const sBeat = () => { tone('sine', 70, 40, 0.12, 0.45); tone('sine', 66, 38, 0.12, 0.35, 0.18); };
-    const sWhoosh = d => { if (!live()) return; const now = ac.currentTime; const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true; const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.8; bp.frequency.setValueAtTime(300, now); bp.frequency.linearRampToValueAtTime(900, now + d * 0.4); bp.frequency.linearRampToValueAtTime(400, now + d); const g = ac.createGain(); g.gain.setValueAtTime(0.001, now); g.gain.linearRampToValueAtTime(0.35, now + 0.3); g.gain.setValueAtTime(0.35, now + d - 0.4); g.gain.linearRampToValueAtTime(0.001, now + d); s.connect(bp).connect(g).connect(master); s.start(now); s.stop(now + d + 0.05); };
-    const sFan = d => { if (!live()) return; const now = ac.currentTime; const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.setValueAtTime(30, now); o.frequency.linearRampToValueAtTime(140, now + 0.8); o.frequency.setValueAtTime(140, now + d - 0.5); o.frequency.linearRampToValueAtTime(40, now + d); const g = ac.createGain(); g.gain.setValueAtTime(0.001, now); g.gain.linearRampToValueAtTime(0.08, now + 0.6); g.gain.linearRampToValueAtTime(0.001, now + d); o.connect(g).connect(master); o.start(now); o.stop(now + d + 0.05); };
 
     // ---------- 3D ----------
     const stage = document.getElementById('stage');
@@ -313,7 +311,6 @@
       for (let i = 0; i < 25; i++) { g.strokeStyle = `rgba(255,255,255,${Math.random() * 0.15})`; g.beginPath(); const x = Math.random() * w, y = Math.random() * h; g.moveTo(x, y); g.lineTo(x + rnd(-40, 40), y + rnd(-10, 10)); g.stroke(); }
     }, [3, 2]);
     const woodTex = canvasTex(256, 64, (g, w, h) => { g.fillStyle = '#b07a44'; g.fillRect(0, 0, w, h); for (let i = 0; i < 40; i++) { g.strokeStyle = `rgba(80,40,10,${0.1 + Math.random() * 0.25})`; g.lineWidth = 1 + Math.random() * 2; const y = Math.random() * h; g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(w * .3, y + rnd(-4, 4), w * .6, y + rnd(-4, 4), w, y); g.stroke(); } });
-    const softTex = canvasTex(64, 64, (g, w) => { const gr = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.4, 'rgba(255,255,255,.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, w); });
 
     // 部屋: 奥の壁（白タイル）・横の壁・床・天井
     {
@@ -377,7 +374,7 @@
         scene.add(b);
       });
     }
-    // 換気扇（奥の壁の左右）
+    // 換気扇（奥の壁の左右。飾り）
     const fans = [-1, 1].map(s => {
       const g = new THREE.Group(); g.position.set(s * 1.15, 1.72, -1.47);
       const house = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.05), mat('#d8d2c4', 0.6)); g.add(house);
@@ -386,7 +383,7 @@
       for (let k = 0; k < 3; k++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.15, 0.005), mat('#9a9a92', 0.5, 0.3)); b.position.y = 0.08; const p = new THREE.Group(); p.rotation.z = k * Math.PI * 2 / 3; b.rotation.y = 0.5; p.add(b); rot.add(p); }
       rot.add(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.03, 16).rotateX(Math.PI / 2), mat('#666', 0.5)));
       scene.add(g);
-      return { rot, speed: 0.6, side: s };
+      return { rot, side: s };
     });
     // 窓といつもの猫（奥の壁の左上）
     const catTex = new THREE.TextureLoader().load('cat.png'); catTex.colorSpace = THREE.SRGBColorSpace;
@@ -550,10 +547,27 @@
 
     // ---------- 粒（湯気・しぶき・背脂）----------
     const steamPool = [];
-    for (let i = 0; i < 46; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: softTex, transparent: true, depthWrite: false, opacity: 0, color: '#ffffff' })); s.visible = false; s.renderOrder = 5; scene.add(s); steamPool.push({ s, life: 0 }); }
+    // 湯気の模様: ぼかした小さな塊をいくつも重ねた雲（1枚の丸だと玉に見えるので、形の違うものを4種類）
+    const steamTex = Array.from({ length: 4 }, () => canvasTex(128, 128, (g, w) => {
+      for (let k = 0; k < 14; k++) {
+        const a = Math.random() * 6.28, r = Math.random() * w * 0.2, x = w / 2 + Math.cos(a) * r, y = w / 2 + Math.sin(a) * r, R = w * (0.1 + Math.random() * 0.16);
+        const gr = g.createRadialGradient(x, y, 0, x, y, R);
+        for (let i = 0; i <= 8; i++) gr.addColorStop(i / 8, `rgba(255,255,255,${(0.34 * Math.exp(-((i / 8) ** 2) * 4) * (1 - i / 8)).toFixed(3)})`);
+        g.fillStyle = gr; g.fillRect(0, 0, w, w);
+      }
+      // ふちは必ず透明に（四角い枠が見えないように）
+      g.globalCompositeOperation = 'destination-in';
+      const m = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); m.addColorStop(0, '#fff'); m.addColorStop(0.6, 'rgba(255,255,255,.8)'); m.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = m; g.fillRect(0, 0, w, w);
+    }));
+    for (let i = 0; i < 70; i++) {
+      // 台や寸胴に刺さると切り口がまっすぐ見えるので、奥行きで隠さない（depthTest: false）。トーンマップで灰色にならないように toneMapped: false
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: steamTex[i % 4], transparent: true, depthWrite: false, depthTest: false, toneMapped: false, fog: false, opacity: 0, color: '#f6f3ee' }));
+      s.visible = false; s.renderOrder = 5; scene.add(s); steamPool.push({ s, life: 0 });
+    }
     function steam(x, y, z, size, op, life, vx = 0, vy = 0.25, vz = 0) {
       const p = steamPool.find(q => q.life <= 0); if (!p) return;
-      Object.assign(p, { x, y, z, vx, vy, vz, size, op, life, max: life }); p.s.visible = true;
+      Object.assign(p, { x, y, z, vx, vy, vz, size, op, life, max: life, spin: rnd(-0.5, 0.5) }); p.s.material.rotation = rnd(0, 6.28); p.s.visible = true;
     }
     const dropG = new THREE.SphereGeometry(1, 6, 4), dropM = new THREE.MeshStandardMaterial({ color: '#e8f0f4', roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.85 });
     const DROPS = 90, drops = new THREE.InstancedMesh(dropG, dropM, DROPS); drops.frustumCulled = false; scene.add(drops);
@@ -568,8 +582,8 @@
 
     // ---------- 状態 ----------
     let state = 'ready', score = 0, best = store.get('best', 0), clock = 0, failT = 0, air = false, newBest = false;
-    let ev = {}, evTimer = 0, unlocked = 0, gazeK = 0, darkK = 0, wind = 0, shakeK = 0;
-    const EVENTS = [['steam', 5], ['wind', 10], ['abura', 15], ['senpai', 20], ['cat', 25], ['dark', 30], ['gaze', 40]];
+    let ev = {}, evTimer = 0, unlocked = 0, gazeK = 0, darkK = 0, shakeK = 0;
+    const EVENTS = [['steam', 5], ['abura', 10], ['senpai', 15], ['cat', 20], ['dark', 25], ['gaze', 35]];
     const scoreEl = document.getElementById('score'), hintEl = document.getElementById('hint'), gazeEl = document.getElementById('gaze'), flashEl = document.getElementById('flash');
     const controls = document.getElementById('controls'), resultEl = document.getElementById('result');
 
@@ -579,7 +593,7 @@
       layNoodles();
       for (let i = 0; i < 150; i++) physics(STEP); // 山を落ち着かせる
       for (let i = 0; i < N; i++) { rx[i] = px[i]; ry[i] = py[i]; rz[i] = pz[i]; }
-      ev = {}; evTimer = 3; unlocked = 0; gazeK = 0; darkK = 0; wind = 0;
+      ev = {}; evTimer = 3; unlocked = 0; gazeK = 0; darkK = 0;
       stuck.forEach(m => zaru.remove(m)); stuck.length = 0;
       fats.length = 0;
       taisho.root.position.copy(TAISHO_HOME); taisho.root.rotation.y = -0.35; taisho.pose = 'hips';
@@ -654,9 +668,7 @@
         rx[i] = px[i]; ry[i] = py[i]; rz[i] = pz[i];
         let vx = (px[i] - qx[i]) * 0.999, vy = (py[i] - qy[i]) * 0.999, vz = (pz[i] - qz[i]) * 0.999;
         qx[i] = px[i]; qy[i] = py[i]; qz[i] = pz[i];
-        let ax = 0;
-        if (wind && !contact[i]) ax = 3.5 * (wind - vx / dt);
-        px[i] += vx + ax * dt2; py[i] += vy - G * dt2; pz[i] += vz;
+        px[i] += vx; py[i] += vy - G * dt2; pz[i] += vz;
         contact[i] = 0;
       }
       const zx = Z.x, zy = Z.y, zz = Z.z;
@@ -731,7 +743,6 @@
     function trigger(k) {
       if (ev[k]) return;
       ev[k] = { t: 0 };
-      if (k === 'wind') { const f = pick(fans); ev[k].fan = f; ev[k].dir = -f.side; sFan(3.6); }
       if (k === 'abura') { taisho.pose = 'wave'; ladle.visible = true; ev[k].next = 0.5; ev[k].n = 0; }
       if (k === 'senpai') { senpai.root.visible = true; senpai.root.position.set(1.7, 0, -0.58); senpai.root.rotation.y = -Math.PI / 2; senpai.walkSpeed = 1.5; senpai.pose = 'stand'; ev[k].hit = false; ev[k].stepT = 0; sSenpai(); }
       if (k === 'cat') { catPeek.visible = true; sMeow(); }
@@ -749,19 +760,12 @@
         }
       }
       // 湯気: いつも少し、邪魔のときは前にもくもく
-      if (Math.random() < dt * 6) steam(POT.x + rnd(-0.12, 0.12), TABLE_Y + 0.42, POT.z + rnd(-0.1, 0.1), rnd(0.12, 0.22), 0.28, rnd(1.6, 2.4), rnd(0.02, 0.08), rnd(0.15, 0.3));
+      if (Math.random() < dt * 9) steam(POT.x + rnd(-0.12, 0.12), TABLE_Y + 0.46, POT.z + rnd(-0.1, 0.1), rnd(0.14, 0.24), 0.45, rnd(1.8, 2.6), rnd(0.0, 0.06), rnd(0.18, 0.3));
       const E = ev;
       if (E.steam) {
         const s = E.steam; s.t += dt;
-        if (s.t < 2.6 && Math.random() < dt * 22) steam(rnd(-0.35, 0.25), TABLE_Y + 0.05, rnd(0.02, 0.22), rnd(0.18, 0.32), 0.82, rnd(1.6, 2.2), rnd(-0.03, 0.08), rnd(0.18, 0.32), rnd(0.0, 0.05));
+        if (s.t < 2.6 && Math.random() < dt * 34) steam(Z.x + rnd(-0.3, 0.3), TABLE_Y + rnd(0.06, 0.14), rnd(0.0, 0.2), rnd(0.26, 0.42), 0.9, rnd(1.8, 2.6), rnd(-0.04, 0.04), rnd(0.12, 0.25), rnd(0.0, 0.04));
         if (s.t > 4.5) delete E.steam;
-      }
-      wind = 0;
-      for (const f of fans) f.speed += ((E.wind && E.wind.fan === f && E.wind.t < 3.2 ? 40 : 0.6) - f.speed) * (1 - Math.exp(-dt * 2.5));
-      if (E.wind) {
-        const w = E.wind; w.t += dt;
-        if (w.t > 0.8 && w.t < 3.2) { wind = w.dir * 1.5; if (!w.wh) { w.wh = true; sWhoosh(2.4); } if (Math.random() < dt * 25) steam(-w.dir * 0.8, rnd(1.05, 1.5), rnd(-0.2, 0.15), rnd(0.04, 0.07), 0.3, 0.7, w.dir * 1.6, rnd(-0.05, 0.05), 0); }
-        if (w.t > 3.6) delete E.wind;
       }
       if (E.abura) {
         const a = E.abura; a.t += dt;
@@ -808,17 +812,20 @@
         if (d.t > 1.6) { darkK = 0; delete E.dark; }
       } else darkK = 0;
       // 大将が見張る
-      const gz = state === 'play' && score >= 40 ? 1 : 0;
+      const gz = state === 'play' && score >= 35 ? 1 : 0;
       gazeK += (gz - gazeK) * (1 - Math.exp(-dt * 1.5));
       if (gz) { E._beat = (E._beat ?? 0) - dt; if (E._beat <= 0) { E._beat = 0.85; sBeat(); } }
       // 粒の更新
       for (const p of steamPool) {
         if (p.life <= 0) continue;
         p.life -= dt; if (p.life <= 0) { p.s.visible = false; continue; }
-        p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.vx += wind * 0.6 * dt;
+        p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
         const k = 1 - p.life / p.max;
-        p.s.position.set(p.x, p.y, p.z); p.s.scale.setScalar(p.size * (0.6 + k * 1.2));
-        p.s.material.opacity = p.op * Math.sin(Math.PI * Math.min(1, k * 1.3)) * (1 - darkK * 0.7);
+        p.vx *= 1 - dt * 0.8; p.vy *= 1 - dt * 0.4; p.vz *= 1 - dt * 0.8; // 上がりながら減速して広がる
+        p.s.position.set(p.x, p.y, p.z); p.s.scale.setScalar(p.size * (0.5 + 1.5 * Math.sqrt(k)));
+        p.s.material.rotation += p.spin * dt;
+        // すっと現れて、ゆっくり消える
+        p.s.material.opacity = p.op * Math.min(1, k / 0.15) * (1 - k) ** 1.5 * (1 - darkK * 0.7);
       }
       for (const d of dropData) { if (d.life <= 0) continue; d.life -= dt; d.vy -= G * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt; if (d.y < TABLE_Y) d.life = 0; }
       for (let i = fats.length - 1; i >= 0; i--) {
@@ -869,7 +876,7 @@
       scoreEl.style.display = 'none';
       if (score > best) { best = score; store.set('best', best); newBest = true; }
       for (const k of Object.keys(ev)) if (k !== 'steam') delete ev[k];
-      senpai.root.visible = false; catPeek.visible = catPaw.visible = catArm.visible = false; ladle.visible = false; fats.length = 0; darkK = 0; wind = 0;
+      senpai.root.visible = false; catPeek.visible = catPaw.visible = catArm.visible = false; ladle.visible = false; fats.length = 0; darkK = 0;
       mouthPlan = [];
     }
     let cutStage = 0;
@@ -1055,7 +1062,7 @@
       zaru.rotation.z = clamp(-Z.vx * 0.04, -0.12, 0.12) * 0; // 傾けない（当たり判定と合わせる）
       drawNoodles(al);
       updateTaisho(dt, lastSt);
-      for (const f of fans) f.rot.rotation.z += f.speed * dt * f.side;
+      for (const f of fans) f.rot.rotation.z += 0.6 * dt * f.side;
       // しぶき・背脂
       let n = 0;
       for (const d of dropData) { if (d.life <= 0) continue; _m.compose(_p.set(d.x, d.y, d.z), _q, _s.setScalar(d.size)); drops.setMatrixAt(n++, _m); }
