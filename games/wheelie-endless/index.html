@@ -103,10 +103,11 @@
   <script>
     setTimeout(() => { if (!window.GAME_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 9000);
   </script>
-  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/", "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js" } }</script>
   <script type="module">
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import * as CANNON from 'cannon-es';
 import { makeHuman } from './human.js';
 
 // ---------- no magnifier / menus on long press ----------
@@ -363,10 +364,12 @@ const smoothstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b
 const hash = (i, k = 0) => { const x = Math.sin(i * 127.1 + k * 311.7 + runSeed * 74.7) * 43758.5453; return x - Math.floor(x); };
 function terrainU(u) {
   if (u <= 40) return 0;
-  const A = (1.3 + Math.min(4.2, u / 260)) * smoothstep(40, 150, u), r = runSeed;
+  const A = (0.8 + Math.min(2.5, u / 300)) * smoothstep(40, 150, u), r = runSeed;
   return A * (Math.sin(u / 41 + r) * 0.7 + Math.sin(u / 97 + r * 2) + Math.sin(u / 19 + r * 3) * 0.16 - Math.sin(r) * 0.7 - Math.sin(r * 2) - Math.sin(r * 3) * 0.16);
 }
-const H = x => terrainU(x - x0);
+// potholes and muddy dips are real dents in the ground (the bike drops into them)
+function dipU(u) { let d = 0; for (const h of hazards) if (h.dip) { const k = (u - h.u) / h.dip; if (k > -1 && k < 1) d += h.depth * 0.5 * (1 + Math.cos(Math.PI * k)); } return d; }
+const H = x => terrainU(x - x0) - dipU(x - x0);
 const slopeAt = x => (H(x + 0.25) - H(x - 0.25)) / 0.5;
 // zones of about 280 m after the first 250 m; dirt zones run through woods
 function zoneU(u) { if (u < 250) return 0; const k = Math.floor((u - 250) / 280); return hash(k, 9) < 0.5 ? 1 : 0; }
@@ -507,7 +510,7 @@ const poles = recycler(6, 34, 40, () => {
   const p = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.17, 8, 8), poleMat); p.position.y = 4; g.add(p);
   const arm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 1.6), poleMat); arm.position.y = 7.4; g.add(arm);
   return shadowAll(g);
-}, (g, i, x) => { g.position.set(x + 26, 0, 6.4); g.visible = zoneAt(x + 26) === 0; });
+}, (g, i, x) => { g.position.set(x + 26, 0, -6.4); g.visible = zoneAt(x + 26) === 0; });
 
 // distance plates every 100 m of the run, facing the rider
 function labelTex(text) {
@@ -732,16 +735,20 @@ function makeHazard(u, zone) {
     for (let k = 0; k < 9; k++) { const r = new THREE.Mesh(rockGeo, rockMat); r.position.set((Math.random() - 0.5) * 0.3, 0.06, -3 + k * 0.75 + Math.random() * 0.3); r.rotation.set(Math.random() * 3, Math.random() * 3, 0); r.scale.setScalar(0.7 + Math.random() * 0.7); r.castShadow = true; o.add(r); }
   } else { const m = new THREE.Mesh(holeGeo, mudMat); m.scale.set(1.1, 1, 2.6); m.position.y = 0.024; o.add(m); }
   scene.add(o);
-  hazards.push({ u, type, o });
+  const h = { u, type, o };
+  if (up) h.body = sim.addBump(x0 + u, zone ? 0.075 : 0.055, zone ? 0.32 : 0.42); // something to ride over
+  else { h.dip = zone ? 1.3 : 0.6; h.depth = zone ? 0.12 : 0.1; }        // a dent in the ground
+  hazards.push(h);
 }
-function clearHazards() { for (const h of hazards) scene.remove(h.o); hazards = []; nextHaz = 90; }
+function dropHazard(h) { scene.remove(h.o); if (h.body) sim.removeBump(h.body); }
+function clearHazards() { for (const h of hazards) dropHazard(h); hazards = []; nextHaz = 90; }
 function updateHazards(u) {
   while (nextHaz < u + 110) {
     makeHazard(nextHaz, zoneU(nextHaz));
     nextHaz += Math.max(12, 38 - u * 0.012) + Math.random() * Math.max(10, 32 - u * 0.01);
   }
-  while (hazards.length && hazards[0].u < u - 25) scene.remove(hazards.shift().o);
-  for (const h of hazards) { const x = x0 + h.u; h.o.position.set(x, H(x), 0); h.o.rotation.z = Math.atan(slopeAt(x)); }
+  while (hazards.length && hazards[0].u < u - 25) dropHazard(hazards.shift());
+  for (const h of hazards) { const x = x0 + h.u; h.o.position.set(x, terrainU(h.u) - (h.dip ? 0 : dipU(h.u)), 0); h.o.rotation.z = Math.atan(slopeAt(x)); }
 }
 
 // the best run so far: a gold line across the road and a flag
@@ -780,117 +787,219 @@ function updateParticles(dt) {
   for (const m of dusts) { const d = m.userData; if (d.life <= 0) continue; d.life -= dt; m.position.addScaledVector(d.v, dt); d.v.multiplyScalar(1 - dt * 1.5); const k = 1 - d.life / d.max; m.scale.setScalar(d.size * (0.4 + k * 1.2)); m.material.opacity = 0.38 * (1 - k) * Math.min(1, k * 6); if (d.life <= 0) m.position.y = -50; }
 }
 
-// ---------- game state & physics ----------
-// ph: the bike's pitch in the world (rad), around the rear axle. The throttle is automatic and holds the nose
-// up, but the balance is unstable: past the balance point gravity pulls it further over, short of it the nose falls.
-// The rider shifts the body: leaning forward moves the weight ahead (nose goes down), leaning back lifts it.
-// Hills tip the ground under the bike, so the same pitch is closer to the ground uphill.
-const DT = 1 / 120, G = 4.2, ALPHA = 0.35, LEAN = 0.6, PH0 = 0.8, TQ = G * Math.cos(PH0 + ALPHA), DAMP = 0.5, KA = 0.35, FLIP = 1.62;
-let S, P, state = 'ready', playT = 0, crash = null, finalD = 0, bounce = 0, bounceV = 0, accel = 0;
+// ---------- bike physics (cannon-es): chassis + two wheels on hinges + the rider locked on the seat ----------
+// Everything moves in the vertical plane (x forward, y up) while riding; after a crash the plane lock comes off.
+// The rear hinge has a motor (automatic throttle that holds the speed and helps keep the nose up a little).
+// The rider can slide forward/back on the seat: that moves the weight, which is how the player balances.
+function createBikeSim(CANNON, H, P) {
+  const { R, WB, COM, RIDER } = P;
+  const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -P.gravity, 0) });
+  world.broadphase = new CANNON.SAPBroadphase(world);
+  world.solver.iterations = 25;
+  world.allowSleep = false;
+  const GROUND = 1, BIKE = 2, RIDERG = 4;
+  const mGround = new CANNON.Material('ground'), mTire = new CANNON.Material('tire'), mBody = new CANNON.Material('body');
+  world.addContactMaterial(new CANNON.ContactMaterial(mTire, mGround, { friction: 1.6, restitution: 0.0, contactEquationStiffness: 3e6, contactEquationRelaxation: 4 }));
+  world.addContactMaterial(new CANNON.ContactMaterial(mBody, mGround, { friction: 0.55, restitution: 0.15 }));
+  const V3 = (x, y, z = 0) => new CANNON.Vec3(x, y, z);
+  const planar = (b, on) => { b.linearFactor.set(1, 1, on ? 0 : 1); b.angularFactor.set(on ? 0 : 1, on ? 0 : 1, 1); };
+
+  // chassis: frame/tank/engine box plus the seat-tail box, origin at its centre of mass
+  const chassis = new CANNON.Body({ mass: P.mChassis, material: mBody, collisionFilterGroup: BIKE, collisionFilterMask: GROUND });
+  chassis.addShape(new CANNON.Box(V3(0.58, 0.13, 0.16)), V3(0.66 - COM.x, 0.47 - COM.y));
+  chassis.addShape(new CANNON.Box(V3(0.24, 0.07, 0.12)), V3(0.02 - COM.x, 0.6 - COM.y));
+  chassis.inertia.set(P.iChassis, P.iChassis, P.iChassis); chassis.invInertia.set(1 / P.iChassis, 1 / P.iChassis, 1 / P.iChassis); chassis.updateInertiaWorld(true);
+  chassis.angularDamping = 0.05; chassis.linearDamping = 0.01;
+  const wheel = () => { const b = new CANNON.Body({ mass: P.mWheel, material: mTire, collisionFilterGroup: BIKE, collisionFilterMask: GROUND }); b.addShape(new CANNON.Sphere(R)); b.angularDamping = 0.02; b.linearDamping = 0.01; return b; };
+  const rear = wheel(), front = wheel();
+  const rider = new CANNON.Body({ mass: P.mRider, material: mBody, collisionFilterGroup: RIDERG, collisionFilterMask: GROUND });
+  rider.addShape(new CANNON.Box(V3(0.15, 0.3, 0.17)));
+  rider.angularDamping = 0.1;
+  const bodies = [chassis, rear, front, rider];
+  bodies.forEach(b => { world.addBody(b); planar(b, true); });
+
+  // lay the bike out at pitch `ph` with the rear axle at (x, y), all moving at speed v
+  function place(x, y, ph, v) {
+    const c = Math.cos(ph), s = Math.sin(ph), at = (bx, by) => V3(x + bx * c - by * s, y + bx * s + by * c);
+    const q = new CANNON.Quaternion(); q.setFromAxisAngle(V3(0, 0, 1), ph);
+    chassis.position.copy(at(COM.x, COM.y)); chassis.quaternion.copy(q);
+    rear.position.copy(at(0, 0)); front.position.copy(at(WB, 0));
+    rider.position.copy(at(RIDER.x, RIDER.y)); rider.quaternion.copy(q);
+    rear.quaternion.set(0, 0, 0, 1); front.quaternion.set(0, 0, 0, 1);
+    for (const b of bodies) { b.velocity.set(v, 0, 0); b.angularVelocity.set(0, 0, 0); b.force.set(0, 0, 0); b.torque.set(0, 0, 0); planar(b, true); }
+    rear.angularVelocity.set(0, 0, -v / R); front.angularVelocity.set(0, 0, -v / R);
+  }
+  place(0, R, 0, 0);
+  const hinge = (w, ax) => new CANNON.HingeConstraint(chassis, w, { pivotA: V3(ax - COM.x, -COM.y), axisA: V3(0, 0, 1), pivotB: V3(0, 0, 0), axisB: V3(0, 0, 1), collideConnected: false, maxForce: 1e7 });
+  const rearH = hinge(rear, 0), frontH = hinge(front, WB);
+  const lock = new CANNON.LockConstraint(chassis, rider, { maxForce: 1e7 });
+  world.addConstraint(rearH); world.addConstraint(frontH); world.addConstraint(lock);
+  rearH.enableMotor(); rearH.setMotorMaxForce(P.motorMax * P.dt); // cannon's limit is an impulse per step
+
+  // the road under the wheels: short static planks laid along H(x), recycled as the bike moves on
+  const SEGL = 0.5, NSEG = 130, BEHIND = 16;
+  const planks = [];
+  for (let i = 0; i < NSEG; i++) {
+    const b = new CANNON.Body({ mass: 0, material: mGround, collisionFilterGroup: GROUND, collisionFilterMask: BIKE | RIDERG });
+    b.addShape(new CANNON.Box(V3(SEGL / 2 + 0.03, 0.5, 20))); // wide: the grass beside the road is at the same height
+    for (const z of [-4.65, 4.65]) b.addShape(new CANNON.Box(V3(SEGL / 2 + 0.03, 0.45, 0.05)), V3(0, 0.95, z)); // guardrails
+    b.userData = { idx: null, ground: true };
+    world.addBody(b); planks.push(b);
+  }
+  function layPlank(b, i) {
+    const xa = i * SEGL, xb = xa + SEGL, ya = H(xa), yb = H(xb), a = Math.atan2(yb - ya, SEGL);
+    b.quaternion.setFromAxisAngle(V3(0, 0, 1), a);
+    b.position.set((xa + xb) / 2 + Math.sin(a) * 0.5, (ya + yb) / 2 - Math.cos(a) * 0.5, 0);
+    b.aabbNeedsUpdate = true; b.userData.idx = i;
+  }
+  function updateGround(x, force) {
+    const i0 = Math.floor((x - BEHIND) / SEGL);
+    for (let i = i0; i < i0 + NSEG; i++) { const b = planks[((i % NSEG) + NSEG) % NSEG]; if (force || b.userData.idx !== i) layPlank(b, i); }
+  }
+  // hazards that stick up out of the road (speed bumps, rocks)
+  const bumps = [];
+  function addBump(x, h, len) {
+    const b = new CANNON.Body({ mass: 0, material: mGround, collisionFilterGroup: GROUND, collisionFilterMask: BIKE | RIDERG });
+    b.addShape(new CANNON.Box(V3(len / 2, h / 2 + 0.1, 3)));
+    const a = Math.atan((H(x + 0.2) - H(x - 0.2)) / 0.4);
+    b.quaternion.setFromAxisAngle(V3(0, 0, 1), a);
+    b.position.set(x - Math.sin(a) * (h / 2 - 0.1), H(x) + Math.cos(a) * (h / 2 - 0.1), 0);
+    b.userData = { ground: true }; world.addBody(b); bumps.push(b); return b;
+  }
+  function removeBump(b) { world.removeBody(b); bumps.splice(bumps.indexOf(b), 1); }
+
+  // contacts: what touched the ground this step
+  const hit = { front: false, chassis: false, rider: false };
+  front.addEventListener('collide', e => { if (e.body.userData?.ground) hit.front = true; });
+  chassis.addEventListener('collide', e => { if (e.body.userData?.ground) hit.chassis = true; });
+  rider.addEventListener('collide', e => { if (e.body.userData?.ground) hit.rider = true; });
+
+  const pitchOf = b => 2 * Math.atan2(b.quaternion.z, b.quaternion.w);
+  const sim = {
+    world, chassis, rear, front, rider, rearH, frontH, lock, hit, bodies,
+    lean: 0, riding: true,
+    reset(x, ph, v) {
+      if (!sim.riding) { world.addConstraint(lock); sim.riding = true; }
+      rearH.enableMotor(); rearH.setMotorMaxForce(P.motorMax * P.dt); frontH.disableMotor();
+      chassis.angularDamping = 0.05; rider.angularDamping = 0.1;
+      sim.lean = 0;
+      place(x, H(x) + R, ph + Math.atan((H(x + 0.25) - H(x - 0.25)) / 0.5), v);
+      updateGround(x, true);
+    },
+    pitch: () => pitchOf(chassis),
+    speed: () => chassis.velocity.x,
+    rearX: () => rear.position.x,
+    // throttle: hold target speed; nose low -> a bit more, nose high -> a bit less (scaled by `assist`)
+    step(dt, vTarget, assist, phTarget, slope) {
+      if (sim.riding) {
+        // the rider's weight moved along the seat: gravity on that shifted weight tips the bike
+        const ph = pitchOf(chassis), rel = ph - slope, w = chassis.angularVelocity.z;
+        chassis.torque.z -= P.mRider * P.gravity * sim.lean * P.leanReach * Math.cos(ph);
+        const vt = vTarget + assist * (P.kP * (phTarget - rel) - P.kD * w);
+        rearH.setMotorSpeed(P.motorSign * Math.max(0, vt) / R);
+      }
+      hit.front = hit.chassis = hit.rider = false;
+      world.step(dt);
+      updateGround(rear.position.x, false);
+    },
+    // crash: let the rider go, brake the wheels, and free the bike to fall over sideways
+    release(type) {
+      if (!sim.riding) return;
+      sim.riding = false;
+      world.removeConstraint(lock);
+      rearH.setMotorSpeed(0); rearH.setMotorMaxForce(120 * P.dt);
+      if (type === 'nose') { frontH.enableMotor(); frontH.setMotorSpeed(0); frontH.setMotorMaxForce(220 * P.dt); }
+      for (const b of bodies) planar(b, false);
+      chassis.angularVelocity.x += (Math.random() < 0.5 ? -1 : 1) * 0.6;
+      rider.angularVelocity.x += (Math.random() - 0.5) * 1.5;
+      chassis.angularDamping = 0.3; rider.angularDamping = 0.3;
+    },
+    addBump, removeBump, bumps, updateGround,
+  };
+  return sim;
+}
+
+// ---------- game state ----------
+// The bike is simulated with cannon-es (see createBikeSim). The throttle is automatic: the motor holds the speed
+// and helps keep the nose up a little (less and less as you go). The player moves the rider's weight forward/back.
+const DT = 1 / 120, PH0 = 0.72, COM = { x: 0.6, y: 0.42 }, RIDER_C = { x: 0.42, y: 1.0 };
+const sim = createBikeSim(CANNON, H, { R, WB, COM, RIDER: RIDER_C, gravity: 7, mChassis: 110, mWheel: 10, mRider: 75, iChassis: 120, motorMax: 230, kP: 1, kD: 0.2, motorSign: 1, leanReach: 1.0, dt: DT });
+const S = { x: 0, v: 0, ph: PH0, w: 0, b: 0, bt: 0 };
+let state = 'ready', playT = 0, crash = null, finalD = 0, accel = 0;
+function syncS() { const v = S.v; S.x = sim.rear.position.x; S.v = sim.chassis.velocity.x; S.ph = sim.pitch(); S.w = sim.chassis.angularVelocity.z; accel = (S.v - v) / DT; }
 function reset() {
   runSeed = Math.random() * 100;
-  S = { x: 0, v: 12, ph: PH0, w: 0, b: 0, bt: 0 };
-  P = { ...S };
   x0 = 0;
-  state = 'ready'; playT = 0; crash = null; finalD = 0; bounce = bounceV = 0;
   clearHazards(); scrapeStop();
-  seatRider(); bikeBase.rotation.set(0, 0, 0);
+  sim.world.gravity.set(0, -7, 0);
+  sim.reset(0, PH0, 12);
+  S.b = S.bt = 0; syncS(); accel = 0;
+  state = 'ready'; playT = 0; crash = null; finalD = 0;
+  seatRider();
   for (const m of sparks) { m.userData.life = 0; m.position.y = -50; }
   for (const m of dusts) { m.userData.life = 0; m.position.y = -50; }
   for (const o of props) o.userData.idx = null;
 }
-const vTarget = u => 12 + Math.min(14, u * 0.01);
-const hardness = u => 0.75 + Math.min(0.55, u / 1800);
-const relPitch = () => S.ph - Math.atan(slopeAt(S.x));
-function begin() { state = 'play'; playT = 0; x0 = S.x; }
+const vTarget = u => 12 + Math.min(12, u * 0.009);
+const assistAt = u => Math.max(3, 9 - u / 200); // how much the automatic throttle helps
+function begin() { state = 'play'; playT = 0; x0 = S.x; sim.updateGround(S.x, true); }
 function step(dt) {
-  P = { ...S };
   if (state === 'ready' || state === 'play') {
     if (state === 'ready') x0 = S.x;
-    const u = S.x - x0, s = Math.atan(slopeAt(S.x)), zone = zoneU(u);
+    const u = S.x - x0, s = Math.atan(slopeAt(S.x)), zone = zoneU(u), rel = S.ph - s;
     if (state === 'play') playT += dt;
-    // speed: chases the target, slowed uphill and pushed downhill
-    accel = THREE.MathUtils.clamp((vTarget(u) - S.v) * 0.8, -3, 3) - 4 * Math.sin(s);
-    S.v = Math.max(6, S.v + accel * dt);
-    const px = S.x; S.x += S.v * dt;
-    // the body follows where the finger put it
-    if (state === 'ready' || window.__auto) S.bt = THREE.MathUtils.clamp(2.8 * (S.ph - PH0) + 0.8 * S.w, -1, 1);
+    if (state === 'ready' || window.__auto) S.bt = THREE.MathUtils.clamp(4 * (rel - PH0) + 1.0 * S.w, -1, 1);
     else if (keyDir) S.bt = THREE.MathUtils.clamp(S.bt + keyDir * 2.2 * dt, -1, 1);
     S.b += (S.bt - S.b) * (1 - Math.exp(-dt / 0.09));
-    const k = hardness(u);
-    let acc = k * (TQ - G * Math.cos(S.ph + ALPHA - LEAN * S.b)) + KA * accel - DAMP * S.w;
-    if (state === 'play') {
-      acc += Math.sin(playT * 3.1) * Math.sin(playT * 1.7 + 1) * 0.35 * k;            // road roughness
-      if (zone === 1) acc += (Math.sin(playT * 11.3) * Math.sin(playT * 4.1 + 1) * 1.1 + (Math.random() - 0.5) * 1.2) * k; // dirt shakes
-    }
-    S.w += acc * dt; S.ph += S.w * dt;
-    if (state === 'play') {
-      for (const h of hazards) { const hx = x0 + h.u; if (px < hx && S.x >= hx) {
-        const kick = (0.45 + S.v * 0.02) * (0.8 + Math.random() * 0.4) * k;
-        if (h.type === 'up') { S.w += kick; bounceV += 1.3; sndBump(true); } else { S.w -= kick; bounceV -= 1.0; sndBump(false); }
-        emitDust(V(hx, H(hx) + 0.05, 0.1), 3, 0.18, 0.4, zone ? '#b89a72' : '#c9b49a');
-      } }
-      if (zone === 1 && Math.random() < dt * 14) emitDust(V(S.x - 0.3, H(S.x) + 0.05, (Math.random() - 0.5) * 0.3), 1, 0.22, 0.2, '#c8ab82');
-      // the front tyre meets the ground, or the bike goes over backwards
-      const fx = S.x + WB * Math.cos(S.ph);
-      if (H(S.x) + WB * Math.sin(S.ph) <= H(fx) + 0.005) startCrash('nose');
-      else if (S.ph - s > FLIP) startCrash('flip');
-    }
+    sim.lean = S.b;
+    if (state === 'play' && zone === 1) sim.chassis.angularVelocity.z += (Math.random() - 0.5) * 0.06; // dirt shakes the bike
+    const px = S.x;
+    sim.step(dt, vTarget(u), state === 'ready' ? 20 : assistAt(u), PH0, s);
+    syncS();
+    if (state === 'ready') { if (sim.hit.front || sim.hit.chassis || sim.hit.rider) sim.reset(S.x, PH0, 12); return; }
+    for (const h of hazards) { const hx = x0 + h.u; if (px < hx && S.x >= hx) { sndBump(h.type === 'up'); emitDust(V(hx, H(hx) + 0.05, 0.1), 3, 0.18, 0.4, zone ? '#b89a72' : '#c9b49a'); } }
+    if (zone === 1 && Math.random() < dt * 14) emitDust(V(S.x - 0.3, H(S.x) + 0.05, (Math.random() - 0.5) * 0.3), 1, 0.22, 0.2, '#c8ab82');
+    if (sim.hit.front) startCrash('nose');
+    else if (sim.hit.chassis || sim.hit.rider || S.ph - Math.atan(slopeAt(S.x)) > 1.7) startCrash('flip');
   } else if (state === 'crash') stepCrash(dt);
-  bounceV += (-bounce * 260 - bounceV * 14) * dt; bounce += bounceV * dt;
 }
+const riderOff = new THREE.Vector3();
 function startCrash(type) {
   state = 'crash'; finalD = Math.max(0, Math.floor(S.x - x0));
-  if (type === 'flip') S.w = Math.max(S.w, 1.2);
-  crash = { type, t: 0, roll: 0, rollW: 0, rolling: false, rv: V(0, 0), rw: 0, ground: false, done: 0 };
-  if (type === 'nose') { S.ph = Math.atan(slopeAt(S.x)); S.w = 0; crash.rolling = true; crash.rollW = 0.8; }
-  human.root.updateMatrixWorld(true);
+  crash = { type, t: 0, done: 0, scraping: false, riderHit: false };
+  riderOff.set(riderG.position.x - RIDER_C.x, riderG.position.y - RIDER_C.y, 0); // pelvis, seen from the rider body's centre
   scene.attach(riderG);
-  crash.rv.set(S.v * (type === 'nose' ? 0.78 : 0.8), type === 'nose' ? 3.2 : 2.6, type === 'nose' ? -0.3 : -0.5);
-  crash.rw = type === 'nose' ? -7.5 : 5.5;
+  sim.release(type);
+  sim.world.gravity.set(0, -9.8, 0);
   sndCrash(); scream();
   const gx = S.x + (type === 'nose' ? WB : -0.2);
   emitDust(V(gx, H(gx) + 0.1, 0), 8, 0.4);
   for (let i = 0; i < 14; i++) emitSpark(V(gx, H(gx) + 0.05, 0), S.v * 0.6);
   pointers.clear(); keysHeld.clear(); keyDir = 0;
 }
+const tmpV = new THREE.Vector3();
 function stepCrash(dt) {
   const c = crash; c.t += dt;
-  const s = Math.atan(slopeAt(S.x));
-  if (c.type === 'flip' && !c.rolling) {
-    S.w += (-G * Math.cos(S.ph + ALPHA)) * dt; S.ph += S.w * dt;
-    if (S.ph - s <= 0 && S.w <= 0) { c.rolling = true; c.rollW = 0.6; }
-    if (S.ph - s > 1.95) { S.ph = s + 1.95; S.w = -Math.abs(S.w) * 0.2; c.rolling = true; c.rollW = 0.6; sndBump(true); emitDust(V(S.x - 0.3, H(S.x) + 0.1, 0), 6, 0.35); }
+  sim.step(dt, 0, 0, 0, 0);
+  syncS();
+  poseSprawl(Math.min(1, c.t * 3));
+  const cv_ = sim.chassis.velocity, sp = Math.hypot(cv_.x, cv_.y, cv_.z);
+  // the bike scraping along the road: sparks and a grinding noise
+  if (sim.hit.chassis && sp > 1.5) {
+    if (!c.scraping) { c.scraping = true; scrapeStart(); sndCrash(); }
+    const p = sim.chassis.position;
+    if (Math.random() < sp * dt * 6) emitSpark(V(p.x + (Math.random() - 0.5) * 0.8, H(p.x) + 0.04, p.z + 0.2), cv_.x * 0.7);
+    if (Math.random() < dt * 6) emitDust(V(p.x, H(p.x) + 0.05, p.z), 1, 0.3);
   }
-  if (c.rolling && c.roll < Math.PI / 2) {
-    c.rollW += (2.5 + 9 * Math.sin(c.roll)) * dt; c.roll += c.rollW * dt;
-    if (c.roll >= Math.PI / 2) { c.roll = Math.PI / 2; c.rollW = 0; sndCrash(); scrapeStart(); emitDust(V(S.x + 0.6, H(S.x) + 0.1, 0.3), 8, 0.45, 1.4); }
-  }
-  const lying = c.roll >= Math.PI / 2, rk = c.roll / (Math.PI / 2);
-  if (c.rolling) { S.ph += (s + 0.12 - S.ph) * Math.min(1, dt * 5 * (0.3 + rk)); S.w = 0; }
-  S.v = Math.max(0, S.v - (lying ? 9 : 7) * dt); S.x += S.v * dt;
-  if (lying && S.v > 0.5) { const gy = H(S.x) + 0.04; if (Math.random() < S.v * dt * 6) emitSpark(V(S.x + 0.5 + Math.random() * 0.6, gy, 0.2), S.v * 0.7); if (Math.random() < dt * 6) emitDust(V(S.x + 0.6, gy, 0.2), 1, 0.3); }
-  scrapeSet(lying ? S.v : 0);
-  if (lying && S.v <= 0) scrapeStop();
-  // rider: ballistic, bounce, then slide
-  const p = riderG.position, gy = H(p.x) + 0.16;
-  if (!c.ground) {
-    c.rv.y -= 9.8 * dt; p.addScaledVector(c.rv, dt); riderG.rotation.z += c.rw * dt;
-    poseSprawl(Math.min(1, c.t * 3));
-    if (p.y < gy && c.rv.y < 0) {
-      if (c.rv.y < -2.4) { c.rv.y = -c.rv.y * 0.3; c.rw *= 0.45; p.y = gy; sndBump(true); emitDust(V(p.x, gy - 0.1, p.z), 6, 0.35); }
-      else { c.ground = true; c.rv.y = 0; p.y = gy; emitDust(V(p.x, gy - 0.1, p.z), 5, 0.3); sndBump(false); }
-    }
-  } else {
-    const sp = Math.max(0, Math.abs(c.rv.x) - 10 * dt) * Math.sign(c.rv.x); c.rv.x = sp; c.rv.z *= 1 - dt * 4;
-    p.x += c.rv.x * dt; p.z += c.rv.z * dt;
-    const ga = Math.atan(slopeAt(p.x)), r = riderG.rotation.z, tgt = Math.round((r - Math.PI / 2 - ga) / Math.PI) * Math.PI + Math.PI / 2 + ga;
-    riderG.rotation.z += (tgt - r) * Math.min(1, dt * 10);
-    p.y += (gy - p.y) * Math.min(1, dt * 12);
-    if (Math.abs(sp) > 1 && Math.random() < dt * 8) emitDust(V(p.x, gy - 0.1, p.z), 1, 0.25);
-    if (c.t > 1.2 && Math.abs(sp) < 0.05) human.face.open += (0.25 - human.face.open) * dt * 3;
-  }
-  if (c.t > 1.4 && S.v <= 0 && c.ground && Math.abs(c.rv.x) < 0.05) { c.done += dt; if (c.done > 0.6) finish(); }
+  scrapeSet(sim.hit.chassis ? sp : 0);
+  if (c.scraping && sp < 0.4) { scrapeStop(); c.scraping = false; }
+  // the rider hitting the ground
+  const rv = sim.rider.velocity, rs = Math.hypot(rv.x, rv.y, rv.z);
+  if (sim.hit.rider && !c.riderHit && rs > 1) { sndBump(true); const p = sim.rider.position; emitDust(V(p.x, H(p.x) + 0.05, p.z), 6, 0.35); }
+  c.riderHit = sim.hit.rider;
+  if (sim.hit.rider && rs > 2 && Math.random() < dt * 8) { const p = sim.rider.position; emitDust(V(p.x, H(p.x) + 0.05, p.z), 1, 0.25); }
+  if (c.t > 1.2 && rs < 0.3) human.face.open += (0.25 - human.face.open) * dt * 3;
+  if ((c.t > 1.5 && sp < 0.5 && rs < 0.4) || c.t > 7) { c.done += dt; if (c.done > 0.6 || c.t > 7) finish(); }
 }
 
 // ---------- input: drag right = lean forward, drag left = lean back ----------
@@ -967,7 +1076,7 @@ let snap = null, shareCache = null;
 function takeSnap() {
   render(1);
   const W = cv.width, Hc = cv.height, dpr = W / cv.clientWidth;
-  const mx = (S.x + riderG.position.x) / 2 + 0.3, mid = V(mx, H(mx) + 0.6, 0).project(camera);
+  const mid = camLook.clone().project(camera); // the crash is framed around the camera's look point
   const side = Math.min(W, Hc, Math.max(Hc - (view.top + 20) * dpr, W * 0.5));
   const cx = (mid.x * 0.5 + 0.5) * W, cy = (-mid.y * 0.5 + 0.5) * Hc;
   const sx = THREE.MathUtils.clamp(cx - side / 2, 0, W - side), sy = THREE.MathUtils.clamp(cy - side * 0.62, 0, Hc - side);
@@ -1039,29 +1148,33 @@ function resize() {
 }
 addEventListener('resize', () => { resize(); camInit = false; });
 // rides along with the bike exactly (no lag at speed); the framing and the height ease
-function frameCamera(anchor, cx, cy, hx, hy, dt, snapNow) {
+function frameCamera(anchor, cx, cy, hx, hy, dt, snapNow, cz = 0) {
   const vf = THREE.MathUtils.degToRad(camera.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
   const d = Math.min(Math.max(hy / Math.tan(vf / 2), hx / Math.tan(hf / 2)) + 1.0, 40);
   const k = snapNow ? 1 : 1 - Math.exp(-dt * 3);
-  camOff.x += (cx - anchor - camOff.x) * k; camD += (d - camD) * k;
+  camOff.x += (cx - anchor - camOff.x) * k; camOff.z += (cz - camOff.z) * k; camD += (d - camD) * k;
   camY += (cy - camY) * (snapNow ? 1 : 1 - Math.exp(-dt * 5));
-  camLook.set(anchor + camOff.x, camY, 0);
+  camLook.set(anchor + camOff.x, camY, camOff.z);
   camera.position.copy(camLook).addScaledVector(camDir, camD); camera.lookAt(camLook);
 }
 
 // ---------- render ----------
 let lastT = performance.now(), simT = lastT, hintT = 0;
+const qInv = new THREE.Quaternion(), qW = new THREE.Quaternion();
 function render(alpha, fdt = 0) {
-  const x = P.x + (S.x - P.x) * alpha, ph = P.ph + (S.ph - P.ph) * alpha, b = P.b + (S.b - P.b) * alpha;
+  const x = S.x, ph = S.ph, b = S.b;
   const gy = H(x), s = Math.atan(slopeAt(x));
-  // bike
-  const rk = crash ? crash.roll / (Math.PI / 2) : 0;
-  bikeBase.position.set(x, gy + R + Math.max(-0.03, bounce * 0.04) * (1 - rk) - (R - 0.24) * rk, 0);
-  bikeBase.rotation.x = crash ? crash.roll : 0;
-  bike.rotation.z = ph;
-  rearW.rotation.z = -x / R;
-  frontW.rotation.z = -x / R * 0.97;
+  // bike: follows the chassis body; the model's origin is the rear axle
+  bikeBase.position.copy(sim.chassis.position); bikeBase.quaternion.copy(sim.chassis.quaternion);
+  bike.position.set(-COM.x, -COM.y, 0); bike.rotation.set(0, 0, 0);
+  qInv.copy(bikeBase.quaternion).invert();
+  rearW.quaternion.copy(qInv).multiply(qW.copy(sim.rear.quaternion));
+  frontW.quaternion.copy(qInv).multiply(qW.copy(sim.front.quaternion));
   if (state === 'ready' || state === 'play') poseRiding(ph - s, b);
+  else { // thrown off: the rider follows its own body
+    riderG.quaternion.copy(sim.rider.quaternion);
+    riderG.position.copy(sim.rider.position).add(tmpV.copy(riderOff).applyQuaternion(riderG.quaternion));
+  }
   human.update(fdt);
   // world
   layRibbons(x);
@@ -1073,10 +1186,10 @@ function render(alpha, fdt = 0) {
   bestMark.visible = !ready && best > 0;
   if (bestMark.visible) { const bx = x0 + best; bestMark.position.set(bx, H(bx), 0); bestMark.rotation.z = Math.atan(slopeAt(bx)); bestMark.userData.flag.rotation.x = Math.sin(performance.now() / 300) * 0.25; }
   // camera
-  let cx, cy, hx, hy;
-  if (crash) { const rx = riderG.position.x, lo = Math.min(x, rx) - 0.6, hi = Math.max(x + WB, rx + 1) + 0.6; cx = (lo + hi) / 2 + 0.8; cy = H(cx) + 0.5; hx = Math.max(1.8, (hi - lo) / 2 * 0.75 + 0.6); hy = 1.1; }
+  let cx, cy, hx, hy, cz = 0;
+  if (crash) { const bp = sim.chassis.position, rp = sim.rider.position, lo = Math.min(bp.x, rp.x) - 1, hi = Math.max(bp.x, rp.x) + 1; cx = (lo + hi) / 2 + 0.6; cz = (bp.z + rp.z) / 2; cy = H(cx) + 0.5; hx = Math.max(1.8, (hi - lo) / 2 * 0.75 + 0.5, Math.abs(bp.z - rp.z) / 2 + 1); hy = 1.1; }
   else { cx = x + 1.3; cy = Math.max(gy, H(x + 2)) + 0.95; hx = camera.aspect > 1.1 ? 2.4 : 1.9; hy = 1.55; }
-  frameCamera(x, cx, cy, hx, hy, fdt, !camInit); camInit = true;
+  frameCamera(x, cx, cy, hx, hy, fdt, !camInit, cz); camInit = true;
   sun.position.set(camLook.x + 5, camLook.y + 12, -7); sun.target.position.copy(camLook);
   renderer.render(scene, camera);
   updGauge(ph - s);
@@ -1102,7 +1215,7 @@ function loop(now) {
   updHint(fdt);
   if (ac) {
     const run = state === 'ready' || state === 'play';
-    const rpm = run ? 0.32 + (S.v / 26) * 0.5 + Math.max(0, accel) * 0.04 : crash && crash.t < 1.2 ? 0.08 : 0.05;
+    const rpm = run ? 0.32 + (S.v / 26) * 0.5 + Math.max(0, accel) * 0.03 : crash && crash.t < 1.2 ? 0.08 : 0.05;
     engineTick(rpm, run ? 0.2 : crash && crash.t < 1.5 ? 0.08 : 0.04);
   }
   requestAnimationFrame(loop);
@@ -1113,7 +1226,7 @@ renderer.compileAsync?.(scene, camera).catch(() => {});
 window.GAME_READY = true;
 requestAnimationFrame(loop);
 // for automated checks
-window.__game = { bikeBase, camera, riderG, get state() { return state; }, get S() { return S; }, get x0() { return x0; }, crashNow: t => startCrash(t || 'flip'), set best(v) { best = v; } };
+window.__game = { sim, bikeBase, camera, riderG, get state() { return state; }, get crash() { return crash; }, get S() { return S; }, get x0() { return x0; }, crashNow: t => startCrash(t || 'flip'), set best(v) { best = v; } };
   </script>
   <!-- 結果画面の広告（../../ad.js の説明を参照） -->
   <script src="../../ad.js" data-result="#result"></script>
