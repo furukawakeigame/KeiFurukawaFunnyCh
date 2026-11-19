@@ -813,7 +813,7 @@ function reach(dz, dy, l1, l2, bendBack) {
 const J = human.j;
 function poseRiding(th, b) {
   // b: the body shift from the player (-1 back .. 1 forward). The hips slide on the seat and the back bends.
-  riderG.position.set(SEAT.x + b * 0.42, SEAT.y - Math.abs(b) * 0.08, 0); // matches the physics (leanReach)
+  riderG.position.set(SEAT.x + b * 0.35, SEAT.y - Math.abs(b) * 0.08, 0); // matches the physics (leanReach)
   const lean = 0.3 + th * 0.8 + b * 0.95, back = th - lean; // back: how far the torso tips back in the world
   J.spine.rotation.set(lean, 0, 0);
   J.neck.rotation.set(back * 0.4, 0, 0); J.head.rotation.set(back * 0.5 + 0.05, 0, 0);
@@ -898,7 +898,7 @@ function createBikeSim(CANNON, P) {
   world.frictionGravity = new CANNON.Vec3(0, -P.gripG, 0);
   const GROUND = 1, BIKE = 2, RIDERG = 4;
   const mGround = new CANNON.Material('ground'), mTire = new CANNON.Material('tire'), mBody = new CANNON.Material('body');
-  world.addContactMaterial(new CANNON.ContactMaterial(mTire, mGround, { friction: 1.4, restitution: P.tyreBounce, contactEquationStiffness: P.tyreK, contactEquationRelaxation: 3 }));
+  world.addContactMaterial(new CANNON.ContactMaterial(mTire, mGround, { friction: P.mu, restitution: P.tyreBounce, contactEquationStiffness: P.tyreK, contactEquationRelaxation: 3 }));
   world.addContactMaterial(new CANNON.ContactMaterial(mBody, mGround, { friction: 0.55, restitution: 0.15 }));
   const V3 = (x, y, z = 0) => new CANNON.Vec3(x, y, z);
   const planar = (b, on) => { b.linearFactor.set(1, 1, on ? 0 : 1); b.angularFactor.set(on ? 0 : 1, on ? 0 : 1, 1); };
@@ -979,9 +979,10 @@ function createBikeSim(CANNON, P) {
     step(dt, ctl) {
       if (sim.riding) {
         if (ctl.hold) { rear.angularVelocity.scale(0.8, rear.angularVelocity); front.angularVelocity.scale(0.8, front.angularVelocity); }
-        else if (ctl.gas > 0) { const wv = -rear.angularVelocity.z * R; // the engine pulls a bit softer from a standstill and stops pulling at top speed
-          drive(P.gasTorque * ctl.gas * THREE.MathUtils.clamp((P.vMax - wv) / 2, 0, 1) * (0.8 + 0.2 * Math.min(1, Math.max(0, wv) / 6))); }
-        // leaning turns the bike toward a spin rate set by how far the finger moved (strong, but it can't run away)
+        else if (ctl.gas > 0) { const wv = -rear.angularVelocity.z * R;
+          // engine: limited by its torque at low speed and by its power above that (force × speed = power)
+          const tq = Math.min(P.torqueMax, P.power * R / Math.max(1, wv));
+          drive(tq * ctl.gas * THREE.MathUtils.clamp((P.vMax - wv) / 2, 0, 1)); }
         // the rider slides along the seat (and crouches a little): the whole bike's centre of mass moves with them.
         // No made-up forces: the frame only feels what it takes to move the rider's body.
         lock.pivotA.set(pivotA0.x + ctl.lean * P.leanReach, pivotA0.y - Math.abs(ctl.lean) * 0.08, pivotA0.z);
@@ -1008,7 +1009,7 @@ function createBikeSim(CANNON, P) {
 
 // ---------- game state ----------
 const DT = 1 / 120, COM = { x: 0.68, y: 0.4 }, RIDER_C = { x: 0.46, y: 1.0 }; // weight well forward and low, like a trials bike: the front stays down unless you ask
-const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 9.8, mChassis: 55, mWheel: 6, mRider: 65, gasTorque: 105, vMax: 16, leanReach: 0.42, tyreK: 1.5e5, tyreBounce: 0.12, gripG: 100, dt: DT });
+const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 9.8, mChassis: 62, mWheel: 7, mRider: 70, torqueMax: 115, power: 3800, vMax: 16, leanReach: 0.35, mu: 1.0, tyreK: 1.5e5, tyreBounce: 0.12, gripG: 100, dt: DT });
 const S = { x: 0, v: 0, ph: 0, b: 0, bt: 0, gas: 0, far: 0 };
 let state = 'ready', playT = 0, crash = null, finalD = 0, stuckT = 0;
 function syncS() { S.x = sim.rear.position.x; S.v = sim.chassis.velocity.x; S.ph = sim.pitch(); S.far = Math.max(S.far, S.x); }
@@ -1031,7 +1032,7 @@ function step(dt) {
     // the body follows the finger (drag) or the arrow keys, and comes back to the middle when let go
     const kb = keyLean, tgt = dragLean !== null ? dragLean : kb;
     S.bt = tgt;
-    S.b += (S.bt - S.b) * (1 - Math.exp(-dt / 0.06)); // a body takes a moment to move
+    S.b += (S.bt - S.b) * (1 - Math.exp(-dt / 0.15)); // a person needs about a third of a second to throw their weight across
     const gas = state === 'play' ? Math.max(S.gas, keyGas) : 0;
     extendCourse(S.x + 220);
     sim.step(dt, { gas, brake: 0, hold: state === 'ready', lean: state === 'play' ? S.b : 0, rel: S.ph - Math.atan(slopeAt(S.x)) });
