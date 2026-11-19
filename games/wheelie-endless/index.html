@@ -419,14 +419,14 @@ const FEATS = {
     if (Math.random() < 0.35 + d * 0.3) { addPt(genX + 0.04, b, 2); addPt(genX + 2, b); } else addPt(genX + h / rnd(0.4, 0.7), b, 1);
   },
   step(d) { // concrete blocks: up a sharp edge, then off again
-    const h = rnd(0.16, 0.24 + d * 0.32), b = genY;
-    addPt(genX + 0.04, b + h, 2); addPt(genX + rnd(2, 4), b + h, 2);
-    if (Math.random() < 0.5) { addPt(genX + 0.04, b, 2); } else { addPt(genX + 0.04, b + h * 2, 2); addPt(genX + rnd(2, 3.5), b + h * 2, 2); addPt(genX + h * 2 / 0.5, b, 1); }
+    const h = rnd(0.12, 0.18 + d * 0.22), b = genY; // risers are bevelled (about 60°) so a wheel can climb them
+    addPt(genX + h * 0.55, b + h, 2); addPt(genX + rnd(2, 4), b + h, 2);
+    if (Math.random() < 0.5) { addPt(genX + 0.04, b, 2); } else { addPt(genX + h * 0.55, b + h * 2, 2); addPt(genX + rnd(2, 3.5), b + h * 2, 2); addPt(genX + h * 2 / 0.5, b, 1); }
     addPt(genX + 1.5, b);
   },
   stairs(d) {
-    const n = 3 + Math.floor(Math.random() * (2 + d * 2)), h = rnd(0.18, 0.24 + d * 0.12), b = genY;
-    for (let i = 1; i <= n; i++) { addPt(genX + 0.04, b + h * i, 2); addPt(genX + rnd(0.9, 1.4), b + h * i, 2); }
+    const n = 3 + Math.floor(Math.random() * (2 + d * 2)), h = rnd(0.12, 0.17 + d * 0.08), b = genY;
+    for (let i = 1; i <= n; i++) { addPt(genX + h * 0.55, b + h * i, 2); addPt(genX + rnd(0.9, 1.4), b + h * i, 2); }
     addPt(genX + h * n / 0.45, b, 1); addPt(genX + 1.5, b);
   },
   gap(d) { // jump over water: a kicker, a pit, a landing ramp
@@ -879,6 +879,8 @@ function createBikeSim(CANNON, P) {
   world.broadphase = new CANNON.SAPBroadphase(world);
   world.solver.iterations = 25;
   world.allowSleep = false;
+  // cannon limits friction by the touching body's own mass (5 kg wheels slip on any slope); give the friction its own, stronger gravity
+  world.frictionGravity = new CANNON.Vec3(0, -P.gripG, 0);
   const GROUND = 1, BIKE = 2, RIDERG = 4;
   const mGround = new CANNON.Material('ground'), mTire = new CANNON.Material('tire'), mBody = new CANNON.Material('body');
   world.addContactMaterial(new CANNON.ContactMaterial(mTire, mGround, { friction: 1.4, restitution: P.tyreBounce, contactEquationStiffness: P.tyreK, contactEquationRelaxation: 3 }));
@@ -921,12 +923,14 @@ function createBikeSim(CANNON, P) {
 
   // the ground: one static box per polyline segment near the bike (wide: the grass beside is at the same height)
   const segBodies = new Map();
+  // each segment is a column: its top edge is the ground line and its sides go straight down (no corners poking up)
   function segBody(a, b) {
+    if (b.x - a.x < 0.06) return null; // a sharp edge: the neighbouring columns' sides form the wall
     const body = new CANNON.Body({ mass: 0, material: mGround, collisionFilterGroup: GROUND, collisionFilterMask: BIKE | RIDERG });
-    const len = Math.hypot(b.x - a.x, b.y - a.y), ang = Math.atan2(b.y - a.y, b.x - a.x);
-    body.addShape(new CANNON.Box(V3(len / 2 + 0.02, 0.5, 20)));
-    body.quaternion.setFromAxisAngle(V3(0, 0, 1), ang);
-    body.position.set((a.x + b.x) / 2 + Math.sin(ang) * 0.5, (a.y + b.y) / 2 - Math.cos(ang) * 0.5, 0);
+    const cx = (a.x + b.x) / 2, B = Math.min(a.y, b.y) - 25, Z = 20, ax = a.x - cx, bx = b.x - cx;
+    const v = [V3(ax, a.y, -Z), V3(bx, b.y, -Z), V3(bx, B, -Z), V3(ax, B, -Z), V3(ax, a.y, Z), V3(bx, b.y, Z), V3(bx, B, Z), V3(ax, B, Z)];
+    body.addShape(new CANNON.ConvexPolyhedron({ vertices: v, faces: [[0, 4, 5, 1], [3, 2, 6, 7], [0, 3, 7, 4], [1, 5, 6, 2], [7, 6, 5, 4], [0, 1, 2, 3]] }));
+    body.position.set(cx, 0, 0);
     body.userData = { ground: true };
     world.addBody(body); return body;
   }
@@ -937,9 +941,9 @@ function createBikeSim(CANNON, P) {
       const key = ptBase + i; want.add(key);
       if (!segBodies.has(key)) segBodies.set(key, segBody(pts[i], pts[i + 1]));
     }
-    for (const [k, b] of segBodies) if (!want.has(k)) { world.removeBody(b); segBodies.delete(k); }
+    for (const [k, b] of segBodies) if (!want.has(k)) { if (b) world.removeBody(b); segBodies.delete(k); }
   }
-  function clearGround() { for (const b of segBodies.values()) world.removeBody(b); segBodies.clear(); }
+  function clearGround() { for (const b of segBodies.values()) if (b) world.removeBody(b); segBodies.clear(); }
 
   const hit = { front: false, rear: false, chassis: false, rider: false };
   const listen = (b, k) => b.addEventListener('collide', e => { if (e.body.userData?.ground) hit[k] = true; });
@@ -960,8 +964,8 @@ function createBikeSim(CANNON, P) {
       if (sim.riding) {
         if (ctl.hold) { rear.angularVelocity.scale(0.8, rear.angularVelocity); front.angularVelocity.scale(0.8, front.angularVelocity); }
         else if (ctl.gas > 0) { const wv = -rear.angularVelocity.z * R; // gentler pull from a standstill, and an anti-wheelie: the engine eases off as the front climbs past ~12°
-          const aw = THREE.MathUtils.clamp(1 - ((ctl.rel || 0) - 0.2) / 0.45, 0.1, 1);
-          drive(P.gasTorque * ctl.gas * aw * THREE.MathUtils.clamp((P.vMax - wv) / 2, 0, 1) * (0.6 + 0.4 * Math.min(1, Math.max(0, wv) / 6))); }
+          const aw = THREE.MathUtils.clamp(1 - ((ctl.rel || 0) - 0.15) / 0.35, 0.05, 1);
+          drive(P.gasTorque * ctl.gas * aw * THREE.MathUtils.clamp((P.vMax - wv) / 2, 0, 1) * (0.8 + 0.2 * Math.min(1, Math.max(0, wv) / 6))); }
         // leaning turns the bike toward a spin rate set by how far the finger moved (strong, but it can't run away)
         if (ctl.lean) { const w = chassis.angularVelocity.z, wt = -ctl.lean * P.leanRate; chassis.torque.z += THREE.MathUtils.clamp(P.leanGain * (wt - w), -P.leanTorque, P.leanTorque); }
       } else { rear.angularVelocity.scale(0.985, rear.angularVelocity); front.angularVelocity.scale(0.985, front.angularVelocity); }
@@ -987,7 +991,7 @@ function createBikeSim(CANNON, P) {
 
 // ---------- game state ----------
 const DT = 1 / 120, COM = { x: 0.62, y: 0.42 }, RIDER_C = { x: 0.42, y: 1.02 };
-const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 8.5, mChassis: 48, mWheel: 5, mRider: 42, iChassis: 14, gasTorque: 115, vMax: 16, leanTorque: 700, leanRate: 1.6, leanGain: 320, tyreK: 1.5e5, tyreBounce: 0.4, dt: DT });
+const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 8.5, mChassis: 48, mWheel: 5, mRider: 42, iChassis: 14, gasTorque: 165, vMax: 16, leanTorque: 700, leanRate: 1.6, leanGain: 320, tyreK: 1.5e5, tyreBounce: 0.4, gripG: 90, dt: DT });
 const S = { x: 0, v: 0, ph: 0, b: 0, bt: 0, gas: 0, far: 0 };
 let state = 'ready', playT = 0, crash = null, finalD = 0, stuckT = 0;
 function syncS() { S.x = sim.rear.position.x; S.v = sim.chassis.velocity.x; S.ph = sim.pitch(); S.far = Math.max(S.far, S.x); }
@@ -1264,7 +1268,7 @@ renderer.compileAsync?.(scene, camera).catch(() => {});
 window.GAME_READY = true;
 requestAnimationFrame(loop);
 // for automated checks
-window.__game = { sim, bikeBase, camera, riderG, get state() { return state; }, get crash() { return crash; }, get S() { return S; }, crashNow: t => startCrash(t || "rider"), pts: () => pts, H, stepN: n => { for (let i = 0; i < n; i++) step(DT); }, setGas: v => { S.gas = v; begin(); }, setLean: v => { dragLean = v; }, set best(v) { best = v; } };
+window.__game = { sim, bikeBase, camera, riderG, get state() { return state; }, get crash() { return crash; }, get S() { return S; }, crashNow: t => startCrash(t || "rider"), pts: () => pts, H, slope: slopeAt, reset, stepN: n => { for (let i = 0; i < n; i++) step(DT); }, setGas: v => { S.gas = v; begin(); }, setLean: v => { dragLean = v; }, set best(v) { best = v; } };
   </script>
   <!-- 結果画面の広告（../../ad.js の説明を参照） -->
   <script src="../../ad.js" data-result="#result"></script>
