@@ -37,10 +37,15 @@
     #stage { position: fixed; inset: 0; }
     #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
     /* the bike's angle, drawn as an arc with the safe band in green */
-    #gauge { position: absolute; left: 50%; top: 46px; transform: translateX(-50%); height: clamp(58px, 12vmin, 104px); width: auto; pointer-events: none; transition: opacity .3s; filter: drop-shadow(0 2px 3px rgba(60,30,20,.25)); }
-    #gauge.off { opacity: 0; }
-    #hint { position: absolute; width: 100px; height: 50px; margin: -25px 0 0 -50px; filter: drop-shadow(0 2px 3px rgba(60,30,20,.35)); pointer-events: none; display: none; }
+    #hint { position: absolute; left: 20px; bottom: calc(120px + env(safe-area-inset-bottom)); width: 110px; height: 55px; pointer-events: none; display: none; filter: drop-shadow(0 2px 3px rgba(60,30,20,.35)); }
     #hint.on { display: block; }
+    #pads { position: absolute; right: 14px; bottom: calc(86px + env(safe-area-inset-bottom)); display: flex; gap: 12px; align-items: flex-end; }
+    #pads.off { display: none; }
+    .pad { width: clamp(62px, 16vmin, 100px); height: clamp(62px, 16vmin, 100px); border-radius: 50%; border: none; background: rgba(255,255,255,.85); box-shadow: 0 4px 0 rgba(40,20,10,.25); display: flex; align-items: center; justify-content: center; touch-action: none; cursor: pointer; padding: 0; }
+    .pad.gas { width: clamp(76px, 20vmin, 122px); height: clamp(76px, 20vmin, 122px); background: #e8590c; box-shadow: 0 4px 0 #a33f08; }
+    .pad.down { transform: translateY(3px); box-shadow: 0 1px 0 rgba(40,20,10,.25); }
+    #pads.ready .gas { animation: pulse 1.1s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 16px; }
     .panel { position: absolute; left: 0; right: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: calc(54px + 2vh) 16px 0; pointer-events: none; }
     .panel > * { pointer-events: auto; }
@@ -72,23 +77,15 @@
   <main style="display:contents">
   <div id="stage">
     <canvas id="cv"></canvas>
-    <svg id="gauge" viewBox="0 0 120 100" aria-hidden="true">
-      <g fill="none" stroke-linecap="butt">
-        <path id="gTrack" stroke="rgba(255,255,255,.75)" stroke-width="20"/>
-        <path id="gR1" stroke="#e03131" stroke-width="14"/>
-        <path id="gY1" stroke="#fab005" stroke-width="14"/>
-        <path id="gG" stroke="#37b24d" stroke-width="14"/>
-        <path id="gY2" stroke="#fab005" stroke-width="14"/>
-        <path id="gR2" stroke="#e03131" stroke-width="14"/>
-      </g>
-      <line id="gNeedle" x1="34" y1="90" x2="104" y2="90" stroke="#223" stroke-width="5" stroke-linecap="round"/>
-      <circle cx="34" cy="90" r="7" fill="#223"/>
-    </svg>
     <svg id="hint" viewBox="0 0 120 60" aria-hidden="true">
       <path d="M4 30l14-12v24zM116 30l-14-12v24z" fill="#fff"/>
       <line x1="22" y1="30" x2="98" y2="30" stroke="rgba(255,255,255,.6)" stroke-width="4" stroke-linecap="round"/>
       <circle id="hDot" cx="60" cy="30" r="13" fill="#fff" stroke="rgba(60,40,30,.35)" stroke-width="2"/>
     </svg>
+    <div id="pads">
+      <button id="bBrake" class="pad" aria-label="brake"><svg viewBox="0 0 40 40" width="46%" height="46%"><path d="M30 8v24L12 20z" fill="#334"/><rect x="6" y="8" width="5" height="24" rx="2" fill="#334"/></svg></button>
+      <button id="bGas" class="pad gas" aria-label="gas"><svg viewBox="0 0 40 40" width="50%" height="50%"><path d="M8 7l16 13L8 33z" fill="#fff"/><path d="M20 7l16 13-16 13z" fill="#fff" opacity=".75"/></svg></button>
+    </div>
     <div id="msg"></div>
     <div id="result" class="panel" hidden>
       <p class="big" id="rDist"></p>
@@ -323,7 +320,7 @@ function canvasTex(w, h, draw) {
   return tex;
 }
 const speckle = (g, w, h, n, cols, r0, r1) => { for (let i = 0; i < n; i++) { g.fillStyle = cols[i % cols.length]; const r = r0 + Math.random() * (r1 - r0); g.fillRect(Math.random() * w, Math.random() * h, r, r); } };
-const ROAD_W = 7, TILE = 8;
+const ROAD_W = 4.4, TILE = 8;
 // asphalt: one 8 m tile along the road (u), the full width across (v); edge lines and a dashed centre line
 const roadTex = canvasTex(512, 448, (g, w, h) => {
   g.fillStyle = '#5a5654'; g.fillRect(0, 0, w, h);
@@ -357,123 +354,261 @@ const barkTex = canvasTex(64, 128, (g, w, h) => {
   for (let i = 0; i < 40; i++) { g.strokeStyle = Math.random() < .5 ? '#4a3326' : '#6e5040'; g.lineWidth = 1 + Math.random() * 2; g.beginPath(); const x = Math.random() * w; g.moveTo(x, 0); g.lineTo(x + (Math.random() - .5) * 8, h); g.stroke(); }
 });
 
-// ---------- the course: rolling hills, and stretches of asphalt or dirt ----------
-// track position u = x - x0 (x0 is where the run started). Before the start x0 follows the bike, so it stays flat.
-let x0 = 0, runSeed = 0;
-const smoothstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-const hash = (i, k = 0) => { const x = Math.sin(i * 127.1 + k * 311.7 + runSeed * 74.7) * 43758.5453; return x - Math.floor(x); };
-function terrainU(u) {
-  if (u <= 40) return 0;
-  const A = (0.8 + Math.min(2.5, u / 300)) * smoothstep(40, 150, u), r = runSeed;
-  return A * (Math.sin(u / 41 + r) * 0.7 + Math.sin(u / 97 + r * 2) + Math.sin(u / 19 + r * 3) * 0.16 - Math.sin(r) * 0.7 - Math.sin(r * 2) - Math.sin(r * 3) * 0.16);
-}
-// potholes and muddy dips are real dents in the ground (the bike drops into them)
-function dipU(u) { let d = 0; for (const h of hazards) if (h.dip) { const k = (u - h.u) / h.dip; if (k > -1 && k < 1) d += h.depth * 0.5 * (1 + Math.cos(Math.PI * k)); } return d; }
-const H = x => terrainU(x - x0) - dipU(x - x0);
-const slopeAt = x => (H(x + 0.25) - H(x - 0.25)) / 0.5;
-// zones of about 280 m after the first 250 m; dirt zones run through woods
-function zoneU(u) { if (u < 250) return 0; const k = Math.floor((u - 250) / 280); return hash(k, 9) < 0.5 ? 1 : 0; }
-const zoneAt = x => zoneU(x - x0);
+// more textures for the obstacles
+const woodTex = canvasTex(256, 256, (g, w, h) => {
+  for (let i = 0; i < 8; i++) {
+    g.fillStyle = ['#b07a45', '#a56f3c', '#bb844e', '#9c6836'][i % 4]; g.fillRect(0, i * h / 8, w, h / 8);
+    g.fillStyle = 'rgba(60,35,15,.5)'; g.fillRect(0, i * h / 8, w, 2);
+    for (let k = 0; k < 6; k++) { g.strokeStyle = 'rgba(80,45,20,.25)'; g.beginPath(); const y = i * h / 8 + Math.random() * h / 8; g.moveTo(0, y); g.bezierCurveTo(w * .3, y + 4, w * .6, y - 4, w, y + 2); g.stroke(); }
+    g.fillStyle = '#5a4030'; for (const x of [12, w - 12]) { g.beginPath(); g.arc(x, i * h / 8 + h / 16, 3, 0, 7); g.fill(); }
+  }
+});
+const concreteTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#a9a6a0'; g.fillRect(0, 0, w, h);
+  speckle(g, w, h, 6000, ['#9a978f', '#b8b5ae', '#8f8c86', '#c4c1ba'], 1, 2);
+  g.strokeStyle = 'rgba(70,70,70,.35)'; g.lineWidth = 2; g.strokeRect(1, 1, w - 2, h - 2);
+});
+const crateTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#c8955a'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#bd8a50' : '#d09e63'; g.fillRect(0, i * h / 6, w, h / 6 - 3); }
+  g.strokeStyle = '#7d5530'; g.lineWidth = 22; g.strokeRect(11, 11, w - 22, h - 22);
+  g.beginPath(); g.moveTo(16, 16); g.lineTo(w - 16, h - 16); g.stroke();
+  g.fillStyle = '#4a3420'; for (const [x, y] of [[20, 20], [w - 20, 20], [20, h - 20], [w - 20, h - 20]]) { g.beginPath(); g.arc(x, y, 5, 0, 7); g.fill(); }
+});
+crateTex.wrapS = crateTex.wrapT = THREE.ClampToEdgeWrapping;
+// the cut face of the ground seen from the side: grass edge on top, layers of earth below
+const cliffTex = canvasTex(256, 512, (g, w, h) => {
+  const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#8a6a48'); gr.addColorStop(0.4, '#7a5a3c'); gr.addColorStop(1, '#5a4030');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  speckle(g, w, h, 6000, ['#6e5236', '#94744f', '#5c4430', '#a08060'], 1, 3);
+  for (let i = 0; i < 30; i++) { g.fillStyle = ['#9a948a', '#7d776e', '#b0aaa0'][i % 3]; g.beginPath(); g.ellipse(Math.random() * w, 40 + Math.random() * (h - 40), 4 + Math.random() * 9, 3 + Math.random() * 6, Math.random() * 3, 0, 7); g.fill(); }
+  g.fillStyle = '#5f8a36'; g.fillRect(0, 0, w, 10);
+  for (let x = 0; x < w; x += 3) { g.fillStyle = Math.random() < .5 ? '#6f9a40' : '#4f7a30'; g.fillRect(x, 8, 3, 3 + Math.random() * 9); }
+});
 
-// ground as ribbons of quads along the road; every frame they're laid over the hills around the bike
-const SEG = 1, NSEG = 210, BACK = 45;
+// ---------- the course: an endless line of ground with ramps, steps, logs, crates and water gaps ----------
+// The ground is a polyline (x, y) built ahead of the bike; physics and drawing both use it.
+let runSeed = 0;
+const HW = ROAD_W / 2;
+const hash = (i, k = 0) => { const x = Math.sin(i * 127.1 + k * 311.7 + runSeed * 74.7) * 43758.5453; return x - Math.floor(x); };
+let pts = [], ptBase = 0, genX = 0, genY = 0, pits = [], decos = [];
+// a point ends the segment before it; s is that segment's surface: 0 dirt, 1 wood, 2 concrete, 3 crate top
+function addPt(x, y, s = 0) { pts.push({ x, y, s }); genX = x; genY = y; }
+function segIndex(x) { // last point with p.x <= x
+  let lo = 0, hi = pts.length - 1;
+  if (x <= pts[0].x) return 0;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (pts[m].x <= x) lo = m; else hi = m; }
+  return lo;
+}
+function H(x) {
+  if (x >= genX) return genY;
+  const i = segIndex(x), a = pts[i], b = pts[i + 1];
+  if (!b) return a.y;
+  return a.y + (b.y - a.y) * (x - a.x) / Math.max(1e-6, b.x - a.x);
+}
+const slopeAt = x => (H(x + 0.2) - H(x - 0.2)) / 0.4;
+const waterAt = x => { for (const p of pits) if (x > p.x0 && x < p.x1) return p.level; return -Infinity; };
+const zoneAt = x => (x < 250 ? 0 : (hash(Math.floor((x - 250) / 300), 9) < 0.5 ? 1 : 0)); // 0 open fields, 1 woods
+const rnd = (a, b) => a + Math.random() * (b - a);
+const FEATS = {
+  flat(d) { addPt(genX + rnd(3, 8 - d * 3), genY); },
+  hill(d) { const A = rnd(0.5, 1.2 + d * 1.6) * (genY > 3 ? -1 : 1), n = Math.round(rnd(10, 20)), b = genY, x0 = genX; for (let i = 1; i <= n; i++) addPt(x0 + i, b + A * 0.5 * (1 - Math.cos(2 * Math.PI * i / n))); },
+  log(d) {
+    const r = rnd(0.16, 0.22 + d * 0.12), b = genY; addPt(genX + 1.5, b); const cx = genX + r;
+    for (let k = 1; k <= 8; k++) { const a = Math.PI * k / 8; addPt(cx - r * Math.cos(a), b + r * Math.sin(a) * 0.95); }
+    decos.push({ type: 'log', x: cx, y: b, r }); addPt(genX + 1.5, b);
+  },
+  ramp(d) { // up a wooden ramp, along the top, then down (a slope, or a drop off the edge)
+    const h = rnd(0.7, 1.2 + d * 1.6), k = rnd(0.32, 0.45 + d * 0.15), b = genY;
+    addPt(genX + h / k, b + h, 1); addPt(genX + rnd(2.5, 5), b + h, 2);
+    if (Math.random() < 0.35 + d * 0.3) { addPt(genX + 0.04, b, 2); addPt(genX + 2, b); } else addPt(genX + h / rnd(0.4, 0.7), b, 1);
+  },
+  step(d) { // concrete blocks: up a sharp edge, then off again
+    const h = rnd(0.16, 0.24 + d * 0.32), b = genY;
+    addPt(genX + 0.04, b + h, 2); addPt(genX + rnd(2, 4), b + h, 2);
+    if (Math.random() < 0.5) { addPt(genX + 0.04, b, 2); } else { addPt(genX + 0.04, b + h * 2, 2); addPt(genX + rnd(2, 3.5), b + h * 2, 2); addPt(genX + h * 2 / 0.5, b, 1); }
+    addPt(genX + 1.5, b);
+  },
+  stairs(d) {
+    const n = 3 + Math.floor(Math.random() * (2 + d * 2)), h = rnd(0.18, 0.24 + d * 0.12), b = genY;
+    for (let i = 1; i <= n; i++) { addPt(genX + 0.04, b + h * i, 2); addPt(genX + rnd(0.9, 1.4), b + h * i, 2); }
+    addPt(genX + h * n / 0.45, b, 1); addPt(genX + 1.5, b);
+  },
+  gap(d) { // jump over water: a kicker, a pit, a landing ramp
+    const b = genY, kh = rnd(0.7, 1.0), gw = rnd(2, 3 + d * 3.5), lh = kh * 0.75;
+    addPt(genX + 1.5, b); addPt(genX + 3.2, b + kh, 1);
+    const x0 = genX; addPt(x0 + 0.04, b - 3.2, 2); addPt(x0 + gw, b - 3.2); const x1 = genX; addPt(x1 + 0.04, b + lh, 2);
+    pits.push({ x0, x1: x1 + 0.04, level: b - 1.4 });
+    decos.push({ type: 'water', x0, x1: x1 + 0.04, level: b - 1.4, floor: b - 3.2 });
+    addPt(genX + 0.6, b + lh, 1); addPt(genX + lh / 0.3, b, 1); addPt(genX + 2, b);
+  },
+  crates(d) { // a pile of crates with a plank up the front
+    const h = rnd(0.6, 0.9 + d * 0.7), w = rnd(1.8, 3.2), b = genY;
+    addPt(genX + h / 0.55, b + h, 1); const x0 = genX; addPt(x0 + w, b + h, 3);
+    decos.push({ type: 'crates', x0, x1: x0 + w, y0: b, y1: b + h });
+    addPt(genX + 0.04, b, 2); addPt(genX + 2, b);
+  },
+  drop(d) { const h = rnd(0.4, 0.8 + d * 0.8) * (genY < -2 ? -1 : 1); addPt(genX + (h > 0 ? 0.04 : -h / 0.5), genY - h, 2); addPt(genX + 2, genY); },
+};
+function pickFeat(d) {
+  const w = { flat: 1.2, hill: 1.4, log: 1, ramp: 1.1, step: 0.6 + d, stairs: 0.3 + d, gap: 0.4 + d * 1.2, crates: 0.4 + d, drop: 0.5 };
+  let sum = 0; for (const k in w) sum += w[k];
+  let r = Math.random() * sum; for (const k in w) { r -= w[k]; if (r <= 0) return k; } return 'flat';
+}
+function extendCourse(toX) {
+  while (genX < toX) {
+    const d = Math.min(1, genX / 1500);
+    if (genX < 25) { addPt(25, 0); continue; }
+    FEATS[pickFeat(d)](d);
+    addPt(genX + rnd(2.5, 6 - d * 2.5), genY); // a breather between obstacles
+  }
+}
+function trimCourse(x) { // forget what's far behind
+  let n = 0; while (n < pts.length - 2 && pts[n + 1].x < x - 60) n++;
+  if (n) { pts.splice(0, n); ptBase += n; }
+  pits = pits.filter(p => p.x1 > x - 60);
+}
+function resetCourse() { pts = []; ptBase = 0; pits = []; decos.length = 0; addPt(-60, 0); addPt(0, 0); extendCourse(200); }
+
+// ---------- drawing the ground: ribbons over the polyline, a cut face toward the camera, grass behind ----------
+const MAXQ = 1400;
+const bankY = p => { const w = waterAt(p.x); return w > -Infinity ? w + 1.4 : p.y; }; // the grass behind doesn't dip into the gaps
 const ribbons = [];
-function ribbon(cross, mat, { tile = 8, zone = -1, vert = false } = {}) {
-  const nq = NSEG * (cross.length - 1), pos = new Float32Array(nq * 12), uv = new Float32Array(nq * 8), idx = [];
+function ribbon(cross, mat, { tile = 8, surf = -1, cast = false, nopit = false } = {}) {
+  const nq = MAXQ * (cross.length - 1), pos = new Float32Array(nq * 12), uv = new Float32Array(nq * 8), idx = [];
   for (let q = 0; q < nq; q++) { const b = q * 4; idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3); }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(idx);
-  const m = new THREE.Mesh(g, mat); m.frustumCulled = false; m.receiveShadow = true; m.castShadow = vert; scene.add(m);
-  ribbons.push({ cross, g, pos, uv, tile, zone });
+  const m = new THREE.Mesh(g, mat); m.frustumCulled = false; m.receiveShadow = true; m.castShadow = cast; scene.add(m);
+  ribbons.push({ cross, g, pos, uv, tile, surf, nopit });
 }
 function layRibbons(x) {
-  const xs = Math.floor((x - BACK) / SEG) * SEG;
-  const hs = [], zs = [];
-  for (let i = 0; i <= NSEG; i++) { hs.push(H(xs + i * SEG)); zs.push(zoneAt(xs + (i + 0.5) * SEG)); }
+  const i0 = segIndex(x - 45), i1 = Math.min(pts.length - 1, segIndex(x + 150) + 1), n = Math.min(MAXQ, i1 - i0);
   for (const r of ribbons) {
-    const { cross, pos, uv, tile, zone } = r, nc = cross.length - 1;
+    const { cross, pos, uv, tile, surf, nopit } = r, nc = cross.length - 1;
     let q = 0;
-    for (let i = 0; i < NSEG; i++) for (let j = 0; j < nc; j++, q++) {
-      const xa = xs + i * SEG, xb = xa + SEG, [za, ya, va] = cross[j], [zb, yb, vb] = cross[j + 1];
-      const p = q * 12, t = q * 8, hide = zone >= 0 && zs[i] !== zone;
-      const pts = [[xa, hs[i] + ya, za, va], [xb, hs[i + 1] + ya, za, va], [xa, hs[i] + yb, zb, vb], [xb, hs[i + 1] + yb, zb, vb]];
-      pts.forEach(([px, py, pz, pv], k) => {
-        pos[p + k * 3] = hide ? xa : px; pos[p + k * 3 + 1] = hide ? -60 : py; pos[p + k * 3 + 2] = hide ? za : pz;
-        uv[t + k * 2] = px / tile; uv[t + k * 2 + 1] = pv;
-      });
+    for (let i = 0; i < n; i++) {
+      const a = pts[i0 + i], b = pts[i0 + i + 1], hide = surf >= 0 && b.s !== surf;
+      const ay = nopit ? bankY(a) : a.y, by = nopit ? bankY(b) : b.y;
+      for (let j = 0; j < nc; j++, q++) {
+        const [za, ya, va] = cross[j], [zb, yb, vb] = cross[j + 1], p = q * 12, t = q * 8;
+        const vert = Math.abs(b.x - a.x) < 0.1; // a sharp edge: stretch the texture along its height instead
+        const ua = a.x / tile, ub = vert ? a.x / tile + Math.abs(by - ay) / tile : b.x / tile;
+        const P4 = [[a.x, ay + ya, za, va, ua], [b.x, by + ya, za, va, ub], [a.x, ay + yb, zb, vb, ua], [b.x, by + yb, zb, vb, ub]];
+        P4.forEach(([px, py, pz, pv, pu], k) => {
+          pos[p + k * 3] = px; pos[p + k * 3 + 1] = hide ? -80 : py; pos[p + k * 3 + 2] = pz;
+          uv[t + k * 2] = pu; uv[t + k * 2 + 1] = pv;
+        });
+      }
     }
+    r.g.setDrawRange(0, q * 6);
     r.g.attributes.position.needsUpdate = true; r.g.attributes.uv.needsUpdate = true;
     r.g.computeVertexNormals();
   }
 }
-const HW = ROAD_W / 2;
-ribbon([[-HW, 0, 1], [HW, 0, 0]], new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.92 }), { tile: TILE, zone: 0 });
-ribbon([[-HW, 0.004, 1], [HW, 0.004, 0]], new THREE.MeshStandardMaterial({ map: trackTex, roughness: 1 }), { tile: TILE, zone: 1 });
+const FRONT = HW + 0.35; // the cut face toward the camera
+ribbon([[-HW, 0, 1], [HW, 0, 0]], new THREE.MeshStandardMaterial({ map: trackTex, roughness: 1 }), { tile: TILE, surf: 0 });
+ribbon([[-HW, 0, 1], [HW, 0, 0]], new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.8 }), { tile: 2, surf: 1 });
+ribbon([[-HW, 0, 1], [HW, 0, 0]], new THREE.MeshStandardMaterial({ map: concreteTex, roughness: 0.9 }), { tile: 2, surf: 2 });
+ribbon([[-HW, 0, 1], [HW, 0, 0]], new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.8 }), { tile: 2, surf: 3 });
 const dirtMat = new THREE.MeshStandardMaterial({ map: dirtTex, roughness: 1 });
-ribbon([[HW, -0.015, 1], [HW + 1.2, -0.015, 0]], dirtMat, { tile: 8 });
-ribbon([[-HW - 1.2, -0.015, 1], [-HW, -0.015, 0]], dirtMat, { tile: 8 });
+ribbon([[HW, -0.01, 1], [FRONT, -0.01, 0]], dirtMat, { tile: 8 });
+ribbon([[FRONT, -0.01, 0], [FRONT, -14, 3.5]], new THREE.MeshStandardMaterial({ map: cliffTex, roughness: 1 }), { tile: 4 });
+ribbon([[-HW - 0.6, -0.01, 1], [-HW, -0.01, 0]], dirtMat, { tile: 8, nopit: true });
 const grassMat = new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1 });
-ribbon([[HW + 1.2, -0.04, 0.95], [20, -0.04, 4], [60, -0.04, 12], [140, -0.04, 28]], grassMat, { tile: 5 });
-ribbon([[-140, -0.04, -28], [-60, -0.04, -12], [-20, -0.04, -4], [-HW - 1.2, -0.04, -0.95]], grassMat, { tile: 5 });
-// guardrails only along the asphalt
-const railMat = new THREE.MeshStandardMaterial({ color: '#c9ced3', roughness: 0.35, metalness: 0.6, envMap: envTex, envMapIntensity: 0.7, side: THREE.DoubleSide });
-for (const z of [-4.6, 4.6]) ribbon([[z, 0.47, 0], [z, 0.77, 1]], railMat, { tile: 4, zone: 0, vert: true });
-// a far floor under everything, so the edges of the ribbons never show
+ribbon([[-140, -0.03, -28], [-60, -0.03, -12], [-20, -0.03, -4], [-HW - 0.6, -0.03, -0.95]], grassMat, { tile: 5, nopit: true });
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), new THREE.MeshStandardMaterial({ color: '#6f8f3e', roughness: 1 }));
-floor.rotation.x = -Math.PI / 2; floor.position.y = -9; scene.add(floor);
+floor.rotation.x = -Math.PI / 2; floor.position.y = -16; scene.add(floor);
 
-// far hills and the sun ahead: so far away they just ride along with the camera
+// decorations that go with the obstacles: logs, crate piles, water in the gaps
+const logGeo = new THREE.CylinderGeometry(1, 1, ROAD_W + 0.6, 14); logGeo.rotateX(Math.PI / 2);
+const logMat = new THREE.MeshStandardMaterial({ map: barkTex, roughness: 1 });
+const crateGeo = new THREE.BoxGeometry(1, 1, 1), crateMat = new THREE.MeshStandardMaterial({ map: crateTex, roughness: 0.85 });
+const waterMat = new THREE.MeshStandardMaterial({ color: '#3d7fb8', roughness: 0.15, metalness: 0.2, transparent: true, opacity: 0.85 });
+const waterSideMat = new THREE.MeshStandardMaterial({ color: '#2d5f8f', roughness: 0.3, transparent: true, opacity: 0.8 });
+let decoObjs = [];
+function buildDeco(dc) {
+  const g = new THREE.Group();
+  if (dc.type === 'log') { const m = new THREE.Mesh(logGeo, logMat); m.scale.set(dc.r, dc.r, 1); m.position.set(dc.x, dc.y + dc.r * 0.55, -0.3); g.add(m); }
+  if (dc.type === 'crates') {
+    const s = Math.min(0.75, (dc.y1 - dc.y0)), nx = Math.max(1, Math.round((dc.x1 - dc.x0) / s)), ny = Math.max(1, Math.round((dc.y1 - dc.y0) / s));
+    const cw = (dc.x1 - dc.x0) / nx, ch = (dc.y1 - dc.y0) / ny;
+    for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) for (let k = 0; k < 3; k++) {
+      const m = new THREE.Mesh(crateGeo, crateMat); const cz = (ROAD_W + 0.6) / 3;
+      m.scale.set(cw - 0.02, ch - 0.02, cz - 0.02); m.position.set(dc.x0 + (i + 0.5) * cw, dc.y0 + (j + 0.5) * ch, -HW - 0.3 + (k + 0.5) * cz);
+      m.rotation.y = (Math.random() - 0.5) * 0.04; g.add(m);
+    }
+  }
+  if (dc.type === 'water') {
+    const w = dc.x1 - dc.x0, back = -HW, top = new THREE.Mesh(new THREE.PlaneGeometry(w, FRONT - back), waterMat);
+    top.rotation.x = -Math.PI / 2; top.position.set((dc.x0 + dc.x1) / 2, dc.level, (FRONT + back) / 2); g.add(top);
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(w, dc.level + 1.4 - dc.floor), new THREE.MeshStandardMaterial({ map: cliffTex, roughness: 1 }));
+    wall.position.set((dc.x0 + dc.x1) / 2, (dc.level + 1.4 + dc.floor) / 2, back); g.add(wall);
+    const side = new THREE.Mesh(new THREE.PlaneGeometry(w, dc.level - dc.floor), waterSideMat);
+    side.position.set((dc.x0 + dc.x1) / 2, (dc.level + dc.floor) / 2, FRONT + 0.01); g.add(side);
+  }
+  g.traverse(o => { if (o.isMesh) { o.castShadow = dc.type !== 'water'; o.receiveShadow = true; } });
+  scene.add(g); dc.obj = g; decoObjs.push(dc);
+}
+function updateDecos(x) {
+  for (const dc of decos) if (!dc.obj) buildDeco(dc);
+  for (let i = decos.length - 1; i >= 0; i--) {
+    const dc = decos[i], end = dc.x1 ?? dc.x;
+    if (end < x - 60) { scene.remove(dc.obj); dc.obj.traverse(o => { if (o.isMesh && o.geometry !== logGeo && o.geometry !== crateGeo) o.geometry.dispose(); }); decos.splice(i, 1); }
+  }
+}
+function clearDecos() { for (const dc of decos) if (dc.obj) scene.remove(dc.obj); decos.length = 0; }
+
+// far hills and the sun: so far away they just ride along with the camera
 const far = new THREE.Group(); scene.add(far);
 {
   const cols = ['#b39ab8', '#c4a5b4', '#a893b4', '#d0aaae'];
-  for (let i = 0; i < 30; i++) {
-    const r = 30 + Math.random() * 40, hgt = 16 + Math.random() * 22, a = -1.25 + i / 29 * 2.5;
+  for (let i = 0; i < 34; i++) {
+    const r = 30 + Math.random() * 40, hgt = 16 + Math.random() * 24, a = -Math.PI * 0.95 + i / 33 * Math.PI * 0.9;
     const m = new THREE.Mesh(new THREE.ConeGeometry(r, hgt, 7), new THREE.MeshStandardMaterial({ color: cols[i % 4], roughness: 1, flatShading: true, fog: false }));
-    const d = 280 + Math.random() * 40;
-    m.position.set(Math.cos(a) * d, hgt / 2 - 4, Math.sin(a) * d); m.rotation.y = Math.random() * 3;
+    const d = 260 + Math.random() * 40;
+    m.position.set(Math.cos(a) * d, hgt / 2 - 6, Math.sin(a) * d); m.rotation.y = Math.random() * 3;
     far.add(m);
   }
-  const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(9, 40), new THREE.MeshBasicMaterial({ color: '#fff1c4', fog: false }));
-  sunDisc.position.set(330, 34, -70); sunDisc.lookAt(0, 34, 0); far.add(sunDisc);
-  const glow = new THREE.Mesh(new THREE.CircleGeometry(21, 40), new THREE.MeshBasicMaterial({ color: '#ffd9a0', transparent: true, opacity: 0.35, fog: false }));
-  glow.position.set(332, 34, -70.4); glow.lookAt(0, 34, 0); far.add(glow);
+  const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(10, 40), new THREE.MeshBasicMaterial({ color: '#fff1c4', fog: false }));
+  sunDisc.position.set(90, 40, -300); far.add(sunDisc);
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(23, 40), new THREE.MeshBasicMaterial({ color: '#ffd9a0', transparent: true, opacity: 0.35, fog: false }));
+  glow.position.set(90, 40, -301); far.add(glow);
   const cm = new THREE.MeshStandardMaterial({ color: '#ffd9cf', roughness: 1, emissive: '#7a4a52', emissiveIntensity: 0.25, fog: false });
   for (let i = 0; i < 10; i++) {
     const cl = new THREE.Group();
-    for (let k = 0; k < 5; k++) { const b = new THREE.Mesh(new THREE.SphereGeometry(3 + Math.random() * 3, 12, 8), cm); b.position.set(Math.random() * 2, Math.random() * 2, k * 4 - 8); b.scale.y = 0.55; cl.add(b); }
-    const a = -1.1 + i / 9 * 2.2;
-    cl.position.set(Math.cos(a) * 300, 60 + Math.random() * 45, Math.sin(a) * 300); far.add(cl);
+    for (let k = 0; k < 5; k++) { const b = new THREE.Mesh(new THREE.SphereGeometry(4 + Math.random() * 4, 12, 8), cm); b.position.set(k * 6 - 12, Math.random() * 3, Math.random() * 2); b.scale.y = 0.55; cl.add(b); }
+    cl.position.set(-250 + i * 55, 60 + Math.random() * 40, -290); far.add(cl);
   }
 }
 
-// ---------- props that repeat along the road (recycled by index) ----------
-const props = []; // every prop sits on the hills: its y is set each frame
-function recycler(count, spacing, back, make, place, coord = () => 0) {
+// ---------- props behind the track (recycled by index) ----------
+const props = [];
+function recycler(count, spacing, back, make, place) {
   const slots = Array.from({ length: count }, () => { const o = make(); o.userData.idx = null; o.userData.dy = 0; scene.add(o); props.push(o); return o; });
   return x => {
-    const off = coord(), i0 = Math.floor((x - off - back) / spacing);
+    const i0 = Math.floor((x - back) / spacing);
     for (let i = i0; i < i0 + count; i++) {
       const o = slots[((i % count) + count) % count];
-      if (o.userData.idx !== i || o.userData.off !== off) { o.userData.idx = i; o.userData.off = off; place(o, i, off + i * spacing); }
+      if (o.userData.idx !== i) { o.userData.idx = i; place(o, i, i * spacing); }
     }
   };
 }
 const shadowAll = (o, cast = true) => { o.traverse(m => { if (m.isMesh) { m.castShadow = cast; m.receiveShadow = true; } }); return o; };
-// trees: open fields along the asphalt, close woods along the dirt
 const trunkGeo = new THREE.CylinderGeometry(0.12, 0.2, 1.8, 7); trunkGeo.translate(0, 0.9, 0);
 const leafGeo = new THREE.IcosahedronGeometry(1, 1);
 const pineGeo = new THREE.ConeGeometry(1.1, 2.6, 8); pineGeo.translate(0, 1.3, 0);
 const trunkMat = new THREE.MeshStandardMaterial({ map: barkTex, roughness: 1 });
 const leafMats = ['#4f7a35', '#5f8a3a', '#6d8f3d', '#3f6a33', '#87943f'].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, flatShading: true }));
 const pineMats = ['#2f5a33', '#3a6a3a', '#28502f'].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, flatShading: true }));
-const trees = recycler(64, 3, 30, () => {
+const trees = recycler(56, 3, 30, () => {
   const g = new THREE.Group(); g.add(new THREE.Mesh(trunkGeo, trunkMat));
   for (let k = 0; k < 3; k++) g.add(new THREE.Mesh(leafGeo, leafMats[0]));
   return shadowAll(g);
 }, (g, i, x) => {
-  const side = hash(i, 8) < 0.5 ? -1 : 1, forest = zoneAt(x) === 1;
-  g.visible = forest || hash(i, 6) < 0.3;
-  g.position.set(x + hash(i) * 2.5, 0, side * ((forest ? 6.8 : 11) + hash(i, 1) * (forest ? 16 : 32)));
+  const forest = zoneAt(x) === 1;
+  g.visible = forest || hash(i, 6) < 0.35;
+  g.position.set(x + hash(i) * 2.5, 0, -((forest ? 6 : 8) + hash(i, 1) * (forest ? 18 : 34)));
   g.scale.setScalar((forest ? 1.1 : 0.8) + hash(i, 2) * 0.9);
   g.rotation.y = hash(i, 3) * 6;
   g.children.slice(1).forEach((m, k) => {
@@ -481,38 +616,27 @@ const trees = recycler(64, 3, 30, () => {
     else { m.geometry = leafGeo; m.material = leafMats[Math.floor(hash(i, 4 + k) * 5)]; m.position.set((k - 1) * 0.55, 2.2 + k % 2 * 0.6 + hash(i, 7 + k) * 0.4, (hash(i, 9 + k) - 0.5) * 0.6); m.scale.setScalar(0.9 + hash(i, 12 + k) * 0.5); }
   });
 });
-// grass tufts and little flowers on both sides
 const tuftGeo = new THREE.ConeGeometry(0.16, 0.42, 5); tuftGeo.translate(0, 0.2, 0);
 const tuftMat = new THREE.MeshStandardMaterial({ color: '#5f8a36', roughness: 1, flatShading: true });
 const flowerGeo = new THREE.SphereGeometry(0.06, 6, 4);
 const flowerMats = ['#ffffff', '#ffd43b', '#f783ac', '#b197fc'].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7 }));
-const tufts = recycler(70, 1.6, 15, () => {
+const tufts = recycler(60, 1.6, 15, () => {
   const g = new THREE.Group();
   for (let k = 0; k < 3; k++) g.add(new THREE.Mesh(tuftGeo, tuftMat));
   g.add(new THREE.Mesh(flowerGeo, flowerMats[0]));
   return shadowAll(g, false);
 }, (g, i, x) => {
-  const side = hash(i, 5) < 0.5 ? -1 : 1;
-  g.position.set(x + hash(i) * 1.5, 0, side * (4.9 + hash(i, 1) * 6));
+  g.position.set(x + hash(i) * 1.5, 0, -(HW + 0.9 + hash(i, 1) * 6));
   g.children.forEach((m, k) => { if (k < 3) { m.position.set((k - 1) * 0.12, 0, (hash(i, k + 2) - .5) * 0.2); m.rotation.z = (k - 1) * 0.35; m.scale.setScalar(0.7 + hash(i, k + 6) * 0.6); } });
   const f = g.children[3]; f.visible = hash(i, 9) < 0.6; f.material = flowerMats[Math.floor(hash(i, 10) * 4)]; f.position.set(0.05, 0.42, 0.05);
 });
-const postGeo = new THREE.BoxGeometry(0.1, 0.75, 0.1); postGeo.translate(0, 0.375, 0);
-const posts = recycler(64, 2.5, 20, () => shadowAll(new THREE.Mesh(postGeo, railMat)), (m, i, x) => { m.position.set(x, 0, (i % 2 ? -1 : 1) * 4.68); m.visible = zoneAt(x) === 0; });
-// wooden fence posts along the dirt
-const fenceMat = new THREE.MeshStandardMaterial({ map: barkTex, roughness: 1 });
-const fenceGeo = new THREE.CylinderGeometry(0.06, 0.07, 1.0, 6); fenceGeo.translate(0, 0.5, 0);
-const fences = recycler(40, 3, 20, () => shadowAll(new THREE.Mesh(fenceGeo, fenceMat)), (m, i, x) => { m.position.set(x, 0, (i % 2 ? -1 : 1) * 5.2); m.rotation.z = (hash(i, 3) - 0.5) * 0.15; m.visible = zoneAt(x) === 1; });
-// utility poles
 const poleMat = new THREE.MeshStandardMaterial({ color: '#8f8a84', roughness: 0.8 });
 const poles = recycler(6, 34, 40, () => {
   const g = new THREE.Group();
   const p = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.17, 8, 8), poleMat); p.position.y = 4; g.add(p);
-  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 1.6), poleMat); arm.position.y = 7.4; g.add(arm);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.1, 0.1), poleMat); arm.position.y = 7.4; g.add(arm);
   return shadowAll(g);
-}, (g, i, x) => { g.position.set(x + 26, 0, -6.4); g.visible = zoneAt(x + 26) === 0; });
-
-// distance plates every 100 m of the run, facing the rider
+}, (g, i, x) => { g.position.set(x + 26, 0, -9); g.visible = zoneAt(x + 26) === 0; });
 function labelTex(text) {
   const c = document.createElement('canvas'); c.width = 256; c.height = 128;
   const g = c.getContext('2d');
@@ -522,20 +646,18 @@ function labelTex(text) {
   g.fillText(text, 128, 68);
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; return tex;
 }
-const markerSlots = [];
 const markers = recycler(3, 100, 30, () => {
   const g = new THREE.Group();
   const p = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.3, 8), new THREE.MeshStandardMaterial({ color: '#f1f3f5', roughness: 0.5 })); p.position.y = 0.65; g.add(p);
   const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.6), new THREE.MeshStandardMaterial({ roughness: 0.5 })); plate.position.y = 1.6; g.add(plate);
   const back = new THREE.Mesh(new THREE.BoxGeometry(1.24, 0.64, 0.03), new THREE.MeshStandardMaterial({ color: '#2b6cb0', roughness: 0.5 })); back.position.set(0, 1.6, -0.025); g.add(back);
-  g.rotation.y = -Math.PI / 2 + 0.35; g.userData.plate = plate; markerSlots.push(g);
+  g.userData.plate = plate;
   return shadowAll(g);
 }, (g, i, x) => {
-  g.position.set(x, 0, 4.3); g.userData.n = i;
+  g.position.set(x, 0, -HW - 0.8); g.visible = i > 0;
   const m = g.userData.plate.material; m.map?.dispose(); m.map = labelTex(`${i * 100}m`); m.needsUpdate = true;
-}, () => x0);
-
-// the cat: big roadside billboards, turned toward the rider
+});
+// the cat: big billboards behind the track
 const catImg = new Image(); catImg.src = 'cat.png';
 const catBoardTex = canvasTex(512, 360, (g, w, h) => { g.fillStyle = '#fff4dc'; g.fillRect(0, 0, w, h); });
 catBoardTex.wrapS = catBoardTex.wrapT = THREE.ClampToEdgeWrapping;
@@ -548,18 +670,19 @@ catImg.onload = () => {
   const s = c.height * 1.05; g.drawImage(catImg, (c.width - s) / 2, c.height - s * 0.98, s, s);
   catBoardTex.needsUpdate = true;
 };
-const boards = recycler(2, 170, 30, () => {
+const boards = recycler(2, 150, 30, () => {
   const g = new THREE.Group();
   const face = new THREE.Mesh(new THREE.PlaneGeometry(4.8, 3.4), new THREE.MeshStandardMaterial({ map: catBoardTex, roughness: 0.75 }));
   face.position.y = 4.1; g.add(face);
   const frame = new THREE.Mesh(new THREE.BoxGeometry(5.0, 3.6, 0.18), new THREE.MeshStandardMaterial({ color: '#f1efe8', roughness: 0.6 })); frame.position.set(0, 4.1, -0.1); g.add(frame);
   for (const x of [-1.6, 1.6]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.5, 0.2), new THREE.MeshStandardMaterial({ color: '#6b6560', roughness: 0.8 })); leg.position.set(x, 1.25, -0.2); g.add(leg); }
   return shadowAll(g);
-}, (g, i, x) => { const side = i % 2 ? 1 : -1; g.position.set(x + 30, 0, side * 8); g.rotation.y = -Math.PI / 2 - side * 0.55; });
-function updateProps(x, ready) {
-  trees(x); tufts(x); posts(x); fences(x); poles(x); boards(x); if (!ready) markers(x);
-  for (const o of props) o.position.y = H(o.position.x) + o.userData.dy;
-  for (const g of markerSlots) g.visible = !ready && g.userData.n > 0;
+}, (g, i, x) => { g.position.set(x + 12, 0, -10); g.rotation.y = 0.15; });
+// props stand on the ground behind the track; over a water gap they sit at the bank height instead
+function propY(x) { const w = waterAt(x); return w > -Infinity ? w + 1.4 : H(x); }
+function updateProps(x) {
+  trees(x); tufts(x); poles(x); boards(x); markers(x);
+  for (const o of props) o.position.y = propY(o.position.x) + o.userData.dy;
 }
 
 // ---------- the motorcycle ----------
@@ -713,53 +836,15 @@ function poseSprawl(k) {
   human.face.open = 1; human.face.brow = 1; human.face.smile = -0.3;
 }
 
-// ---------- road hazards ----------
-// asphalt: speed bumps (nose kicks up) and potholes (nose drops); dirt: rocks and muddy dips
-const bumpGeo = new THREE.BoxGeometry(0.42, 0.07, ROAD_W - 0.4); bumpGeo.translate(0, 0.035, 0);
-const bumpMat = new THREE.MeshStandardMaterial({ map: stripeTex, roughness: 0.7 });
-const holeGeo = new THREE.CircleGeometry(1, 24); holeGeo.rotateX(-Math.PI / 2);
-const holeMat = new THREE.MeshStandardMaterial({ color: '#2a2422', roughness: 1, polygonOffset: true, polygonOffsetFactor: -2 });
-const holeRimMat = new THREE.MeshStandardMaterial({ color: '#4a4442', roughness: 1, polygonOffset: true, polygonOffsetFactor: -1 });
-const mudMat = new THREE.MeshStandardMaterial({ color: '#4e3a26', roughness: 0.25, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: -2 });
-const rockGeo = new THREE.DodecahedronGeometry(0.16, 0);
-const rockMat = new THREE.MeshStandardMaterial({ color: '#8d8a84', roughness: 0.95, flatShading: true });
-let hazards = [], nextHaz = 0;
-function makeHazard(u, zone) {
-  const up = Math.random() < 0.55, type = up ? 'up' : 'down';
-  const o = new THREE.Group();
-  if (zone === 0 && up) { const m = new THREE.Mesh(bumpGeo, bumpMat); m.castShadow = m.receiveShadow = true; o.add(m); }
-  else if (zone === 0) {
-    const rim = new THREE.Mesh(holeGeo, holeRimMat); rim.scale.set(0.75, 1, 0.95); rim.position.y = 0.018; o.add(rim);
-    const h = new THREE.Mesh(holeGeo, holeMat); h.scale.set(0.6, 1, 0.8); h.position.y = 0.024; o.add(h);
-  } else if (up) {
-    for (let k = 0; k < 9; k++) { const r = new THREE.Mesh(rockGeo, rockMat); r.position.set((Math.random() - 0.5) * 0.3, 0.06, -3 + k * 0.75 + Math.random() * 0.3); r.rotation.set(Math.random() * 3, Math.random() * 3, 0); r.scale.setScalar(0.7 + Math.random() * 0.7); r.castShadow = true; o.add(r); }
-  } else { const m = new THREE.Mesh(holeGeo, mudMat); m.scale.set(1.1, 1, 2.6); m.position.y = 0.024; o.add(m); }
-  scene.add(o);
-  const h = { u, type, o };
-  if (up) h.body = sim.addBump(x0 + u, zone ? 0.075 : 0.055, zone ? 0.32 : 0.42); // something to ride over
-  else { h.dip = zone ? 1.3 : 0.6; h.depth = zone ? 0.12 : 0.1; }        // a dent in the ground
-  hazards.push(h);
-}
-function dropHazard(h) { scene.remove(h.o); if (h.body) sim.removeBump(h.body); }
-function clearHazards() { for (const h of hazards) dropHazard(h); hazards = []; nextHaz = 90; }
-function updateHazards(u) {
-  while (nextHaz < u + 110) {
-    makeHazard(nextHaz, zoneU(nextHaz));
-    nextHaz += Math.max(12, 38 - u * 0.012) + Math.random() * Math.max(10, 32 - u * 0.01);
-  }
-  while (hazards.length && hazards[0].u < u - 25) dropHazard(hazards.shift());
-  for (const h of hazards) { const x = x0 + h.u; h.o.position.set(x, terrainU(h.u) - (h.dip ? 0 : dipU(h.u)), 0); h.o.rotation.z = Math.atan(slopeAt(x)); }
-}
-
 // the best run so far: a gold line across the road and a flag
 let best = store.get('best', 0);
 const bestMark = new THREE.Group(); scene.add(bestMark);
 {
   const gold = new THREE.MeshStandardMaterial({ color: '#f5c518', roughness: 0.35, metalness: 0.4, emissive: '#6a4a00', emissiveIntensity: 0.3 });
   const line = new THREE.Mesh(new THREE.PlaneGeometry(0.22, ROAD_W), gold); line.rotation.x = -Math.PI / 2; line.position.y = 0.03; bestMark.add(line);
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 2.4, 8), new THREE.MeshStandardMaterial({ color: '#f1f3f5', roughness: 0.4 })); pole.position.set(0, 1.2, 3.9); bestMark.add(pole);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 2.4, 8), new THREE.MeshStandardMaterial({ color: '#f1f3f5', roughness: 0.4 })); pole.position.set(0, 1.2, -ROAD_W / 2 - 0.5); bestMark.add(pole);
   const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.55), new THREE.MeshStandardMaterial({ color: '#f5c518', roughness: 0.6, side: THREE.DoubleSide }));
-  flag.position.set(0, 2.1, 3.9 - 0.45); flag.rotation.y = Math.PI / 2; bestMark.add(flag); bestMark.userData.flag = flag;
+  flag.position.set(0.45, 2.1, -ROAD_W / 2 - 0.5); bestMark.add(flag); bestMark.userData.flag = flag;
   shadowAll(bestMark);
 }
 
@@ -788,10 +873,10 @@ function updateParticles(dt) {
 }
 
 // ---------- bike physics (cannon-es): chassis + two wheels on hinges + the rider locked on the seat ----------
-// Everything moves in the vertical plane (x forward, y up) while riding; after a crash the plane lock comes off.
-// The rear hinge has a motor (automatic throttle that holds the speed and helps keep the nose up a little).
-// The rider can slide forward/back on the seat: that moves the weight, which is how the player balances.
-function createBikeSim(CANNON, H, P) {
+// While riding everything moves in the vertical plane (x forward, y up); after a crash that lock comes off.
+// Throttle drives the rear hinge motor, the brake holds both wheels, and leaning puts a torque on the bike
+// (like shifting the rider's weight; it also turns the bike in the air).
+function createBikeSim(CANNON, P) {
   const { R, WB, COM, RIDER } = P;
   const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -P.gravity, 0) });
   world.broadphase = new CANNON.SAPBroadphase(world);
@@ -799,26 +884,25 @@ function createBikeSim(CANNON, H, P) {
   world.allowSleep = false;
   const GROUND = 1, BIKE = 2, RIDERG = 4;
   const mGround = new CANNON.Material('ground'), mTire = new CANNON.Material('tire'), mBody = new CANNON.Material('body');
-  world.addContactMaterial(new CANNON.ContactMaterial(mTire, mGround, { friction: 1.6, restitution: 0.0, contactEquationStiffness: 3e6, contactEquationRelaxation: 4 }));
+  world.addContactMaterial(new CANNON.ContactMaterial(mTire, mGround, { friction: 1.4, restitution: 0.05, contactEquationStiffness: 2e6, contactEquationRelaxation: 5 }));
   world.addContactMaterial(new CANNON.ContactMaterial(mBody, mGround, { friction: 0.55, restitution: 0.15 }));
   const V3 = (x, y, z = 0) => new CANNON.Vec3(x, y, z);
   const planar = (b, on) => { b.linearFactor.set(1, 1, on ? 0 : 1); b.angularFactor.set(on ? 0 : 1, on ? 0 : 1, 1); };
 
-  // chassis: frame/tank/engine box plus the seat-tail box, origin at its centre of mass
   const chassis = new CANNON.Body({ mass: P.mChassis, material: mBody, collisionFilterGroup: BIKE, collisionFilterMask: GROUND });
-  chassis.addShape(new CANNON.Box(V3(0.58, 0.13, 0.16)), V3(0.66 - COM.x, 0.47 - COM.y));
+  chassis.addShape(new CANNON.Box(V3(0.5, 0.12, 0.16)), V3(0.7 - COM.x, 0.5 - COM.y));
   chassis.addShape(new CANNON.Box(V3(0.24, 0.07, 0.12)), V3(0.02 - COM.x, 0.6 - COM.y));
-  chassis.inertia.set(P.iChassis, P.iChassis, P.iChassis); chassis.invInertia.set(1 / P.iChassis, 1 / P.iChassis, 1 / P.iChassis); chassis.updateInertiaWorld(true);
-  chassis.angularDamping = 0.05; chassis.linearDamping = 0.01;
-  const wheel = () => { const b = new CANNON.Body({ mass: P.mWheel, material: mTire, collisionFilterGroup: BIKE, collisionFilterMask: GROUND }); b.addShape(new CANNON.Sphere(R)); b.angularDamping = 0.02; b.linearDamping = 0.01; return b; };
+  const setI = I => { chassis.inertia.set(I, I, I); chassis.invInertia.set(1 / I, 1 / I, 1 / I); chassis.updateInertiaWorld(true); };
+  setI(P.iChassis);
+  const wheel = () => { const b = new CANNON.Body({ mass: P.mWheel, material: mTire, collisionFilterGroup: BIKE, collisionFilterMask: GROUND }); b.addShape(new CANNON.Sphere(R)); return b; };
   const rear = wheel(), front = wheel();
   const rider = new CANNON.Body({ mass: P.mRider, material: mBody, collisionFilterGroup: RIDERG, collisionFilterMask: GROUND });
-  rider.addShape(new CANNON.Box(V3(0.15, 0.3, 0.17)));
-  rider.angularDamping = 0.1;
+  rider.addShape(new CANNON.Box(V3(0.15, 0.32, 0.17)));
   const bodies = [chassis, rear, front, rider];
   bodies.forEach(b => { world.addBody(b); planar(b, true); });
+  const damp = crashed => { chassis.angularDamping = crashed ? 0.3 : 0.15; chassis.linearDamping = 0.02; rider.angularDamping = crashed ? 0.3 : 0.1; for (const w of [rear, front]) { w.angularDamping = 0.03; w.linearDamping = 0.02; } };
+  damp(false);
 
-  // lay the bike out at pitch `ph` with the rear axle at (x, y), all moving at speed v
   function place(x, y, ph, v) {
     const c = Math.cos(ph), s = Math.sin(ph), at = (bx, by) => V3(x + bx * c - by * s, y + bx * s + by * c);
     const q = new CANNON.Quaternion(); q.setFromAxisAngle(V3(0, 0, 1), ph);
@@ -834,157 +918,140 @@ function createBikeSim(CANNON, H, P) {
   const rearH = hinge(rear, 0), frontH = hinge(front, WB);
   const lock = new CANNON.LockConstraint(chassis, rider, { maxForce: 1e7 });
   world.addConstraint(rearH); world.addConstraint(frontH); world.addConstraint(lock);
-  rearH.enableMotor(); rearH.setMotorMaxForce(P.motorMax * P.dt); // cannon's limit is an impulse per step
+  // cannon's motor limit is an impulse per step, so torques are multiplied by dt
+  const motor = (h, speed, torque) => { if (torque <= 0) { h.disableMotor(); return; } h.enableMotor(); h.setMotorSpeed(speed); h.setMotorMaxForce(torque * P.dt); };
 
-  // the road under the wheels: short static planks laid along H(x), recycled as the bike moves on
-  const SEGL = 0.5, NSEG = 130, BEHIND = 16;
-  const planks = [];
-  for (let i = 0; i < NSEG; i++) {
-    const b = new CANNON.Body({ mass: 0, material: mGround, collisionFilterGroup: GROUND, collisionFilterMask: BIKE | RIDERG });
-    b.addShape(new CANNON.Box(V3(SEGL / 2 + 0.03, 0.5, 20))); // wide: the grass beside the road is at the same height
-    for (const z of [-4.65, 4.65]) b.addShape(new CANNON.Box(V3(SEGL / 2 + 0.03, 0.45, 0.05)), V3(0, 0.95, z)); // guardrails
-    b.userData = { idx: null, ground: true };
-    world.addBody(b); planks.push(b);
+  // the ground: one static box per polyline segment near the bike (wide: the grass beside is at the same height)
+  const segBodies = new Map();
+  function segBody(a, b) {
+    const body = new CANNON.Body({ mass: 0, material: mGround, collisionFilterGroup: GROUND, collisionFilterMask: BIKE | RIDERG });
+    const len = Math.hypot(b.x - a.x, b.y - a.y), ang = Math.atan2(b.y - a.y, b.x - a.x);
+    body.addShape(new CANNON.Box(V3(len / 2 + 0.02, 0.5, 20)));
+    body.quaternion.setFromAxisAngle(V3(0, 0, 1), ang);
+    body.position.set((a.x + b.x) / 2 + Math.sin(ang) * 0.5, (a.y + b.y) / 2 - Math.cos(ang) * 0.5, 0);
+    body.userData = { ground: true };
+    world.addBody(body); return body;
   }
-  function layPlank(b, i) {
-    const xa = i * SEGL, xb = xa + SEGL, ya = H(xa), yb = H(xb), a = Math.atan2(yb - ya, SEGL);
-    b.quaternion.setFromAxisAngle(V3(0, 0, 1), a);
-    b.position.set((xa + xb) / 2 + Math.sin(a) * 0.5, (ya + yb) / 2 - Math.cos(a) * 0.5, 0);
-    b.aabbNeedsUpdate = true; b.userData.idx = i;
+  function syncGround(x) {
+    const i0 = segIndex(x - 20), i1 = Math.min(pts.length - 2, segIndex(x + 40));
+    const want = new Set();
+    for (let i = i0; i <= i1; i++) {
+      const key = ptBase + i; want.add(key);
+      if (!segBodies.has(key)) segBodies.set(key, segBody(pts[i], pts[i + 1]));
+    }
+    for (const [k, b] of segBodies) if (!want.has(k)) { world.removeBody(b); segBodies.delete(k); }
   }
-  function updateGround(x, force) {
-    const i0 = Math.floor((x - BEHIND) / SEGL);
-    for (let i = i0; i < i0 + NSEG; i++) { const b = planks[((i % NSEG) + NSEG) % NSEG]; if (force || b.userData.idx !== i) layPlank(b, i); }
-  }
-  // hazards that stick up out of the road (speed bumps, rocks)
-  const bumps = [];
-  function addBump(x, h, len) {
-    const b = new CANNON.Body({ mass: 0, material: mGround, collisionFilterGroup: GROUND, collisionFilterMask: BIKE | RIDERG });
-    b.addShape(new CANNON.Box(V3(len / 2, h / 2 + 0.1, 3)));
-    const a = Math.atan((H(x + 0.2) - H(x - 0.2)) / 0.4);
-    b.quaternion.setFromAxisAngle(V3(0, 0, 1), a);
-    b.position.set(x - Math.sin(a) * (h / 2 - 0.1), H(x) + Math.cos(a) * (h / 2 - 0.1), 0);
-    b.userData = { ground: true }; world.addBody(b); bumps.push(b); return b;
-  }
-  function removeBump(b) { world.removeBody(b); bumps.splice(bumps.indexOf(b), 1); }
+  function clearGround() { for (const b of segBodies.values()) world.removeBody(b); segBodies.clear(); }
 
-  // contacts: what touched the ground this step
-  const hit = { front: false, chassis: false, rider: false };
-  front.addEventListener('collide', e => { if (e.body.userData?.ground) hit.front = true; });
-  chassis.addEventListener('collide', e => { if (e.body.userData?.ground) hit.chassis = true; });
-  rider.addEventListener('collide', e => { if (e.body.userData?.ground) hit.rider = true; });
+  const hit = { front: false, rear: false, chassis: false, rider: false };
+  const listen = (b, k) => b.addEventListener('collide', e => { if (e.body.userData?.ground) hit[k] = true; });
+  listen(front, 'front'); listen(rear, 'rear'); listen(chassis, 'chassis'); listen(rider, 'rider');
 
   const pitchOf = b => 2 * Math.atan2(b.quaternion.z, b.quaternion.w);
   const sim = {
-    world, chassis, rear, front, rider, rearH, frontH, lock, hit, bodies,
-    lean: 0, riding: true,
-    reset(x, ph, v) {
+    world, chassis, rear, front, rider, hit, bodies, riding: true,
+    reset(x, y) {
       if (!sim.riding) { world.addConstraint(lock); sim.riding = true; }
-      rearH.enableMotor(); rearH.setMotorMaxForce(P.motorMax * P.dt); frontH.disableMotor();
-      chassis.angularDamping = 0.05; rider.angularDamping = 0.1;
-      sim.lean = 0;
-      place(x, H(x) + R, ph + Math.atan((H(x + 0.25) - H(x - 0.25)) / 0.5), v);
-      updateGround(x, true);
+      world.gravity.set(0, -P.gravity, 0); damp(false);
+      clearGround(); syncGround(x);
+      place(x, y + R, 0, 0);
     },
     pitch: () => pitchOf(chassis),
-    speed: () => chassis.velocity.x,
-    rearX: () => rear.position.x,
-    // throttle: hold target speed; nose low -> a bit more, nose high -> a bit less (scaled by `assist`)
-    step(dt, vTarget, assist, phTarget, slope) {
+    // ctl: { gas: 0..1, brake: 0..1, lean: -1..1 }
+    step(dt, ctl) {
       if (sim.riding) {
-        // the rider's weight moved along the seat: gravity on that shifted weight tips the bike
-        const ph = pitchOf(chassis), rel = ph - slope, w = chassis.angularVelocity.z;
-        chassis.torque.z -= P.mRider * P.gravity * sim.lean * P.leanReach * Math.cos(ph);
-        const vt = vTarget + assist * (P.kP * (phTarget - rel) - P.kD * w);
-        rearH.setMotorSpeed(P.motorSign * Math.max(0, vt) / R);
+        const v = chassis.velocity.x;
+        if (ctl.hold) motor(rearH, 0, P.brakeTorque);
+        else if (ctl.brake > 0 && v < 0.6 && !ctl.gas) motor(rearH, -P.reverse / R * P.motorSign, P.gasTorque * 0.5); // slowly backwards
+        else if (ctl.brake > 0) motor(rearH, 0, P.brakeTorque);
+        else if (ctl.gas > 0) motor(rearH, P.motorSign * P.vMax / R, P.gasTorque * ctl.gas);
+        else motor(rearH, 0, 0);
+        motor(frontH, 0, ctl.brake > 0 && v > 0.6 ? P.brakeTorque * 0.8 : 0);
+        chassis.torque.z -= ctl.lean * P.leanTorque;
       }
-      hit.front = hit.chassis = hit.rider = false;
+      hit.front = hit.rear = hit.chassis = hit.rider = false;
       world.step(dt);
-      updateGround(rear.position.x, false);
+      syncGround(rear.position.x);
     },
-    // crash: let the rider go, brake the wheels, and free the bike to fall over sideways
-    release(type) {
+    // crash: let the rider go, hold the wheels, and free everything to tumble in 3D
+    release() {
       if (!sim.riding) return;
       sim.riding = false;
       world.removeConstraint(lock);
-      rearH.setMotorSpeed(0); rearH.setMotorMaxForce(120 * P.dt);
-      if (type === 'nose') { frontH.enableMotor(); frontH.setMotorSpeed(0); frontH.setMotorMaxForce(220 * P.dt); }
+      motor(rearH, 0, 90); motor(frontH, 0, 90);
       for (const b of bodies) planar(b, false);
-      chassis.angularVelocity.x += (Math.random() < 0.5 ? -1 : 1) * 0.6;
+      chassis.angularVelocity.x += (Math.random() < 0.5 ? -1 : 1) * 0.7;
       rider.angularVelocity.x += (Math.random() - 0.5) * 1.5;
-      chassis.angularDamping = 0.3; rider.angularDamping = 0.3;
+      rider.velocity.z += (Math.random() - 0.5) * 0.8;
+      damp(true);
+      world.gravity.set(0, -9.8, 0);
     },
-    addBump, removeBump, bumps, updateGround,
   };
   return sim;
 }
 
 // ---------- game state ----------
-// The bike is simulated with cannon-es (see createBikeSim). The throttle is automatic: the motor holds the speed
-// and helps keep the nose up a little (less and less as you go). The player moves the rider's weight forward/back.
-const DT = 1 / 120, PH0 = 0.72, COM = { x: 0.6, y: 0.42 }, RIDER_C = { x: 0.42, y: 1.0 };
-const sim = createBikeSim(CANNON, H, { R, WB, COM, RIDER: RIDER_C, gravity: 7, mChassis: 110, mWheel: 10, mRider: 75, iChassis: 120, motorMax: 230, kP: 1, kD: 0.2, motorSign: 1, leanReach: 1.0, dt: DT });
-const S = { x: 0, v: 0, ph: PH0, w: 0, b: 0, bt: 0 };
-let state = 'ready', playT = 0, crash = null, finalD = 0, accel = 0;
-function syncS() { const v = S.v; S.x = sim.rear.position.x; S.v = sim.chassis.velocity.x; S.ph = sim.pitch(); S.w = sim.chassis.angularVelocity.z; accel = (S.v - v) / DT; }
+const DT = 1 / 120, COM = { x: 0.62, y: 0.42 }, RIDER_C = { x: 0.42, y: 1.02 };
+const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 9.8, mChassis: 110, mWheel: 10, mRider: 75, iChassis: 45, gasTorque: 300, brakeTorque: 420, vMax: 15, reverse: 3, leanTorque: 330, motorSign: 1, dt: DT });
+const S = { x: 0, v: 0, ph: 0, b: 0, bt: 0, gas: 0, brake: 0, far: 0 };
+let state = 'ready', playT = 0, crash = null, finalD = 0;
+function syncS() { S.x = sim.rear.position.x; S.v = sim.chassis.velocity.x; S.ph = sim.pitch(); S.far = Math.max(S.far, S.x); }
 function reset() {
   runSeed = Math.random() * 100;
-  x0 = 0;
-  clearHazards(); scrapeStop();
-  sim.world.gravity.set(0, -7, 0);
-  sim.reset(0, PH0, 12);
-  S.b = S.bt = 0; syncS(); accel = 0;
+  clearDecos(); resetCourse();
+  scrapeStop();
+  sim.reset(0, 0);
+  S.b = S.bt = S.gas = S.brake = 0; S.far = 0; syncS();
   state = 'ready'; playT = 0; crash = null; finalD = 0;
   seatRider();
   for (const m of sparks) { m.userData.life = 0; m.position.y = -50; }
   for (const m of dusts) { m.userData.life = 0; m.position.y = -50; }
   for (const o of props) o.userData.idx = null;
+  updPads();
 }
-const vTarget = u => 12 + Math.min(12, u * 0.009);
-const assistAt = u => Math.max(3, 9 - u / 200); // how much the automatic throttle helps
-function begin() { state = 'play'; playT = 0; x0 = S.x; sim.updateGround(S.x, true); }
+function begin() { if (state === 'ready') { state = 'play'; playT = 0; } }
 function step(dt) {
   if (state === 'ready' || state === 'play') {
-    if (state === 'ready') x0 = S.x;
-    const u = S.x - x0, s = Math.atan(slopeAt(S.x)), zone = zoneU(u), rel = S.ph - s;
     if (state === 'play') playT += dt;
-    if (state === 'ready' || window.__auto) S.bt = THREE.MathUtils.clamp(4 * (rel - PH0) + 1.0 * S.w, -1, 1);
-    else if (keyDir) S.bt = THREE.MathUtils.clamp(S.bt + keyDir * 2.2 * dt, -1, 1);
-    S.b += (S.bt - S.b) * (1 - Math.exp(-dt / 0.09));
-    sim.lean = S.b;
-    if (state === 'play' && zone === 1) sim.chassis.angularVelocity.z += (Math.random() - 0.5) * 0.06; // dirt shakes the bike
-    const px = S.x;
-    sim.step(dt, vTarget(u), state === 'ready' ? 20 : assistAt(u), PH0, s);
+    // the body follows the finger (drag) or the arrow keys, and comes back to the middle when let go
+    const kb = keyLean, tgt = dragLean !== null ? dragLean : kb;
+    S.bt = tgt;
+    S.b += (S.bt - S.b) * (1 - Math.exp(-dt / 0.08));
+    const gas = state === 'play' ? Math.max(S.gas, keyGas) : 0, brake = state === 'play' ? Math.max(S.brake, keyBrake) : 1;
+    extendCourse(S.x + 220);
+    sim.step(dt, { gas, brake, hold: state === 'ready', lean: state === 'play' ? S.b : 0 });
     syncS();
-    if (state === 'ready') { if (sim.hit.front || sim.hit.chassis || sim.hit.rider) sim.reset(S.x, PH0, 12); return; }
-    for (const h of hazards) { const hx = x0 + h.u; if (px < hx && S.x >= hx) { sndBump(h.type === 'up'); emitDust(V(hx, H(hx) + 0.05, 0.1), 3, 0.18, 0.4, zone ? '#b89a72' : '#c9b49a'); } }
-    if (zone === 1 && Math.random() < dt * 14) emitDust(V(S.x - 0.3, H(S.x) + 0.05, (Math.random() - 0.5) * 0.3), 1, 0.22, 0.2, '#c8ab82');
-    if (sim.hit.front) startCrash('nose');
-    else if (sim.hit.chassis || sim.hit.rider || S.ph - Math.atan(slopeAt(S.x)) > 1.7) startCrash('flip');
+    if (state !== 'play') return;
+    if (sim.hit.rear && Math.abs(sim.rear.angularVelocity.z * R) > 3 && zoneAt(S.x) === 1 && Math.random() < dt * 20) emitDust(V(S.x - 0.3, H(S.x) + 0.05, (Math.random() - 0.5) * 0.3), 1, 0.22, 0.2, '#c8ab82');
+    if (sim.hit.rider) startCrash('rider');
+    else if (sim.rear.position.y < waterAt(S.x) - 0.1 || sim.chassis.position.y < waterAt(sim.chassis.position.x)) startCrash('water');
   } else if (state === 'crash') stepCrash(dt);
 }
 const riderOff = new THREE.Vector3();
 function startCrash(type) {
-  state = 'crash'; finalD = Math.max(0, Math.floor(S.x - x0));
-  crash = { type, t: 0, done: 0, scraping: false, riderHit: false };
+  state = 'crash'; finalD = Math.max(0, Math.floor(S.far));
+  crash = { type, t: 0, done: 0, scraping: false, riderHit: false, splashed: type === 'water' };
   riderOff.set(riderG.position.x - RIDER_C.x, riderG.position.y - RIDER_C.y, 0); // pelvis, seen from the rider body's centre
   scene.attach(riderG);
-  sim.release(type);
-  sim.world.gravity.set(0, -9.8, 0);
-  sndCrash(); scream();
-  const gx = S.x + (type === 'nose' ? WB : -0.2);
-  emitDust(V(gx, H(gx) + 0.1, 0), 8, 0.4);
-  for (let i = 0; i < 14; i++) emitSpark(V(gx, H(gx) + 0.05, 0), S.v * 0.6);
-  pointers.clear(); keysHeld.clear(); keyDir = 0;
+  sim.release();
+  scream();
+  if (type === 'water') splash(sim.chassis.position); else { sndCrash(); const p = sim.rider.position; emitDust(V(p.x, H(p.x) + 0.1, 0), 8, 0.4); }
+  pointers.clear(); dragLean = null; S.gas = S.brake = 0; keysHeld.clear(); updKeys(); updPads();
+}
+function splash(p) {
+  noiseHit({ dur: 0.6, vol: 0.6, type: 'lowpass', freq: 1800, freqEnd: 300 });
+  noiseHit({ dur: 0.9, vol: 0.25, type: 'bandpass', freq: 900, q: 0.7, delay: 0.1 });
+  emitDust(V(p.x, waterAt(p.x) + 0.05, 0), 10, 0.45, 1.2, '#dff1ff');
 }
 const tmpV = new THREE.Vector3();
 function stepCrash(dt) {
   const c = crash; c.t += dt;
-  sim.step(dt, 0, 0, 0, 0);
+  sim.step(dt, { gas: 0, brake: 0, lean: 0 });
   syncS();
   poseSprawl(Math.min(1, c.t * 3));
+  // falling into the water slows everything down a lot
+  for (const b of sim.bodies) { const w = waterAt(b.position.x); if (b.position.y < w) { b.velocity.scale(1 - dt * 4, b.velocity); b.angularVelocity.scale(1 - dt * 3, b.angularVelocity); b.velocity.y += 7 * dt; if (!c.splashed) { c.splashed = true; splash(b.position); } } }
   const cv_ = sim.chassis.velocity, sp = Math.hypot(cv_.x, cv_.y, cv_.z);
-  // the bike scraping along the road: sparks and a grinding noise
   if (sim.hit.chassis && sp > 1.5) {
     if (!c.scraping) { c.scraping = true; scrapeStart(); sndCrash(); }
     const p = sim.chassis.position;
@@ -993,38 +1060,45 @@ function stepCrash(dt) {
   }
   scrapeSet(sim.hit.chassis ? sp : 0);
   if (c.scraping && sp < 0.4) { scrapeStop(); c.scraping = false; }
-  // the rider hitting the ground
   const rv = sim.rider.velocity, rs = Math.hypot(rv.x, rv.y, rv.z);
   if (sim.hit.rider && !c.riderHit && rs > 1) { sndBump(true); const p = sim.rider.position; emitDust(V(p.x, H(p.x) + 0.05, p.z), 6, 0.35); }
   c.riderHit = sim.hit.rider;
-  if (sim.hit.rider && rs > 2 && Math.random() < dt * 8) { const p = sim.rider.position; emitDust(V(p.x, H(p.x) + 0.05, p.z), 1, 0.25); }
   if (c.t > 1.2 && rs < 0.3) human.face.open += (0.25 - human.face.open) * dt * 3;
-  if ((c.t > 1.5 && sp < 0.5 && rs < 0.4) || c.t > 7) { c.done += dt; if (c.done > 0.6 || c.t > 7) finish(); }
+  if ((c.t > 1.5 && sp < 0.5 && rs < 0.4) || c.t > 6) { c.done += dt; if (c.done > 0.6 || c.t > 6) finish(); }
 }
 
-// ---------- input: drag right = lean forward, drag left = lean back ----------
+// ---------- input ----------
+// gas / brake buttons (bottom right), drag anywhere else to shift the body (right = forward, left = back)
 const pointers = new Map();
-let keyDir = 0;
-const dragScale = () => Math.min(stage.clientWidth, 760) * 0.28; // px for the lean to go from neutral to full
+let dragLean = null, keyLean = 0, keyGas = 0, keyBrake = 0;
+const dragScale = () => Math.min(stage.clientWidth, 760) * 0.2;
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
   if (state === 'result' || state === 'crash') return;
-  cv.setPointerCapture?.(e.pointerId);
-  if (state === 'ready') begin();
-  pointers.clear(); pointers.set(e.pointerId, { x: e.clientX, bt: S.bt });
+  try { cv.setPointerCapture(e.pointerId); } catch {}
+  pointers.clear(); pointers.set(e.pointerId, { x: e.clientX }); dragLean = 0;
 });
 cv.addEventListener('pointermove', e => {
   const p = pointers.get(e.pointerId);
-  if (!p || state !== 'play') return;
-  S.bt = THREE.MathUtils.clamp(p.bt + (e.clientX - p.x) / dragScale(), -1, 1);
-  // keep the anchor under the finger when it goes past the end, so coming back responds at once
-  if (Math.abs(S.bt) === 1) { p.bt = S.bt; p.x = e.clientX; }
+  if (!p) return;
+  dragLean = THREE.MathUtils.clamp((e.clientX - p.x) / dragScale(), -1, 1);
+  if (Math.abs(dragLean) === 1) p.x = e.clientX - dragLean * dragScale(); // keep the anchor under the finger past the end
 });
-const up = e => { pointers.delete(e.pointerId); };
+const up = e => { if (pointers.delete(e.pointerId)) dragLean = null; };
 addEventListener('pointerup', up); addEventListener('pointercancel', up);
+function pad(id, key) {
+  const el = $(id), on = e => { e.preventDefault(); e.stopPropagation(); try { el.setPointerCapture(e.pointerId); } catch {} S[key] = 1; el.classList.add('down'); begin(); }, off = () => { S[key] = 0; el.classList.remove('down'); };
+  el.addEventListener('pointerdown', on); el.addEventListener('pointerup', off); el.addEventListener('pointercancel', off); el.addEventListener('lostpointercapture', off);
+}
+pad('bGas', 'gas'); pad('bBrake', 'brake');
+function updPads() { $('pads').classList.toggle('off', !(state === 'ready' || state === 'play')); $('pads').classList.toggle('ready', state === 'ready'); }
 const keysHeld = new Set();
-const KEYS = { ArrowRight: 1, d: 1, D: 1, ArrowUp: 1, ArrowLeft: -1, a: -1, A: -1, ArrowDown: -1 };
-const updKeys = () => { keyDir = Math.sign([...keysHeld].reduce((n, k) => n + KEYS[k], 0)); };
+const KEYS = { ArrowUp: 'gas', w: 'gas', W: 'gas', ArrowDown: 'brake', s: 'brake', S: 'brake', ArrowRight: 'fwd', d: 'fwd', D: 'fwd', ArrowLeft: 'back', a: 'back', A: 'back' };
+function updKeys() {
+  const k = [...keysHeld].map(x => KEYS[x]);
+  keyGas = k.includes('gas') ? 1 : 0; keyBrake = k.includes('brake') ? 1 : 0;
+  keyLean = (k.includes('fwd') ? 1 : 0) - (k.includes('back') ? 1 : 0);
+}
 addEventListener('keydown', e => {
   if (e.target.closest?.('button, a, select')) return;
   if (state === 'result' && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); again(); return; }
@@ -1032,10 +1106,10 @@ addEventListener('keydown', e => {
   e.preventDefault();
   if (state === 'crash' || state === 'result') return;
   keysHeld.add(e.key); updKeys();
-  if (state === 'ready') begin();
+  if (KEYS[e.key] === 'gas') begin();
 });
 addEventListener('keyup', e => { keysHeld.delete(e.key); updKeys(); });
-addEventListener('blur', () => { pointers.clear(); keysHeld.clear(); keyDir = 0; });
+addEventListener('blur', () => { pointers.clear(); dragLean = null; keysHeld.clear(); updKeys(); S.gas = S.brake = 0; });
 
 // ---------- result ----------
 const coarse = matchMedia('(pointer: coarse)').matches;
@@ -1109,36 +1183,19 @@ function prepareShare() {
 }
 const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
 
-// ---------- gauge: the front's angle above the ground ----------
-const GC = [34, 90], GR = 62, GMAX = 95;
-const arcPt = d => { const a = d * Math.PI / 180; return [GC[0] + GR * Math.cos(a), GC[1] - GR * Math.sin(a)]; };
-const arc = (d0, d1) => { const [x0_, y0] = arcPt(d0), [x1, y1] = arcPt(d1); return `M${x0_.toFixed(1)} ${y0.toFixed(1)}A${GR} ${GR} 0 0 0 ${x1.toFixed(1)} ${y1.toFixed(1)}`; };
-$('gTrack').setAttribute('d', arc(-3, GMAX + 3));
-[['gR1', 0, 6], ['gY1', 6, 18], ['gG', 18, 66], ['gY2', 66, 82], ['gR2', 82, GMAX]].forEach(([id, a, b]) => $(id).setAttribute('d', arc(a, b)));
-let gaugeDeg = -1, gaugeOn = null;
-function updGauge(th) {
-  const on = state === 'ready' || state === 'play';
-  if (on !== gaugeOn) { $('gauge').classList.toggle('off', !on); gaugeOn = on; }
-  const d = Math.round(THREE.MathUtils.clamp(th * 180 / Math.PI, 0, GMAX));
-  if (d === gaugeDeg) return; gaugeDeg = d;
-  const x = GC[0] + (GR + 8) * Math.cos(d * Math.PI / 180), y = GC[1] - (GR + 8) * Math.sin(d * Math.PI / 180);
-  $('gNeedle').setAttribute('x2', x.toFixed(1)); $('gNeedle').setAttribute('y2', y.toFixed(1));
-}
-
-// ---------- layout / camera: a little behind and to the side ----------
-const view = { top: 120, bottom: 90, w: 1, h: 1 };
-const camDir = V(-0.74, 0.36, 0.57).normalize();
+// ---------- layout / camera: from the side, a little in front and above ----------
+const view = { top: 60, bottom: 90, w: 1, h: 1 };
+const camDir = V(0.2, 0.2, 1).normalize();
 const camLook = V(0, 0, 0), camOff = V(0, 0, 0);
-let camD = 6, camY = 0, camInit = false;
+let camD = 8, camY = 0, camInit = false;
 function resize() {
   const w = stage.clientWidth, Hs = stage.clientHeight;
   renderer.setSize(w, Hs, false);
-  let top = $('gauge').getBoundingClientRect().bottom + 6;
+  let top = document.querySelector('header').getBoundingClientRect().bottom + 6;
   if (state === 'result') top = Array.from($('result').querySelectorAll('.big, .sub, .btn')).reduce((m, el) => Math.max(m, el.getBoundingClientRect().bottom), top) + 10;
   const bottom = 90;
   top = Math.min(top, Hs * 0.55);
-  // tall screens: the spare height goes to the sky
-  const need = w * 1.25;
+  const need = w * 1.1; // tall screens: the spare height goes to the sky
   if (Hs - top - bottom > need) top += (Hs - top - bottom - need) * 0.6;
   const fh = Math.max(100, Hs - top - bottom);
   Object.assign(view, { top, bottom, w, h: fh });
@@ -1147,76 +1204,64 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 addEventListener('resize', () => { resize(); camInit = false; });
-// rides along with the bike exactly (no lag at speed); the framing and the height ease
 function frameCamera(anchor, cx, cy, hx, hy, dt, snapNow, cz = 0) {
   const vf = THREE.MathUtils.degToRad(camera.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
   const d = Math.min(Math.max(hy / Math.tan(vf / 2), hx / Math.tan(hf / 2)) + 1.0, 40);
   const k = snapNow ? 1 : 1 - Math.exp(-dt * 3);
   camOff.x += (cx - anchor - camOff.x) * k; camOff.z += (cz - camOff.z) * k; camD += (d - camD) * k;
-  camY += (cy - camY) * (snapNow ? 1 : 1 - Math.exp(-dt * 5));
+  camY += (cy - camY) * (snapNow ? 1 : 1 - Math.exp(-dt * 4));
   camLook.set(anchor + camOff.x, camY, camOff.z);
   camera.position.copy(camLook).addScaledVector(camDir, camD); camera.lookAt(camLook);
 }
 
 // ---------- render ----------
-let lastT = performance.now(), simT = lastT, hintT = 0;
+let lastT = performance.now(), simT = lastT, hintT = 0, hintOn = null;
 const qInv = new THREE.Quaternion(), qW = new THREE.Quaternion();
 function render(alpha, fdt = 0) {
-  const x = S.x, ph = S.ph, b = S.b;
-  const gy = H(x), s = Math.atan(slopeAt(x));
+  const x = S.x;
   // bike: follows the chassis body; the model's origin is the rear axle
   bikeBase.position.copy(sim.chassis.position); bikeBase.quaternion.copy(sim.chassis.quaternion);
   bike.position.set(-COM.x, -COM.y, 0); bike.rotation.set(0, 0, 0);
   qInv.copy(bikeBase.quaternion).invert();
   rearW.quaternion.copy(qInv).multiply(qW.copy(sim.rear.quaternion));
   frontW.quaternion.copy(qInv).multiply(qW.copy(sim.front.quaternion));
-  if (state === 'ready' || state === 'play') poseRiding(ph - s, b);
-  else { // thrown off: the rider follows its own body
+  if (state === 'ready' || state === 'play') poseRiding(0.1, S.b);
+  else {
     riderG.quaternion.copy(sim.rider.quaternion);
     riderG.position.copy(sim.rider.position).add(tmpV.copy(riderOff).applyQuaternion(riderG.quaternion));
   }
   human.update(fdt);
   // world
+  extendCourse(x + 220); trimCourse(x);
   layRibbons(x);
   far.position.set(x, 0, 0);
   floor.position.x = x;
-  const ready = state === 'ready';
-  updateProps(x, ready);
-  if (!ready) updateHazards(x - x0);
-  bestMark.visible = !ready && best > 0;
-  if (bestMark.visible) { const bx = x0 + best; bestMark.position.set(bx, H(bx), 0); bestMark.rotation.z = Math.atan(slopeAt(bx)); bestMark.userData.flag.rotation.x = Math.sin(performance.now() / 300) * 0.25; }
-  // camera
+  updateProps(x); updateDecos(x);
+  bestMark.visible = best > 0;
+  if (bestMark.visible) { bestMark.position.set(best, H(best), 0); bestMark.userData.flag.rotation.x = Math.sin(performance.now() / 300) * 0.25; }
+  // camera: the bike a little left of centre, more of the track ahead
   let cx, cy, hx, hy, cz = 0;
-  if (crash) { const bp = sim.chassis.position, rp = sim.rider.position, lo = Math.min(bp.x, rp.x) - 1, hi = Math.max(bp.x, rp.x) + 1; cx = (lo + hi) / 2 + 0.6; cz = (bp.z + rp.z) / 2; cy = H(cx) + 0.5; hx = Math.max(1.8, (hi - lo) / 2 * 0.75 + 0.5, Math.abs(bp.z - rp.z) / 2 + 1); hy = 1.1; }
-  else { cx = x + 1.3; cy = Math.max(gy, H(x + 2)) + 0.95; hx = camera.aspect > 1.1 ? 2.4 : 1.9; hy = 1.55; }
+  const wide = camera.aspect > 1.1;
+  if (crash) { const bp = sim.chassis.position, rp = sim.rider.position, lo = Math.min(bp.x, rp.x) - 1, hi = Math.max(bp.x, rp.x) + 1; cx = (lo + hi) / 2; cz = (bp.z + rp.z) / 2; cy = Math.max(H(cx), waterAt(cx)) + 0.8; hx = Math.max(2.6, (hi - lo) / 2 + 0.6, Math.abs(bp.z - rp.z) / 2 + 1); hy = 1.6; }
+  else { const by = sim.chassis.position.y; cx = x + (wide ? 2.8 : 1.6) + Math.max(0, S.v) * 0.08; cy = by + 0.5; hx = wide ? 5.5 : 3.6; hy = 2.6; }
   frameCamera(x, cx, cy, hx, hy, fdt, !camInit, cz); camInit = true;
-  sun.position.set(camLook.x + 5, camLook.y + 12, -7); sun.target.position.copy(camLook);
+  sun.position.set(camLook.x - 6, camLook.y + 12, 8); sun.target.position.copy(camLook);
   renderer.render(scene, camera);
-  updGauge(ph - s);
-}
-// before the start: a finger sliding left and right beside the bike
-function updHint(dt) {
-  const on = state === 'ready';
-  $('hint').classList.toggle('on', on);
-  if (!on) return;
-  hintT += dt;
-  const p = V(S.x + 1.0, H(S.x) - 0.1, 1.2).project(camera);
-  const hint = $('hint');
-  hint.style.left = ((p.x * 0.5 + 0.5) * stage.clientWidth).toFixed(0) + 'px';
-  hint.style.top = ((-p.y * 0.5 + 0.5) * stage.clientHeight).toFixed(0) + 'px';
-  $('hDot').setAttribute('cx', (60 + Math.sin(hintT * 3) * 30).toFixed(1));
 }
 function loop(now) {
   const fdt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
   if (now - simT > 250) simT = now - 250;
   while (simT + DT * 1000 <= now) { step(DT); simT += DT * 1000; }
   updateParticles(fdt);
-  render((now - simT) / (DT * 1000), fdt);
-  updHint(fdt);
+  render(1, fdt);
+  // before the start: the gas button pulses and a finger slides left/right (body shift)
+  const hon = state === 'ready'; if (hon !== hintOn) { $('hint').classList.toggle('on', hon); hintOn = hon; }
+  if (hon) { hintT += fdt; $('hDot').setAttribute('cx', (60 + Math.sin(hintT * 3) * 30).toFixed(1)); }
   if (ac) {
     const run = state === 'ready' || state === 'play';
-    const rpm = run ? 0.32 + (S.v / 26) * 0.5 + Math.max(0, accel) * 0.03 : crash && crash.t < 1.2 ? 0.08 : 0.05;
-    engineTick(rpm, run ? 0.2 : crash && crash.t < 1.5 ? 0.08 : 0.04);
+    const wv = Math.abs(sim.rear.angularVelocity.z * R), g = Math.max(S.gas, keyGas);
+    const rpm = run ? 0.14 + Math.min(1, wv / 15) * 0.5 + g * 0.3 : crash && crash.t < 1.2 ? 0.08 : 0.05;
+    engineTick(rpm, run ? 0.14 + g * 0.1 : crash && crash.t < 1.5 ? 0.08 : 0.04);
   }
   requestAnimationFrame(loop);
 }
@@ -1226,7 +1271,7 @@ renderer.compileAsync?.(scene, camera).catch(() => {});
 window.GAME_READY = true;
 requestAnimationFrame(loop);
 // for automated checks
-window.__game = { sim, bikeBase, camera, riderG, get state() { return state; }, get crash() { return crash; }, get S() { return S; }, get x0() { return x0; }, crashNow: t => startCrash(t || 'flip'), set best(v) { best = v; } };
+window.__game = { sim, bikeBase, camera, riderG, get state() { return state; }, get crash() { return crash; }, get S() { return S; }, crashNow: t => startCrash(t || "rider"), setLean: v => { dragLean = v; }, set best(v) { best = v; } };
   </script>
   <!-- 結果画面の広告（../../ad.js の説明を参照） -->
   <script src="../../ad.js" data-result="#result"></script>
