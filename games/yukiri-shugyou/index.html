@@ -807,9 +807,11 @@
       }
       if (E.dark) {
         const d = E.dark; d.t += dt;
-        darkK = d.t < 1.5 ? (Math.random() < 0.15 ? 0.4 : 0.93) : 0;
-        if (d.t > 1.5 && !d.on) { d.on = true; sClick(); }
-        if (d.t > 1.6) { darkK = 0; delete E.dark; }
+        // 点滅させない（光の点滅は発作の原因になる）: ゆっくり暗くなって、ゆっくり戻る
+        const fade = x => x * x * (3 - 2 * x);
+        darkK = 0.93 * (d.t < 0.5 ? fade(d.t / 0.5) : d.t < 1.7 ? 1 : fade(clamp(1 - (d.t - 1.7) / 0.7, 0, 1)));
+        if (d.t > 1.7 && !d.on) { d.on = true; sClick(); }
+        if (d.t > 2.4) { darkK = 0; delete E.dark; }
       } else darkK = 0;
       // 大将が見張る
       const gz = state === 'play' && score >= 35 ? 1 : 0;
@@ -909,7 +911,7 @@
         const talking = mouthPlan.some(([s, d]) => clock >= s && clock < s + d + 0.05);
         taisho.root.position.z = -0.62 + (talking ? 0.02 * Math.sin(clock * 30) : 0);
         const hp = headPos(); angerSprite.position.set(hp.x + 0.11, hp.y + 0.06, hp.z + 0.06);
-        angerSprite.scale.setScalar(0.08 * (1 + 0.15 * Math.sin(clock * 14)));
+        angerSprite.scale.setScalar(0.08 * (1 + 0.12 * Math.sin(clock * 6)));
       } else {
         taisho.face.open += (0 - taisho.face.open) * (1 - Math.exp(-dt * 10));
         taisho.face.brow = state === 'play' ? -0.4 - 0.5 * gazeK : -0.3;
@@ -1074,7 +1076,8 @@
       hemi.intensity = LIGHTS.hemi * (1 - darkK * 0.92); sun.intensity = LIGHTS.sun * (1 - darkK);
       // 画面の重ね物（値が変わった時だけ書く）
       const gz = (gazeK * 0.9).toFixed(2); if (gazeEl.style.opacity !== gz) gazeEl.style.opacity = gz;
-      const fl = state === 'fail' && cutStage === 1 ? (0.35 + 0.25 * Math.sin(clock * 12)).toFixed(2) : state === 'result' ? '0.25' : '0';
+      // 赤は点滅させず、じわっと濃くして止める
+      const fl = state === 'fail' && cutStage === 1 ? (0.45 * clamp((failT - 0.55) / 0.6, 0, 1)).toFixed(2) : state === 'result' ? '0.25' : '0';
       if (flashEl.style.opacity !== fl) flashEl.style.opacity = fl;
       placeCamera();
       // 最初の操作の案内（ざるの横）
