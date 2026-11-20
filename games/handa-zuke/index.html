@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>はんだ付け</title>
+  <meta name="description" content="こてとはんだを2本の指で別々に動かして、基板をきれいにはんだ付けするゲーム。">
+  <link rel="canonical" href="https://keifurukawafunnych.com/games/handa-zuke/">
+  <script type="application/ld+json">
+  {"@context": "https://schema.org", "@type": "VideoGame", "name": "はんだ付け", "description": "こてとはんだを2本の指で別々に動かして、基板をきれいにはんだ付けするゲーム。", "url": "https://keifurukawafunnych.com/games/handa-zuke/", "image": "https://keifurukawafunnych.com/games/handa-zuke/icon.png", "inLanguage": "ja", "gamePlatform": "Web browser", "applicationCategory": "Game", "operatingSystem": "Any", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": 0, "priceCurrency": "JPY"}, "author": {"@type": "Person", "name": "ふるかわけい"}}
+  </script>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="はんだ付け">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/handa-zuke/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/handa-zuke/icon.png">
+  <meta name="twitter:card" content="summary">
+  <style>
+    * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #3b2a1c; color: #f3ead8;
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: #1f2a22; }
+    header a { color: #f3ead8; font-size: 14px; text-decoration: none; margin-right: auto; }
+    header button, header select {
+      background: #f3ead8; border: 1px solid #6f8a72; border-radius: 8px;
+      height: 34px; min-width: 40px; padding: 0 10px; font-size: 13px; color: #1f2a22; cursor: pointer;
+    }
+    header svg { width: 18px; height: 18px; display: block; }
+    #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+    #timebar { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(60%, 420px); height: 10px; border-radius: 6px; background: rgba(0,0,0,.35); box-shadow: inset 0 1px 2px rgba(0,0,0,.5); overflow: hidden; pointer-events: none; }
+    #timebar i { display: block; height: 100%; width: 100%; border-radius: 6px; background: linear-gradient(#9be27a, #4fae3a); transform-origin: left center; }
+    .hint { position: absolute; width: clamp(54px, 10vmin, 84px); pointer-events: none; display: none; transform: translate(-50%, 0); }
+    .hint svg { width: 100%; height: auto; display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.45)); animation: tap 1.2s ease-in-out infinite; transform-origin: 50% 20%; }
+    #hintW svg { animation-delay: .6s; }
+    @keyframes tap { 0%, 100% { transform: translateY(14%) scale(1); } 45% { transform: translateY(0) scale(.92); } }
+    #result { position: absolute; left: 0; right: 0; top: 0; height: var(--band, 120px); display: none; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+    #result b { font-size: clamp(48px, 13vmin, 120px); font-weight: 900; color: #fff; line-height: 1.05; text-shadow: 0 4px 0 #1d4a22, 0 0 18px rgba(0,0,0,.5); }
+    #result span { font-size: clamp(16px, 3.4vmin, 28px); font-weight: 800; color: #d8f5c8; text-shadow: 0 2px 0 #12301a, 0 0 8px rgba(0,0,0,.6); }
+    @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+      #result { top: 0; bottom: var(--reserve, 160px); height: auto; width: 34%; }
+      #result b { font-size: clamp(28px, 5.2vw, 100px); white-space: nowrap; }
+    }
+    #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+    /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
+    #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; }
+    #controls button, #controls a {
+      flex: 1; height: clamp(56px, 8vmin, 72px); border: none; border-radius: 14px; font-size: clamp(18px, 3vmin, 24px); font-weight: 800;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; touch-action: manipulation;
+    }
+    .go { background: #58b847; color: #0f2a0c; box-shadow: 0 4px 0 #2a6a20; }
+    .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 34% !important; font-size: clamp(16px, 2.6vmin, 20px) !important; }
+    #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
+    #controls.hide { visibility: hidden; }
+  </style>
+</head>
+<body>
+  <!-- 検索エンジン・読み上げ用のゲーム名（画面には出ない） -->
+  <h1 style="position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">はんだ付け</h1>
+  <header>
+    <a id="back" href="../../">← トップへ戻る</a>
+    <button id="sound" aria-label="sound"></button>
+    <select id="lang" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
+  </header>
+  <main style="display:contents">
+  <div id="stage">
+    <div id="timebar"><i></i></div>
+    <div class="hint" id="hintI"></div>
+    <div class="hint" id="hintW"></div>
+    <div id="result"><b></b><span></span></div>
+    <div id="msg"></div>
+  </div>
+  <div id="controls" class="hide"></div>
+  </main>
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
+  <script>
+    // CDN が読めないときの一言
+    setTimeout(() => { if (!window.GAME_READY) { const m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'Failed to load. Please reload. / 読み込めませんでした。再読み込みしてください。'; } }, 8000);
+    // 長押しの拡大鏡・メニューを出さない
+    document.addEventListener('touchstart', e => { if (!e.target.closest('a, button, select, input')) e.preventDefault(); }, { passive: false });
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('selectstart', e => e.preventDefault());
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+    window.GAME_READY = true;
+
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/handa-zuke/';
+    const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const STEP = 1 / 60;
+    const TIME_FULL = 60; // この秒数で速さのボーナスが0になる
+    const TIME_MAX = 120; // これを過ぎたら強制的に終わる
+
+    // ---------- 言語 ----------
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('handa-zuke:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('handa-zuke:' + k, JSON.stringify(v)); } catch {} },
+    };
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
+    const DICT = {
+      ja: { title: 'はんだ付け', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', pts: n => `${n}点`, sec: s => `${s}秒`, share: (n, s) => `はんだ付けで${n}点（${s}秒） #はんだ付けゲーム` },
+      ko: { title: '납땜', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', pts: n => `${n}점`, sec: s => `${s}초`, share: (n, s) => `납땜 ${n}점 (${s}초) #はんだ付けゲーム` },
+      en: { title: 'Soldering', back: '← Back to top', again: 'Play again', post: 'Post on X', pts: n => `${n} pts`, sec: s => `${s} s`, share: (n, s) => `I scored ${n} pts at soldering (${s} s) #はんだ付けゲーム` },
+      th: { title: 'บัดกรี', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', pts: n => `${n} คะแนน`, sec: s => `${s} วินาที`, share: (n, s) => `บัดกรีได้ ${n} คะแนน (${s} วินาที) #はんだ付けゲーム` },
+    };
+    let lang = store.get('lang', null) || autoLang();
+    const t = k => DICT[lang][k];
+    const langSel = document.getElementById('lang');
+    langSel.value = lang;
+    langSel.addEventListener('change', () => { lang = langSel.value; store.set('lang', lang); applyLang(); langSel.blur(); });
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      renderControls();
+      if (state === 'result') { showResult(); prepareShare(); }
+    }
+
+    // ---------- 音 ----------
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const drawSoundBtn = () => {
+      soundBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${soundOn ? '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>'}</svg>`;
+    };
+    drawSoundBtn();
+    soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); if (master) master.gain.value = soundOn ? 1 : 0; soundBtn.blur(); });
+    let ac = null, master = null, noiseBuf = null, sizzle = null;
+    // iPhone の消音モードでも鳴らす
+    function unmuteIOS() {
+      try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch {}
+      try {
+        const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+        const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+        w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+        v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+        const a = document.createElement('audio');
+        a.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })); a.loop = true; a.setAttribute('playsinline', '');
+        a.play().catch(() => {});
+      } catch {}
+    }
+    function initAudio() {
+      if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+      unmuteIOS();
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        master = ac.createGain(); master.gain.value = soundOn ? 1 : 0; master.connect(ac.destination);
+        noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+        const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
+        o.connect(g).connect(master); o.start(); o.stop(ac.currentTime + 0.05);
+        // はんだが溶ける「ジー」という音（ずっと鳴らして、音量だけ変える）
+        const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+        const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2200;
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 5200; bp.Q.value = 0.7;
+        const g2 = ac.createGain(); g2.gain.value = 0;
+        s.connect(hp).connect(bp).connect(g2).connect(master); s.start();
+        sizzle = g2;
+      } catch { ac = null; }
+    }
+    addEventListener('pointerdown', initAudio, { capture: true });
+    addEventListener('keydown', initAudio, { capture: true });
+    const live = () => ac && soundOn;
+    function tone(type, f0, f1, dur, vol, delay = 0) {
+      if (!live()) return;
+      const now = ac.currentTime + delay;
+      const o = ac.createOscillator(); o.type = type;
+      o.frequency.setValueAtTime(f0, now); o.frequency.exponentialRampToValueAtTime(f1, now + dur);
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(vol, now + 0.01); g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+      o.connect(g).connect(master); o.start(now); o.stop(now + dur + 0.02);
+    }
+    // ノイズを共鳴に通す（[周波数, Q, 音量] の組）
+    function burst(dur, bands, vol = 1, delay = 0) {
+      if (!live()) return;
+      const now = ac.currentTime + delay;
+      const s = ac.createBufferSource(); s.buffer = noiseBuf; s.playbackRate.value = rnd(0.9, 1.1);
+      const g = ac.createGain(); g.gain.setValueAtTime(vol, now); g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+      for (const [f, q, a] of bands) {
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * rnd(0.93, 1.07); bp.Q.value = q;
+        const bg = ac.createGain(); bg.gain.value = a; s.connect(bp).connect(bg).connect(g);
+      }
+      g.connect(master); s.start(now, Math.random()); s.stop(now + dur + 0.02);
+    }
+    const sTouch = () => burst(0.035, [[3200, 5, 1], [7000, 3, 0.5]], 0.12);          // こて先が当たる「チッ」
+    const sTap = () => burst(0.03, [[1800, 4, 1]], 0.08);                               // 冷たいランドにはんだが当たる
+    const sJu = () => { burst(0.18, [[4500, 1.2, 1], [8000, 2, 0.6]], 0.35); };         // 溶け始めの「ジュッ」
+    const sBridge = () => { burst(0.07, [[2600, 3, 1], [6200, 2, 0.7]], 0.55); tone('square', 220, 70, 0.07, 0.06); }; // パチッ
+    const sLed = i => { tone('sine', 660 * Math.pow(1.19, i), 660 * Math.pow(1.19, i) * 1.01, 0.35, 0.09); tone('sine', 1320 * Math.pow(1.19, i), 1320 * Math.pow(1.19, i), 0.2, 0.03); };
+    const sPuff = () => { burst(0.45, [[420, 1, 1], [900, 2, 0.4]], 0.35); burst(0.05, [[3000, 3, 1]], 0.2); };
+    let sizzleK = 0;
+
+    // ---------- three.js ----------
+    const stage = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    stage.prepend(renderer.domElement);
+    const scene = new THREE.Scene();
+    // 金属（はんだ・ランド・こて）が映り込むよう、部屋の景色を環境マップにする
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    const canvasTex = (w, h, draw, rep) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; if (rep) { tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(rep[0], rep[1]); } tx.anisotropy = 8; return tx; };
+    // 背景: 上ほど暗い作業場のグラデーション（遠くはかすませる）
+    scene.background = canvasTex(4, 256, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#2a2420'); gr.addColorStop(1, '#5a4430'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+    scene.fog = new THREE.Fog('#4a3828', 40, 90);
+    const camera = new THREE.PerspectiveCamera(34, 1, 0.5, 200);
+    const hemi = new THREE.HemisphereLight('#d4e8ff', '#6a4c32', 0.75);
+    scene.add(hemi);
+    const sun = new THREE.DirectionalLight('#ffe4bc', 2.3); sun.position.set(6, 16, 9);
+    sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
+    Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 2, far: 50 });
+    sun.shadow.normalBias = 0.02; sun.shadow.bias = -0.0004; sun.shadow.radius = 4;
+    scene.add(sun);
+    const mat = (color, roughness = 0.6, metalness = 0, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness, metalness, ...extra });
+
+    // 机（木目）
+    const woodTex = canvasTex(512, 512, (g, w, h) => {
+      g.fillStyle = '#9a6c42'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 160; i++) {
+        const y = Math.random() * h, a = rnd(0.03, 0.12), c = Math.random() < 0.5 ? `rgba(70,40,18,${a})` : `rgba(200,150,100,${a})`;
+        g.strokeStyle = c; g.lineWidth = rnd(1, 4); g.beginPath();
+        for (let x = 0; x <= w; x += 16) g.lineTo(x, y + Math.sin(x * 0.012 + i) * 6 + Math.sin(x * 0.05 + i * 3) * 1.5);
+        g.stroke();
+      }
+      for (let k = 0; k < 3; k++) { const x = rnd(60, w - 60), y = rnd(60, h - 60); for (let r = 4; r < 30; r += 3) { g.strokeStyle = `rgba(60,32,14,${0.25 - r / 160})`; g.lineWidth = 1.5; g.beginPath(); g.ellipse(x, y, r * 2.4, r, 0, 0, 6.3); g.stroke(); } }
+    }, [3, 3]);
+    const desk = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), mat('#ffffff', 0.7, 0, { map: woodTex }));
+    woodTex.repeat.set(5, 5);
+    desk.rotation.x = -Math.PI / 2; desk.position.y = -0.17; desk.receiveShadow = true; scene.add(desk);
+    // 作業マット（緑のゴム）
+    const matTex = canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#2f6b5a'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 1800; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,255,255'},${rnd(0.02, 0.06)})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+      g.strokeStyle = 'rgba(220,240,230,.25)'; g.lineWidth = 1; for (let x = 0; x <= w; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); g.beginPath(); g.moveTo(0, x); g.lineTo(w, x); g.stroke(); }
+    }, [6, 4]);
+    const workMat = new THREE.Mesh(new THREE.BoxGeometry(30, 0.12, 20), [mat('#2a5a4c', 0.9), mat('#2a5a4c', 0.9), mat('#ffffff', 0.85, 0, { map: matTex }), mat('#2a5a4c'), mat('#2a5a4c', 0.9), mat('#2a5a4c', 0.9)]);
+    workMat.position.set(0, -0.11, 0.5); workMat.receiveShadow = true; scene.add(workMat);
+
+    // ---------- 基板 ----------
+    const BX0 = -4.2, BX1 = 4.2, BZ0 = -3.6, BZ1 = 3.2; // 基板の範囲（cm）
+    const BW = BX1 - BX0, BD = BZ1 - BZ0;
+    const LED_COLORS = ['#ff3b30', '#ffb020', '#3ad65a', '#3a8cff', '#f4f4ff'];
+    // LED（足を前に出して寝かせたもの）: [x, 足の z]
+    const LED_POS = [[-2.6, 1.3], [0, 1.3], [2.6, 1.3], [-1.3, -1.5], [1.3, -1.5]];
+    const PITCH = 1.0;
+    const joints = [];
+    LED_POS.forEach(([x, z], i) => { for (const s of [-1, 1]) joints.push({ x: x + s * PITCH / 2, z, led: i, side: s }); });
+    const BAT = { x: 2.95, z: -2.55 }, CATP = { x: -3.0, z: -2.5 };
+
+    const boardCanvas = document.createElement('canvas'); boardCanvas.width = 1024; boardCanvas.height = Math.round(1024 * BD / BW);
+    const boardTex = new THREE.CanvasTexture(boardCanvas); boardTex.colorSpace = THREE.SRGBColorSpace; boardTex.anisotropy = 8;
+    const catImg = new Image(); catImg.src = 'cat.png'; catImg.onload = () => drawBoard();
+    function drawBoard() {
+      const g = boardCanvas.getContext('2d'), W = boardCanvas.width, H = boardCanvas.height, S = W / BW;
+      const P = (x, z) => [(x - BX0) * S, (z - BZ0) * S];
+      // ソルダーレジスト（緑）
+      const gr = g.createLinearGradient(0, 0, W, H); gr.addColorStop(0, '#13612f'); gr.addColorStop(1, '#0f5229');
+      g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      for (let i = 0; i < 4000; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,20,0' : '200,255,200'},${rnd(0.015, 0.04)})`; g.fillRect(Math.random() * W, Math.random() * H, 2, 2); }
+      // 配線（レジストの下の銅が少し明るく見える）
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      const trace = (pts, wdt = 0.16) => {
+        g.beginPath(); pts.forEach(([x, z], k) => { const [a, b] = P(x, z); k ? g.lineTo(a, b) : g.moveTo(a, b); });
+        g.strokeStyle = 'rgba(0,30,10,.35)'; g.lineWidth = wdt * S + 3; g.stroke();
+        g.strokeStyle = '#21813f'; g.lineWidth = wdt * S; g.stroke();
+      };
+      // +側の線（電池から上をまわって各LEDの左足へ）
+      trace([[BAT.x - 0.9, BAT.z], [-3.7, BAT.z], [-3.7, 2.6]], 0.22);
+      trace([[BAT.x, BAT.z - 0.95], [BAT.x, -3.3], [-3.9, -3.3]], 0.0001);
+      for (const j of joints) if (j.side < 0) {
+        if (j.z > 0) trace([[j.x, j.z + 0.4], [j.x, 2.6], [-3.7, 2.6]]);
+        else trace([[j.x, j.z - 0.4], [j.x, BAT.z], [-3.7, BAT.z]]);
+      }
+      // −側の線（各LEDの右足から電池へ）
+      trace([[BAT.x + 0.9, BAT.z], [3.85, BAT.z], [3.85, 2.85], [-3.95, 2.85], [-3.95, 2.0]], 0.22);
+      for (const j of joints) if (j.side > 0) {
+        if (j.z > 0) trace([[j.x, j.z + 0.4], [j.x + 0.3, 2.0], [j.x + 0.3, 2.85]]);
+        else trace([[j.x, j.z + 0.4], [j.x + 0.35, -0.6], [3.4, -0.6], [3.4, BAT.z + 0.6], [3.85, BAT.z + 0.6]]);
+      }
+      // ランドのまわりのレジストの切れ目
+      for (const j of joints) { const [a, b] = P(j.x, j.z); g.fillStyle = 'rgba(0,25,8,.45)'; g.beginPath(); g.arc(a, b, (j.R || 0.32) * S + 5, 0, 6.3); g.fill(); }
+      // シルク印刷（白）
+      g.strokeStyle = '#f2f5ee'; g.fillStyle = '#f2f5ee'; g.lineWidth = 0.05 * S;
+      LED_POS.forEach(([x, z]) => {
+        const [a, b] = P(x - 0.42, z - 1.65), [c, d] = P(x + 0.42, z - 0.55);
+        g.strokeRect(a, b, c - a, d - b);
+        const [e, f] = P(x, z - 1.65); g.beginPath(); g.arc(e, f, 0.42 * S, Math.PI, 0); g.stroke();
+        // 「＋」の印（左足）
+        const [px, pz] = P(x - PITCH / 2, z + 0.62); g.fillRect(px - 0.13 * S, pz - 0.025 * S, 0.26 * S, 0.05 * S); g.fillRect(px - 0.025 * S, pz - 0.13 * S, 0.05 * S, 0.26 * S);
+      });
+      { const [a, b] = P(BAT.x, BAT.z); g.beginPath(); g.arc(a, b, 1.0 * S, 0, 6.3); g.stroke(); }
+      { const [a, b] = P(BX0 + 0.25, BZ0 + 0.25), [c, d] = P(BX1 - 0.25, BZ1 - 0.25); g.lineWidth = 0.035 * S; g.setLineDash([0.2 * S, 0.12 * S]); g.strokeRect(a, b, c - a, d - b); g.setLineDash([]); }
+      // いつもの猫（基板に貼ったシール）
+      if (catImg.complete && catImg.naturalWidth) {
+        const size = 1.7 * S, [a, b] = P(CATP.x, CATP.z);
+        g.save(); g.translate(a, b); g.rotate(-0.12);
+        g.shadowColor = 'rgba(0,0,0,.35)'; g.shadowBlur = 6; g.shadowOffsetY = 2;
+        g.fillStyle = '#fbfbf6'; g.beginPath(); g.arc(0, 0, size * 0.52, 0, 6.3); g.fill();
+        g.shadowColor = 'transparent';
+        g.beginPath(); g.arc(0, 0, size * 0.47, 0, 6.3); g.clip();
+        g.fillStyle = '#e8eef0'; g.fillRect(-size, -size, size * 2, size * 2);
+        g.drawImage(catImg, -size * 0.55, -size * 0.6, size * 1.1, size * 1.1);
+        g.restore();
+      }
+      // 角の取り付け穴
+      for (const [x, z] of [[BX0 + 0.5, BZ0 + 0.5], [BX1 - 0.5, BZ0 + 0.5], [BX0 + 0.5, BZ1 - 0.5], [BX1 - 0.5, BZ1 - 0.5]]) {
+        const [a, b] = P(x, z); g.fillStyle = '#d8b25a'; g.beginPath(); g.arc(a, b, 0.3 * S, 0, 6.3); g.fill(); g.fillStyle = '#2a2018'; g.beginPath(); g.arc(a, b, 0.17 * S, 0, 6.3); g.fill();
+      }
+      boardTex.needsUpdate = true;
+    }
+    const boardEdge = mat('#cfc9a0', 0.8);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(BW, 0.16, BD), [boardEdge, boardEdge, mat('#ffffff', 0.45, 0, { map: boardTex }), boardEdge, boardEdge, boardEdge]);
+    board.position.set((BX0 + BX1) / 2, -0.08, (BZ0 + BZ1) / 2); board.receiveShadow = true; board.castShadow = true; scene.add(board);
+    // 電池ホルダー（できあがっている部品）
+    {
+      const g = new THREE.Group(); g.position.set(BAT.x, 0, BAT.z); scene.add(g);
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.95, 0.3, 40), mat('#222', 0.6)); base.position.y = 0.15; base.castShadow = base.receiveShadow = true; g.add(base);
+      const cell = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 0.32, 40), mat('#d8dde2', 0.22, 1)); cell.position.y = 0.42; cell.castShadow = true; g.add(cell);
+      const clip = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.06, 1.7), mat('#c9ccd0', 0.3, 1)); clip.position.y = 0.6; g.add(clip);
+    }
+
+    // ランド・足・LED・はんだ
+    const padMatBase = mat('#f0c060', 0.28, 0.75);
+    const leadM = mat('#cfd3d8', 0.25, 1);
+    const solderM = { good: mat('#e2e6ea', 0.16, 0.75), molten: mat('#ffffff', 0.05, 0.7, { emissive: '#4a3a28', emissiveIntensity: 0.35 }), dull: mat('#9c9e9a', 0.65, 0.45) };
+    const burnTex = canvasTex(64, 64, (g, w) => { const gr = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); gr.addColorStop(0, 'rgba(40,18,4,1)'); gr.addColorStop(0.5, 'rgba(90,50,10,.8)'); gr.addColorStop(1, 'rgba(110,80,20,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, w); });
+    const glowTex = canvasTex(64, 64, (g, w) => { const gr = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, w); });
+    const padG = new THREE.CylinderGeometry(1, 1, 0.03, 32), holeG = new THREE.CircleGeometry(1, 16);
+    const LEAD_H = 0.3, LEAD_R = 0.045;
+    const leadG = new THREE.CylinderGeometry(LEAD_R, LEAD_R, LEAD_H, 10); leadG.translate(0, LEAD_H / 2, 0);
+    const burnG = new THREE.PlaneGeometry(1, 1); burnG.rotateX(-Math.PI / 2);
+    for (const j of joints) {
+      j.pad = new THREE.Mesh(padG, padMatBase.clone()); j.pad.position.set(j.x, 0.015, j.z); j.pad.receiveShadow = true; scene.add(j.pad);
+      const lead = new THREE.Mesh(leadG, leadM); lead.position.set(j.x, 0, j.z); lead.castShadow = true; scene.add(lead);
+      j.burnMesh = new THREE.Mesh(burnG, new THREE.MeshBasicMaterial({ map: burnTex, transparent: true, depthWrite: false, opacity: 0 })); j.burnMesh.position.set(j.x, 0.034, j.z); j.burnMesh.renderOrder = 1; scene.add(j.burnMesh);
+      j.mesh = new THREE.Mesh(new THREE.BufferGeometry(), solderM.good); j.mesh.position.set(j.x, 0, j.z); j.mesh.castShadow = true; j.mesh.receiveShadow = true; scene.add(j.mesh);
+      j.spikeMesh = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.32, 10), solderM.good); j.spikeMesh.visible = false; j.spikeMesh.castShadow = true; scene.add(j.spikeMesh);
+    }
+    const leds = LED_POS.map(([x, z], i) => {
+      const g = new THREE.Group(); g.position.set(x, 0, z); scene.add(g);
+      const col = new THREE.Color(LED_COLORS[i]);
+      const bodyM = new THREE.MeshStandardMaterial({ color: col.clone().lerp(new THREE.Color('#ffffff'), 0.1), roughness: 0.12, metalness: 0, transparent: true, opacity: 0.93, emissive: col, emissiveIntensity: 0 });
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.62, 24), bodyM); body.rotation.x = Math.PI / 2; body.position.set(0, 0.3, -1.25); body.castShadow = true; g.add(body);
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(0.25, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), bodyM); dome.rotation.x = -Math.PI / 2; dome.position.set(0, 0.3, -1.56); dome.castShadow = true; g.add(dome);
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.29, 0.06, 24), bodyM); rim.rotation.x = Math.PI / 2; rim.position.set(0, 0.3, -0.94); g.add(rim);
+      // 足: LED から前へ出て、ランドの所で下に曲がる
+      for (const s of [-1, 1]) {
+        const h = new THREE.Mesh(new THREE.CylinderGeometry(LEAD_R, LEAD_R, 0.94, 8), leadM); h.rotation.x = Math.PI / 2; h.position.set(s * PITCH / 2 * 0.98, LEAD_H, -0.47); h.castShadow = true; g.add(h);
+        const k = new THREE.Mesh(new THREE.CylinderGeometry(LEAD_R, LEAD_R, PITCH / 2 - 0.12, 8), leadM); k.rotation.z = Math.PI / 2; k.position.set(s * (PITCH / 4 + 0.06), LEAD_H, -0.94); g.add(k);
+        const c = new THREE.Mesh(new THREE.SphereGeometry(LEAD_R, 8, 6), leadM); c.position.set(s * PITCH / 2, LEAD_H, 0); g.add(c);
+      }
+      // 光ったときのにじみ（足し算で明るくする）
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: col, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false }));
+      glow.position.set(0, 0.4, -1.3); glow.scale.set(2.4, 2.4, 1); g.add(glow);
+      const spill = new THREE.Mesh(burnG, new THREE.MeshBasicMaterial({ map: glowTex, color: col, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      spill.position.set(0, 0.04, -1.3); spill.scale.set(3.2, 1, 3.2); g.add(spill);
+      return { g, bodyM, glow, spill, on: 0, target: 0, start: -1, smoke: false };
+    });
+    // ブリッジ（同じLEDの2本の足がはんだでつながる）
+    const bridgeG = new THREE.SphereGeometry(1, 24, 12);
+    const bridges = LED_POS.map(([x, z]) => { const m = new THREE.Mesh(bridgeG, solderM.good); m.position.set(x, 0.07, z); m.scale.set(0.62, 0.12, 0.2); m.visible = false; m.castShadow = true; scene.add(m); return m; });
+
+    // はんだの山の形（量 v と出来で形を変える）
+    function jointGeo(j) {
+      const v = Math.min(j.v, 2.8), R = j.R;
+      const cold = j.lookDull;
+      let Rb = R * (0.5 + 0.5 * Math.min(v, 1)) + Math.max(0, v - 1.3) * 0.4;
+      let Ht = 0.04 + 0.2 * Math.min(v, 1.2) + Math.max(0, v - 1.2) * 0.12;
+      let b = clamp((v - 1.1) / 0.6, 0, 1); // 0: 富士山型（くぼんだ斜面） 1: 丸く盛り上がる
+      if (cold) { b = Math.max(b, 0.85); Rb *= 0.82; Ht *= 1.1; }
+      const NR = 10, NS = 36, pos = [], idx = [], seed = j.seed;
+      for (let i = 0; i <= NR; i++) {
+        const tt = i / NR, y = 0.03 + tt * Ht;
+        const f = (1 - tt) ** 1.8 * (1 - b) + Math.sqrt(Math.max(0, 1 - tt * tt)) * b;
+        for (let s = 0; s < NS; s++) {
+          const a = s / NS * Math.PI * 2;
+          let r = LEAD_R + 0.008 + (Rb - LEAD_R) * f;
+          if (cold) r *= 1 + 0.12 * Math.sin(a * 3 + seed) * Math.sin(tt * 6 + seed) + 0.06 * Math.sin(a * 7 + seed * 2) * (1 - tt);
+          pos.push(Math.cos(a) * r, y, Math.sin(a) * r);
+        }
+      }
+      pos.push(0, 0.03 + Ht + 0.02, 0);
+      const top = (NR + 1) * NS;
+      for (let i = 0; i < NR; i++) for (let s = 0; s < NS; s++) {
+        const a = i * NS + s, b2 = i * NS + (s + 1) % NS, c = a + NS, d = b2 + NS;
+        idx.push(a, c, b2, b2, c, d);
+      }
+      for (let s = 0; s < NS; s++) idx.push(NR * NS + s, top, NR * NS + (s + 1) % NS);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+      return { geo, Ht, Rb };
+    }
+
+    // ---------- 道具（こて・はんだ） ----------
+    const ironDir = new THREE.Vector3(1.15, 1.0, 0.95).normalize();
+    const wireDir = new THREE.Vector3(-1.0, 0.9, 1.1).normalize();
+    const UP = new THREE.Vector3(0, 1, 0);
+    const iron = { name: 'iron', g: new THREE.Group(), x: 3, z: 2.6, y: 1, tx: 3, tz: 2.6, pressed: false, held: null, ball: 0, contact: false, on: null };
+    const wire = { name: 'wire', g: new THREE.Group(), x: -3, z: 2.7, y: 1, tx: -3, tz: 2.7, pressed: false, held: null, contact: false, on: null };
+    {
+      // こて: 先（めっき）→ ヒーター（ステンレス）→ つば → 握り（ゴム）→ コード
+      const inner = new THREE.Group(); inner.quaternion.setFromUnitVectors(UP, ironDir); iron.g.add(inner);
+      const add = (geo, m, y) => { const o = new THREE.Mesh(geo, m); o.position.y = y; o.castShadow = true; inner.add(o); return o; };
+      iron.tipM = mat('#c8ccd0', 0.25, 1, { emissive: '#ff4010', emissiveIntensity: 0 });
+      add(new THREE.CylinderGeometry(0.11, 0.015, 0.7, 20), iron.tipM, 0.35);
+      add(new THREE.CylinderGeometry(0.17, 0.12, 0.5, 20), mat('#b07a4a', 0.35, 1), 0.92);
+      add(new THREE.CylinderGeometry(0.16, 0.16, 5.6, 20), mat('#d4d8dc', 0.2, 1), 3.9);
+      add(new THREE.CylinderGeometry(0.32, 0.24, 0.6, 24), mat('#c4c8cc', 0.3, 1), 6.9);
+      const grip = mat('#3f6fc0', 0.6);
+      add(new THREE.CapsuleGeometry(0.42, 6.5, 8, 24), grip, 10.6);
+      const ringM = mat('#24448a', 0.8); for (let k = 0; k < 8; k++) add(new THREE.TorusGeometry(0.43, 0.045, 8, 24), ringM, 8.0 + k * 0.35).rotation.x = Math.PI / 2;
+      add(new THREE.CylinderGeometry(0.2, 0.2, 14, 12), mat('#202020', 0.6), 20.5);
+      iron.ballMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), solderM.good); iron.ballMesh.visible = false; iron.ballMesh.castShadow = true; iron.g.add(iron.ballMesh);
+      scene.add(iron.g);
+    }
+    {
+      // はんだ（針金）: 先から斜め後ろへゆるく曲がってリールへ
+      const pts = []; for (let i = 0; i <= 24; i++) { const s = i / 24 * 26; pts.push(new THREE.Vector3(0, s, Math.sin(s / 26 * Math.PI) * 1.4 + (s * s) * 0.004)); }
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 80, 0.065, 10), mat('#c9cdd2', 0.32, 1));
+      tube.castShadow = true;
+      const inner = new THREE.Group(); inner.quaternion.setFromUnitVectors(UP, wireDir); inner.add(tube); wire.g.add(inner);
+      const cap = new THREE.Mesh(new THREE.CircleGeometry(0.065, 10), mat('#e0e4e8', 0.2, 1)); cap.rotation.x = Math.PI / 2; inner.add(cap);
+      scene.add(wire.g);
+    }
+    const tools = [iron, wire];
+    // 机の小物: こて台・スポンジ・はんだのリール・抵抗
+    {
+      const st = new THREE.Group(); st.position.set(14, -0.17, -4); scene.add(st);
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.4, 0.6, 32), mat('#3a3a3a', 0.5, 0.4)); base.position.y = 0.3; base.castShadow = base.receiveShadow = true; st.add(base);
+      const sponge = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.45, 2.2), mat('#e6c440', 0.95)); sponge.position.set(0, 0.8, 0); sponge.castShadow = true; st.add(sponge);
+      const pts = []; for (let i = 0; i <= 200; i++) { const a = i / 200 * Math.PI * 2 * 9; const rr = 0.6 + i / 200 * 0.5; pts.push(new THREE.Vector3(Math.cos(a) * rr, 1 + i / 200 * 4, Math.sin(a) * rr)); }
+      const coil = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 400, 0.06, 6), mat('#c8ccd0', 0.3, 1)); coil.position.set(-1.2, 0, -1.2); coil.rotation.z = 0.45; coil.castShadow = true; st.add(coil);
+      const reel = new THREE.Group(); reel.position.set(-15, -0.17, -5); reel.scale.setScalar(0.8); scene.add(reel);
+      const spool = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 1.8, 32), mat('#c4c8cc', 0.35, 1)); spool.position.y = 0.9; spool.castShadow = true; reel.add(spool);
+      for (const y of [0.05, 1.75]) { const f = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.3, 0.12, 32), mat('#d8402a', 0.5)); f.position.y = y; f.castShadow = true; reel.add(f); }
+      const resM = mat('#d9c39a', 0.6), band = ['#8a4a20', '#111', '#e02020', '#d4a020'];
+      for (let k = 0; k < 3; k++) {
+        const r = new THREE.Group(); r.position.set(-8.5 + k * 1.2, 0.1, 4 + k * 0.6); r.rotation.y = 0.3 + k * 0.5; scene.add(r);
+        const b = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 0.6, 6, 12), resM); b.rotation.z = Math.PI / 2; b.castShadow = true; r.add(b);
+        band.forEach((c, i) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.235, 0.235, 0.06, 12), mat(c, 0.6)); m.rotation.z = Math.PI / 2; m.position.x = -0.25 + i * 0.15; r.add(m); });
+        const w = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 3, 6), leadM); w.rotation.z = Math.PI / 2; w.castShadow = true; r.add(w);
+      }
+    }
+
+    // ---------- 煙（フラックス）と火花 ----------
+    const smokePool = [];
+    // 煙の模様: ぼかした小さな塊をいくつも重ねた雲（1枚の丸だと玉に見えるので、形の違うものを4種類）
+    const smokeTex = Array.from({ length: 4 }, () => canvasTex(128, 128, (g, w) => {
+      for (let k = 0; k < 14; k++) {
+        const a = Math.random() * 6.28, r = Math.random() * w * 0.2, x = w / 2 + Math.cos(a) * r, y = w / 2 + Math.sin(a) * r, R = w * (0.1 + Math.random() * 0.16);
+        const gr = g.createRadialGradient(x, y, 0, x, y, R);
+        for (let i = 0; i <= 8; i++) gr.addColorStop(i / 8, `rgba(255,255,255,${(0.34 * Math.exp(-((i / 8) ** 2) * 4) * (1 - i / 8)).toFixed(3)})`);
+        g.fillStyle = gr; g.fillRect(0, 0, w, w);
+      }
+      g.globalCompositeOperation = 'destination-in';
+      const m = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); m.addColorStop(0, '#fff'); m.addColorStop(0.6, 'rgba(255,255,255,.8)'); m.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = m; g.fillRect(0, 0, w, w);
+    }));
+    for (let i = 0; i < 80; i++) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex[i % 4], transparent: true, depthWrite: false, depthTest: false, toneMapped: false, fog: false, opacity: 0, color: '#f2f0ea' }));
+      s.visible = false; s.renderOrder = 5; scene.add(s); smokePool.push({ s, life: 0 });
+    }
+    function smoke(x, y, z, size, op, life, color = '#f2f0ea', vx = 0, vy = 1.2, vz = 0) {
+      const p = smokePool.find(q => q.life <= 0); if (!p) return;
+      Object.assign(p, { x, y, z, vx, vy, vz, size, op, life, max: life, spin: rnd(-0.6, 0.6) });
+      p.s.material.rotation = rnd(0, 6.28); p.s.material.color.set(color); p.s.visible = true;
+    }
+    const sparkG = new THREE.SphereGeometry(1, 6, 4), sparkM = new THREE.MeshBasicMaterial({ color: '#ffb050', toneMapped: false });
+    const SPARKS = 40, sparks = new THREE.InstancedMesh(sparkG, sparkM, SPARKS); sparks.frustumCulled = false; sparks.count = 0; scene.add(sparks);
+    const sparkData = Array.from({ length: SPARKS }, () => ({ life: 0 }));
+    function spark(x, y, z, n) {
+      for (let k = 0; k < n; k++) { const d = sparkData.find(q => q.life <= 0); if (!d) return; const a = rnd(0, 6.28); Object.assign(d, { x, y, z, vx: Math.cos(a) * rnd(2, 6), vy: rnd(2, 6), vz: Math.sin(a) * rnd(2, 6), life: rnd(0.15, 0.35), size: rnd(0.025, 0.045) }); }
+    }
+    const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3();
+
+    // ---------- 状態 ----------
+    let state = 'ready', clock = 0, checkT = 0, score = 0, quality = 0, timeUsed = 0, doneWait = 0;
+    const controls = document.getElementById('controls'), resultEl = document.getElementById('result');
+    const hintI = document.getElementById('hintI'), hintW = document.getElementById('hintW'), timeFill = document.querySelector('#timebar i'), timeBar = document.getElementById('timebar');
+    const SIZES = [0.27, 0.36, 0.3, 0.34, 0.28];
+
+    function reset() {
+      state = 'ready'; clock = 0; checkT = 0; score = 0; doneWait = 0;
+      const sizes = SIZES.slice().sort(() => Math.random() - 0.5);
+      for (const j of joints) {
+        Object.assign(j, { R: sizes[j.led], h: 0, v: 0, burn: 0, flowT: 0, coldV: 0, dryV: 0, spike: false, bridged: false, wasMolten: false, lookDull: false, key: '', seed: rnd(0, 100), score: 0, melting: false });
+        j.pad.scale.set(j.R, 1, j.R); j.pad.material.emissive.set('#ff5a14'); j.pad.material.emissiveIntensity = 0;
+        j.burnMesh.material.opacity = 0; j.spikeMesh.visible = false; j.mesh.visible = false;
+      }
+      bridges.forEach(b => b.visible = false);
+      for (const l of leds) { l.on = 0; l.target = 0; l.start = -1; l.smoke = false; }
+      Object.assign(iron, { x: 3.0, z: 2.75, tx: 3.0, tz: 2.75, y: 1, pressed: false, held: null, ball: 0, on: null, contact: false, used: false });
+      Object.assign(wire, { x: -3.0, z: 2.75, tx: -3.0, tz: 2.75, y: 1, pressed: false, held: null, on: null, contact: false, used: false });
+      pointers.clear(); keyPress = false;
+      for (const p of smokePool) { p.life = 0; p.s.visible = false; }
+      resultEl.style.display = 'none';
+      drawBoard();
+      renderControls();
+    }
+
+    // ---------- 入力 ----------
+    const pointers = new Map(); // pointerId → 道具
+    const keys = new Set(); let keyPress = false;
+    const ray = new THREE.Raycaster(), _ndc = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.06), _hit = new THREE.Vector3();
+    const FINGER = 56; // スマホは指で隠れないよう、道具の先を指より上に出す
+    function screenToBoard(cx, cy, touch) {
+      const r = renderer.domElement.getBoundingClientRect();
+      _ndc.set((cx - r.left) / r.width * 2 - 1, -((cy - r.top - (touch ? FINGER : 0)) / r.height) * 2 + 1);
+      ray.setFromCamera(_ndc, camera);
+      if (!ray.ray.intersectPlane(plane, _hit)) return null;
+      return { x: clamp(_hit.x, BX0 - 1.5, BX1 + 1.5), z: clamp(_hit.z, BZ0 - 1, BZ1 + 1.2) };
+    }
+    const _sp = new THREE.Vector3();
+    function toScreen(x, y, z) { _sp.set(x, y, z).project(camera); const r = renderer.domElement.getBoundingClientRect(); return { x: (_sp.x + 1) / 2 * r.width + r.left, y: (1 - _sp.y) / 2 * r.height + r.top }; }
+    function begin() { if (state === 'ready') { state = 'play'; clock = 0; } }
+    const canvas = renderer.domElement;
+    canvas.addEventListener('pointerdown', e => {
+      if (state !== 'ready' && state !== 'play') return;
+      const touch = e.pointerType !== 'mouse';
+      let tool;
+      if (!touch) tool = iron; // マウスはこて、はんだはキーボード
+      else {
+        const free = tools.filter(tl => tl.held === null);
+        if (!free.length) return;
+        // 指に近い方の道具をつかむ
+        let best = Infinity;
+        for (const tl of free) { const s = toScreen(tl.x, 0.06, tl.z); const d = Math.hypot(s.x - e.clientX, s.y + FINGER - e.clientY); if (d < best) { best = d; tool = tl; } }
+      }
+      e.preventDefault();
+      try { canvas.setPointerCapture(e.pointerId); } catch {}
+      pointers.set(e.pointerId, { tool, touch });
+      tool.held = e.pointerId; tool.pressed = true; tool.used = true;
+      const p = screenToBoard(e.clientX, e.clientY, touch); if (p) { tool.tx = p.x; tool.tz = p.z; if (touch) { tool.x = p.x; tool.z = p.z; } }
+      begin();
+    });
+    canvas.addEventListener('pointermove', e => {
+      const pt = pointers.get(e.pointerId);
+      if (pt) { const p = screenToBoard(e.clientX, e.clientY, pt.touch); if (p) { pt.tool.tx = p.x; pt.tool.tz = p.z; } return; }
+      // マウスは押していなくても、こてが付いてくる（浮いたまま）
+      if (e.pointerType === 'mouse' && (state === 'ready' || state === 'play')) { const p = screenToBoard(e.clientX, e.clientY, false); if (p) { iron.tx = p.x; iron.tz = p.z; } }
+    });
+    const end = e => { const pt = pointers.get(e.pointerId); if (!pt) return; pointers.delete(e.pointerId); pt.tool.held = null; pt.tool.pressed = false; };
+    canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end); canvas.addEventListener('lostpointercapture', end);
+    const KEYMAP = { ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0], ArrowUp: [0, -1], KeyW: [0, -1], ArrowDown: [0, 1], KeyS: [0, 1] };
+    addEventListener('keydown', e => {
+      if (state !== 'ready' && state !== 'play') return;
+      if (e.target.closest?.('select, input')) return;
+      if (KEYMAP[e.code] || e.code === 'Space') {
+        e.preventDefault(); keys.add(e.code); wire.used = true;
+        if (e.code === 'Space') keyPress = true;
+        begin();
+      }
+    });
+    addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Space') keyPress = false; });
+    addEventListener('blur', () => { keys.clear(); keyPress = false; });
+
+    // ---------- 1刻みの計算 ----------
+    const HEAT_READY = 1, MELT = 0.55, BURN_AT = 3.0;
+    function updateTool(tl, dt) {
+      // 先は指（マウス）にすぐ付いてくる
+      const k = 1 - Math.exp(-dt * 40);
+      tl.x += (tl.tx - tl.x) * k; tl.z += (tl.tz - tl.z) * k;
+      const down = tl === wire ? (tl.pressed || keyPress) : tl.pressed;
+      const ty = down ? 0.06 : (tl === iron ? 0.95 : 0.75);
+      tl.y += (ty - tl.y) * (1 - Math.exp(-dt * 30));
+      tl.contact = down && tl.y < 0.2;
+      // 当たっているランド（いちばん近いもの）
+      tl.on = null;
+      if (tl.contact) { let best = Infinity; for (const j of joints) { const d = Math.hypot(tl.x - j.x, tl.z - j.z); if (d < j.R * 1.3 + 0.06 && d < best) { best = d; tl.on = j; } } }
+    }
+    function step(dt) {
+      if (state === 'play') clock += dt;
+      // キーボードではんだを動かす
+      let kx = 0, kz = 0; for (const c of keys) { const m = KEYMAP[c]; if (m) { kx += m[0]; kz += m[1]; } }
+      if (kx || kz) { const n = Math.hypot(kx, kz), sp = 4.2; wire.tx = clamp(wire.tx + kx / n * sp * dt, BX0 - 1.5, BX1 + 1.5); wire.tz = clamp(wire.tz + kz / n * sp * dt, BZ0 - 1, BZ1 + 1.2); }
+      const playing = state === 'play' || state === 'ready';
+      const prevIronOn = iron.on, prevWireOn = wire.on;
+      if (playing) { updateTool(iron, dt); updateTool(wire, dt); }
+      else {
+        // 確認中・結果では道具を基板の外へよける
+        iron.contact = wire.contact = false; iron.on = wire.on = null;
+        const k = 1 - Math.exp(-dt * 4);
+        iron.x += (6.5 - iron.x) * k; iron.z += (4.5 - iron.z) * k; iron.y += (1.5 - iron.y) * k;
+        wire.x += (-6.5 - wire.x) * k; wire.z += (4.5 - wire.z) * k; wire.y += (1.2 - wire.y) * k;
+      }
+      if (iron.on && iron.on !== prevIronOn) sTouch();
+      let melt = 0;
+      for (const j of joints) {
+        const ironOn = iron.on === j, wireOn = wire.on === j;
+        const sc = 0.32 / j.R;
+        if (ironOn) {
+          // 温まるまでは速く、そのあとはゆっくり上がる（当てすぎると焦げる）
+          j.h += (j.h < HEAT_READY ? 1.7 * Math.pow(sc, 1.3) : 0.6) * dt;
+          if (j.v > 0.02) j.flowT += dt;
+          if (j.h > BURN_AT) { j.burn += (j.h - BURN_AT + 0.4) * 1.2 * dt; if (Math.random() < dt * 8) smoke(j.x + rnd(-0.2, 0.2), 0.1, j.z + rnd(-0.2, 0.2), rnd(0.5, 0.8), 0.35, 1.4, '#cfc6b4'); }
+          // こて先の玉は、温まったランドに当てると流れ込む（ただしフラックスが焼けて、くすんだ仕上がりになる）
+          if (iron.ball > 0 && j.h > MELT) { const m = Math.min(iron.ball, 2.5 * dt); iron.ball -= m; j.v += m; j.dryV += m; }
+        } else {
+          j.h = Math.max(0, j.h - 2.2 * dt);
+        }
+        if (wireOn) {
+          if (j.h >= MELT) {
+            if (!j.melting) sJu();
+            j.melting = true;
+            const m = 0.85 * sc * sc * dt;
+            j.v += m; melt += 1;
+            if (j.h < HEAT_READY) j.coldV += m;
+            if (Math.random() < dt * 22) smoke(j.x + rnd(-0.1, 0.1), 0.3, j.z + rnd(-0.1, 0.1), rnd(0.9, 1.4), 1.0, rnd(1.4, 2.0), '#f6f4ee', rnd(-0.15, 0.15), rnd(1.4, 2.0), rnd(-0.1, 0.1));
+          } else {
+            j.melting = false;
+            if (wire.on !== prevWireOn) sTap();
+            // 固まりかけのはんだに針金を当てたまま → ツノが立つ
+            if (j.wasMolten && j.v > 0.1) j.spike = true;
+          }
+        } else j.melting = false;
+        j.wasMolten = j.h >= MELT && j.v > 0.05;
+      }
+      // はんだをこて先にだけ当てると、こて先に玉ができる
+      if (wire.contact) {
+        const d = Math.hypot(wire.x - iron.x, wire.z - iron.z, (wire.y - iron.y) * 0.7);
+        const feedingJoint = wire.on && wire.on.h >= MELT;
+        if (!feedingJoint && d < 0.38 && iron.ball < 1.1) {
+          iron.ball += 0.9 * dt; melt += 1.3;
+          if (Math.random() < dt * 22) smoke(iron.x + rnd(-0.1, 0.1), iron.y + 0.25, iron.z, rnd(1.0, 1.5), 0.9, rnd(1.4, 2.0), '#f0ede4');
+        }
+      }
+      // ブリッジ（隣の足と、はんだの裾が触れたら）
+      LED_POS.forEach((_, i) => {
+        const a = joints[i * 2], b = joints[i * 2 + 1];
+        if (a.bridged || (a.v < 0.05 && b.v < 0.05)) return;
+        const ra = baseR(a), rb = baseR(b);
+        if (ra + rb > PITCH - 0.02) {
+          a.bridged = b.bridged = true; bridges[i].visible = true;
+          sBridge(); spark(LED_POS[i][0], 0.15, LED_POS[i][1], 10);
+          smoke(LED_POS[i][0], 0.2, LED_POS[i][1], 0.6, 0.5, 1.2, '#d8d4cc');
+        }
+      });
+      sizzleK += ((melt ? 0.06 + Math.min(melt, 2) * 0.05 : 0) - sizzleK) * (1 - Math.exp(-dt * 18));
+      // 粒の更新
+      for (const p of smokePool) {
+        if (p.life <= 0) continue;
+        p.life -= dt; if (p.life <= 0) { p.s.visible = false; continue; }
+        p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+        const k = 1 - p.life / p.max;
+        p.vx *= 1 - dt * 0.8; p.vy *= 1 - dt * 0.5; p.vz *= 1 - dt * 0.8;
+        p.s.position.set(p.x, p.y, p.z); p.s.scale.setScalar(p.size * (0.5 + 1.5 * Math.sqrt(k)));
+        p.s.material.rotation += p.spin * dt;
+        p.s.material.opacity = p.op * Math.min(1, k / 0.15) * (1 - k) ** 1.5;
+      }
+      for (const d of sparkData) { if (d.life <= 0) continue; d.life -= dt; d.vy -= 30 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt; if (d.y < 0) { d.y = 0; d.vy *= -0.3; } }
+      // 終わりの判定: 全部の穴にはんだが入り、どちらの道具も穴から離れて、はんだが固まったら
+      if (state === 'play') {
+        const all = joints.every(j => j.v >= 0.08 && j.h < MELT);
+        doneWait = all && !iron.on && !wire.on ? doneWait + dt : 0;
+        if (doneWait > 0.7 || clock > TIME_MAX) startCheck();
+      }
+      if (state === 'check') {
+        checkT += dt;
+        leds.forEach((l, i) => {
+          if (l.start < 0 && checkT > 0.6 + i * 0.45) { l.start = checkT; if (l.target > 0) sLed(i); else { sPuff(); l.smoke = bridges[i].visible; } }
+        });
+        if (checkT > 0.6 + 5 * 0.45 + 0.9) finish();
+      }
+      for (const l of leds) {
+        if (l.start >= 0) l.on = Math.min(l.target, l.on + dt / 0.45 * Math.max(0.05, l.target)); // 0.45秒かけてなめらかに点けて、そのまま
+        if (l.smoke && Math.random() < dt * 6) smoke(l.g.position.x + rnd(-0.2, 0.2), 0.45, l.g.position.z - rnd(0, 1.2), rnd(0.6, 1.0), 0.4, rnd(1.6, 2.4), '#bdb8ae', 0, 0.9, 0);
+      }
+    }
+    // はんだの裾の半径
+    const baseR = j => j.v < 0.05 ? 0 : j.R * (0.5 + 0.5 * Math.min(j.v, 1)) + Math.max(0, j.v - 1.3) * 0.4;
+
+    // 1か所の点数（10点満点）
+    function jointScore(j) {
+      if (j.v < 0.08 || j.bridged) return 0;
+      let s = 10;
+      if (j.v < 0.7) s -= 8 * (0.7 - j.v) / 0.62;
+      if (j.v > 1.4) s -= Math.min(5, (j.v - 1.4) * 6);
+      if (isCold(j)) s -= 5; else if (j.flowT < 0.35) s -= 2;
+      if (j.dryV > j.v * 0.35) s -= 4;
+      if (j.spike) s -= 3;
+      if (j.burn > 0.5) s -= 4;
+      return clamp(s, 0, 10);
+    }
+    const isCold = j => j.coldV > j.v * 0.3 || j.flowT < 0.15;
+    function startCheck() {
+      state = 'check'; checkT = 0; timeUsed = clock;
+      for (const p of pointers.values()) { p.tool.held = null; p.tool.pressed = false; }
+      pointers.clear(); keyPress = false; keys.clear();
+      quality = 0;
+      for (const j of joints) { j.score = jointScore(j); quality += j.score; }
+      quality = Math.round(quality);
+      const bonus = Math.round(30 * clamp((TIME_FULL - timeUsed) / (TIME_FULL - 20), 0, 1) * quality / 100);
+      score = quality + bonus;
+      leds.forEach((l, i) => {
+        const a = joints[i * 2], b = joints[i * 2 + 1];
+        const ok = a.v >= 0.08 && b.v >= 0.08 && !a.bridged;
+        l.target = ok ? clamp(0.12 + 0.88 * ((a.score + b.score) / 20) ** 1.3, 0, 1) : 0;
+      });
+      hintI.style.display = hintW.style.display = 'none';
+    }
+
+    // ---------- 画面サイズとカメラ ----------
+    const layout = { w: 1, h: 1, H: 1, band: 0, reserve: 160 };
+    function resize() {
+      const w = stage.clientWidth, H = stage.clientHeight;
+      renderer.setSize(w, H, false);
+      const btnH = state === 'result' ? Math.min(72, Math.max(56, 0.08 * Math.min(innerWidth, innerHeight))) + 12 : 0;
+      const reserve = Math.max(0, stage.getBoundingClientRect().bottom - controls.getBoundingClientRect().bottom) + btnH;
+      stage.style.setProperty('--reserve', reserve + 'px');
+      const h = Math.max(140, H - reserve);
+      Object.assign(layout, { w, h, H, reserve });
+    }
+    const CAM_DIR = new THREE.Vector3(0, Math.sin(THREE.MathUtils.degToRad(60)), Math.cos(THREE.MathUtils.degToRad(60)));
+    const CAM_C = new THREE.Vector3(0, 0, 0.05);
+    function placeCamera() {
+      const { w, h, H } = layout;
+      const res = state === 'result' || state === 'check';
+      const wideLow = res && h <= 520 && w / h >= 4 / 3;
+      // 結果は上に文字の帯を空けて、その下に基板を置く
+      const band = res && !wideLow ? Math.round(clamp(h * 0.24, 90, 220)) : (state === 'play' || state === 'ready') ? 26 : 0;
+      if (band !== layout.band) { layout.band = band; stage.style.setProperty('--band', band + 'px'); }
+      const fh = Math.max(100, h - band);
+      camera.aspect = w / fh;
+      camera.setViewOffset(w, fh, wideLow ? -Math.round(w * 0.17) : 0, -band, w, H);
+      // 大事な範囲（半分の幅・奥行き）: 基板とまわりに少し
+      const hw = 4.75, hh = 3.85;
+      const vf = THREE.MathUtils.degToRad(camera.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
+      const effW = wideLow ? hw / 0.66 : hw;
+      const d = Math.max(effW / Math.tan(hf / 2), hh / Math.tan(vf / 2)) + 0.6;
+      camera.position.copy(CAM_C).addScaledVector(CAM_DIR, d);
+      camera.lookAt(CAM_C);
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld();
+    }
+
+    // ---------- 画面 ----------
+    function renderControls() {
+      controls.innerHTML = '';
+      controls.classList.toggle('hide', state !== 'result');
+      if (state !== 'result') return;
+      const b = document.createElement('button');
+      b.className = 'go'; b.textContent = t('again');
+      b.addEventListener('click', start);
+      controls.append(b);
+      const a = document.createElement('a');
+      a.className = 'post'; a.textContent = t('post');
+      const sec = timeUsed.toFixed(1);
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(score, sec))}&url=${encodeURIComponent(SHARE_URL)}`;
+      const coarse = matchMedia('(pointer: coarse)').matches;
+      if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
+      // スマホは画像ごと共有シートへ。PCは画像を保存してから投稿画面を開く
+      a.addEventListener('click', e => {
+        const text = t('share')(score, sec);
+        if (coarse && navigator.share) {
+          e.preventDefault();
+          const file = shareFile();
+          const data = file && navigator.canShare?.({ files: [file] }) ? { files: [file], text: `${text}\n${SHARE_URL}` } : { text: `${text}\n${SHARE_URL}` };
+          navigator.share(data).catch(() => {});
+          return;
+        }
+        const img = resultImage();
+        if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'handa-zuke.png'; d.click(); }
+      });
+      controls.append(a);
+    }
+    // 結果画像: 光ったLEDの基板に点数を重ねる
+    let snap = null, shareCache = null, needSnap = false;
+    function takeSnap() {
+      const src = renderer.domElement;
+      const c = toScreen(0, 0, -0.2), r = src.getBoundingClientRect(), sx0 = (c.x - r.left) * src.width / r.width, sy0 = (c.y - r.top) * src.height / r.height;
+      const e1 = toScreen(BX0 - 0.3, 0, 0), e2 = toScreen(BX1 + 0.3, 0, 0);
+      let side = Math.abs(e2.x - e1.x) * src.width / r.width;
+      side = Math.min(side, src.width, src.height);
+      const sx = clamp(sx0 - side / 2, 0, src.width - side), sy = clamp(sy0 - side * 0.46, 0, src.height - side);
+      snap = document.createElement('canvas'); snap.width = snap.height = 1080;
+      snap.getContext('2d').drawImage(src, sx, sy, side, side, 0, 0, 1080, 1080);
+      shareCache = null;
+    }
+    function resultImage() {
+      if (!snap) return null;
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      g.drawImage(snap, 0, 0);
+      let gr = g.createLinearGradient(0, 0, 0, 260); gr.addColorStop(0, 'rgba(0,0,0,.45)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 1080, 260);
+      gr = g.createLinearGradient(0, 720, 0, 1080); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.5)'); g.fillStyle = gr; g.fillRect(0, 720, 1080, 360);
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.lineJoin = 'round';
+      const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
+      const text = (str, y, px, max, col = '#fff') => {
+        g.font = font(px);
+        const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
+        g.lineWidth = px * .16; g.strokeStyle = '#123a18'; g.strokeText(str, 540, y); g.fillStyle = col; g.fillText(str, 540, y);
+      };
+      text(t('pts')(score), 940, 170, 960);
+      text(t('sec')(timeUsed.toFixed(1)), 1035, 60, 700, '#d8f5c8');
+      text(t('title'), 90, 56, 900);
+      return c;
+    }
+    function prepareShare() {
+      if (!snap) return;
+      const key = lang;
+      if (shareCache?.key === key) return;
+      shareCache = { key, file: null };
+      resultImage().toBlob(b => { if (b && shareCache?.key === key) shareCache.file = new File([b], 'handa-zuke.png', { type: 'image/png' }); }, 'image/png');
+    }
+    const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
+    function showResult() {
+      resultEl.children[0].textContent = t('pts')(score);
+      resultEl.children[1].textContent = t('sec')(timeUsed.toFixed(1));
+    }
+    function start() { reset(); resize(); }
+    function finish() {
+      state = 'result';
+      showResult();
+      resultEl.style.display = 'flex';
+      snap = null; needSnap = true;
+      renderControls(); resize();
+    }
+
+    // ---------- 描画 ----------
+    const _iq = new THREE.Quaternion();
+    let lastHint = '', lastTime = '';
+    function render(dt) {
+      // はんだの山（形が変わった時だけ作り直す）
+      for (const j of joints) {
+        const molten = j.h >= MELT && j.v > 0.05;
+        j.lookDull = !molten && j.v > 0.05 && state !== 'ready' && (j.h < MELT) && (isCold(j) && j.h < 0.3 || j.dryV > j.v * 0.35);
+        const key = j.v < 0.03 ? '' : `${(Math.min(j.v, 2.8)).toFixed(2)}|${j.lookDull}`;
+        if (key !== j.key) {
+          j.key = key;
+          if (key) { const { geo, Ht } = jointGeo(j); j.mesh.geometry.dispose(); j.mesh.geometry = geo; j.Ht = Ht; j.mesh.visible = true; }
+          else j.mesh.visible = false;
+        }
+        const m = molten ? solderM.molten : j.lookDull ? solderM.dull : solderM.good;
+        j.mesh.material = m;
+        // 温まるとランドがじわっと赤らむ
+        const heat = clamp(j.h / HEAT_READY, 0, 1);
+        j.pad.material.emissiveIntensity = heat * 0.55 + (j.h > HEAT_READY ? 0.12 : 0);
+        j.burnMesh.material.opacity = clamp(j.burn, 0, 1) * 0.9;
+        const bs = j.R * 2.2 + clamp(j.burn, 0, 1.5) * 0.6; j.burnMesh.scale.set(bs, 1, bs);
+        if (j.spike && j.Ht) { j.spikeMesh.visible = true; j.spikeMesh.position.set(j.x - 0.07, 0.03 + j.Ht + 0.12, j.z + 0.07); j.spikeMesh.rotation.set(0.35, 0, 0.35); j.spikeMesh.material = m; }
+      }
+      LED_POS.forEach((_, i) => { if (bridges[i].visible) { const a = joints[i * 2], b = joints[i * 2 + 1]; bridges[i].material = (a.h >= MELT || b.h >= MELT) ? solderM.molten : solderM.good; } });
+      for (const l of leds) {
+        l.bodyM.emissiveIntensity = l.on * 3; l.glow.material.opacity = l.on; l.spill.material.opacity = l.on * 0.6;
+      }
+      // 道具
+      iron.g.position.set(iron.x, iron.y, iron.z);
+      wire.g.position.set(wire.x, wire.y, wire.z);
+      iron.tipM.emissiveIntensity = 0.12;
+      iron.ballMesh.visible = iron.ball > 0.02;
+      if (iron.ballMesh.visible) { const r = 0.08 + Math.cbrt(iron.ball) * 0.16; iron.ballMesh.scale.setScalar(r); iron.ballMesh.position.set(0, r * 0.6, 0); }
+      // はんだの音
+      if (sizzle) sizzle.gain.setTargetAtTime(sizzleK * (0.7 + Math.random() * 0.6), ac.currentTime, 0.02);
+      let n = 0;
+      for (const d of sparkData) { if (d.life <= 0) continue; _m.compose(_p.set(d.x, d.y, d.z), _q, _s.setScalar(d.size)); sparks.setMatrixAt(n++, _m); }
+      sparks.count = n; sparks.instanceMatrix.needsUpdate = true;
+      placeCamera();
+      // 時間のゲージ（値が変わった時だけ書く）
+      const tbShow = state === 'ready' || state === 'play' ? '' : 'none'; if (timeBar.style.display !== tbShow) timeBar.style.display = tbShow;
+      const tf = state === 'ready' ? 1 : clamp(1 - (state === 'play' ? clock : timeUsed) / TIME_FULL, 0, 1);
+      const ts = `scaleX(${tf.toFixed(3)})`; if (ts !== lastTime) { timeFill.style.transform = ts; lastTime = ts; }
+      // 最初の操作の案内（道具をつかむ指）
+      let hint = '';
+      if (state === 'ready' || state === 'play') {
+        const fine = !matchMedia('(pointer: coarse)').matches;
+        for (const [tl, el] of [[iron, hintI], [wire, hintW]]) {
+          const show = !tl.used && clock < 6;
+          hint += show ? '1' : '0';
+          if (!show) continue;
+          const s = toScreen(tl.x, 0.06, tl.z), r = stage.getBoundingClientRect();
+          el.style.left = (s.x - r.left).toFixed(0) + 'px'; el.style.top = (s.y - r.top + (fine ? 18 : FINGER - 12)).toFixed(0) + 'px';
+          if (!el.dataset.kind || el.dataset.kind !== (tl === wire && fine ? 'key' : 'finger')) {
+            el.dataset.kind = tl === wire && fine ? 'key' : 'finger';
+            el.innerHTML = el.dataset.kind === 'key' ? KEY_SVG : FINGER_SVG;
+          }
+        }
+      } else hint = '00';
+      if (hint !== lastHint) { hintI.style.display = hint[0] === '1' ? 'block' : 'none'; hintW.style.display = hint[1] === '1' ? 'block' : 'none'; lastHint = hint; }
+      renderer.render(scene, camera);
+      if (needSnap) { needSnap = false; takeSnap(); prepareShare(); }
+    }
+    const FINGER_SVG = '<svg viewBox="0 0 60 80"><circle cx="28" cy="8" r="7" fill="none" stroke="#fff" stroke-width="3" opacity=".9"/><path d="M24 58V20a4 4 0 0 1 8 0v20l1-4a4 4 0 0 1 7 1v4a4 4 0 0 1 7 1v12c0 9-5 16-14 16h-2c-6 0-9-3-11-7l-7-11a4 4 0 0 1 6-5z" fill="#fff" stroke="#203a20" stroke-width="2.5" stroke-linejoin="round"/></svg>';
+    const KEY_SVG = '<svg viewBox="0 0 90 70"><g fill="#fff" stroke="#203a20" stroke-width="2.5" stroke-linejoin="round"><rect x="33" y="4" width="24" height="20" rx="4"/><rect x="5" y="27" width="24" height="20" rx="4"/><rect x="33" y="27" width="24" height="20" rx="4"/><rect x="61" y="27" width="24" height="20" rx="4"/><rect x="12" y="51" width="66" height="15" rx="4"/></g><g fill="#203a20"><path d="M45 9l-6 8h12z"/><path d="M45 42l-6-8h12z"/><path d="M11 37l8-6v12z"/><path d="M79 37l-8-6v12z"/></g></svg>';
+
+    let last = performance.now(), acc = 0;
+    function loop(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      acc += dt;
+      while (acc >= STEP) { step(STEP); acc -= STEP; }
+      render(dt);
+      requestAnimationFrame(loop);
+    }
+
+    addEventListener('resize', resize);
+    resize();
+    reset();
+    applyLang();
+    // 最初の1回が重くならないように、全部の形を一度描いておく
+    {
+      for (const j of joints) { j.v = 1; j.mesh.visible = true; }
+      bridges.forEach(b => b.visible = true); iron.ballMesh.visible = true;
+      render(0.016); renderer.compile(scene, camera);
+      for (const j of joints) { j.v = 0; }
+      bridges.forEach(b => b.visible = false); iron.ballMesh.visible = false;
+      render(0.016);
+    }
+    // テスト用の窓口
+    window.__game = { joints, iron, wire, smokePool, get state() { return state; }, step, begin, startCheck, leds };
+    requestAnimationFrame(t0 => { last = t0; loop(t0); });
+  </script>
+  <!-- 結果画面の広告（../../ad.js の説明を参照） -->
+  <script src="../../ad.js" data-result="#result"></script>
+</body>
+</html>
