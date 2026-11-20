@@ -813,7 +813,7 @@ function reach(dz, dy, l1, l2, bendBack) {
 const J = human.j;
 function poseRiding(th, b) {
   // b: the body shift from the player (-1 back .. 1 forward). The hips slide on the seat and the back bends.
-  riderG.position.set(SEAT.x + b * 0.35, SEAT.y - Math.abs(b) * 0.08, 0); // matches the physics (leanReach)
+  riderG.position.set(SEAT.x + b * 0.35, SEAT.y - Math.abs(b) * 0.08 + (typeof hop !== 'undefined' ? Math.sin(Math.min(1, hop.kick / 0.25) * Math.PI) * 0.12 : 0), 0); // matches the physics (leanReach); springs up on a hop
   const lean = 0.3 + th * 0.8 + b * 0.95, back = th - lean; // back: how far the torso tips back in the world
   J.spine.rotation.set(lean, 0, 0);
   J.neck.rotation.set(back * 0.4, 0, 0); J.head.rotation.set(back * 0.5 + 0.05, 0, 0);
@@ -1017,7 +1017,7 @@ function createBikeSim(CANNON, P) {
 const DT = 1 / 120, COM = { x: 0.68, y: 0.4 }, RIDER_C = { x: 0.46, y: 1.0 }; // weight well forward and low, like a trials bike: the front stays down unless you ask
 const sim = createBikeSim(CANNON, { R, WB, COM, RIDER: RIDER_C, gravity: 9.8, mChassis: 62, mWheel: 7, mRider: 70, torqueMax: 115, power: 3800, vMax: 16, leanReach: 0.35, turnRate: 2.6, turnGain: 420, turnTorque: 1600, settleGain: 900, mu: 1.0, tyreK: 1.5e5, tyreBounce: 0.12, gripG: 100, dt: DT });
 const S = { x: 0, v: 0, ph: 0, b: 0, bt: 0, bcg: 0, gas: 0, far: 0 };
-let state = 'ready', playT = 0, crash = null, finalD = 0, stuckT = 0;
+let state = 'ready', playT = 0, crash = null, finalD = 0, stuckT = 0, hop = { min: 0, minT: 9, cool: 0, kick: 0 };
 function syncS() { S.x = sim.rear.position.x; S.v = sim.chassis.velocity.x; S.ph = sim.pitch(); S.far = Math.max(S.far, S.x); }
 function reset() {
   runSeed = Math.random() * 100;
@@ -1027,7 +1027,7 @@ function reset() {
   if (!sim.world.bodies.includes(sim.rider)) sim.world.addBody(sim.rider);
   sim.reset(0, 0);
   S.b = S.bt = S.bcg = S.gas = 0; S.far = 0; syncS();
-  state = 'ready'; playT = 0; crash = null; finalD = 0; stuckT = 0;
+  state = 'ready'; playT = 0; crash = null; finalD = 0; stuckT = 0; hop = { min: 0, minT: 9, cool: 0, kick: 0 };
   seatRider();
   for (const m of sparks) { m.userData.life = 0; m.position.y = -50; }
   for (const m of dusts) { m.userData.life = 0; m.position.y = -50; }
@@ -1042,6 +1042,20 @@ function step(dt) {
     S.bt = tgt;
     S.b += (S.bt - S.b) * (1 - Math.exp(-dt / 0.05)); // quick to respond
     S.bcg += (S.bt - S.bcg) * (1 - Math.exp(-dt / 0.25));
+    // bunny hop: weight thrown from the back to the front quickly, wheels on the ground -> the legs kick the bike up
+    hop.cool -= dt; hop.minT += dt; hop.kick = Math.max(0, hop.kick - dt);
+    if (S.bt <= hop.min || hop.minT > 0.4) { hop.min = S.bt; hop.minT = 0; }
+    if (state === 'play' && hop.cool <= 0 && hop.min < -0.45 && S.bt > 0.3 && hop.minT < 0.4) {
+      const onGround = [sim.rear, sim.front].some(w => w.position.y - R - H(w.position.x) < 0.06);
+      if (onGround) {
+        const k = THREE.MathUtils.clamp((S.bt - hop.min) / 1.6, 0.5, 1) * (1 - hop.minT / 0.8), dv = 2.7 * k;
+        for (const bd of sim.bodies) bd.velocity.y += dv;           // the push off the pegs lifts bike and rider together
+        sim.chassis.angularVelocity.z -= 0.3 * k;                   // the weight landing forward tips the nose down a touch
+        hop.cool = 0.6; hop.kick = 0.25; hop.min = S.bt;
+        tone('sine', 140, 70, 0.14, 0.35); noiseHit({ dur: 0.08, vol: 0.2, freq: 900 });
+        emitDust(V(S.x, H(S.x) + 0.05, 0), 4, 0.25, 0.6);
+      }
+    }
     const gas = state === 'play' ? Math.max(S.gas, keyGas) : 0;
     extendCourse(S.x + 220);
     sim.step(dt, { gas, brake: 0, hold: state === 'ready', lean: state === 'play' ? S.b : 0, leanCG: state === 'play' ? S.bcg : 0, rel: S.ph - Math.atan(slopeAt(S.x)) });
