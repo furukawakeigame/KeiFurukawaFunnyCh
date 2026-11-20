@@ -29,7 +29,7 @@
     * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
     html, body { margin: 0; height: 100%; }
     body {
-      background: #9cc6ea; color: #1d2a38;
+      background: #56707f; color: #1d2a38;
       font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif;
       display: flex; flex-direction: column; overflow: hidden;
     }
@@ -291,14 +291,13 @@
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 1.2;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     stage.prepend(renderer.domElement);
     const scene = new THREE.Scene();
-    const FOG = '#cfe3f2';
-    scene.fog = new THREE.Fog(FOG, 9, 32);
+    scene.background = new THREE.Color('#56707f');
     const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 120);
-    const hemi = new THREE.HemisphereLight('#d6ebff', '#8a7a62', 1.05);
+    const hemi = new THREE.HemisphereLight('#eef4ff', '#6a625c', 1.15);
     scene.add(hemi);
     const sun = new THREE.DirectionalLight('#ffe7c6', 2.5); sun.position.set(-2.2, 6, 4.5);
     sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.radius = 3; sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
@@ -311,72 +310,25 @@
 
     const WALL_Z = -0.6, WALL_H = 3.2;
 
-    // 空: 上は青、地平線は白っぽく
-    {
-      const m = new THREE.ShaderMaterial({
-        side: THREE.BackSide, depthWrite: false, fog: false,
-        uniforms: { top: { value: new THREE.Color('#5e9fe0') }, bot: { value: new THREE.Color(FOG) } },
-        vertexShader: 'varying vec3 vp; void main(){ vp = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-        fragmentShader: 'uniform vec3 top; uniform vec3 bot; varying vec3 vp; void main(){ float h = clamp(normalize(vp).y * 2.2, 0.0, 1.0); gl_FragColor = vec4(mix(bot, top, pow(h, 0.7)), 1.0); }',
-      });
-      const sky = new THREE.Mesh(new THREE.SphereGeometry(80, 32, 16), m); sky.renderOrder = -1; scene.add(sky);
-    }
 
     // テクスチャ
-    const brickTex = canvasTex(512, 256, (g, w, h) => {
-      g.fillStyle = '#cdbfae'; g.fillRect(0, 0, w, h);
-      const bh = 32, bw = 64;
-      for (let r = 0; r < h / bh; r++) for (let c = -1; c < w / bw + 1; c++) {
-        const x = c * bw + (r % 2 ? bw / 2 : 0), y = r * bh;
-        g.fillStyle = `hsl(${8 + Math.random() * 14},${45 + Math.random() * 15}%,${38 + Math.random() * 14}%)`; g.fillRect(x + 3, y + 3, bw - 6, bh - 6);
-        const gr = g.createLinearGradient(0, y, 0, y + bh); gr.addColorStop(0, 'rgba(255,255,255,.12)'); gr.addColorStop(1, 'rgba(0,0,0,.15)'); g.fillStyle = gr; g.fillRect(x + 3, y + 3, bw - 6, bh - 6);
-        for (let i = 0; i < 14; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,240,220'},${Math.random() * 0.12})`; g.fillRect(x + 3 + Math.random() * (bw - 8), y + 3 + Math.random() * (bh - 8), 2 + Math.random() * 4, 2 + Math.random() * 3); }
-      }
-    }, [5, 4]);
-    const stoneTex = canvasTex(512, 512, (g, w, h) => {
-      g.fillStyle = '#7d7469'; g.fillRect(0, 0, w, h);
-      const n = 4, s = w / n;
-      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-        g.fillStyle = `hsl(${30 + Math.random() * 15},${10 + Math.random() * 8}%,${62 + Math.random() * 12}%)`; g.fillRect(x * s + 4, y * s + 4, s - 8, s - 8);
-        for (let i = 0; i < 160; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '40,30,20' : '255,250,240'},${Math.random() * 0.08})`; g.beginPath(); g.arc(x * s + 4 + Math.random() * (s - 8), y * s + 4 + Math.random() * (s - 8), 1 + Math.random() * 5, 0, 7); g.fill(); }
-        const gr = g.createRadialGradient(x * s + s * 0.3, y * s + s * 0.3, 4, x * s + s / 2, y * s + s / 2, s * 0.75); gr.addColorStop(0, 'rgba(255,255,255,.1)'); gr.addColorStop(1, 'rgba(0,0,0,.12)'); g.fillStyle = gr; g.fillRect(x * s + 4, y * s + 4, s - 8, s - 8);
-      }
-    }, [4, 2.5]);
-    const grassTex = canvasTex(256, 256, (g, w, h) => {
-      g.fillStyle = '#5f8d3e'; g.fillRect(0, 0, w, h);
-      for (let i = 0; i < 2500; i++) { g.strokeStyle = `hsl(${85 + Math.random() * 25},45%,${28 + Math.random() * 25}%)`; g.lineWidth = 1; const x = Math.random() * w, y = Math.random() * h; g.beginPath(); g.moveTo(x, y); g.lineTo(x + rnd(-2, 2), y - rnd(3, 8)); g.stroke(); }
-    }, [30, 30]);
     const woodTex = canvasTex(256, 64, (g, w, h) => { g.fillStyle = '#a8743f'; g.fillRect(0, 0, w, h); for (let i = 0; i < 40; i++) { g.strokeStyle = `rgba(80,40,10,${0.1 + Math.random() * 0.25})`; g.lineWidth = 1 + Math.random() * 2; const y = Math.random() * h; g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(w * .3, y + rnd(-4, 4), w * .6, y + rnd(-4, 4), w, y); g.stroke(); } });
     const woodMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.75 });
     const darkWoodMat = new THREE.MeshStandardMaterial({ map: woodTex, color: '#8a6a50', roughness: 0.6 });
 
-    // 地面・壁・木
+    // 部屋: 落ち着いた色の壁と床だけ（白いお皿とかけらが目立つように、模様は入れない）
+    const plasterTex = canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#808080'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 3000; i++) { const v = 118 + Math.random() * 20; g.fillStyle = `rgba(${v},${v},${v},.5)`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+    }, [6, 6]);
+    plasterTex.colorSpace = THREE.NoColorSpace;
     {
-      const grass = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1 }));
-      grass.rotation.x = -Math.PI / 2; grass.position.y = -0.01; grass.receiveShadow = true; scene.add(grass);
-      const floor = new THREE.Mesh(new THREE.PlaneGeometry(10, 6), new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.85 }));
-      floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0, WALL_Z + 3); floor.receiveShadow = true; scene.add(floor);
-      const back = new THREE.Mesh(new THREE.BoxGeometry(10, WALL_H, 0.4), new THREE.MeshStandardMaterial({ map: brickTex, roughness: 0.9 }));
-      back.position.set(0, WALL_H / 2, WALL_Z - 0.2); shade(back); scene.add(back);
-      const cap = new THREE.Mesh(new THREE.BoxGeometry(10.2, 0.12, 0.55), mat('#d9d0c2', 0.8)); cap.position.set(0, WALL_H + 0.06, WALL_Z - 0.2); shade(cap); scene.add(cap);
-      const trunkM = mat('#6b4a30', 0.9), leafMs = ['#3f7a35', '#4d8a3c', '#356b2f'].map(c => mat(c, 0.95));
-      const ball = new THREE.IcosahedronGeometry(1, 1), trunkG = new THREE.CylinderGeometry(0.15, 0.22, 1, 8);
-      for (const [x, z, sc] of [[-4.5, -4, 1.3], [-1.5, -5.5, 1.6], [2.2, -4.5, 1.2], [5, -5, 1.5], [0.5, -8, 1.8]]) {
-        const g = new THREE.Group();
-        const tr = new THREE.Mesh(trunkG, trunkM); tr.scale.set(sc, 3 * sc, sc); tr.position.y = 1.5 * sc; g.add(tr);
-        for (let i = 0; i < 5; i++) { const b = new THREE.Mesh(ball, pick(leafMs)); b.scale.setScalar(sc * rnd(1.0, 1.5)); b.position.set(rnd(-0.9, 0.9) * sc, 3.2 * sc + rnd(0, 1.2) * sc, rnd(-0.6, 0.6) * sc); g.add(b); }
-        g.position.set(x, 0, z); shade(g); scene.add(g);
-      }
-      // 植木鉢（棚の大きさに合わせて置き直す）
-      var pots = [];
-      const potG = new THREE.LatheGeometry([[0, 0], [0.2, 0], [0.25, 0.34], [0.28, 0.36], [0.28, 0.41], [0.25, 0.41], [0, 0.39]].map(p => new THREE.Vector2(p[0], p[1])), 20);
-      const potM = mat('#c0653a', 0.85);
-      for (let k = 0; k < 2; k++) {
-        const g = new THREE.Group();
-        g.add(new THREE.Mesh(potG, potM));
-        for (let i = 0; i < 7; i++) { const b = new THREE.Mesh(ball, pick(leafMs)); b.scale.setScalar(rnd(0.15, 0.24)); b.position.set(rnd(-0.15, 0.15), 0.48 + rnd(0, 0.28), rnd(-0.15, 0.15)); g.add(b); }
-        shade(g); scene.add(g); pots.push(g);
-      }
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(20, 10), new THREE.MeshStandardMaterial({ color: '#56707f', roughnessMap: plasterTex, roughness: 0.95 }));
+      wall.position.set(0, 5, WALL_Z); wall.receiveShadow = true; scene.add(wall);
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(20, 12), new THREE.MeshStandardMaterial({ color: '#4a4542', roughnessMap: plasterTex, roughness: 0.9 }));
+      floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0, WALL_Z + 6); floor.receiveShadow = true; scene.add(floor);
+      // 壁と床の境目の幅木
+      const base = new THREE.Mesh(new THREE.BoxGeometry(20, 0.08, 0.02), mat('#3d4f5a', 0.7)); base.position.set(0, 0.04, WALL_Z + 0.01); base.receiveShadow = true; scene.add(base);
     }
 
     // ---------- お皿の形 ----------
@@ -420,8 +372,8 @@
       g.beginPath(); g.arc(c, c, 0.012 * k, 0, 7); g.fill();
       g.globalAlpha = 1;
     });
-    const plateMat = new THREE.MeshStandardMaterial({ map: plateTex, roughness: 0.18, metalness: 0, side: THREE.DoubleSide });
-    const TINTS = ['#ffffff', '#ffffff', '#ffffff', '#fff1d2', '#ffe0e0', '#dff4e6', '#e0eaff'].map(c => new THREE.Color(c));
+    const plateMat = new THREE.MeshStandardMaterial({ map: plateTex, roughness: 0.3, metalness: 0, side: THREE.DoubleSide, emissive: '#ffffff', emissiveIntensity: 0.08, emissiveMap: plateTex });
+    const TINTS = ['#ffffff', '#ffffff', '#ffffff', '#fff6e2', '#ffeded', '#ecf8f0', '#edf2ff'].map(c => new THREE.Color(c));
     const tintMats = new Map(); // かけら用: 色ごとの材質
     const tintMat = c => { const k = c.getHexString(); if (!tintMats.has(k)) { const m = plateMat.clone(); m.color.copy(c); tintMats.set(k, m); } return tintMats.get(k); };
 
@@ -560,14 +512,11 @@
       if (catSide) catPos.set(hw + 0.2 + frameH / 2, Math.max(ROW0 + (rows - 1) * ROW_H / 2, frameH / 2 + 0.6), WALL_Z + 0.04);
       else catPos.set(0, rowsY[rows - 1] + 0.25 + frameH / 2, WALL_Z + 0.04);
       catPivot.position.set(catPos.x, catPos.y + 0.62 * CAT_S, catPos.z);
-      // 植木鉢
-      pots[0].position.set(-hw - 0.42, 0, WALL_Z + 0.45);
-      pots[1].position.set((catSide ? catPos.x + frameH / 2 : hw) + 0.42, 0, WALL_Z + 0.45);
       // かけらは新しい棚の上に落ち直す
       for (const p of pieces) p.rest = false;
       for (const s of chipSlots) if (s.alive) s.rest = false;
       const top = catSide ? Math.max(rowsY[rows - 1] + 0.2, catPos.y + frameH / 2) : catPos.y + frameH / 2;
-      const left = -hw - 0.1, right = catSide ? catPos.x + frameH / 2 + 0.1 : hw + 0.1;
+      const left = -hw - 0.04, right = catSide ? catPos.x + frameH / 2 + 0.04 : hw + 0.04;
       rack = { cols, rows, catSide, hw, top, left, right };
     }
     function drawRack(i) {
@@ -843,7 +792,7 @@
       const { left, right, top } = rack;
       // 上に残り時間と枚数を出すので、棚の上を少し空ける（背の低い横長画面では左上に出すので不要）。結果画面では手前の床を広く見せて、そこに枚数を出す
       const lowWide = innerHeight <= 520 && innerWidth / innerHeight >= 4 / 3;
-      const topM = lowWide ? 0.05 : 0.38, front = state === 'result' ? WALL_Z + 1.5 : WALL_Z + 0.75;
+      const topM = lowWide ? 0.03 : 0.34, front = state === 'result' ? WALL_Z + 1.5 : WALL_Z + 0.5;
       KEY = [[left, top + topM, WALL_Z + 0.05], [right, top + topM, WALL_Z + 0.05], [left, 0, WALL_Z + 0.35], [right, 0, WALL_Z + 0.35], [left * 0.8, 0, front], [right * 0.8, 0, front]].map(a => new THREE.Vector3(...a));
       LOOK.set((left + right) / 2, top * 0.48, WALL_Z + 0.2);
       fitCamera();
