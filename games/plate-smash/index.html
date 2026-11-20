@@ -278,6 +278,9 @@
       hiss(d, 0.012, [[f * 0.8, 3, 1]], v * 1.4, now);
     }
     const sWhoosh = k => { if (!live()) return; hiss(bus(0, 0.1), 0.22, [[700, 1.2, 1], [1800, 1.5, 0.5]], 0.07 * k, ac.currentTime); };
+    // ボールが壁や床に当たる「ドッ」「トン」
+    let lastThud = 0;
+    const sThud = (k, x) => { if (!live() || voices > 120) return; const now = ac.currentTime; if (now - lastThud < 0.03) return; lastThud = now; const d = bus(x / 3.2, 0.3); k = clamp(k, 0.1, 1); hiss(d, 0.05, [[260, 2, 1], [700, 3, 0.4]], 0.5 * k, now); ring(d, rnd(110, 150), 0.09, 0.25 * k, now); };
     const sFrame = () => { if (!live()) return; const d = bus(0); hiss(d, 0.08, [[350, 2, 1], [900, 3, 0.5]], 0.6, ac.currentTime); ring(d, 140, 0.15, 0.25, ac.currentTime); };
     // 棚にお皿が戻る「コトッ」
     const sPop = x => { if (!live() || voices > 100) return; const d = bus(x / 3.2, 0.2); hiss(d, 0.03, [[1800, 6, 1], [3200, 8, 0.5]], 0.05, ac.currentTime); ring(d, rnd(1300, 1700), 0.06, 0.012, ac.currentTime); };
@@ -598,7 +601,7 @@
     let score = 0, bestScore = store.get('best', 0), state = 'ready', timeLeft = TIME, endT = 0;
     const _P = new THREE.Vector3(), _d = new THREE.Vector3();
     // 棚のお皿を、叩いた点（お皿の上での位置 px, pz）から割る
-    function breakPlate(slot, px, pz) {
+    function breakPlate(slot, px, pz, hitV = null) {
       slot.alive = false; slot.timer = rnd(0.25, 0.4);
       drawRack(slot.idx); rackMesh.instanceMatrix.needsUpdate = true;
       const S = _P.set(slot.x, slot.y, slot.z);
@@ -628,6 +631,7 @@
           b.hold = 0.04 + dist * 0.45 + rnd(0, 0.02); b.out.copy(_d);
           const sp = rnd(0.25, 0.8) * power * (1.4 - clamp(dist / 0.3, 0, 1));
           b.v.copy(_d).multiplyScalar(sp).addScaledVector(PLATE_N, rnd(0.15, 0.7) * power);
+          if (hitV) b.v.addScaledVector(hitV, rnd(0.03, 0.09)); // ボールの勢いで壁へ押され、跳ね返ってくる
           b.w.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(2, 12) * power * (0.5 + 0.5 * (1 - clamp(dist / 0.3, 0, 1))));
           mesh.position.copy(b.p); mesh.quaternion.copy(b.q);
           scene.add(mesh); pieces.push(b);
@@ -707,6 +711,7 @@
       state = 'ready'; score = 0; timeLeft = TIME;
       for (const b of pieces) { scene.remove(b.mesh); b.mesh.geometry.dispose(); }
       pieces.length = 0;
+      for (const b of balls) { b.alive = false; b.mesh.visible = false; }
       for (const c of chipSlots) c.alive = false; chipDirty = true;
       for (const sl of rackSlots) { sl.alive = true; sl.pop = 1; sl.timer = 0; drawRack(sl.idx); }
       rackMesh.instanceMatrix.needsUpdate = true; rackMesh.instanceColor.needsUpdate = true;
@@ -717,6 +722,7 @@
     function step(dt) {
       if (state === 'play') { timeLeft -= dt; if (timeLeft <= 0) { timeLeft = 0; state = 'end'; endT = 0; } }
       else if (state === 'end') { endT += dt; if (endT > 1.0) finish(); }
+      for (const b of balls) stepBall(b, dt);
       for (const b of pieces) if (!b.rest) stepBody(b, dt);
       for (const s of chipSlots) if (s.alive && !s.rest) { stepBody(s, dt); chipDirty = true; }
       // 棚のお皿の補充
@@ -736,10 +742,33 @@
     cvs.addEventListener('pointerdown', e => {
       const r = cvs.getBoundingClientRect();
       if (state !== 'ready' && state !== 'play') return;
-      ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / layout.w * 2 - 1, -((e.clientY - r.top) / layout.H) * 2 + 1), camera);
-      tapRay(ray.ray);
+      const nx = (e.clientX - r.left) / layout.w * 2 - 1;
+      ray.setFromCamera(new THREE.Vector2(nx, -((e.clientY - r.top) / layout.H) * 2 + 1), camera);
+      throwBall(ray.ray, nx);
     });
-    function tapRay(rr) {
+    // ---------- 投げる（タップした所へ、手前からボールが飛んでいく）----------
+    const BALL_R = 0.037;
+    const ballTex = canvasTex(256, 128, (g, w, h) => {
+      g.fillStyle = '#f4f1ea'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 600; i++) { g.fillStyle = `rgba(0,0,0,${Math.random() * 0.04})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+      // 縫い目（2本のS字カーブ）
+      g.strokeStyle = '#c8322a'; g.lineWidth = 3;
+      for (const off of [0, w / 2]) {
+        g.beginPath();
+        for (let x = 0; x <= w / 2; x += 2) { const y = h / 2 + Math.sin((x / (w / 2)) * Math.PI * 2) * h * 0.28 * (off ? -1 : 1); x ? g.lineTo(off + x, y) : g.moveTo(off + x, y); }
+        g.stroke();
+        for (let x = 4; x < w / 2; x += 8) { const y = h / 2 + Math.sin((x / (w / 2)) * Math.PI * 2) * h * 0.28 * (off ? -1 : 1); g.beginPath(); g.moveTo(off + x - 3, y - 4); g.lineTo(off + x + 3, y + 4); g.stroke(); }
+      }
+    });
+    const ballGeo = new THREE.SphereGeometry(BALL_R, 20, 14), ballMat = new THREE.MeshStandardMaterial({ map: ballTex, roughness: 0.55 });
+    const balls = [];
+    for (let i = 0; i < 14; i++) {
+      const mesh = new THREE.Mesh(ballGeo, ballMat); mesh.castShadow = true; mesh.visible = false; scene.add(mesh);
+      balls.push({ mesh, alive: false, fly: false, p: new THREE.Vector3(), v: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), T: new THREE.Vector3(), tFly: 0, target: null, rest: 0, fade: 1 });
+    }
+    let ballNext = 0;
+    // タップした所に何があるか（お皿 → 猫の額 → 壁 → 床の順に調べる）
+    function aimAt(rr) {
       const o = rr.origin, d = rr.direction;
       const dn = d.dot(PLATE_N);
       let best = null, bt = 1e9, bx = 0, bz = 0;
@@ -750,16 +779,87 @@
         _hit.copy(o).addScaledVector(d, t).sub(_v.set(s.x, s.y, s.z)).applyQuaternion(PLATE_INV_Q);
         if (_hit.x * _hit.x + _hit.z * _hit.z <= R * R) { best = s; bt = t; bx = _hit.x; bz = _hit.z; }
       }
-      if (best) { breakPlate(best, bx, bz); return; }
-      // 猫の額をつつくと、ゆれて鳴く
-      const t = (catPos.z + 0.04 - o.z) / d.z;
-      if (t > 0) {
-        _hit.copy(o).addScaledVector(d, t);
+      if (best) return { kind: 'plate', slot: best, px: bx, pz: bz, point: o.clone().addScaledVector(d, bt) };
+      const tw = (catPos.z + 0.04 - o.z) / d.z;
+      if (tw > 0) {
+        _hit.copy(o).addScaledVector(d, tw);
         const half = 0.54 * CAT_S;
-        if (Math.abs(_hit.x - catPos.x) < half && Math.abs(_hit.y - catPos.y) < half) {
-          catSwingT = 0; catSwing = (_hit.x < catPos.x ? -1 : 1) * 0.2; sFrame(); setTimeout(sMeow, 90);
+        if (Math.abs(_hit.x - catPos.x) < half && Math.abs(_hit.y - catPos.y) < half) return { kind: 'cat', point: _hit.clone() };
+      }
+      const tf = -o.y / d.y, tz = (WALL_Z + BALL_R - o.z) / d.z;
+      if (tz > 0 && (!(tf > 0) || tz < tf)) return { kind: 'wall', point: o.clone().addScaledVector(d, tz) };
+      if (tf > 0) return { kind: 'floor', point: o.clone().addScaledVector(d, tf) };
+      return null;
+    }
+    const _cr = new THREE.Vector3(), _cu = new THREE.Vector3(), _cf = new THREE.Vector3();
+    function throwBall(rr, ndcX) {
+      const aim = aimAt(rr);
+      if (!aim) return;
+      const b = balls.find(x => !x.alive) || balls[ballNext]; ballNext = (ballNext + 1) % balls.length;
+      // 画面の下のふちの少し外（見ている人の手元）から投げる
+      camera.matrixWorld.extractBasis(_cr, _cu, _cf);
+      b.p.copy(camera.position).addScaledVector(_cf, -0.7).addScaledVector(_cu, -0.32).addScaledVector(_cr, ndcX * 0.25);
+      b.T.copy(aim.point);
+      if (aim.kind === 'plate') b.T.addScaledVector(PLATE_N, BALL_R);
+      const dist = b.p.distanceTo(b.T);
+      b.tFly = clamp(dist / 11, 0.12, 0.5);
+      // ちょうど tFly 秒後に狙った点に着くように、重力の分だけ上向きに投げる
+      b.v.copy(b.T).sub(b.p).divideScalar(b.tFly); b.v.y += 0.5 * 9.8 * b.tFly;
+      b.w.set(rnd(-30, 30), rnd(-30, 30), rnd(-30, 30));
+      b.target = aim; b.alive = true; b.fly = true; b.rest = 0; b.fade = 1; b.mesh.visible = true;
+      sWhoosh(1);
+      if (state === 'ready') begin();
+    }
+    const _rv = new THREE.Vector3();
+    function bounceOff(b, n, e = 0.3) { const vn = b.v.dot(n); if (vn < 0) b.v.addScaledVector(n, -(1 + e) * vn); b.v.multiplyScalar(0.8); }
+    function stepBall(b, dt) {
+      if (!b.alive) return;
+      const wl = b.w.length();
+      if (wl > 0.01) { _q.setFromAxisAngle(_v.copy(b.w).divideScalar(wl), wl * dt); b.q.premultiply(_q); }
+      b.v.y -= 9.8 * dt;
+      b.p.addScaledVector(b.v, dt);
+      if (b.fly) {
+        b.tFly -= dt;
+        if (b.tFly > 0) return;
+        b.fly = false; b.p.copy(b.T);
+        const a = b.target, sp = b.v.length();
+        if (a.kind === 'plate' && a.slot.alive) {
+          breakPlate(a.slot, a.px, a.pz, b.v.clone());
+          bounceOff(b, PLATE_N, 0.25); b.v.multiplyScalar(0.6);
+        } else if (a.kind === 'cat') {
+          catSwingT = 0; catSwing = (b.p.x < catPos.x ? -1 : 1) * 0.22; sFrame(); setTimeout(sMeow, 90);
+          bounceOff(b, _rv.set(0, 0, 1), 0.3);
+        } else if (a.kind === 'plate') {
+          // 狙ったお皿がもう割れていたら、そのまま壁まで飛ぶ
+          b.v.copy(b.T).sub(_rv.copy(b.p).addScaledVector(b.v, -0.01)).setLength(sp);
+          return;
+        }
+        return;
+      }
+      // 飛んでいる途中・跳ね返ったあとに、ほかのお皿に当たったらそれも割れる
+      if (b.v.lengthSq() > 4) {
+        for (const s of rackSlots) {
+          if (!s.alive || s.pop < 0.4) continue;
+          _hit.copy(b.p).sub(_v.set(s.x, s.y, s.z));
+          const h = _hit.dot(PLATE_N);
+          if (Math.abs(h) > BALL_R + 0.02) continue;
+          _hit.applyQuaternion(PLATE_INV_Q);
+          if (_hit.x * _hit.x + _hit.z * _hit.z <= R * R) { breakPlate(s, _hit.x, _hit.z, b.v.clone()); bounceOff(b, _rv.copy(PLATE_N).multiplyScalar(h >= 0 ? 1 : -1), 0.25); break; }
         }
       }
+      if (b.p.z < WALL_Z + BALL_R) { b.p.z = WALL_Z + BALL_R; if (b.v.z < -0.3) sThud(-b.v.z / 8, b.p.x * 3); bounceOff(b, _rv.set(0, 0, 1), 0.35); }
+      const g = groundAt(b.p.x, b.p.z, b.p.y - BALL_R - b.v.y * dt) + BALL_R;
+      if (b.p.y < g) {
+        b.p.y = g;
+        if (b.v.y < -0.4) sThud(-b.v.y / 6, b.p.x * 3);
+        if (b.v.y < 0) b.v.y *= -0.35;
+        b.v.x *= 0.92; b.v.z *= 0.92;
+        b.w.set(b.v.z / BALL_R, 0, -b.v.x / BALL_R); // 転がる
+        if (Math.abs(b.v.y) < 0.15) { b.v.y = 0; b.v.x *= 0.97; b.v.z *= 0.97; }
+      }
+      if (b.v.lengthSq() < 0.01) b.rest += dt;
+      if (b.rest > 1.2) { b.fade -= dt * 3; if (b.fade <= 0) { b.alive = false; b.mesh.visible = false; } }
+      if (b.p.y < -3 || b.p.z > 10) { b.alive = false; b.mesh.visible = false; }
     }
 
     // ---------- 画面サイズとカメラ ----------
@@ -922,6 +1022,7 @@
         chipMesh.instanceMatrix.needsUpdate = true;
       }
       updateDust(dt);
+      for (const b of balls) if (b.alive) { b.mesh.position.copy(b.p); b.mesh.quaternion.copy(b.q); b.mesh.scale.setScalar(b.fade); }
       // 猫の額のゆれ
       catPivot.rotation.z = catSwing * Math.exp(-catSwingT * 2.2) * Math.sin(catSwingT * 8);
       // 最初の操作の案内（真ん中あたりのお皿をつつく指）
@@ -947,7 +1048,7 @@
     resize();
     applyLang();
     // テスト用の入口: 段・列を指定して、お皿の上の点（px, pz）を叩く
-    window.__game = { get state() { return state; }, get score() { return score; }, get pieces() { return pieces.length; }, tap: (i, px, pz) => { const s = rackSlots[i]; if (s && s.alive) breakPlate(s, px, pz); }, get n() { return rackSlots.length; }, set timeScale(v) { timeScale = v; }, set timeLeft(v) { timeLeft = v; } };
+    window.__game = { get state() { return state; }, get score() { return score; }, get pieces() { return pieces.length; }, tap: (i, px, pz) => { const s = rackSlots[i]; if (s && s.alive) { const w = new THREE.Vector3(px, 0.02, pz).applyQuaternion(PLATE_UP_Q).add(_v2.set(s.x, s.y, s.z)); const o = camera.position.clone(); throwBall(new THREE.Ray(o, w.sub(o).normalize()), 0); } }, get n() { return rackSlots.length; }, set timeScale(v) { timeScale = v; }, set timeLeft(v) { timeLeft = v; } };
     // 最初の1回が重くならないように、全部の形を一度描いておく（かけら用の材質も先に用意）
     {
       for (const d of dusts) d.sp.visible = true;
