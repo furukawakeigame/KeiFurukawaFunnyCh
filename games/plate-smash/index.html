@@ -12,10 +12,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>無限お皿割り</title>
-  <meta name="description" content="スワイプでお皿を投げて、割って割って割りまくる。">
+  <meta name="description" content="並んだお皿をタップで割る。叩いた場所で割れ方が変わる。">
   <link rel="canonical" href="https://keifurukawafunnych.com/games/plate-smash/">
   <script type="application/ld+json">
-  {"@context": "https://schema.org", "@type": "VideoGame", "name": "無限お皿割り", "description": "スワイプでお皿を投げて、割って割って割りまくる。", "url": "https://keifurukawafunnych.com/games/plate-smash/", "image": "https://keifurukawafunnych.com/games/plate-smash/icon.png", "inLanguage": "ja", "gamePlatform": "Web browser", "applicationCategory": "Game", "operatingSystem": "Any", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": 0, "priceCurrency": "JPY"}, "author": {"@type": "Person", "name": "ふるかわけい"}}
+  {"@context": "https://schema.org", "@type": "VideoGame", "name": "無限お皿割り", "description": "並んだお皿をタップで割る。叩いた場所で割れ方が変わる。", "url": "https://keifurukawafunnych.com/games/plate-smash/", "image": "https://keifurukawafunnych.com/games/plate-smash/icon.png", "inLanguage": "ja", "gamePlatform": "Web browser", "applicationCategory": "Game", "operatingSystem": "Any", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": 0, "priceCurrency": "JPY"}, "author": {"@type": "Person", "name": "ふるかわけい"}}
   </script>
   <link rel="icon" href="icon.png">
   <link rel="apple-touch-icon" href="icon.png">
@@ -42,9 +42,13 @@
     header svg { width: 18px; height: 18px; display: block; }
     #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
     #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
-    #hint { position: absolute; width: clamp(56px, 11vmin, 92px); pointer-events: none; display: none; transform: translate(-50%, -20%); }
-    #hint svg { width: 100%; height: auto; display: block; animation: swipe 1.2s ease-in infinite; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
-    @keyframes swipe { 0% { transform: translateY(40%); opacity: 0; } 15% { opacity: 1; } 70% { transform: translateY(-80%); opacity: 1; } 100% { transform: translateY(-110%); opacity: 0; } }
+    #hint { position: absolute; width: clamp(44px, 9vmin, 76px); pointer-events: none; display: none; transform: translate(-50%, -8%); }
+    #hint svg { width: 100%; height: auto; display: block; overflow: visible; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
+    #hint .hand { animation: tap 1.1s ease-in-out infinite; transform-origin: 30px 10px; }
+    #hint .ripple { animation: ripple 1.1s ease-out infinite; transform-origin: 30px 8px; }
+    @keyframes tap { 0%, 100% { transform: translateY(-6px); } 40% { transform: translateY(2px) scale(.95); } 60% { transform: translateY(2px) scale(.95); } }
+    @keyframes ripple { 0%, 35% { transform: scale(.2); opacity: 0; } 45% { opacity: .9; } 100% { transform: scale(1.4); opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { #hint .hand, #hint .ripple { animation: none; } }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
     /* 下の80pxは空ける（Xアプリ内ブラウザの投稿文で隠れるため）。描画は下まで */
     #floorline { position: fixed; left: 0; bottom: calc(80px + env(safe-area-inset-bottom)); width: 1px; height: 0; pointer-events: none; }
@@ -60,7 +64,7 @@
   </header>
   <main style="display:contents">
   <div id="stage">
-    <div id="hint"><svg viewBox="0 0 60 84"><path d="M30 2l-10 12h20z" fill="#ffd34a" stroke="#5a3a00" stroke-width="2.5" stroke-linejoin="round"/><path d="M24 62V34a4 4 0 0 1 8 0v14l1-6a4 4 0 0 1 7 1v4a4 4 0 0 1 7 1v12c0 7-5 12-12 12h-3c-5 0-8-3-10-7l-6-10a4 4 0 0 1 6-4z" fill="#fff" stroke="#24304a" stroke-width="2.5" stroke-linejoin="round"/></svg></div>
+    <div id="hint"><svg viewBox="0 0 60 84"><circle class="ripple" cx="30" cy="8" r="16" fill="none" stroke="#fff" stroke-width="3"/><path class="hand" d="M24 62V12a5 5 0 0 1 10 0v26l1-4a4 4 0 0 1 7 1v4a4 4 0 0 1 7 1v4a4 4 0 0 1 6 2v12c0 9-6 16-15 16h-4c-6 0-10-3-12-8l-8-13a4 4 0 0 1 7-5z" fill="#fff" stroke="#24304a" stroke-width="2.5" stroke-linejoin="round"/></svg></div>
     <div id="msg"></div>
   </div>
   <div id="floorline"></div>
@@ -262,34 +266,30 @@
     stage.prepend(renderer.domElement);
     const scene = new THREE.Scene();
     const FOG = '#cfe3f2';
-    scene.fog = new THREE.Fog(FOG, 16, 42);
-    const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 120);
+    scene.fog = new THREE.Fog(FOG, 9, 32);
+    const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 120);
     const hemi = new THREE.HemisphereLight('#d6ebff', '#8a7a62', 1.05);
     scene.add(hemi);
-    const sun = new THREE.DirectionalLight('#ffe7c6', 2.5); sun.position.set(-4, 11, 7);
+    const sun = new THREE.DirectionalLight('#ffe7c6', 2.5); sun.position.set(-2.2, 6, 4.5);
     sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.radius = 3; sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
-    Object.assign(sun.shadow.camera, { left: -7, right: 7, top: 8, bottom: -8, near: 1, far: 30 });
+    Object.assign(sun.shadow.camera, { left: -3.2, right: 3.2, top: 3.2, bottom: -3.2, near: 1, far: 16 });
     scene.add(sun);
 
     const canvasTex = (w, h, draw, rep) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; if (rep) { tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(rep[0], rep[1]); } tx.anisotropy = 4; return tx; };
     const mat = (c, rough = 0.7, metal = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: metal });
     const shade = o => { o.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } }); return o; };
 
-    // 庭の広さ
-    const WALL_Z = -4, WALL_H = 3.4, SIDE_X = 3.8, SIDE_H = 1.1, NEAR_Z = 6.5;
-    const THROW_Z = WALL_Z + 4.6, THROW_Y = 1.15; // 投げる人の手の位置（画面の手前の外）
-    const CAT_Y = 2.3, CAT_S = 0.78; // 猫の額の中心の高さと大きさ
+    const WALL_Z = -0.6, WALL_H = 3.2;
 
     // 空: 上は青、地平線は白っぽく
     {
-      const g = new THREE.SphereGeometry(80, 32, 16);
       const m = new THREE.ShaderMaterial({
         side: THREE.BackSide, depthWrite: false, fog: false,
         uniforms: { top: { value: new THREE.Color('#5e9fe0') }, bot: { value: new THREE.Color(FOG) } },
         vertexShader: 'varying vec3 vp; void main(){ vp = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
         fragmentShader: 'uniform vec3 top; uniform vec3 bot; varying vec3 vp; void main(){ float h = clamp(normalize(vp).y * 2.2, 0.0, 1.0); gl_FragColor = vec4(mix(bot, top, pow(h, 0.7)), 1.0); }',
       });
-      const sky = new THREE.Mesh(g, m); sky.renderOrder = -1; scene.add(sky);
+      const sky = new THREE.Mesh(new THREE.SphereGeometry(80, 32, 16), m); sky.renderOrder = -1; scene.add(sky);
     }
 
     // テクスチャ
@@ -298,108 +298,85 @@
       const bh = 32, bw = 64;
       for (let r = 0; r < h / bh; r++) for (let c = -1; c < w / bw + 1; c++) {
         const x = c * bw + (r % 2 ? bw / 2 : 0), y = r * bh;
-        const hue = 8 + Math.random() * 14, l = 38 + Math.random() * 14;
-        g.fillStyle = `hsl(${hue},${45 + Math.random() * 15}%,${l}%)`; g.fillRect(x + 3, y + 3, bw - 6, bh - 6);
+        g.fillStyle = `hsl(${8 + Math.random() * 14},${45 + Math.random() * 15}%,${38 + Math.random() * 14}%)`; g.fillRect(x + 3, y + 3, bw - 6, bh - 6);
         const gr = g.createLinearGradient(0, y, 0, y + bh); gr.addColorStop(0, 'rgba(255,255,255,.12)'); gr.addColorStop(1, 'rgba(0,0,0,.15)'); g.fillStyle = gr; g.fillRect(x + 3, y + 3, bw - 6, bh - 6);
         for (let i = 0; i < 14; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,240,220'},${Math.random() * 0.12})`; g.fillRect(x + 3 + Math.random() * (bw - 8), y + 3 + Math.random() * (bh - 8), 2 + Math.random() * 4, 2 + Math.random() * 3); }
       }
-    }, [6, 4]);
+    }, [5, 4]);
     const stoneTex = canvasTex(512, 512, (g, w, h) => {
       g.fillStyle = '#7d7469'; g.fillRect(0, 0, w, h);
       const n = 4, s = w / n;
       for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-        const l = 62 + Math.random() * 12;
-        g.fillStyle = `hsl(${30 + Math.random() * 15},${10 + Math.random() * 8}%,${l}%)`; g.fillRect(x * s + 4, y * s + 4, s - 8, s - 8);
+        g.fillStyle = `hsl(${30 + Math.random() * 15},${10 + Math.random() * 8}%,${62 + Math.random() * 12}%)`; g.fillRect(x * s + 4, y * s + 4, s - 8, s - 8);
         for (let i = 0; i < 160; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '40,30,20' : '255,250,240'},${Math.random() * 0.08})`; g.beginPath(); g.arc(x * s + 4 + Math.random() * (s - 8), y * s + 4 + Math.random() * (s - 8), 1 + Math.random() * 5, 0, 7); g.fill(); }
         const gr = g.createRadialGradient(x * s + s * 0.3, y * s + s * 0.3, 4, x * s + s / 2, y * s + s / 2, s * 0.75); gr.addColorStop(0, 'rgba(255,255,255,.1)'); gr.addColorStop(1, 'rgba(0,0,0,.12)'); g.fillStyle = gr; g.fillRect(x * s + 4, y * s + 4, s - 8, s - 8);
       }
-    }, [5, 6]);
+    }, [4, 2.5]);
     const grassTex = canvasTex(256, 256, (g, w, h) => {
       g.fillStyle = '#5f8d3e'; g.fillRect(0, 0, w, h);
-      for (let i = 0; i < 2500; i++) { const l = 28 + Math.random() * 25; g.strokeStyle = `hsl(${85 + Math.random() * 25},45%,${l}%)`; g.lineWidth = 1; const x = Math.random() * w, y = Math.random() * h; g.beginPath(); g.moveTo(x, y); g.lineTo(x + rnd(-2, 2), y - rnd(3, 8)); g.stroke(); }
+      for (let i = 0; i < 2500; i++) { g.strokeStyle = `hsl(${85 + Math.random() * 25},45%,${28 + Math.random() * 25}%)`; g.lineWidth = 1; const x = Math.random() * w, y = Math.random() * h; g.beginPath(); g.moveTo(x, y); g.lineTo(x + rnd(-2, 2), y - rnd(3, 8)); g.stroke(); }
     }, [30, 30]);
     const woodTex = canvasTex(256, 64, (g, w, h) => { g.fillStyle = '#a8743f'; g.fillRect(0, 0, w, h); for (let i = 0; i < 40; i++) { g.strokeStyle = `rgba(80,40,10,${0.1 + Math.random() * 0.25})`; g.lineWidth = 1 + Math.random() * 2; const y = Math.random() * h; g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(w * .3, y + rnd(-4, 4), w * .6, y + rnd(-4, 4), w, y); g.stroke(); } });
     const woodMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.75 });
     const darkWoodMat = new THREE.MeshStandardMaterial({ map: woodTex, color: '#8a6a50', roughness: 0.6 });
 
-    // 地面・壁
+    // 地面・壁・木
     {
       const grass = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1 }));
       grass.rotation.x = -Math.PI / 2; grass.position.y = -0.01; grass.receiveShadow = true; scene.add(grass);
-      const floor = new THREE.Mesh(new THREE.PlaneGeometry(SIDE_X * 2, NEAR_Z - WALL_Z), new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.85 }));
-      floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0, (NEAR_Z + WALL_Z) / 2); floor.receiveShadow = true; scene.add(floor);
-      const brickMat = new THREE.MeshStandardMaterial({ map: brickTex, roughness: 0.9 });
-      const capMat = mat('#d9d0c2', 0.8);
-      const back = new THREE.Mesh(new THREE.BoxGeometry(SIDE_X * 2 + 0.6, WALL_H, 0.4), brickMat);
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(10, 6), new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.85 }));
+      floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0, WALL_Z + 3); floor.receiveShadow = true; scene.add(floor);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(10, WALL_H, 0.4), new THREE.MeshStandardMaterial({ map: brickTex, roughness: 0.9 }));
       back.position.set(0, WALL_H / 2, WALL_Z - 0.2); shade(back); scene.add(back);
-      const cap = new THREE.Mesh(new THREE.BoxGeometry(SIDE_X * 2 + 0.8, 0.12, 0.55), capMat); cap.position.set(0, WALL_H + 0.06, WALL_Z - 0.2); shade(cap); scene.add(cap);
-      for (const s of [-1, 1]) {
-        const len = NEAR_Z - WALL_Z;
-        const sideTex = brickTex.clone(); sideTex.needsUpdate = true; sideTex.repeat.set(len / 2, SIDE_H / 0.85);
-        const sw = new THREE.Mesh(new THREE.BoxGeometry(0.35, SIDE_H, len), new THREE.MeshStandardMaterial({ map: sideTex, roughness: 0.9 }));
-        sw.position.set(s * (SIDE_X + 0.175), SIDE_H / 2, WALL_Z + len / 2); shade(sw); scene.add(sw);
-        const sc = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, len), capMat); sc.position.set(s * (SIDE_X + 0.175), SIDE_H + 0.05, WALL_Z + len / 2); shade(sc); scene.add(sc);
-      }
-    }
-    // 木（壁の向こう）と植木鉢
-    {
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(10.2, 0.12, 0.55), mat('#d9d0c2', 0.8)); cap.position.set(0, WALL_H + 0.06, WALL_Z - 0.2); shade(cap); scene.add(cap);
       const trunkM = mat('#6b4a30', 0.9), leafMs = ['#3f7a35', '#4d8a3c', '#356b2f'].map(c => mat(c, 0.95));
       const ball = new THREE.IcosahedronGeometry(1, 1), trunkG = new THREE.CylinderGeometry(0.15, 0.22, 1, 8);
-      const tree = (x, z, s) => {
+      for (const [x, z, sc] of [[-4.5, -4, 1.3], [-1.5, -5.5, 1.6], [2.2, -4.5, 1.2], [5, -5, 1.5], [0.5, -8, 1.8]]) {
         const g = new THREE.Group();
-        const tr = new THREE.Mesh(trunkG, trunkM); tr.scale.set(s, 3 * s, s); tr.position.y = 1.5 * s; g.add(tr);
-        for (let i = 0; i < 5; i++) { const b = new THREE.Mesh(ball, pick(leafMs)); const r = s * rnd(1.0, 1.5); b.scale.setScalar(r); b.position.set(rnd(-0.9, 0.9) * s, 3.2 * s + rnd(0, 1.2) * s, rnd(-0.6, 0.6) * s); b.rotation.set(rnd(0, 3), rnd(0, 3), 0); g.add(b); }
+        const tr = new THREE.Mesh(trunkG, trunkM); tr.scale.set(sc, 3 * sc, sc); tr.position.y = 1.5 * sc; g.add(tr);
+        for (let i = 0; i < 5; i++) { const b = new THREE.Mesh(ball, pick(leafMs)); b.scale.setScalar(sc * rnd(1.0, 1.5)); b.position.set(rnd(-0.9, 0.9) * sc, 3.2 * sc + rnd(0, 1.2) * sc, rnd(-0.6, 0.6) * sc); g.add(b); }
         g.position.set(x, 0, z); shade(g); scene.add(g);
-      };
-      [[-6.5, -7, 1.3], [-2.5, -8.5, 1.6], [2.5, -7.5, 1.2], [6, -8, 1.5], [8.5, -4, 1.3], [-9, -3, 1.4], [-7.5, 3, 1.2], [7.5, 4, 1.3], [0, -11, 1.8]].forEach(a => tree(...a));
-      // 植木鉢
-      const potG = new THREE.LatheGeometry([[0, 0], [0.24, 0], [0.3, 0.4], [0.34, 0.42], [0.34, 0.48], [0.3, 0.48], [0, 0.46]].map(p => new THREE.Vector2(p[0], p[1])), 20);
+      }
+      // 植木鉢（棚の大きさに合わせて置き直す）
+      var pots = [];
+      const potG = new THREE.LatheGeometry([[0, 0], [0.2, 0], [0.25, 0.34], [0.28, 0.36], [0.28, 0.41], [0.25, 0.41], [0, 0.39]].map(p => new THREE.Vector2(p[0], p[1])), 20);
       const potM = mat('#c0653a', 0.85);
-      for (const [x, z] of [[-2.9, WALL_Z + 0.45], [2.9, WALL_Z + 0.45], [-3.3, WALL_Z + 3.4], [3.3, WALL_Z + 3.4]]) {
+      for (let k = 0; k < 2; k++) {
         const g = new THREE.Group();
         g.add(new THREE.Mesh(potG, potM));
-        for (let i = 0; i < 6; i++) { const b = new THREE.Mesh(ball, pick(leafMs)); b.scale.setScalar(rnd(0.18, 0.28)); b.position.set(rnd(-0.18, 0.18), 0.55 + rnd(0, 0.3), rnd(-0.18, 0.18)); g.add(b); }
-        g.position.set(x, 0, z); shade(g); scene.add(g);
+        for (let i = 0; i < 7; i++) { const b = new THREE.Mesh(ball, pick(leafMs)); b.scale.setScalar(rnd(0.15, 0.24)); b.position.set(rnd(-0.15, 0.15), 0.48 + rnd(0, 0.28), rnd(-0.15, 0.15)); g.add(b); }
+        shade(g); scene.add(g); pots.push(g);
       }
     }
 
     // ---------- お皿の形 ----------
     // 上面と下面の断面（半径, 高さ）。リム（ふち）が少し立ち上がり、下に高台がある
-    const R = 0.172, SPLIT = 0.092;
-    const TOP = [[0, 0.012], [0.088, 0.012], [0.105, 0.015], [0.14, 0.027], [0.163, 0.034], [0.169, 0.036]];
+    const R = 0.172;
+    const TOP = [[0, 0.012], [0.088, 0.012], [0.105, 0.015], [0.14, 0.027], [0.163, 0.034], [0.172, 0.036]];
     const BOT = [[0.172, 0.033], [0.166, 0.029], [0.13, 0.017], [0.1, 0.009], [0.088, 0.0], [0.074, 0.0], [0.07, 0.006], [0, 0.006]];
     const lerpY = (arr, r) => { for (let i = 0; i < arr.length - 1; i++) { const [r0, y0] = arr[i], [r1, y1] = arr[i + 1]; if ((r - r0) * (r - r1) <= 0) return r0 === r1 ? y0 : y0 + (y1 - y0) * (r - r0) / (r1 - r0); } return arr[arr.length - 1][1]; };
-    function plateProfile(r0, r1) {
-      const top = [[Math.max(r0, 0.001), lerpY(TOP, r0)]];
-      for (const p of TOP) if (p[0] > r0 && p[0] < r1) top.push(p);
-      const bot = [];
-      if (r1 >= R) { top.push(TOP[TOP.length - 1]); for (const p of BOT) if (p[0] > r0) bot.push(p); }
-      else { top.push([r1, lerpY(TOP, r1)]); bot.push([r1, lerpY(BOT, r1)]); for (const p of BOT) if (p[0] < r1 && p[0] > r0) bot.push(p); }
-      bot.push([Math.max(r0, 0.001), lerpY(BOT, r0)]);
-      if (r0 > 0.01) bot.push(top[0]); // 切り口をふさぐ
-      return { pts: [...top, ...bot].map(p => new THREE.Vector2(p[0], p[1])), nTop: top.length };
-    }
-    // 上面には真上から模様を貼る（かけらでも模様がつながるように、位置で決める）。下面は白
-    function makePlateGeo(r0, r1, segs, phiLen) {
-      const { pts, nTop } = plateProfile(r0, r1);
-      const g = new THREE.LatheGeometry(pts, segs, 0, phiLen);
+    const topY = r => lerpY(TOP, Math.min(r, R)), botY = r => lerpY(BOT, Math.min(r, R));
+    const UVK = 1 / (2 * 0.176); // 上面の模様は真上から貼る（かけらでも模様がつながる）
+    // まるごとのお皿
+    const plateGeo = (() => {
+      const top = TOP.map(p => [Math.max(p[0], 0.001), p[1]]), bot = BOT.map(p => [Math.max(p[0], 0.001), p[1]]);
+      const pts = [...top, ...bot].map(p => new THREE.Vector2(p[0], p[1]));
+      const g = new THREE.LatheGeometry(pts, 56);
       const pos = g.attributes.position, uv = g.attributes.uv, np = pts.length;
       for (let i = 0; i < pos.count; i++) {
-        const j = i % np;
-        if (j < nTop) uv.setXY(i, 0.5 + pos.getX(i) / (2 * 0.176), 0.5 + pos.getZ(i) / (2 * 0.176));
+        if (i % np < top.length) uv.setXY(i, 0.5 + pos.getX(i) * UVK, 0.5 + pos.getZ(i) * UVK);
         else uv.setXY(i, 0.01, 0.01);
       }
       return g;
-    }
+    })();
     // 皿の模様（白磁に藍色の縁取りと、24回くり返す小さな葉）
-    const plateTex = canvasTex(512, 512, (g, w, h) => {
+    const plateTex = canvasTex(1024, 1024, (g, w, h) => {
       const c = w / 2, k = c / 0.176;
       g.fillStyle = '#fbfaf5'; g.fillRect(0, 0, w, h);
       const gl = g.createRadialGradient(c, c, 0, c, c, c); gl.addColorStop(0, '#fffefb'); gl.addColorStop(0.6, '#f6f4ee'); gl.addColorStop(1, '#fbfaf5'); g.fillStyle = gl; g.beginPath(); g.arc(c, c, c, 0, 7); g.fill();
       const blue = '#2b4f9c';
-      const ring = (r, lw, col = blue) => { g.strokeStyle = col; g.lineWidth = lw * k; g.beginPath(); g.arc(c, c, r * k, 0, 7); g.stroke(); };
+      const ring = (r, lw) => { g.strokeStyle = blue; g.lineWidth = lw * k; g.beginPath(); g.arc(c, c, r * k, 0, 7); g.stroke(); };
       ring(0.161, 0.011); ring(0.148, 0.0025); ring(0.098, 0.003); ring(0.091, 0.0015);
-      // 縁の葉: 15度ごと
       g.fillStyle = blue;
       for (let i = 0; i < 24; i++) {
         const a = i / 24 * Math.PI * 2 + Math.PI / 24;
@@ -408,102 +385,103 @@
         g.beginPath(); g.arc(0, 0.024 * k, 0.003 * k, 0, 7); g.fill();
         g.restore();
       }
-      // 真ん中の花
       g.globalAlpha = 0.9;
-      for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; g.save(); g.translate(c, c); g.rotate(a); g.beginPath(); g.ellipse(0, 0.03 * k, 0.012 * k, 0.026 * k, 0, 0, 7); g.lineWidth = 0.003 * k; g.strokeStyle = blue; g.stroke(); g.restore(); }
+      for (let i = 0; i < 8; i++) { g.save(); g.translate(c, c); g.rotate(i / 8 * Math.PI * 2); g.beginPath(); g.ellipse(0, 0.03 * k, 0.012 * k, 0.026 * k, 0, 0, 7); g.lineWidth = 0.003 * k; g.strokeStyle = blue; g.stroke(); g.restore(); }
       g.beginPath(); g.arc(c, c, 0.012 * k, 0, 7); g.fill();
       g.globalAlpha = 1;
     });
-    const plateMat = new THREE.MeshStandardMaterial({ map: plateTex, roughness: 0.18, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 1 });
-    const plateGeo = makePlateGeo(0, R, 48, Math.PI * 2);
+    const plateMat = new THREE.MeshStandardMaterial({ map: plateTex, roughness: 0.18, metalness: 0, side: THREE.DoubleSide });
     const TINTS = ['#ffffff', '#ffffff', '#ffffff', '#fff1d2', '#ffe0e0', '#dff4e6', '#e0eaff'].map(c => new THREE.Color(c));
+    const tintMats = new Map(); // かけら用: 色ごとの材質
+    const tintMat = c => { const k = c.getHexString(); if (!tintMats.has(k)) { const m = plateMat.clone(); m.color.copy(c); tintMats.set(k, m); } return tintMats.get(k); };
 
-    // かけらの形: 幅（15度の何倍か）× 部分（まるごと／内側／外側）
-    const STEP15 = Math.PI / 12;
-    // 幅（15度の何倍か）× 部分（まるごと／内と外の2つ／内・中・外の3つ）。細かく割れるほど気持ちいい
-    const WIDTHS = [2, 3, 4, 6];
-    const PARTS = [[0, R], [0, SPLIT], [SPLIT, R], [0, 0.055], [0.055, 0.118], [0.118, R]];
-    const SPLITS = [[0], [1, 2], [3, 4, 5], [3, 4, 5]];
-    const CAP = 90, CHIP_CAP = 700;
-    const shardTypes = [];
+    // ---------- ひび割れ（叩いた点から放射状に割れる）----------
+    // 叩いた点 P からのびる「放射状のひび」と、P を囲む「輪のひび」でお皿を切り分ける。
+    // P がお皿の真ん中なら星形に、ふちなら扇形に広がり、P の近くほど細かく砕ける。
+    function tmax(px, pz, th) { // P から角度 th の向きに進んでお皿のふちに届くまでの距離
+      const dx = Math.sin(th), dz = Math.cos(th), b = px * dx + pz * dz, c = px * px + pz * pz - R * R;
+      return -b + Math.sqrt(Math.max(0, b * b - c));
+    }
+    function makePiece(px, pz, rayA, rayB, ringA, ringB) {
+      const th0 = rayA.th, th1 = rayB.th;
+      const K = Math.max(2, Math.ceil((th1 - th0) / 0.14)), M = ringB ? 2 : 4;
+      const top = [], uvs = [];
+      let any = false;
+      for (let i = 0; i <= K; i++) {
+        const u = i / K, th = th0 + (th1 - th0) * u;
+        const tm = tmax(px, pz, th);
+        const a = ringA ? ringA.r(th) : 0, b = Math.min(ringB ? ringB.r(th) : 9, tm);
+        if (b - a > 0.004) any = true;
+        for (let j = 0; j <= M; j++) {
+          const rho = Math.max(0, a + (Math.max(a, b) - a) * j / M);
+          const ang = th + (rayA.w(rho) * (1 - u) + rayB.w(rho) * u);
+          let x = px + Math.sin(ang) * rho, z = pz + Math.cos(ang) * rho;
+          if (x * x + z * z > R * R) { const t2 = tmax(px, pz, ang); x = px + Math.sin(ang) * t2; z = pz + Math.cos(ang) * t2; }
+          top.push([x, z]);
+        }
+      }
+      if (!any) return null;
+      const pos = [], uv = [], idx = [];
+      const n = top.length;
+      for (const [x, z] of top) { pos.push(x, topY(Math.hypot(x, z)), z); uv.push(0.5 + x * UVK, 0.5 + z * UVK); }
+      for (const [x, z] of top) { pos.push(x, botY(Math.hypot(x, z)), z); uv.push(0.01, 0.01); }
+      const id = (i, j) => i * (M + 1) + j;
+      for (let i = 0; i < K; i++) for (let j = 0; j < M; j++) {
+        const a = id(i, j), b = id(i + 1, j), c = id(i + 1, j + 1), d = id(i, j + 1);
+        idx.push(a, b, c, a, c, d, n + a, n + c, n + b, n + a, n + d, n + c);
+      }
+      // 切り口（まわりの4辺）
+      const edge = [];
+      for (let j = 0; j <= M; j++) edge.push(id(0, j));
+      for (let i = 1; i <= K; i++) edge.push(id(i, M));
+      for (let j = M - 1; j >= 0; j--) edge.push(id(K, j));
+      for (let i = K - 1; i >= 1; i--) edge.push(id(i, 0));
+      edge.push(id(0, 0));
+      for (let e = 0; e < edge.length - 1; e++) {
+        const s = pos.length / 3, A = edge[e], B = edge[e + 1];
+        for (const v of [A, B, n + B, n + A]) { pos.push(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]); uv.push(0.01, 0.01); }
+        idx.push(s, s + 1, s + 2, s, s + 2, s + 3);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      g.computeBoundingBox();
+      const c = new THREE.Vector3(); g.boundingBox.getCenter(c);
+      g.translate(-c.x, -c.y, -c.z);
+      const bb = g.boundingBox; bb.translate(c.clone().negate());
+      const size = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z);
+      return { g, c, size, half: Math.max(0.004, (bb.max.y - bb.min.y) / 2) };
+    }
+    function crackPlan(px, pz) {
+      const d0 = Math.hypot(px, pz) / R; // 0: 真ん中 〜 1: ふち
+      const n = Math.round(clamp(11 - 6 * d0 + rnd(-1.2, 1.2), 4, 13));
+      const start = rnd(0, Math.PI * 2), sp = Math.PI * 2 / n;
+      const rays = [];
+      for (let i = 0; i < n; i++) {
+        const th = start + i * sp + (i ? rnd(-0.3, 0.3) * sp : 0);
+        const amp = rnd(0.04, 0.12), f = rnd(25, 60), ph = rnd(0, 6.3);
+        rays.push({ th, w: rho => amp * Math.sin(rho * f + ph) * Math.min(1, rho / 0.03) });
+      }
+      rays.push({ th: rays[0].th + Math.PI * 2, w: rays[0].w });
+      const base = d0 < 0.5 ? [0.022, 0.06, 0.115] : [0.025, 0.075, 0.15];
+      const rings = base.map(r0 => { const rr = r0 * rnd(0.85, 1.2), amp = rnd(0.08, 0.2), f = Math.round(rnd(3, 7)), ph = rnd(0, 6.3); return { r: th => rr * (1 + amp * Math.sin(th * f + ph)) }; });
+      return { rays, rings };
+    }
+
+    // ---------- 棚・猫の額 ----------
+    const GAP = 0.4, ROW_H = 0.46, ROW0 = 0.42, TILT = 0.17;
+    const PLATE_UP_Q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2 - TILT);
+    const PLATE_INV_Q = PLATE_UP_Q.clone().invert();
+    const PLATE_N = new THREE.Vector3(0, 1, 0).applyQuaternion(PLATE_UP_Q);
     const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1);
     const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
-    const Y_AXIS = new THREE.Vector3(0, 1, 0);
-    function addType(g, cap, extra) {
-      g.computeBoundingBox();
-      const pos = g.attributes.position, c = new THREE.Vector3();
-      for (let i = 0; i < pos.count; i++) c.add(_v.fromBufferAttribute(pos, i));
-      c.divideScalar(pos.count);
-      g.translate(-c.x, -c.y, -c.z);
-      g.computeBoundingBox();
-      const mesh = new THREE.InstancedMesh(g, plateMat, cap);
-      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      for (let i = 0; i < cap; i++) { mesh.setMatrixAt(i, ZERO); mesh.setColorAt(i, TINTS[0]); }
-      mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false;
-      scene.add(mesh);
-      const slots = [];
-      for (let i = 0; i < cap; i++) slots.push({ i, alive: false, rest: true, p: new THREE.Vector3(), v: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), age: 0, sc: 1 });
-      const bb = g.boundingBox, size = Math.hypot(bb.max.x - bb.min.x, bb.max.z - bb.min.z);
-      const T = { c, floor: -bb.min.y, size, mesh, slots, cap, next: 0, dirty: false, ...extra };
-      shardTypes.push(T);
-      return T;
-    }
-    for (const wn of WIDTHS) for (let pi = 0; pi < PARTS.length; pi++) {
-      const [r0, r1] = PARTS[pi];
-      addType(makePlateGeo(r0, r1, Math.max(2, wn * 2), wn * STEP15), CAP, { wn, pi });
-    }
-    const typeOf = (wn, pi) => shardTypes[WIDTHS.indexOf(wn) * PARTS.length + pi];
-    // 小さな欠片（白い三角のつぶ）
-    const CHIPS = (() => {
-      const pts = [[0, 0.013], [0.012, -0.008], [-0.01, -0.009]], th = 0.004, v = [];
-      const P = (x, y, z) => v.push(x, y, z);
-      P(...[pts[0][0], th, pts[0][1]]); P(...[pts[2][0], th, pts[2][1]]); P(...[pts[1][0], th, pts[1][1]]);
-      P(...[pts[0][0], 0, pts[0][1]]); P(...[pts[1][0], 0, pts[1][1]]); P(...[pts[2][0], 0, pts[2][1]]);
-      for (let i = 0; i < 3; i++) { const a = pts[i], b = pts[(i + 1) % 3]; P(a[0], 0, a[1]); P(b[0], 0, b[1]); P(b[0], th, b[1]); P(a[0], 0, a[1]); P(b[0], th, b[1]); P(a[0], th, a[1]); }
-      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
-      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array(v.length / 3 * 2).fill(0.01), 2));
-      g.computeVertexNormals();
-      return addType(g, CHIP_CAP, { chip: true });
-    })();
-
-    // ---------- 棚・猫の額・テーブル ----------
-    // 棚: 左右に大きい棚、真ん中（猫の額の下）に小さい棚
-    const GAP = 0.38, TILT = 0.17;
-    const RACKS = [{ cx: -1.6, n: 4, rows: [0.75, 1.45, 2.15] }, { cx: 0, n: 2, rows: [0.75, 1.45] }, { cx: 1.6, n: 4, rows: [0.75, 1.45, 2.15] }];
-    for (const r of RACKS) r.hw = r.n * GAP / 2 + 0.05;
-    const surfaces = []; // かけらが乗る面
-    surfaces.push({ x0: -SIDE_X, x1: SIDE_X, z0: WALL_Z, z1: NEAR_Z, y: 0 });
-    const rackSlots = [];
-    const rackMesh = new THREE.InstancedMesh(plateGeo, plateMat, RACKS.reduce((a, r) => a + r.n * r.rows.length, 0));
-    rackMesh.castShadow = true; rackMesh.receiveShadow = true;
-    scene.add(rackMesh);
-    const PLATE_UP_Q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2 - TILT);
-    {
-      for (const { cx, n, rows, hw } of RACKS) {
-        const boardG = new THREE.BoxGeometry(hw * 2, 0.035, 0.28), railG = new THREE.CylinderGeometry(0.012, 0.012, hw * 2, 8);
-        for (const ry of rows) {
-          const by = ry - 0.18;
-          const b = new THREE.Mesh(boardG, woodMat); b.position.set(cx, by - 0.0175, WALL_Z + 0.14); shade(b); scene.add(b);
-          const r = new THREE.Mesh(railG, darkWoodMat); r.rotation.z = Math.PI / 2; r.position.set(cx, ry - 0.09, WALL_Z + 0.25); shade(r); scene.add(r);
-          surfaces.push({ x0: cx - hw, x1: cx + hw, z0: WALL_Z, z1: WALL_Z + 0.28, y: by });
-          for (let i = 0; i < n; i++) {
-            rackSlots.push({ x: cx + (i - (n - 1) / 2) * GAP, y: ry, z: WALL_Z + 0.1, alive: true, timer: 0, pop: 1, tint: pick(TINTS), idx: rackSlots.length });
-          }
-        }
-        const top = rows[rows.length - 1] - 0.05;
-        const postG = new THREE.BoxGeometry(0.05, top, 0.05);
-        for (const sx of [-1, 1]) { const p = new THREE.Mesh(postG, darkWoodMat); p.position.set(cx + sx * hw, top / 2, WALL_Z + 0.25); shade(p); scene.add(p); }
-      }
-    }
-    function drawRack(i) {
-      const s = rackSlots[i];
-      if (!s.alive) { rackMesh.setMatrixAt(i, ZERO); return; }
-      const k = s.pop < 1 ? 1 + Math.sin(s.pop * Math.PI) * 0.25 - (1 - s.pop) * 0.6 : 1;
-      _m.compose(_v.set(s.x, s.y, s.z), PLATE_UP_Q, _s.setScalar(Math.max(0.01, k)));
-      rackMesh.setMatrixAt(i, _m); rackMesh.setColorAt(i, s.tint);
-    }
+    let rack = null, rackSlots = [], rackMesh = null, surfaces = [];
+    const rackGroup = new THREE.Group(); scene.add(rackGroup);
     // 猫の額（上の釘を中心にゆれる）
-    const catPivot = new THREE.Group(); catPivot.position.set(0, CAT_Y + 0.62 * CAT_S, WALL_Z + 0.05); catPivot.scale.setScalar(CAT_S); scene.add(catPivot);
+    const catPivot = new THREE.Group(); scene.add(catPivot);
+    const CAT_S = 0.55, catPos = new THREE.Vector3();
     {
       const canvas = document.createElement('canvas'); canvas.width = canvas.height = 512;
       const cg = canvas.getContext('2d');
@@ -520,20 +498,58 @@
         const f = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.07), frameM); f.position.set(x, -0.62 + y, 0.035); shade(f); catPivot.add(f);
       }
       const nail = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 6), mat('#888', 0.4, 0.8)); nail.position.set(0, 0, 0.02); catPivot.add(nail);
-      const str = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.2, 4), mat('#5a4a3a')); str.position.set(0, -0.08, 0.02); catPivot.add(str);
+      catPivot.scale.setScalar(CAT_S);
     }
-    let catSwing = 0, catSwingT = 99, catCool = 0;
-    let handTint = pick(TINTS), handT = 1; // handT: 次のお皿を投げられるまでの進み（1で準備完了）
-
-    // 飛んでいるお皿
-    const flyPool = [];
-    for (let i = 0; i < 8; i++) {
-      const m = new THREE.Mesh(plateGeo, plateMat.clone()); m.castShadow = true; m.visible = false; scene.add(m);
-      flyPool.push({ mesh: m, alive: false, p: new THREE.Vector3(), prev: new THREE.Vector3(), v: new THREE.Vector3(), spin: 0, prevSpin: 0, tint: TINTS[0] });
+    let catSwing = 0, catSwingT = 99;
+    // 棚を作り直す（画面の形に合わせて、列と段の数を変える）
+    function buildRack(cols, rows, catSide) {
+      for (const o of [...rackGroup.children]) { rackGroup.remove(o); o.geometry?.dispose(); }
+      if (rackMesh) { scene.remove(rackMesh); rackMesh.dispose(); }
+      const hw = cols * GAP / 2 + 0.06;
+      const rowsY = Array.from({ length: rows }, (_, i) => ROW0 + i * ROW_H);
+      surfaces = [{ x0: -5, x1: 5, z0: WALL_Z, z1: WALL_Z + 6, y: 0 }];
+      rackSlots = [];
+      const boardG = new THREE.BoxGeometry(hw * 2, 0.035, 0.3), railG = new THREE.CylinderGeometry(0.012, 0.012, hw * 2, 8);
+      for (const ry of rowsY) {
+        const by = ry - 0.18;
+        const b = new THREE.Mesh(boardG, woodMat); b.position.set(0, by - 0.0175, WALL_Z + 0.15); shade(b); rackGroup.add(b);
+        const r = new THREE.Mesh(railG, darkWoodMat); r.rotation.z = Math.PI / 2; r.position.set(0, ry - 0.09, WALL_Z + 0.27); shade(r); rackGroup.add(r);
+        surfaces.push({ x0: -hw, x1: hw, z0: WALL_Z, z1: WALL_Z + 0.3, y: by });
+        for (let i = 0; i < cols; i++) rackSlots.push({ x: (i - (cols - 1) / 2) * GAP, y: ry, z: WALL_Z + 0.11, alive: true, timer: 0, pop: 1, tint: pick(TINTS), idx: rackSlots.length });
+      }
+      const topY0 = rowsY[rows - 1] - 0.05;
+      const postG = new THREE.BoxGeometry(0.05, topY0, 0.05);
+      for (const sx of [-1, 1]) for (const zz of [WALL_Z + 0.04, WALL_Z + 0.27]) { const p = new THREE.Mesh(postG, darkWoodMat); p.position.set(sx * hw, topY0 / 2, zz); shade(p); rackGroup.add(p); }
+      rackMesh = new THREE.InstancedMesh(plateGeo, plateMat, rackSlots.length);
+      rackMesh.castShadow = rackMesh.receiveShadow = true;
+      scene.add(rackMesh);
+      for (const s of rackSlots) drawRack(s.idx);
+      rackMesh.instanceMatrix.needsUpdate = true; rackMesh.instanceColor.needsUpdate = true;
+      // 猫の額: 横長の画面なら棚の右、縦長なら棚の上
+      const frameH = 1.08 * CAT_S;
+      if (catSide) catPos.set(hw + 0.2 + frameH / 2, Math.max(ROW0 + (rows - 1) * ROW_H / 2, frameH / 2 + 0.6), WALL_Z + 0.04);
+      else catPos.set(0, rowsY[rows - 1] + 0.25 + frameH / 2, WALL_Z + 0.04);
+      catPivot.position.set(catPos.x, catPos.y + 0.62 * CAT_S, catPos.z);
+      // 植木鉢
+      pots[0].position.set(-hw - 0.42, 0, WALL_Z + 0.45);
+      pots[1].position.set((catSide ? catPos.x + frameH / 2 : hw) + 0.42, 0, WALL_Z + 0.45);
+      // かけらは新しい棚の上に落ち直す
+      for (const p of pieces) p.rest = false;
+      for (const s of chipSlots) if (s.alive) s.rest = false;
+      const top = catSide ? Math.max(rowsY[rows - 1] + 0.2, catPos.y + frameH / 2) : catPos.y + frameH / 2;
+      const left = -hw - 0.1, right = catSide ? catPos.x + frameH / 2 + 0.1 : hw + 0.1;
+      rack = { cols, rows, catSide, hw, top, left, right };
+    }
+    function drawRack(i) {
+      const s = rackSlots[i];
+      if (!s.alive) { rackMesh.setMatrixAt(i, ZERO); return; }
+      const k = s.pop < 1 ? 1 + Math.sin(s.pop * Math.PI) * 0.15 - (1 - s.pop) * 0.5 : 1;
+      _m.compose(_v.set(s.x, s.y, s.z), PLATE_UP_Q, _s.setScalar(Math.max(0.01, k)));
+      rackMesh.setMatrixAt(i, _m); rackMesh.setColorAt(i, s.tint);
     }
 
     // ---------- 粉（割れた時に舞う）----------
-    function cloudTex(seed) {
+    function cloudTex() {
       const c = document.createElement('canvas'); c.width = c.height = 128;
       const g = c.getContext('2d');
       for (let i = 0; i < 14; i++) {
@@ -548,7 +564,7 @@
     }
     const clouds = [0, 1, 2, 3].map(cloudTex);
     const dusts = [];
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < 50; i++) {
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: clouds[i % 4], color: '#f3eee4', transparent: true, opacity: 0, depthWrite: false, depthTest: false, toneMapped: false, fog: false }));
       sp.visible = false; scene.add(sp);
       dusts.push({ sp, life: 0, max: 1, v: new THREE.Vector3(), size: 0.3, op: 0.5, rot: 0 });
@@ -557,9 +573,9 @@
     function dust(p, n, size) {
       for (let i = 0; i < n; i++) {
         const d = dusts[dustNext]; dustNext = (dustNext + 1) % dusts.length;
-        d.sp.position.copy(p).add(_v.set(rnd(-0.08, 0.08), rnd(0, 0.06), rnd(-0.08, 0.08)));
-        d.v.set(rnd(-0.6, 0.6), rnd(0.2, 0.8), rnd(-0.6, 0.6));
-        d.max = d.life = rnd(0.6, 1.1); d.size = size * rnd(0.6, 1.1); d.op = rnd(0.12, 0.28); d.rot = rnd(-1, 1);
+        d.sp.position.copy(p).add(_v.set(rnd(-0.04, 0.04), rnd(-0.02, 0.04), rnd(0, 0.05)));
+        d.v.set(rnd(-0.3, 0.3), rnd(0.05, 0.35), rnd(0, 0.4));
+        d.max = d.life = rnd(0.6, 1.1); d.size = size * rnd(0.6, 1.1); d.op = rnd(0.1, 0.24); d.rot = rnd(-1, 1);
         d.sp.material.rotation = rnd(0, 6.3); d.sp.visible = true;
       }
     }
@@ -577,364 +593,270 @@
       }
     }
 
-    // ---------- 割る ----------
-    let score = 0, state = 'ready'; // score: 割れた枚数（画面には出さない） / ready: まだ投げていない / play: 投げ始めた
-    const pending = []; // 時間差で割れる棚のお皿（猫ボーナス）
-    function spawn(T, p, q, v, w, tint, sc = 1) {
-      const s = T.slots[T.next]; T.next = (T.next + 1) % T.cap;
-      s.q.copy(q); s.p.copy(p); s.v.copy(v); s.w.copy(w); s.sc = sc;
-      s.alive = true; s.rest = false; s.age = 0;
-      T.mesh.setColorAt(s.i, tint); T.mesh.instanceColor.needsUpdate = true;
-      T.dirty = true;
-      return s;
-    }
-    // p: 中心, q: 向き, vel: 当たる前の速さ, n: 当たった面の向き, tint: 色
-    const _sq = new THREE.Quaternion(), _sp = new THREE.Vector3(), _sv = new THREE.Vector3(), _sw = new THREE.Vector3();
-    function shatter(p, q, vel, n, tint, power) {
-      const vn = vel.dot(n);
-      const base = _v2.copy(vel).addScaledVector(n, -(1.3) * Math.min(0, vn)).multiplyScalar(0.28);
-      let a = Math.floor(Math.random() * 24), left = 24;
-      while (left > 0) {
-        const opts = WIDTHS.filter(w => w <= left && left - w !== 1); // 残りが埋められなくならないように
-        const wn = pick(opts);
-        const r = Math.random(), parts = SPLITS[r < 0.12 ? 0 : r < 0.5 ? 1 : 2];
-        for (const pi of parts) {
-          const T = typeOf(wn, pi);
-          _q2.setFromAxisAngle(Y_AXIS, a * STEP15);
-          _sq.copy(q).multiply(_q2);
-          _sp.copy(T.c).applyQuaternion(_sq).add(p);
-          // 外向き（お皿の面に沿って）。外側のかけらほど遠くへ
-          const mid = (a + wn / 2) * STEP15;
-          _v.set(Math.sin(mid), 0, Math.cos(mid)).applyQuaternion(q);
-          const outer = PARTS[pi][0] / R;
-          const out = (0.3 + outer * 1.6 + rnd(0, 0.9)) * power;
-          _sv.copy(base).addScaledVector(_v, out).addScaledVector(n, rnd(0.3, 1.5) * power);
-          _sv.x += rnd(-0.3, 0.3); _sv.y += rnd(0, 0.5); _sv.z += rnd(-0.3, 0.3);
-          _sw.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(5, 22) * power);
-          spawn(T, _sp, _sq, _sv, _sw, tint);
+    // ---------- かけら ----------
+    const MAX_PIECES = 300;
+    const pieces = [];
+    // 細かい欠片（白い三角のつぶ）は1つの InstancedMesh で
+    const CHIP_CAP = 500;
+    const chipMesh = (() => {
+      const pts = [[0, 0.011], [0.01, -0.007], [-0.009, -0.008]], th = 0.004, v = [];
+      const P = (x, y, z) => v.push(x, y, z);
+      P(pts[0][0], th, pts[0][1]); P(pts[2][0], th, pts[2][1]); P(pts[1][0], th, pts[1][1]);
+      P(pts[0][0], 0, pts[0][1]); P(pts[1][0], 0, pts[1][1]); P(pts[2][0], 0, pts[2][1]);
+      for (let i = 0; i < 3; i++) { const a = pts[i], b = pts[(i + 1) % 3]; P(a[0], 0, a[1]); P(b[0], 0, b[1]); P(b[0], th, b[1]); P(a[0], 0, a[1]); P(b[0], th, b[1]); P(a[0], th, a[1]); }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array(v.length / 3 * 2).fill(0.01), 2));
+      g.translate(0, -th / 2, 0); g.computeVertexNormals();
+      const m = new THREE.InstancedMesh(g, plateMat, CHIP_CAP);
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      for (let i = 0; i < CHIP_CAP; i++) { m.setMatrixAt(i, ZERO); m.setColorAt(i, TINTS[0]); }
+      m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false;
+      scene.add(m); return m;
+    })();
+    const chipSlots = Array.from({ length: CHIP_CAP }, (_, i) => ({ i, alive: false, rest: true, p: new THREE.Vector3(), v: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), age: 0, sc: 1, half: 0.002, size: 0.02, chip: true }));
+    let chipNext = 0, chipDirty = false;
+    let score = 0, state = 'ready'; // score: 割った枚数（画面には出さない） / ready: まだ割っていない
+    const _P = new THREE.Vector3(), _d = new THREE.Vector3();
+    // 棚のお皿を、叩いた点（お皿の上での位置 px, pz）から割る
+    function breakPlate(slot, px, pz) {
+      slot.alive = false; slot.timer = rnd(1.1, 1.6);
+      drawRack(slot.idx); rackMesh.instanceMatrix.needsUpdate = true;
+      const S = _P.set(slot.x, slot.y, slot.z);
+      const d0 = Math.hypot(px, pz) / R;
+      const power = 1.15 - 0.4 * d0;
+      const { rays, rings } = crackPlan(px, pz);
+      const m = tintMat(slot.tint);
+      const hitW = new THREE.Vector3(px, 0.02, pz).applyQuaternion(PLATE_UP_Q).add(S);
+      for (let i = 0; i < rays.length - 1; i++) {
+        // 輪のひびは、ところどころ省いて大きめのかけらも混ぜる
+        const bounds = [rings[0]];
+        if (Math.random() < 0.75) bounds.push(rings[1]);
+        if (Math.random() < 0.6) bounds.push(rings[2]);
+        bounds.push(null);
+        for (let k = 0; k < bounds.length - 1; k++) {
+          const pc = makePiece(px, pz, rays[i], rays[i + 1], bounds[k], bounds[k + 1]);
+          if (!pc) continue;
+          if (pc.size < 0.014) { pc.g.dispose(); continue; }
+          const mesh = new THREE.Mesh(pc.g, m);
+          mesh.castShadow = pc.size > 0.04; mesh.receiveShadow = true;
+          const b = { mesh, p: new THREE.Vector3(), v: new THREE.Vector3(), q: PLATE_UP_Q.clone(), w: new THREE.Vector3(), rest: false, age: 0, half: pc.half, size: pc.size, hold: 0, out: new THREE.Vector3() };
+          b.p.copy(pc.c).applyQuaternion(PLATE_UP_Q).add(S);
+          // 叩いた点から外へ。近いかけらほど速く、手前（見ている人の側）にも少し飛ぶ
+          _d.set(pc.c.x - px, 0, pc.c.z - pz);
+          const dist = _d.length(); _d.normalize().applyQuaternion(PLATE_UP_Q);
+          // ひびは叩いた点から外へ走る: 遠いかけらほど少し遅れて、すき間が開いてから落ちる
+          b.hold = 0.04 + dist * 0.45 + rnd(0, 0.02); b.out.copy(_d);
+          const sp = rnd(0.25, 0.8) * power * (1.4 - clamp(dist / 0.3, 0, 1));
+          b.v.copy(_d).multiplyScalar(sp).addScaledVector(PLATE_N, rnd(0.15, 0.7) * power);
+          b.w.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(2, 12) * power * (0.5 + 0.5 * (1 - clamp(dist / 0.3, 0, 1))));
+          mesh.position.copy(b.p); mesh.quaternion.copy(b.q);
+          scene.add(mesh); pieces.push(b);
         }
-        a += wn; left -= wn;
       }
-      // 細かい欠片
-      const nc = Math.round(rnd(14, 24) * power);
+      while (pieces.length > MAX_PIECES) { const o = pieces.shift(); scene.remove(o.mesh); o.mesh.geometry.dispose(); }
+      // 叩いた点のまわりの細かい欠片
+      const nc = Math.round(rnd(10, 18) * power);
       for (let i = 0; i < nc; i++) {
-        const ang = rnd(0, Math.PI * 2), rr = rnd(0.02, R);
-        _v.set(Math.sin(ang), 0, Math.cos(ang));
-        _sp.copy(_v).multiplyScalar(rr).applyQuaternion(q).add(p);
-        _v.applyQuaternion(q);
-        _sv.copy(base).addScaledVector(_v, rnd(0.6, 3) * power).addScaledVector(n, rnd(0.5, 2.4) * power);
-        _sq.setFromEuler(new THREE.Euler(rnd(0, 6.3), rnd(0, 6.3), rnd(0, 6.3)));
-        _sw.set(rnd(-30, 30), rnd(-30, 30), rnd(-30, 30));
-        spawn(CHIPS, _sp, _sq, _sv, _sw, tint, rnd(0.5, 1.4));
+        const s = chipSlots[chipNext]; chipNext = (chipNext + 1) % CHIP_CAP;
+        const ang = rnd(0, Math.PI * 2), rr = rnd(0, 0.03);
+        _d.set(Math.sin(ang), 0, Math.cos(ang));
+        s.p.set(px + _d.x * rr, 0.02, pz + _d.z * rr).applyQuaternion(PLATE_UP_Q).add(S);
+        _d.applyQuaternion(PLATE_UP_Q);
+        s.v.copy(_d).multiplyScalar(rnd(0.4, 1.8) * power).addScaledVector(PLATE_N, rnd(0.3, 1.4) * power);
+        s.q.setFromEuler(new THREE.Euler(rnd(0, 6.3), rnd(0, 6.3), rnd(0, 6.3)));
+        s.w.set(rnd(-25, 25), rnd(-25, 25), rnd(-25, 25));
+        s.sc = rnd(0.5, 1.3); s.size = 0.02 * s.sc; s.half = 0.002 * s.sc;
+        s.alive = true; s.rest = false; s.dead = false; s.age = 0;
+        chipMesh.setColorAt(s.i, slot.tint); chipDirty = true;
       }
-      dust(p, 5, 0.22 * power + 0.1);
-      sCrash(power, p.x);
+      chipMesh.instanceColor.needsUpdate = true;
+      dust(hitW, 4, 0.18);
+      sCrash(power, slot.x * 3);
       score++;
-    }
-    function breakRack(i, vel) {
-      const s = rackSlots[i];
-      if (!s.alive) return;
-      s.alive = false; s.timer = 2.6; drawRack(i); rackMesh.instanceMatrix.needsUpdate = true;
-      _v.set(s.x, s.y, s.z);
-      shatter(_v.clone(), PLATE_UP_Q, vel.clone().multiplyScalar(0.6), new THREE.Vector3(0, 0.25, 1).normalize(), s.tint, clamp(vel.length() / 10, 0.7, 1.2));
-    }
-    function catBonus(vel) {
-      catCool = 3.2; catSwingT = 0; catSwing = clamp(vel.x * 0.06, -0.25, 0.25) || (Math.random() < 0.5 ? 0.22 : -0.22);
-      sFrame(); setTimeout(sMeow, 120);
-      for (const s of rackSlots) if (s.alive) {
-        const d = Math.hypot(s.x, s.y - CAT_Y);
-        pending.push({ t: 0.05 + d * 0.09 + rnd(0, 0.05), i: s.idx });
-      }
+      if (state === 'ready') state = 'play';
     }
 
-    // ---------- 投げる ----------
-    const flyAt = (i) => flyPool.find(f => !f.alive);
-    function throwPlate(dir, s, x0 = 0) {
-      const f = flyAt();
-      if (!f || handT < 1) return false;
-      // 強さ s から「壁に届く高さ」を決め、そこに届く上向きの速さを逆算する
-      const F = clamp(6 + 1.1 * s, 6, 11);
-      const Y = Math.min(3.0, -0.3 + 0.9 * s); // 強すぎても壁を越えず、必ずどこかで割れる
-      const p0 = _v.set(clamp(x0, -1.6, 1.6), THROW_Y, THROW_Z);
-      const D = (p0.z - (WALL_Z + 0.15)) / Math.max(0.25, -dir.z);
-      const tt = D / F;
-      const vy = clamp((Y - p0.y + 4.9 * tt * tt) / tt, 0.5, 9);
-      f.alive = true; f.p.copy(p0); f.prev.copy(p0);
-      f.v.set(dir.x * F, vy, dir.z * F);
-      f.spin = f.prevSpin = 0; f.tint = handTint; f.mesh.material.color.copy(handTint);
-      f.mesh.visible = true;
-      handT = 0; handTint = pick(TINTS);
-      sWhoosh(clamp(F / 12, 0.5, 1.3));
-      if (state === 'ready') begin();
-      return true;
-    }
-    const _n = new THREE.Vector3();
-    function flyQuat(f, spin, out) {
-      const h = Math.atan2(f.v.x, f.v.z);
-      out.setFromAxisAngle(Y_AXIS, h);
-      _q2.setFromAxisAngle(_v2.set(1, 0, 0), -0.18); out.multiply(_q2);
-      _q2.setFromAxisAngle(Y_AXIS, spin); out.multiply(_q2);
-      return out;
-    }
-    function hitFly(f, n) {
-      f.alive = false; f.mesh.visible = false;
-      shatter(f.p.clone(), flyQuat(f, f.spin, new THREE.Quaternion()), f.v.clone(), n.clone(), f.tint, clamp(f.v.length() / 11, 0.7, 1.4));
-    }
-    function stepFly(f, dt) {
-      f.prev.copy(f.p); f.prevSpin = f.spin;
-      f.v.y -= 9.8 * dt;
-      f.p.addScaledVector(f.v, dt);
-      f.spin += 22 * dt;
-      const p = f.p;
-      // 棚のお皿
-      for (const s of rackSlots) {
-        if (!s.alive) continue;
-        const dx = p.x - s.x, dy = p.y - s.y, dz = p.z - s.z;
-        if (dx * dx + dy * dy + dz * dz < 0.26 * 0.26) { breakRack(s.idx, f.v); hitFly(f, _n.set(0, 0.3, 1).normalize()); return; }
-      }
-      // 猫の額
-      if (p.z < WALL_Z + 0.3 && Math.abs(p.x) < 0.6 * CAT_S && Math.abs(p.y - CAT_Y) < 0.6 * CAT_S) {
-        if (catCool <= 0) catBonus(f.v); else { catSwingT = Math.min(catSwingT, 0.2); sFrame(); }
-        hitFly(f, _n.set(0, 0, 1)); return;
-      }
-      // 棚板の前のふち
-      if (p.z < WALL_Z + 0.36) {
-        for (const { cx, hw, rows } of RACKS) if (Math.abs(p.x - cx) < hw + 0.05) for (const ry of rows) if (Math.abs(p.y - (ry - 0.19)) < 0.05) { hitFly(f, _n.set(0, 0.7, 0.7).normalize()); return; }
-      }
-      if (p.z < WALL_Z + 0.14) {
-        if (p.y < WALL_H) { hitFly(f, _n.set(0, 0, 1)); return; }
-      }
-      if (Math.abs(p.x) > SIDE_X - 0.14 && p.y < SIDE_H + 0.05 && p.z > WALL_Z) { hitFly(f, _n.set(-Math.sign(p.x), 0, 0)); return; }
-      if (p.y < 0.03) { p.y = 0.03; hitFly(f, _n.set(0, 1, 0)); return; }
-      if (p.y < -3 || p.z < -20 || Math.abs(p.x) > 20) { f.alive = false; f.mesh.visible = false; }
-    }
-
-    // かけらの動き
-    const FLAT_UP = new THREE.Vector3();
+    // かけらの動き（床・棚板・壁で跳ねて、平らになって止まる）
     function groundAt(x, z, yPrev) {
       let g = -10;
       for (const s of surfaces) if (x >= s.x0 && x <= s.x1 && z >= s.z0 && z <= s.z1 && yPrev >= s.y - 0.02 && s.y > g) g = s.y;
       return g;
     }
-    function flatten(s, k) {
-      FLAT_UP.set(0, 1, 0).applyQuaternion(s.q);
+    const FLAT_UP = new THREE.Vector3();
+    function flatten(b, k) {
+      FLAT_UP.set(0, 1, 0).applyQuaternion(b.q);
       _v.set(0, FLAT_UP.y >= 0 ? 1 : -1, 0);
       _q2.setFromUnitVectors(FLAT_UP, _v);
       _q.identity().slerp(_q2, k);
-      s.q.premultiply(_q);
+      b.q.premultiply(_q);
     }
-    function stepShards(dt) {
-      for (const T of shardTypes) {
-        for (const s of T.slots) {
-          if (!s.alive || s.rest) continue;
-          T.dirty = true;
-          s.age += dt;
-          const yPrev = s.p.y;
-          s.v.y -= 9.8 * dt;
-          s.p.addScaledVector(s.v, dt);
-          const wl = s.w.length();
-          if (wl > 0.001) { _q.setFromAxisAngle(_v.copy(s.w).divideScalar(wl), wl * dt); s.q.premultiply(_q); }
-          // 壁
-          if (s.p.z < WALL_Z + 0.02) { s.p.z = WALL_Z + 0.02; if (s.v.z < 0) s.v.z *= -0.3; }
-          if (Math.abs(s.p.x) > SIDE_X - 0.02 && s.p.y < SIDE_H) { s.p.x = Math.sign(s.p.x) * (SIDE_X - 0.02); s.v.x *= -0.3; }
-          if (s.p.z > NEAR_Z - 0.02) { s.p.z = NEAR_Z - 0.02; s.v.z *= -0.3; }
-          // 床・棚板
-          const g = groundAt(s.p.x, s.p.z, yPrev - T.floor) + T.floor;
-          if (s.p.y < g) {
-            s.p.y = g;
-            const imp = -s.v.y;
-            if (imp > 0.6) sTink(imp / 4 * (T.chip ? 0.45 : 1), T.size * s.sc, s.p.x);
-            if (s.v.y < 0) s.v.y = imp * 0.22;
-            s.v.x *= 0.55; s.v.z *= 0.55; s.w.multiplyScalar(0.45);
-            flatten(s, 0.5);
-            if (s.v.lengthSq() < 0.25 && s.age > 0.15) {
-              flatten(s, 1); s.v.set(0, 0, 0); s.w.set(0, 0, 0);
-              s.p.y = g + Math.random() * 0.003; s.rest = true;
-            }
-          }
-          if (s.p.y < -5) { s.alive = false; }
+    function stepBody(b, dt) {
+      if (b.hold > 0) { b.hold -= dt; b.p.addScaledVector(b.out, 0.04 * dt); return; }
+      b.age += dt;
+      const yPrev = b.p.y;
+      b.v.y -= 9.8 * dt;
+      b.p.addScaledVector(b.v, dt);
+      const wl = b.w.length();
+      if (wl > 0.001) { _q.setFromAxisAngle(_v.copy(b.w).divideScalar(wl), wl * dt); b.q.premultiply(_q); }
+      if (b.p.z < WALL_Z + 0.015) { b.p.z = WALL_Z + 0.015; if (b.v.z < 0) b.v.z *= -0.3; }
+      const g = groundAt(b.p.x, b.p.z, yPrev - b.half) + b.half;
+      if (b.p.y < g) {
+        b.p.y = g;
+        const imp = -b.v.y;
+        if (imp > 0.45) sTink(imp / 3 * (b.chip ? 0.45 : 1), b.size, b.p.x * 3);
+        if (b.v.y < 0) b.v.y = imp * 0.22;
+        b.v.x *= 0.55; b.v.z *= 0.55; b.w.multiplyScalar(0.45);
+        flatten(b, 0.5);
+        if (b.v.lengthSq() < 0.09 && b.age > 0.12) {
+          flatten(b, 1); b.v.set(0, 0, 0); b.w.set(0, 0, 0);
+          b.p.y = g + Math.random() * 0.002; b.rest = true;
         }
       }
-    }
-    function drawShards() {
-      for (const T of shardTypes) {
-        if (!T.dirty) continue;
-        T.dirty = false;
-        for (let i = 0; i < T.cap; i++) {
-          const s = T.slots[i];
-          if (!s.alive) T.mesh.setMatrixAt(i, ZERO);
-          else T.mesh.setMatrixAt(i, _m.compose(s.p, s.q, _s.setScalar(s.sc)));
-        }
-        T.mesh.instanceMatrix.needsUpdate = true;
-      }
+      if (b.p.y < -3) { b.rest = true; b.dead = true; }
     }
 
     // ---------- 進行 ----------
-    function begin() {
-      state = 'play';
-    }
-    function reset() {
-      state = 'ready'; score = 0; pending.length = 0;
-      for (const T of shardTypes) { for (const s of T.slots) s.alive = false; T.dirty = true; T.next = 0; }
-      for (const f of flyPool) { f.alive = false; f.mesh.visible = false; }
-      for (const s of rackSlots) { s.alive = true; s.pop = 1; s.timer = 0; drawRack(s.idx); }
-      rackMesh.instanceMatrix.needsUpdate = true; rackMesh.instanceColor.needsUpdate = true;
-      catCool = 0; handT = 1;
-    }
     const STEP = 1 / 120;
-    let clock = 0;
     function step(dt) {
-      clock += dt;
-      for (const f of flyPool) if (f.alive) stepFly(f, dt);
-      stepShards(dt);
-      // 猫ボーナスの連鎖
-      for (let i = pending.length - 1; i >= 0; i--) {
-        const pd = pending[i]; pd.t -= dt;
-        if (pd.t <= 0) { pending.splice(i, 1); const s = rackSlots[pd.i]; breakRack(pd.i, new THREE.Vector3(s.x * 0.8, 1.5, 2.5)); s.timer = 3.0 + Math.abs(s.x) * 0.08 + (s.y - 0.7) * 0.1; }
-      }
+      for (const b of pieces) if (!b.rest) stepBody(b, dt);
+      for (const s of chipSlots) if (s.alive && !s.rest) { stepBody(s, dt); chipDirty = true; }
       // 棚のお皿の補充
       let rackDirty = false;
       for (const s of rackSlots) {
-        if (!s.alive) { s.timer -= dt; if (s.timer <= 0) { s.alive = true; s.pop = 0; s.tint = pick(TINTS); rackDirty = true; if (Math.random() < 0.5) sPop(s.x); } }
-        else if (s.pop < 1) { s.pop = Math.min(1, s.pop + dt / 0.25); rackDirty = true; }
+        if (!s.alive) { s.timer -= dt; if (s.timer <= 0) { s.alive = true; s.pop = 0; s.tint = pick(TINTS); rackDirty = true; sPop(s.x * 3); } }
+        else if (s.pop < 1) { s.pop = Math.min(1, s.pop + dt / 0.3); rackDirty = true; }
       }
       if (rackDirty) { for (const s of rackSlots) drawRack(s.idx); rackMesh.instanceMatrix.needsUpdate = true; rackMesh.instanceColor.needsUpdate = true; }
-      if (catCool > 0) catCool -= dt;
       catSwingT += dt;
-      if (handT < 1) handT = Math.min(1, handT + dt / 0.14);
     }
 
-    // ---------- 操作（スワイプ）----------
-    let dragging = null;
-    const ray = new THREE.Raycaster(), floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    const toNdc = (x, y) => new THREE.Vector2(x / layout.w * 2 - 1, -(y / layout.H) * 2 + 1);
-    function worldOnTable(x, y, out) { ray.setFromCamera(toNdc(x, y), camera); return ray.ray.intersectPlane(floorPlane, out); }
+    // ---------- 操作（タップ）----------
+    const ray = new THREE.Raycaster();
     const cvs = renderer.domElement;
+    const _o = new THREE.Vector3(), _hit = new THREE.Vector3();
     cvs.addEventListener('pointerdown', e => {
-      if (state !== 'ready' && state !== 'play') return;
       const r = cvs.getBoundingClientRect();
-      dragging = { id: e.pointerId, pts: [[e.clientX - r.left, e.clientY - r.top, performance.now()]], thrown: false };
-      try { cvs.setPointerCapture(e.pointerId); } catch {}
+      ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / layout.w * 2 - 1, -((e.clientY - r.top) / layout.H) * 2 + 1), camera);
+      tapRay(ray.ray);
     });
-    cvs.addEventListener('pointermove', e => {
-      if (!dragging || dragging.id !== e.pointerId) return;
-      const r = cvs.getBoundingClientRect();
-      dragging.pts.push([e.clientX - r.left, e.clientY - r.top, performance.now()]);
-      if (dragging.pts.length > 40) dragging.pts.shift();
-      // 素早く大きく払ったら、指を離す前でも投げる（連続で投げやすく）
-      const pts = dragging.pts, last = pts[pts.length - 1];
-      let first = pts[0]; for (const p of pts) if (last[2] - p[2] <= 90) { first = p; break; }
-      if (pts[0][1] - last[1] > layout.h * 0.22 && first !== last) release(first, last);
-    });
-    const endDrag = e => {
-      if (!dragging || dragging.id !== e.pointerId) return;
-      const pts = dragging.pts, last = pts[pts.length - 1];
-      let first = pts[0]; for (const p of pts) if (last[2] - p[2] <= 100) { first = p; break; }
-      if (first === last && pts.length > 1) first = pts[pts.length - 2];
-      if (first !== last) release(first, last);
-      dragging = null;
-    };
-    cvs.addEventListener('pointerup', endDrag);
-    cvs.addEventListener('pointercancel', e => { if (dragging && dragging.id === e.pointerId) dragging = null; });
-    const _a = new THREE.Vector3(), _b = new THREE.Vector3();
-    function release(first, last) {
-      if (dragging.thrown) return;
-      const dt = Math.max(0.016, (last[2] - first[2]) / 1000);
-      const dx = last[0] - first[0], dy = last[1] - first[1];
-      const sy = -dy / dt / layout.h; // 上向きの速さ（画面の高さ／秒）
-      if (sy < 0.35 || -dy < 12) return;
-      // 向き: 払い始めた所と、払った向きに少し進めた点を床に落として決める（画面の左で払えば左から投げる）
-      const st = dragging.pts[0], hx = st[0], hy = Math.max(st[1], layout.h * 0.55);
-      const len = Math.hypot(dx, dy), step = 30;
-      let dir = null, x0 = 0;
-      if (worldOnTable(hx, hy, _a) && worldOnTable(hx + dx / len * step, hy + dy / len * step, _b)) {
-        dir = _b.sub(_a); dir.y = 0; dir.normalize(); x0 = _a.x * 0.6;
-      } else dir = new THREE.Vector3(dx / len, 0, -1).normalize();
-      if (dir.z > -0.25) { dir.z = -0.25; dir.normalize(); }
-      const s = Math.hypot(sy, dx / dt / layout.h * 0.3);
-      if (throwPlate(dir, s, x0)) dragging.thrown = true;
+    function tapRay(rr) {
+      const o = rr.origin, d = rr.direction;
+      const dn = d.dot(PLATE_N);
+      let best = null, bt = 1e9, bx = 0, bz = 0;
+      for (const s of rackSlots) {
+        if (!s.alive || s.pop < 0.6) continue;
+        const t = _v.set(s.x, s.y, s.z).sub(o).dot(PLATE_N) / dn;
+        if (!(t > 0) || t >= bt) continue;
+        _hit.copy(o).addScaledVector(d, t).sub(_v.set(s.x, s.y, s.z)).applyQuaternion(PLATE_INV_Q);
+        if (_hit.x * _hit.x + _hit.z * _hit.z <= R * R) { best = s; bt = t; bx = _hit.x; bz = _hit.z; }
+      }
+      if (best) { breakPlate(best, bx, bz); return; }
+      // 猫の額をつつくと、ゆれて鳴く
+      const t = (catPos.z + 0.04 - o.z) / d.z;
+      if (t > 0) {
+        _hit.copy(o).addScaledVector(d, t);
+        const half = 0.54 * CAT_S;
+        if (Math.abs(_hit.x - catPos.x) < half && Math.abs(_hit.y - catPos.y) < half) {
+          catSwingT = 0; catSwing = (_hit.x < catPos.x ? -1 : 1) * 0.2; sFrame(); setTimeout(sMeow, 90);
+        }
+      }
     }
 
     // ---------- 画面サイズとカメラ ----------
-    const layout = { w: 1, h: 1, H: 1, reserve: 160 };
-    // 画面に必ず入れる範囲: 棚と猫の額、その手前の割れたかけらが散らばる床
-    const KEY = [[-2.5, 2.3, WALL_Z + 0.1], [2.5, 2.3, WALL_Z + 0.1], [0, 2.85, WALL_Z + 0.05], [-2.5, 0, WALL_Z + 0.3], [2.5, 0, WALL_Z + 0.3], [-1.6, 0, WALL_Z + 2.4], [1.6, 0, WALL_Z + 2.4]].map(a => new THREE.Vector3(...a));
-    const LOOK = new THREE.Vector3(0, 1.0, WALL_Z + 1.3), VIEW_DIR = new THREE.Vector3(0, 0.62, 1).normalize();
-    let camD = 14, camShift = 0;
+    const layout = { w: 1, h: 1, H: 1 };
+    const VIEW_DIR = new THREE.Vector3(0, 0.42, 1).normalize();
+    const LOOK = new THREE.Vector3();
+    let KEY = [];
+    // 画面の形に一番合う、列と段の数を選ぶ
+    const SHAPES = [[3, 4], [3, 3], [4, 3], [5, 3], [5, 2], [6, 2], [7, 2]];
+    function chooseShape(aspect) {
+      let best = null, bs = 1e9;
+      for (const [c, r] of SHAPES) {
+        const catSide = aspect > 1.15;
+        const W = c * GAP + 0.3 + (catSide ? 0.75 : 0), Hh = r * ROW_H + 0.45 + (catSide ? 0 : 0.7);
+        const sc = Math.abs(Math.log((W / Hh) / aspect)) - c * r * 0.004;
+        if (sc < bs) { bs = sc; best = [c, r, catSide]; }
+      }
+      return best;
+    }
     function resize() {
       const w = stage.clientWidth, H = stage.clientHeight;
       renderer.setSize(w, H, false);
       // 下の空白（80px）には大事な物を置かない
       const reserve = Math.max(0, stage.getBoundingClientRect().bottom - floorline.getBoundingClientRect().bottom);
-      stage.style.setProperty('--reserve', reserve + 'px');
       const h = Math.max(140, H - reserve);
-      Object.assign(layout, { w, h, H, reserve });
+      Object.assign(layout, { w, h, H });
+      const [c, r, side] = chooseShape(w / h);
+      if (!rack || rack.cols !== c || rack.rows !== r || rack.catSide !== side) buildRack(c, r, side);
+      const { left, right, top } = rack;
+      KEY = [[left, top + 0.05, WALL_Z + 0.05], [right, top + 0.05, WALL_Z + 0.05], [left, 0, WALL_Z + 0.35], [right, 0, WALL_Z + 0.35], [left * 0.8, 0, WALL_Z + 0.75], [right * 0.8, 0, WALL_Z + 0.75]].map(a => new THREE.Vector3(...a));
+      LOOK.set((left + right) / 2, top * 0.48, WALL_Z + 0.2);
       fitCamera();
     }
     const _p = new THREE.Vector3();
     function placeCam(d) {
       camera.position.copy(LOOK).addScaledVector(VIEW_DIR, d);
       camera.lookAt(LOOK); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
-      let x = 0, y0 = 9, y1 = -9;
-      for (const k of KEY) { _p.copy(k).project(camera); if (_p.z > 1 || _p.z < -1) return { x: 9, y0: -9, y1: 9 }; x = Math.max(x, Math.abs(_p.x)); y0 = Math.min(y0, _p.y); y1 = Math.max(y1, _p.y); }
-      return { x, y0, y1 };
+      let x0 = 9, x1 = -9, y0 = 9, y1 = -9;
+      for (const k of KEY) { _p.copy(k).project(camera); if (_p.z > 1 || _p.z < -1) return null; x0 = Math.min(x0, _p.x); x1 = Math.max(x1, _p.x); y0 = Math.min(y0, _p.y); y1 = Math.max(y1, _p.y); }
+      return { x0, x1, y0, y1 };
     }
     function fitCamera() {
       const { w, h, H } = layout;
       camera.aspect = w / h; camera.clearViewOffset();
-      let lo = 4, hi = 60;
-      for (let i = 0; i < 26; i++) { const mid = (lo + hi) / 2, b = placeCam(mid); if (b.x <= 0.95 && (b.y1 - b.y0) / 2 <= 0.93) hi = mid; else lo = mid; }
-      camD = hi;
+      let lo = 0.8, hi = 40;
+      for (let i = 0; i < 26; i++) { const mid = (lo + hi) / 2, b = placeCam(mid); if (b && (b.x1 - b.x0) / 2 <= 0.94 && (b.y1 - b.y0) / 2 <= 0.92) hi = mid; else lo = mid; }
       const b = placeCam(hi);
-      const cy = (b.y0 + b.y1) / 2;
-      camShift = Math.round(-cy * h / 2);
-      camera.setViewOffset(w, h, 0, camShift, w, H);
+      camera.setViewOffset(w, h, Math.round((b.x0 + b.x1) / 2 * w / 2), Math.round(-(b.y0 + b.y1) / 2 * h / 2), w, H);
       camera.updateProjectionMatrix();
     }
 
-
     // ---------- ループ ----------
-    let last = performance.now(), acc = 0, lastHint = '';
-    function render(al, dt) {
-      // 飛んでいるお皿（補間）
-      for (const f of flyPool) {
-        if (!f.alive) continue;
-        f.mesh.position.lerpVectors(f.prev, f.p, al);
-        flyQuat(f, f.prevSpin + (f.spin - f.prevSpin) * al, f.mesh.quaternion);
+    let last = performance.now(), acc = 0, lastHint = '', timeScale = 1;
+    function render(dt) {
+      for (let i = pieces.length - 1; i >= 0; i--) {
+        const b = pieces[i];
+        if (b.dead) { scene.remove(b.mesh); b.mesh.geometry.dispose(); pieces.splice(i, 1); continue; }
+        if (!b.rest || b.age < 99) { b.mesh.position.copy(b.p); b.mesh.quaternion.copy(b.q); if (b.rest) b.age = 99; }
       }
-      drawShards();
+      if (chipDirty) {
+        chipDirty = false;
+        for (const s of chipSlots) chipMesh.setMatrixAt(s.i, s.alive && !s.dead ? _m.compose(s.p, s.q, _s.setScalar(s.sc)) : ZERO);
+        chipMesh.instanceMatrix.needsUpdate = true;
+      }
       updateDust(dt);
       // 猫の額のゆれ
       catPivot.rotation.z = catSwing * Math.exp(-catSwingT * 2.2) * Math.sin(catSwingT * 8);
-      // 最初の操作の案内（画面の下のほうで上に払う手）
+      // 最初の操作の案内（真ん中あたりのお皿をつつく指）
       let hint = 'none';
-      if (state === 'ready') {
-        hintEl.style.left = Math.round(layout.w / 2) + 'px'; hintEl.style.top = Math.round(layout.h * 0.78) + 'px'; hint = 'block';
+      if (state === 'ready' && rackSlots.length) {
+        const s = rackSlots[Math.floor(rack.rows / 2) * rack.cols + Math.floor(rack.cols / 2)];
+        _v.set(s.x + 0.04, s.y - 0.03, s.z + 0.05).project(camera);
+        hintEl.style.left = Math.round((_v.x + 1) / 2 * layout.w) + 'px'; hintEl.style.top = Math.round((1 - _v.y) / 2 * layout.H) + 'px'; hint = 'block';
       }
       if (hint !== lastHint) { hintEl.style.display = hint; lastHint = hint; }
       renderer.render(scene, camera);
     }
     function loop(now) {
-      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      const dt = Math.min(0.05, (now - last) / 1000) * timeScale; last = now;
       acc += dt;
       while (acc >= STEP) { step(STEP); acc -= STEP; }
-      render(acc / STEP, dt);
+      render(dt);
       requestAnimationFrame(loop);
     }
 
     addEventListener('resize', resize);
     resize();
-    reset();
     applyLang();
-    // テスト用の入口
-    window.__game = { get state() { return state; }, get score() { return score; }, throwPlate: (dx, s) => throwPlate(new THREE.Vector3(dx, 0, -1).normalize(), s) };
-    // 最初の1回が重くならないように、全部の形を一度描いておく
+    // テスト用の入口: 段・列を指定して、お皿の上の点（px, pz）を叩く
+    window.__game = { get state() { return state; }, get score() { return score; }, get pieces() { return pieces.length; }, tap: (i, px, pz) => { const s = rackSlots[i]; if (s && s.alive) breakPlate(s, px, pz); }, get n() { return rackSlots.length; }, set timeScale(v) { timeScale = v; } };
+    // 最初の1回が重くならないように、全部の形を一度描いておく（かけら用の材質も先に用意）
     {
       for (const d of dusts) d.sp.visible = true;
-      for (const f of flyPool) f.mesh.visible = true;
-      renderer.compile(scene, camera); render(1, 0.016);
+      const tmp = TINTS.map(c => { const m = new THREE.Mesh(plateGeo, tintMat(c)); m.position.set(0, -5, 0); scene.add(m); return m; });
+      renderer.compile(scene, camera); render(0.016);
+      for (const m of tmp) scene.remove(m);
       for (const d of dusts) d.sp.visible = false;
-      for (const f of flyPool) f.mesh.visible = false;
     }
     requestAnimationFrame(t0 => { last = t0; loop(t0); });
   </script>
