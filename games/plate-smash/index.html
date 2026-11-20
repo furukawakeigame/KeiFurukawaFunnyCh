@@ -42,14 +42,6 @@
     header svg { width: 18px; height: 18px; display: block; }
     #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
     #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
-    #hud { position: absolute; left: 0; right: 0; top: 10px; display: none; flex-direction: column; align-items: center; pointer-events: none; }
-    #score { font-size: clamp(30px, 7vmin, 64px); font-weight: 900; color: #fff; line-height: 1.1; text-shadow: 0 3px 0 #1f4a78, 0 0 12px rgba(0,0,0,.35); }
-    @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
-      #hud { left: 12px; right: auto; top: 8px; }
-      #score { font-size: clamp(22px, 6vh, 40px); }
-    }
-    #score.pop { animation: pop .18s ease-out; }
-    @keyframes pop { 0% { transform: scale(1.25); } 100% { transform: scale(1); } }
     #hint { position: absolute; width: clamp(56px, 11vmin, 92px); pointer-events: none; display: none; transform: translate(-50%, -20%); }
     #hint svg { width: 100%; height: auto; display: block; animation: swipe 1.2s ease-in infinite; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
     @keyframes swipe { 0% { transform: translateY(40%); opacity: 0; } 15% { opacity: 1; } 70% { transform: translateY(-80%); opacity: 1; } 100% { transform: translateY(-110%); opacity: 0; } }
@@ -68,7 +60,6 @@
   </header>
   <main style="display:contents">
   <div id="stage">
-    <div id="hud"><div id="score"></div></div>
     <div id="hint"><svg viewBox="0 0 60 84"><path d="M30 2l-10 12h20z" fill="#ffd34a" stroke="#5a3a00" stroke-width="2.5" stroke-linejoin="round"/><path d="M24 62V34a4 4 0 0 1 8 0v14l1-6a4 4 0 0 1 7 1v4a4 4 0 0 1 7 1v12c0 7-5 12-12 12h-3c-5 0-8-3-10-7l-6-10a4 4 0 0 1 6-4z" fill="#fff" stroke="#24304a" stroke-width="2.5" stroke-linejoin="round"/></svg></div>
     <div id="msg"></div>
   </div>
@@ -98,10 +89,10 @@
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
-      ja: { title: '無限お皿割り', back: '← トップへ戻る', count: n => `${n}枚` },
-      ko: { title: '무한 접시 깨기', back: '← 처음으로', count: n => `${n}장` },
-      en: { title: 'Endless Plate Smash', back: '← Back to top', count: n => `${n} ${n === 1 ? 'plate' : 'plates'}` },
-      th: { title: 'ทุบจานไม่รู้จบ', back: '← กลับหน้าแรก', count: n => `${n} ใบ` },
+      ja: { title: '無限お皿割り', back: '← トップへ戻る' },
+      ko: { title: '무한 접시 깨기', back: '← 처음으로' },
+      en: { title: 'Endless Plate Smash', back: '← Back to top' },
+      th: { title: 'ทุบจานไม่รู้จบ', back: '← กลับหน้าแรก' },
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -112,7 +103,6 @@
       document.documentElement.lang = lang;
       document.title = t('title');
       document.getElementById('back').textContent = t('back');
-      scoreEl.textContent = t('count')(score);
     }
 
     // ---------- 音 ----------
@@ -123,7 +113,7 @@
     };
     drawSoundBtn();
     soundBtn.addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn(); if (master) master.gain.value = soundOn ? 1 : 0; });
-    let ac = null, master = null, noiseBuf = null;
+    let ac = null, master = null, noiseBuf = null, reverb = null;
     // iPhone の消音モードでも鳴らす
     function unmuteIOS() {
       try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch {}
@@ -147,6 +137,11 @@
         master = ac.createGain(); master.gain.value = soundOn ? 1 : 0; master.connect(comp);
         noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
         const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        // 響き: 中庭の壁に跳ね返る短い残響（ノイズを減衰させた手作りのインパルス応答）
+        const len = Math.floor(ac.sampleRate * 1.3), ir = ac.createBuffer(2, len, ac.sampleRate);
+        for (let ch = 0; ch < 2; ch++) { const b = ir.getChannelData(ch); let lp = 0; for (let i = 0; i < len; i++) { lp += (Math.random() * 2 - 1 - lp) * (0.5 - 0.35 * i / len); b[i] = lp * Math.pow(1 - i / len, 3.2) * (i < 200 ? i / 200 : 1); } }
+        const conv = ac.createConvolver(); conv.buffer = ir;
+        reverb = ac.createGain(); reverb.gain.value = 0.5; reverb.connect(conv).connect(master);
         const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
         o.connect(g).connect(master); o.start(); o.stop(ac.currentTime + 0.05);
         startAmbience();
@@ -155,40 +150,12 @@
     addEventListener('pointerdown', initAudio, { capture: true });
     addEventListener('keydown', initAudio, { capture: true });
     const live = () => ac && soundOn;
-    function tone(type, f0, f1, dur, vol, delay = 0) {
-      if (!live()) return;
-      const now = ac.currentTime + delay;
-      const o = ac.createOscillator(); o.type = type;
-      o.frequency.setValueAtTime(f0, now); o.frequency.exponentialRampToValueAtTime(f1, now + dur);
-      const g = ac.createGain(); g.gain.setValueAtTime(vol, now); g.gain.exponentialRampToValueAtTime(0.001, now + dur);
-      o.connect(g).connect(master); o.start(now); o.stop(now + dur + 0.02);
-    }
-    // ノイズを共鳴に通す（[周波数, Q, 音量] の組）
-    function burst(dur, bands, vol = 1, delay = 0) {
-      if (!live()) return;
-      const now = ac.currentTime + delay;
-      const s = ac.createBufferSource(); s.buffer = noiseBuf; s.playbackRate.value = rnd(0.9, 1.1);
-      const g = ac.createGain(); g.gain.setValueAtTime(vol, now); g.gain.exponentialRampToValueAtTime(0.001, now + dur);
-      for (const [f, q, a] of bands) {
-        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * rnd(0.93, 1.07); bp.Q.value = q;
-        const bg = ac.createGain(); bg.gain.value = a; s.connect(bp).connect(bg).connect(g);
-      }
-      g.connect(master); s.start(now, Math.random()); s.stop(now + dur + 0.02);
-    }
-    // 庭の音（遠くの小鳥と風）
+    // 中庭の空気の音（ごく小さく）
     function startAmbience() {
       const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
-      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380;
-      const g = ac.createGain(); g.gain.value = 0.035;
+      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 300;
+      const g = ac.createGain(); g.gain.value = 0.02;
       s.connect(lp).connect(g).connect(master); s.start();
-      const bird = () => {
-        if (live() && !document.hidden) {
-          const f = rnd(2600, 4200), n = 2 + Math.floor(Math.random() * 3);
-          for (let i = 0; i < n; i++) tone('sine', f * rnd(0.95, 1.1), f * rnd(1.15, 1.4), 0.07, 0.012, i * 0.11);
-        }
-        setTimeout(bird, rnd(2500, 7000));
-      };
-      setTimeout(bird, 2000);
     }
     // 声: のこぎり波を母音の共鳴に通す
     const VOWEL = { a: [800, 1250, 2600], i: [320, 2300, 3000], u: [360, 1300, 2500], e: [520, 1900, 2600], o: [520, 880, 2500], n: [280, 1100, 2400] };
@@ -218,36 +185,72 @@
       const f = rnd(560, 760);
       speak(pick([[['i', 0.07, 1.05], ['a', 0.12, 1.2], ['u', 0.12, 0.8]], [['i', 0.06, 1.1], ['e', 0.08, 1.25], ['a', 0.14, 1.0]], [['n', 0.05, 0.9], ['i', 0.06, 1.15], ['a', 0.16, 1.05], ['o', 0.08, 0.7]]]), f, 0.4);
     };
-    // 陶器が割れる音: 当たった「ガシャ」＋かけらの「チャリチャリ」
-    let lastCrash = 0, lastTink = 0;
-    function sCrash(k = 1) {
-      if (!live()) return;
-      const now = ac.currentTime;
-      const busy = now - lastCrash < 0.05; lastCrash = now;
-      k = clamp(k, 0.3, 1.4) * (busy ? 0.55 : 1);
-      burst(0.09, [[1600, 1.5, 1], [3300, 2.5, 0.8], [5200, 3, 0.5]], 0.75 * k);
-      tone('sine', rnd(260, 340), 110, 0.07, 0.22 * k);
-      burst(0.35, [[6500, 1, 1], [9500, 2, 0.6]], 0.22 * k, 0.01);
-      const n = busy ? 3 : 7;
-      for (let i = 0; i < n; i++) {
-        const f = rnd(2400, 7800);
-        tone('sine', f, f * rnd(0.97, 1.0), rnd(0.04, 0.18), rnd(0.03, 0.08) * k, rnd(0, 0.16));
+    // ---- 陶器の音（左右の位置と響きつき）----
+    // 同時に鳴らす数を抑えて、重なっても濁らない・重くならないようにする
+    let voices = 0;
+    function bus(pan, wet = 0.35) {
+      const g = ac.createGain();
+      const p = ac.createStereoPanner ? ac.createStereoPanner() : null;
+      if (p) { p.pan.value = clamp(pan, -0.9, 0.9); g.connect(p).connect(master); } else g.connect(master);
+      const w = ac.createGain(); w.gain.value = wet; g.connect(w).connect(reverb);
+      return g;
+    }
+    function ring(dest, f, dur, vol, at) {
+      const o = ac.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(f, at);
+      o.frequency.exponentialRampToValueAtTime(f * 0.995, at + dur);
+      const g = ac.createGain(); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(vol, at + 0.002); g.gain.exponentialRampToValueAtTime(0.0005, at + dur);
+      o.connect(g).connect(dest); o.start(at); o.stop(at + dur + 0.02);
+      voices++; o.onended = () => voices--;
+    }
+    function hiss(dest, dur, bands, vol, at, hp = 0) {
+      const s = ac.createBufferSource(); s.buffer = noiseBuf; s.playbackRate.value = rnd(0.85, 1.15);
+      const g = ac.createGain(); g.gain.setValueAtTime(vol, at); g.gain.exponentialRampToValueAtTime(0.0005, at + dur);
+      let src = s;
+      if (hp) { const h = ac.createBiquadFilter(); h.type = 'highpass'; h.frequency.value = hp; s.connect(h); src = h; }
+      for (const [f, q, a] of bands) {
+        const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * rnd(0.92, 1.08); bp.Q.value = q;
+        const bg = ac.createGain(); bg.gain.value = a; src.connect(bp).connect(bg).connect(g);
       }
+      g.connect(dest); s.start(at, Math.random() * 1.5); s.stop(at + dur + 0.02);
+      voices++; s.onended = () => voices--;
     }
-    function sTink(k) {
-      if (!live()) return;
+    // 割れた瞬間: 乾いた「パキッ」→ お皿の鳴り（少し外れた倍音）→ 細かく砕ける「シャラッ」
+    let lastCrash = 0;
+    function sCrash(k, x) {
+      if (!live() || voices > 120) return;
       const now = ac.currentTime;
-      if (now - lastTink < 0.03) return; lastTink = now;
-      const f = rnd(3000, 8000);
-      tone('sine', f, f * 0.98, rnd(0.03, 0.08), 0.035 * clamp(k, 0.2, 1));
+      const busy = now - lastCrash < 0.04; lastCrash = now;
+      k = clamp(k, 0.3, 1.4) * (busy ? 0.6 : 1);
+      const d = bus(x / 3.2);
+      hiss(d, 0.012, [[3000, 0.7, 1.2], [7000, 0.8, 1]], 1.1 * k, now, 1500); // パキッ
+      hiss(d, 0.07, [[2400, 4, 0.9], [4100, 5, 0.7], [6300, 6, 0.5]], 0.6 * k, now);
+      const f0 = rnd(1150, 1700);
+      if (!busy) for (const [m, a, dd] of [[1, 0.09, 0.22], [1.58, 0.07, 0.17], [2.31, 0.05, 0.13], [3.07, 0.035, 0.1], [4.12, 0.025, 0.08]]) ring(d, f0 * m * rnd(0.99, 1.01), dd * rnd(0.8, 1.2), a * k, now + 0.002);
+      ring(d, rnd(170, 230), 0.07, 0.12 * k, now); // 床や壁に当たった低い音
+      hiss(d, 0.28, [[7500, 0.9, 1], [10500, 1.2, 0.6]], 0.16 * k, now + 0.008, 4000); // シャラッ
+      const n = busy ? 3 : 8;
+      for (let i = 0; i < n; i++) { const f = rnd(2600, 8200); ring(d, f, rnd(0.03, 0.12), rnd(0.02, 0.05) * k, now + 0.01 + Math.pow(Math.random(), 1.6) * 0.18); }
     }
-    const sWhoosh = k => burst(0.2, [[900, 1.2, 1], [2200, 1.5, 0.5]], 0.1 * k);
-    const sPop = () => { burst(0.03, [[2600, 8, 1]], 0.08); tone('sine', 700, 1100, 0.04, 0.03); };
-    const sFrame = () => { burst(0.08, [[350, 2, 1], [900, 3, 0.5]], 0.6); tone('sine', 140, 70, 0.15, 0.3); };
+    // かけらが跳ねる・落ち着く「チリン」「カチャ」: 小さいかけらほど高く、短い
+    let lastTink = 0;
+    function sTink(k, size, x) {
+      if (!live() || voices > 140) return;
+      const now = ac.currentTime;
+      if (now - lastTink < 0.008) return; lastTink = now;
+      const d = bus(x / 3.2, 0.25);
+      const f = clamp(9000 - size * 32000, 2400, 9500) * rnd(0.85, 1.15);
+      const v = 0.05 * clamp(k, 0.1, 1);
+      ring(d, f, rnd(0.025, 0.07), v, now);
+      ring(d, f * rnd(1.4, 1.7), rnd(0.015, 0.04), v * 0.5, now);
+      hiss(d, 0.012, [[f * 0.8, 3, 1]], v * 1.4, now);
+    }
+    const sWhoosh = k => { if (!live()) return; hiss(bus(0, 0.1), 0.22, [[700, 1.2, 1], [1800, 1.5, 0.5]], 0.07 * k, ac.currentTime); };
+    const sFrame = () => { if (!live()) return; const d = bus(0); hiss(d, 0.08, [[350, 2, 1], [900, 3, 0.5]], 0.6, ac.currentTime); ring(d, 140, 0.15, 0.25, ac.currentTime); };
+    // 棚にお皿が戻る「コトッ」
+    const sPop = x => { if (!live() || voices > 100) return; const d = bus(x / 3.2, 0.2); hiss(d, 0.03, [[1800, 6, 1], [3200, 8, 0.5]], 0.05, ac.currentTime); ring(d, rnd(1300, 1700), 0.06, 0.012, ac.currentTime); };
 
     // ---------- 3D ----------
     const stage = document.getElementById('stage');
-    const scoreEl = document.getElementById('score'), hudEl = document.getElementById('hud');
     const hintEl = document.getElementById('hint'), floorline = document.getElementById('floorline');
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -274,7 +277,7 @@
 
     // 庭の広さ
     const WALL_Z = -4, WALL_H = 3.4, SIDE_X = 3.8, SIDE_H = 1.1, NEAR_Z = 6.5;
-    const STACK = new THREE.Vector3(0, 0.78, 1.7); // 投げるお皿の山（テーブルの上）
+    const THROW_Z = WALL_Z + 4.6, THROW_Y = 1.15; // 投げる人の手の位置（画面の手前の外）
     const CAT_Y = 2.3, CAT_S = 0.78; // 猫の額の中心の高さと大きさ
 
     // 空: 上は青、地平線は白っぽく
@@ -352,7 +355,7 @@
       // 植木鉢
       const potG = new THREE.LatheGeometry([[0, 0], [0.24, 0], [0.3, 0.4], [0.34, 0.42], [0.34, 0.48], [0.3, 0.48], [0, 0.46]].map(p => new THREE.Vector2(p[0], p[1])), 20);
       const potM = mat('#c0653a', 0.85);
-      for (const [x, z] of [[-3.3, WALL_Z + 0.5], [3.3, WALL_Z + 0.5], [-3.3, STACK.z + 0.6], [3.3, STACK.z + 0.6]]) {
+      for (const [x, z] of [[-2.9, WALL_Z + 0.45], [2.9, WALL_Z + 0.45], [-3.3, WALL_Z + 3.4], [3.3, WALL_Z + 3.4]]) {
         const g = new THREE.Group();
         g.add(new THREE.Mesh(potG, potM));
         for (let i = 0; i < 6; i++) { const b = new THREE.Mesh(ball, pick(leafMs)); b.scale.setScalar(rnd(0.18, 0.28)); b.position.set(rnd(-0.18, 0.18), 0.55 + rnd(0, 0.3), rnd(-0.18, 0.18)); g.add(b); }
@@ -417,36 +420,56 @@
 
     // かけらの形: 幅（15度の何倍か）× 部分（まるごと／内側／外側）
     const STEP15 = Math.PI / 12;
-    const WIDTHS = [3, 4, 6, 8], PARTS = [[0, R], [0, SPLIT], [SPLIT, R]];
-    const CAP = 70;
+    // 幅（15度の何倍か）× 部分（まるごと／内と外の2つ／内・中・外の3つ）。細かく割れるほど気持ちいい
+    const WIDTHS = [2, 3, 4, 6];
+    const PARTS = [[0, R], [0, SPLIT], [SPLIT, R], [0, 0.055], [0.055, 0.118], [0.118, R]];
+    const SPLITS = [[0], [1, 2], [3, 4, 5], [3, 4, 5]];
+    const CAP = 90, CHIP_CAP = 700;
     const shardTypes = [];
     const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1);
     const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
     const Y_AXIS = new THREE.Vector3(0, 1, 0);
-    for (const wn of WIDTHS) for (let pi = 0; pi < 3; pi++) {
-      const [r0, r1] = PARTS[pi];
-      const g = makePlateGeo(r0, r1, Math.max(3, wn * 2), wn * STEP15);
+    function addType(g, cap, extra) {
       g.computeBoundingBox();
       const pos = g.attributes.position, c = new THREE.Vector3();
       for (let i = 0; i < pos.count; i++) c.add(_v.fromBufferAttribute(pos, i));
       c.divideScalar(pos.count);
       g.translate(-c.x, -c.y, -c.z);
       g.computeBoundingBox();
-      const mesh = new THREE.InstancedMesh(g, plateMat, CAP);
+      const mesh = new THREE.InstancedMesh(g, plateMat, cap);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      for (let i = 0; i < CAP; i++) { mesh.setMatrixAt(i, ZERO); mesh.setColorAt(i, TINTS[0]); }
+      for (let i = 0; i < cap; i++) { mesh.setMatrixAt(i, ZERO); mesh.setColorAt(i, TINTS[0]); }
       mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false;
       scene.add(mesh);
       const slots = [];
-      for (let i = 0; i < CAP; i++) slots.push({ alive: false, rest: true, p: new THREE.Vector3(), v: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), age: 0 });
-      shardTypes.push({ wn, pi, c, floor: -g.boundingBox.min.y, mesh, slots, next: 0, dirty: false });
+      for (let i = 0; i < cap; i++) slots.push({ i, alive: false, rest: true, p: new THREE.Vector3(), v: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), age: 0, sc: 1 });
+      const bb = g.boundingBox, size = Math.hypot(bb.max.x - bb.min.x, bb.max.z - bb.min.z);
+      const T = { c, floor: -bb.min.y, size, mesh, slots, cap, next: 0, dirty: false, ...extra };
+      shardTypes.push(T);
+      return T;
     }
-    const typeOf = (wn, pi) => shardTypes[WIDTHS.indexOf(wn) * 3 + pi];
+    for (const wn of WIDTHS) for (let pi = 0; pi < PARTS.length; pi++) {
+      const [r0, r1] = PARTS[pi];
+      addType(makePlateGeo(r0, r1, Math.max(2, wn * 2), wn * STEP15), CAP, { wn, pi });
+    }
+    const typeOf = (wn, pi) => shardTypes[WIDTHS.indexOf(wn) * PARTS.length + pi];
+    // 小さな欠片（白い三角のつぶ）
+    const CHIPS = (() => {
+      const pts = [[0, 0.013], [0.012, -0.008], [-0.01, -0.009]], th = 0.004, v = [];
+      const P = (x, y, z) => v.push(x, y, z);
+      P(...[pts[0][0], th, pts[0][1]]); P(...[pts[2][0], th, pts[2][1]]); P(...[pts[1][0], th, pts[1][1]]);
+      P(...[pts[0][0], 0, pts[0][1]]); P(...[pts[1][0], 0, pts[1][1]]); P(...[pts[2][0], 0, pts[2][1]]);
+      for (let i = 0; i < 3; i++) { const a = pts[i], b = pts[(i + 1) % 3]; P(a[0], 0, a[1]); P(b[0], 0, b[1]); P(b[0], th, b[1]); P(a[0], 0, a[1]); P(b[0], th, b[1]); P(a[0], th, a[1]); }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array(v.length / 3 * 2).fill(0.01), 2));
+      g.computeVertexNormals();
+      return addType(g, CHIP_CAP, { chip: true });
+    })();
 
     // ---------- 棚・猫の額・テーブル ----------
     // 棚: 左右に大きい棚、真ん中（猫の額の下）に小さい棚
     const GAP = 0.38, TILT = 0.17;
-    const RACKS = [{ cx: -1.95, n: 5, rows: [0.75, 1.45, 2.15] }, { cx: 0, n: 2, rows: [0.75, 1.45] }, { cx: 1.95, n: 5, rows: [0.75, 1.45, 2.15] }];
+    const RACKS = [{ cx: -1.6, n: 4, rows: [0.75, 1.45, 2.15] }, { cx: 0, n: 2, rows: [0.75, 1.45] }, { cx: 1.6, n: 4, rows: [0.75, 1.45, 2.15] }];
     for (const r of RACKS) r.hw = r.n * GAP / 2 + 0.05;
     const surfaces = []; // かけらが乗る面
     surfaces.push({ x0: -SIDE_X, x1: SIDE_X, z0: WALL_Z, z1: NEAR_Z, y: 0 });
@@ -500,20 +523,7 @@
       const str = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.2, 4), mat('#5a4a3a')); str.position.set(0, -0.08, 0.02); catPivot.add(str);
     }
     let catSwing = 0, catSwingT = 99, catCool = 0;
-    // テーブルと、投げるお皿の山
-    {
-      const top = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.06, 0.75), woodMat); top.position.set(STACK.x, STACK.y - 0.03, STACK.z); shade(top); scene.add(top);
-      const legG = new THREE.BoxGeometry(0.06, STACK.y - 0.06, 0.06);
-      for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const l = new THREE.Mesh(legG, darkWoodMat); l.position.set(STACK.x + sx * 0.48, (STACK.y - 0.06) / 2, STACK.z + sz * 0.3); shade(l); scene.add(l); }
-      surfaces.push({ x0: STACK.x - 0.55, x1: STACK.x + 0.55, z0: STACK.z - 0.375, z1: STACK.z + 0.375, y: STACK.y });
-    }
-    const PILE = 9, PILE_GAP = 0.012;
-    const pileMesh = new THREE.InstancedMesh(plateGeo, plateMat, PILE);
-    for (let i = 0; i < PILE; i++) { _m.makeTranslation(STACK.x, STACK.y + i * PILE_GAP, STACK.z); pileMesh.setMatrixAt(i, _m); }
-    pileMesh.castShadow = pileMesh.receiveShadow = true; scene.add(pileMesh);
-    const handPlate = new THREE.Mesh(plateGeo, plateMat.clone()); handPlate.castShadow = true; scene.add(handPlate);
-    let handTint = pick(TINTS), handT = 1; // handT: 次のお皿が出てくるまでの進み（1で準備完了）
-    const HAND_POS = new THREE.Vector3(STACK.x, STACK.y + PILE * PILE_GAP, STACK.z);
+    let handTint = pick(TINTS), handT = 1; // handT: 次のお皿を投げられるまでの進み（1で準備完了）
 
     // 飛んでいるお皿
     const flyPool = [];
@@ -549,7 +559,7 @@
         const d = dusts[dustNext]; dustNext = (dustNext + 1) % dusts.length;
         d.sp.position.copy(p).add(_v.set(rnd(-0.08, 0.08), rnd(0, 0.06), rnd(-0.08, 0.08)));
         d.v.set(rnd(-0.6, 0.6), rnd(0.2, 0.8), rnd(-0.6, 0.6));
-        d.max = d.life = rnd(0.6, 1.1); d.size = size * rnd(0.7, 1.3); d.op = rnd(0.35, 0.65); d.rot = rnd(-1, 1);
+        d.max = d.life = rnd(0.6, 1.1); d.size = size * rnd(0.6, 1.1); d.op = rnd(0.12, 0.28); d.rot = rnd(-1, 1);
         d.sp.material.rotation = rnd(0, 6.3); d.sp.visible = true;
       }
     }
@@ -568,43 +578,58 @@
     }
 
     // ---------- 割る ----------
-    let score = 0, state = 'ready'; // ready: まだ投げていない / play: 投げ始めた（時間制限なし）
+    let score = 0, state = 'ready'; // score: 割れた枚数（画面には出さない） / ready: まだ投げていない / play: 投げ始めた
     const pending = []; // 時間差で割れる棚のお皿（猫ボーナス）
-    function addScore(n = 1) {
-      score += n; scoreEl.textContent = t('count')(score);
-      scoreEl.classList.remove('pop'); void scoreEl.offsetWidth; scoreEl.classList.add('pop');
+    function spawn(T, p, q, v, w, tint, sc = 1) {
+      const s = T.slots[T.next]; T.next = (T.next + 1) % T.cap;
+      s.q.copy(q); s.p.copy(p); s.v.copy(v); s.w.copy(w); s.sc = sc;
+      s.alive = true; s.rest = false; s.age = 0;
+      T.mesh.setColorAt(s.i, tint); T.mesh.instanceColor.needsUpdate = true;
+      T.dirty = true;
+      return s;
     }
     // p: 中心, q: 向き, vel: 当たる前の速さ, n: 当たった面の向き, tint: 色
+    const _sq = new THREE.Quaternion(), _sp = new THREE.Vector3(), _sv = new THREE.Vector3(), _sw = new THREE.Vector3();
     function shatter(p, q, vel, n, tint, power) {
       const vn = vel.dot(n);
-      const base = _v2.copy(vel).addScaledVector(n, -(1.3) * Math.min(0, vn)).multiplyScalar(0.3);
+      const base = _v2.copy(vel).addScaledVector(n, -(1.3) * Math.min(0, vn)).multiplyScalar(0.28);
       let a = Math.floor(Math.random() * 24), left = 24;
       while (left > 0) {
-        const opts = WIDTHS.filter(w => w <= left && ![1, 2, 5].includes(left - w)); // 残りが埋められなくならないように
+        const opts = WIDTHS.filter(w => w <= left && left - w !== 1); // 残りが埋められなくならないように
         const wn = pick(opts);
-        const parts = Math.random() < 0.35 ? [0] : [1, 2];
+        const r = Math.random(), parts = SPLITS[r < 0.12 ? 0 : r < 0.5 ? 1 : 2];
         for (const pi of parts) {
           const T = typeOf(wn, pi);
-          const s = T.slots[T.next]; T.next = (T.next + 1) % CAP;
           _q2.setFromAxisAngle(Y_AXIS, a * STEP15);
-          s.q.copy(q).multiply(_q2);
-          s.p.copy(T.c).applyQuaternion(s.q).add(p);
-          // 外向き（お皿の面に沿って）
+          _sq.copy(q).multiply(_q2);
+          _sp.copy(T.c).applyQuaternion(_sq).add(p);
+          // 外向き（お皿の面に沿って）。外側のかけらほど遠くへ
           const mid = (a + wn / 2) * STEP15;
           _v.set(Math.sin(mid), 0, Math.cos(mid)).applyQuaternion(q);
-          const out = (pi === 1 ? rnd(0.3, 1.0) : rnd(0.8, 2.4)) * power;
-          s.v.copy(base).addScaledVector(_v, out).addScaledVector(n, rnd(0.3, 1.6) * power);
-          s.v.x += rnd(-0.3, 0.3); s.v.y += rnd(0, 0.6); s.v.z += rnd(-0.3, 0.3);
-          s.w.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(5, 20) * power);
-          s.alive = true; s.rest = false; s.age = 0;
-          T.mesh.setColorAt(T.slots.indexOf(s), tint); T.mesh.instanceColor.needsUpdate = true;
-          T.dirty = true;
+          const outer = PARTS[pi][0] / R;
+          const out = (0.3 + outer * 1.6 + rnd(0, 0.9)) * power;
+          _sv.copy(base).addScaledVector(_v, out).addScaledVector(n, rnd(0.3, 1.5) * power);
+          _sv.x += rnd(-0.3, 0.3); _sv.y += rnd(0, 0.5); _sv.z += rnd(-0.3, 0.3);
+          _sw.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(5, 22) * power);
+          spawn(T, _sp, _sq, _sv, _sw, tint);
         }
         a += wn; left -= wn;
       }
-      dust(p, 3, 0.35 * power + 0.15);
-      sCrash(power);
-      addScore(1);
+      // 細かい欠片
+      const nc = Math.round(rnd(14, 24) * power);
+      for (let i = 0; i < nc; i++) {
+        const ang = rnd(0, Math.PI * 2), rr = rnd(0.02, R);
+        _v.set(Math.sin(ang), 0, Math.cos(ang));
+        _sp.copy(_v).multiplyScalar(rr).applyQuaternion(q).add(p);
+        _v.applyQuaternion(q);
+        _sv.copy(base).addScaledVector(_v, rnd(0.6, 3) * power).addScaledVector(n, rnd(0.5, 2.4) * power);
+        _sq.setFromEuler(new THREE.Euler(rnd(0, 6.3), rnd(0, 6.3), rnd(0, 6.3)));
+        _sw.set(rnd(-30, 30), rnd(-30, 30), rnd(-30, 30));
+        spawn(CHIPS, _sp, _sq, _sv, _sw, tint, rnd(0.5, 1.4));
+      }
+      dust(p, 5, 0.22 * power + 0.1);
+      sCrash(power, p.x);
+      score++;
     }
     function breakRack(i, vel) {
       const s = rackSlots[i];
@@ -624,13 +649,13 @@
 
     // ---------- 投げる ----------
     const flyAt = (i) => flyPool.find(f => !f.alive);
-    function throwPlate(dir, s) {
+    function throwPlate(dir, s, x0 = 0) {
       const f = flyAt();
       if (!f || handT < 1) return false;
       // 強さ s から「壁に届く高さ」を決め、そこに届く上向きの速さを逆算する
-      const F = clamp(7 + 1.3 * s, 7, 13);
-      const Y = -0.3 + 0.9 * s;
-      const p0 = _v.copy(HAND_POS); p0.y += 0.12;
+      const F = clamp(6 + 1.1 * s, 6, 11);
+      const Y = Math.min(3.0, -0.3 + 0.9 * s); // 強すぎても壁を越えず、必ずどこかで割れる
+      const p0 = _v.set(clamp(x0, -1.6, 1.6), THROW_Y, THROW_Z);
       const D = (p0.z - (WALL_Z + 0.15)) / Math.max(0.25, -dir.z);
       const tt = D / F;
       const vy = clamp((Y - p0.y + 4.9 * tt * tt) / tt, 0.5, 9);
@@ -718,7 +743,7 @@
           if (s.p.y < g) {
             s.p.y = g;
             const imp = -s.v.y;
-            if (imp > 1.2) sTink(imp / 5);
+            if (imp > 0.6) sTink(imp / 4 * (T.chip ? 0.45 : 1), T.size * s.sc, s.p.x);
             if (s.v.y < 0) s.v.y = imp * 0.22;
             s.v.x *= 0.55; s.v.z *= 0.55; s.w.multiplyScalar(0.45);
             flatten(s, 0.5);
@@ -735,10 +760,10 @@
       for (const T of shardTypes) {
         if (!T.dirty) continue;
         T.dirty = false;
-        for (let i = 0; i < CAP; i++) {
+        for (let i = 0; i < T.cap; i++) {
           const s = T.slots[i];
           if (!s.alive) T.mesh.setMatrixAt(i, ZERO);
-          else T.mesh.setMatrixAt(i, _m.compose(s.p, s.q, _s.set(1, 1, 1)));
+          else T.mesh.setMatrixAt(i, _m.compose(s.p, s.q, _s.setScalar(s.sc)));
         }
         T.mesh.instanceMatrix.needsUpdate = true;
       }
@@ -746,9 +771,7 @@
 
     // ---------- 進行 ----------
     function begin() {
-      state = 'play'; score = 0;
-      scoreEl.textContent = t('count')(0);
-      hudEl.style.display = 'flex';
+      state = 'play';
     }
     function reset() {
       state = 'ready'; score = 0; pending.length = 0;
@@ -757,7 +780,6 @@
       for (const s of rackSlots) { s.alive = true; s.pop = 1; s.timer = 0; drawRack(s.idx); }
       rackMesh.instanceMatrix.needsUpdate = true; rackMesh.instanceColor.needsUpdate = true;
       catCool = 0; handT = 1;
-      hudEl.style.display = 'none';
     }
     const STEP = 1 / 120;
     let clock = 0;
@@ -773,7 +795,7 @@
       // 棚のお皿の補充
       let rackDirty = false;
       for (const s of rackSlots) {
-        if (!s.alive) { s.timer -= dt; if (s.timer <= 0) { s.alive = true; s.pop = 0; s.tint = pick(TINTS); rackDirty = true; if (Math.random() < 0.3) sPop(); } }
+        if (!s.alive) { s.timer -= dt; if (s.timer <= 0) { s.alive = true; s.pop = 0; s.tint = pick(TINTS); rackDirty = true; if (Math.random() < 0.5) sPop(s.x); } }
         else if (s.pop < 1) { s.pop = Math.min(1, s.pop + dt / 0.25); rackDirty = true; }
       }
       if (rackDirty) { for (const s of rackSlots) drawRack(s.idx); rackMesh.instanceMatrix.needsUpdate = true; rackMesh.instanceColor.needsUpdate = true; }
@@ -784,7 +806,7 @@
 
     // ---------- 操作（スワイプ）----------
     let dragging = null;
-    const ray = new THREE.Raycaster(), floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -STACK.y);
+    const ray = new THREE.Raycaster(), floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const toNdc = (x, y) => new THREE.Vector2(x / layout.w * 2 - 1, -(y / layout.H) * 2 + 1);
     function worldOnTable(x, y, out) { ray.setFromCamera(toNdc(x, y), camera); return ray.ray.intersectPlane(floorPlane, out); }
     const cvs = renderer.domElement;
@@ -821,23 +843,23 @@
       const dx = last[0] - first[0], dy = last[1] - first[1];
       const sy = -dy / dt / layout.h; // 上向きの速さ（画面の高さ／秒）
       if (sy < 0.35 || -dy < 12) return;
-      // 向き: お皿の位置から、払った向きに少し進めた点を台の高さの面に落として決める
-      _v.copy(HAND_POS).project(camera);
-      const hx = (_v.x + 1) / 2 * layout.w, hy = (1 - _v.y) / 2 * layout.H;
+      // 向き: 払い始めた所と、払った向きに少し進めた点を床に落として決める（画面の左で払えば左から投げる）
+      const st = dragging.pts[0], hx = st[0], hy = Math.max(st[1], layout.h * 0.55);
       const len = Math.hypot(dx, dy), step = 30;
-      if (!worldOnTable(hx, hy, _a) || !worldOnTable(hx + dx / len * step, hy + dy / len * step, _b)) return;
-      const dir = _b.sub(_a); dir.y = 0; dir.normalize();
+      let dir = null, x0 = 0;
+      if (worldOnTable(hx, hy, _a) && worldOnTable(hx + dx / len * step, hy + dy / len * step, _b)) {
+        dir = _b.sub(_a); dir.y = 0; dir.normalize(); x0 = _a.x * 0.6;
+      } else dir = new THREE.Vector3(dx / len, 0, -1).normalize();
       if (dir.z > -0.25) { dir.z = -0.25; dir.normalize(); }
       const s = Math.hypot(sy, dx / dt / layout.h * 0.3);
-      if (throwPlate(dir, s)) dragging.thrown = true;
+      if (throwPlate(dir, s, x0)) dragging.thrown = true;
     }
 
     // ---------- 画面サイズとカメラ ----------
     const layout = { w: 1, h: 1, H: 1, reserve: 160 };
-    const KEY = [[-3.0, 2.4, WALL_Z + 0.1], [3.0, 2.4, WALL_Z + 0.1], [-3.0, 0, WALL_Z + 0.4], [3.0, 0, WALL_Z + 0.4], [0, 2.2, WALL_Z], [-0.55, STACK.y - 0.3, STACK.z + 0.38], [0.55, STACK.y - 0.3, STACK.z + 0.38], [0, 1.0, STACK.z]].map(a => new THREE.Vector3(...a));
-    // 上に枚数を出すので、棚の上を少し空ける（背の低い横長画面ではそれらを左上に出すので不要）
-    const KEY_HUD = [...KEY, new THREE.Vector3(0, 3.15, WALL_Z)];
-    const LOOK = new THREE.Vector3(0, 0.9, -1.2), VIEW_DIR = new THREE.Vector3(0, 0.68, 1).normalize();
+    // 画面に必ず入れる範囲: 棚と猫の額、その手前の割れたかけらが散らばる床
+    const KEY = [[-2.5, 2.3, WALL_Z + 0.1], [2.5, 2.3, WALL_Z + 0.1], [0, 2.85, WALL_Z + 0.05], [-2.5, 0, WALL_Z + 0.3], [2.5, 0, WALL_Z + 0.3], [-1.6, 0, WALL_Z + 2.4], [1.6, 0, WALL_Z + 2.4]].map(a => new THREE.Vector3(...a));
+    const LOOK = new THREE.Vector3(0, 1.0, WALL_Z + 1.3), VIEW_DIR = new THREE.Vector3(0, 0.62, 1).normalize();
     let camD = 14, camShift = 0;
     function resize() {
       const w = stage.clientWidth, H = stage.clientHeight;
@@ -854,8 +876,7 @@
       camera.position.copy(LOOK).addScaledVector(VIEW_DIR, d);
       camera.lookAt(LOOK); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
       let x = 0, y0 = 9, y1 = -9;
-      const keys = innerHeight <= 520 && innerWidth / innerHeight >= 4 / 3 ? KEY : KEY_HUD;
-      for (const k of keys) { _p.copy(k).project(camera); if (_p.z > 1 || _p.z < -1) return { x: 9, y0: -9, y1: 9 }; x = Math.max(x, Math.abs(_p.x)); y0 = Math.min(y0, _p.y); y1 = Math.max(y1, _p.y); }
+      for (const k of KEY) { _p.copy(k).project(camera); if (_p.z > 1 || _p.z < -1) return { x: 9, y0: -9, y1: 9 }; x = Math.max(x, Math.abs(_p.x)); y0 = Math.min(y0, _p.y); y1 = Math.max(y1, _p.y); }
       return { x, y0, y1 };
     }
     function fitCamera() {
@@ -881,21 +902,14 @@
         f.mesh.position.lerpVectors(f.prev, f.p, al);
         flyQuat(f, f.prevSpin + (f.spin - f.prevSpin) * al, f.mesh.quaternion);
       }
-      // 手元のお皿（次のお皿がせり上がる。引っぱっている間は少し持ち上がる）
-      const lift = dragging && !dragging.thrown ? 0.05 : 0;
-      const k = handT < 1 ? handT : 1;
-      handPlate.position.set(HAND_POS.x, HAND_POS.y - 0.03 * (1 - k) + lift, HAND_POS.z);
-      handPlate.scale.setScalar(0.6 + 0.4 * k);
-      handPlate.material.color.copy(handTint);
       drawShards();
       updateDust(dt);
       // 猫の額のゆれ
       catPivot.rotation.z = catSwing * Math.exp(-catSwingT * 2.2) * Math.sin(catSwingT * 8);
-      // 最初の操作の案内（お皿の山の上）
+      // 最初の操作の案内（画面の下のほうで上に払う手）
       let hint = 'none';
       if (state === 'ready') {
-        _v.copy(HAND_POS).project(camera);
-        hintEl.style.left = ((_v.x + 1) / 2 * layout.w).toFixed(0) + 'px'; hintEl.style.top = ((1 - _v.y) / 2 * layout.H).toFixed(0) + 'px'; hint = 'block';
+        hintEl.style.left = Math.round(layout.w / 2) + 'px'; hintEl.style.top = Math.round(layout.h * 0.78) + 'px'; hint = 'block';
       }
       if (hint !== lastHint) { hintEl.style.display = hint; lastHint = hint; }
       renderer.render(scene, camera);
