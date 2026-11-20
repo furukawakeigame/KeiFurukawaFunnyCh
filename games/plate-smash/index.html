@@ -49,9 +49,31 @@
     @keyframes tap { 0%, 100% { transform: translateY(-6px); } 40% { transform: translateY(2px) scale(.95); } 60% { transform: translateY(2px) scale(.95); } }
     @keyframes ripple { 0%, 35% { transform: scale(.2); opacity: 0; } 45% { opacity: .9; } 100% { transform: scale(1.4); opacity: 0; } }
     @media (prefers-reduced-motion: reduce) { #hint .hand, #hint .ripple { animation: none; } }
+    #hud { position: absolute; left: 0; right: 0; top: 10px; display: none; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
+    #bar { width: min(64%, 380px); height: clamp(10px, 1.6vmin, 16px); border-radius: 99px; background: rgba(20,40,60,.35); overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,.3); }
+    #fill { height: 100%; width: 100%; border-radius: 99px; background: #ffd34a; transform-origin: left center; }
+    #score { font-size: clamp(30px, 7vmin, 64px); font-weight: 900; color: #fff; line-height: 1.1; text-shadow: 0 3px 0 #1f4a78, 0 0 12px rgba(0,0,0,.35); }
+    #score.pop { animation: pop .14s ease-out; }
+    @keyframes pop { 0% { transform: scale(1.18); } 100% { transform: scale(1); } }
+    #result { position: absolute; left: 0; right: 0; top: 70%; transform: translateY(-50%); display: none; flex-direction: column; align-items: center; pointer-events: none; }
+    #result b { font-size: clamp(54px, 15vmin, 140px); font-weight: 900; color: #fff; line-height: 1.05; text-shadow: 0 4px 0 #1f4a78, 0 0 18px rgba(0,0,0,.45); }
+    #result span { font-size: clamp(16px, 3.4vmin, 28px); font-weight: 800; color: #fff6d0; text-shadow: 0 2px 0 #1f4a78, 0 0 8px rgba(0,0,0,.55); }
+    @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+      #hud { flex-direction: row; left: 12px; right: auto; top: 8px; gap: 10px; }
+      #bar { width: min(22vw, 200px); }
+      #score { font-size: clamp(22px, 6vh, 40px); }
+    }
     #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; }
-    /* 下の80pxは空ける（Xアプリ内ブラウザの投稿文で隠れるため）。描画は下まで */
-    #floorline { position: fixed; left: 0; bottom: calc(80px + env(safe-area-inset-bottom)); width: 1px; height: 0; pointer-events: none; }
+    /* ゲーム画面は下まで描き、ボタンは下の80pxを空けて上に重ねる（Xアプリ内ブラウザの投稿文で隠れるため） */
+    #controls { position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); display: flex; gap: 8px; padding: 8px 12px 0; max-width: 640px; width: 100%; margin: 0 auto; }
+    #controls button, #controls a {
+      flex: 1; height: clamp(56px, 8vmin, 72px); border: none; border-radius: 14px; font-size: clamp(18px, 3vmin, 24px); font-weight: 800;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; touch-action: manipulation;
+    }
+    .go { background: #ffd34a; color: #3a2a00; box-shadow: 0 4px 0 #a07a10; }
+    .post { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 34% !important; font-size: clamp(16px, 2.6vmin, 20px) !important; }
+    #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
+    #controls.hide { visibility: hidden; }
   </style>
 </head>
 <body>
@@ -65,9 +87,11 @@
   <main style="display:contents">
   <div id="stage">
     <div id="hint"><svg viewBox="0 0 60 84"><circle class="ripple" cx="30" cy="8" r="16" fill="none" stroke="#fff" stroke-width="3"/><path class="hand" d="M24 62V12a5 5 0 0 1 10 0v26l1-4a4 4 0 0 1 7 1v4a4 4 0 0 1 7 1v4a4 4 0 0 1 6 2v12c0 9-6 16-15 16h-4c-6 0-10-3-12-8l-8-13a4 4 0 0 1 7-5z" fill="#fff" stroke="#24304a" stroke-width="2.5" stroke-linejoin="round"/></svg></div>
+    <div id="hud"><div id="bar"><div id="fill"></div></div><div id="score"></div></div>
+    <div id="result"><b></b><span></span></div>
     <div id="msg"></div>
   </div>
-  <div id="floorline"></div>
+  <div id="controls" class="hide"></div>
   </main>
   <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
   <script>
@@ -82,6 +106,8 @@
     import * as THREE from 'three';
     window.GAME_READY = true;
 
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/plate-smash/';
+    const TIME = 10; // 1回の制限時間（秒）
     const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
     const rnd = (a, b) => a + Math.random() * (b - a);
     const pick = a => a[Math.floor(Math.random() * a.length)];
@@ -93,10 +119,10 @@
     };
     const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (['ja', 'ko', 'en', 'th'].includes(c)) return c; } return 'en'; };
     const DICT = {
-      ja: { title: '無限お皿割り', back: '← トップへ戻る' },
-      ko: { title: '무한 접시 깨기', back: '← 처음으로' },
-      en: { title: 'Endless Plate Smash', back: '← Back to top' },
-      th: { title: 'ทุบจานไม่รู้จบ', back: '← กลับหน้าแรก' },
+      ja: { title: '無限お皿割り', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', count: n => `${n}枚`, best: n => `ベスト ${n}枚`, share: n => `10秒でお皿を${n}枚割った #無限お皿割りゲーム` },
+      ko: { title: '무한 접시 깨기', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', count: n => `${n}장`, best: n => `최고 ${n}장`, share: n => `10초 동안 접시를 ${n}장 깼다 #無限お皿割りゲーム` },
+      en: { title: 'Endless Plate Smash', back: '← Back to top', again: 'Play again', post: 'Post on X', count: n => `${n} ${n === 1 ? 'plate' : 'plates'}`, best: n => `Best: ${n}`, share: n => `I smashed ${n} ${n === 1 ? 'plate' : 'plates'} in 10 seconds #無限お皿割りゲーム` },
+      th: { title: 'ทุบจานไม่รู้จบ', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', count: n => `${n} ใบ`, best: n => `สถิติ ${n} ใบ`, share: n => `ทุบจานได้ ${n} ใบใน 10 วินาที #無限お皿割りゲーム` },
     };
     let lang = store.get('lang', null) || autoLang();
     const t = k => DICT[lang][k];
@@ -107,6 +133,9 @@
       document.documentElement.lang = lang;
       document.title = t('title');
       document.getElementById('back').textContent = t('back');
+      renderControls();
+      scoreEl.textContent = t('count')(score);
+      if (state === 'result') { showResult(); prepareShare(); }
     }
 
     // ---------- 音 ----------
@@ -255,7 +284,8 @@
 
     // ---------- 3D ----------
     const stage = document.getElementById('stage');
-    const hintEl = document.getElementById('hint'), floorline = document.getElementById('floorline');
+    const hintEl = document.getElementById('hint'), controls = document.getElementById('controls');
+    const scoreEl = document.getElementById('score'), hudEl = document.getElementById('hud'), fillEl = document.getElementById('fill'), resultEl = document.getElementById('result');
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
@@ -615,7 +645,8 @@
     })();
     const chipSlots = Array.from({ length: CHIP_CAP }, (_, i) => ({ i, alive: false, rest: true, p: new THREE.Vector3(), v: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), age: 0, sc: 1, half: 0.002, size: 0.02, chip: true }));
     let chipNext = 0, chipDirty = false;
-    let score = 0, state = 'ready'; // score: 割った枚数（画面には出さない） / ready: まだ割っていない
+    // ready: 最初のタップ待ち / play: 10秒の間 / end: 時間切れ（かけらが落ち着くのを待つ） / result: 結果
+    let score = 0, bestScore = store.get('best', 0), state = 'ready', timeLeft = TIME, endT = 0;
     const _P = new THREE.Vector3(), _d = new THREE.Vector3();
     // 棚のお皿を、叩いた点（お皿の上での位置 px, pz）から割る
     function breakPlate(slot, px, pz) {
@@ -672,8 +703,10 @@
       chipMesh.instanceColor.needsUpdate = true;
       dust(hitW, 4, 0.18);
       sCrash(power, slot.x * 3);
+      if (state === 'ready') begin();
       score++;
-      if (state === 'ready') state = 'play';
+      scoreEl.textContent = t('count')(score);
+      scoreEl.classList.remove('pop'); void scoreEl.offsetWidth; scoreEl.classList.add('pop');
     }
 
     // かけらの動き（床・棚板・壁で跳ねて、平らになって止まる）
@@ -717,7 +750,24 @@
 
     // ---------- 進行 ----------
     const STEP = 1 / 120;
+    function begin() {
+      state = 'play'; timeLeft = TIME; score = 0;
+      hudEl.style.display = 'flex';
+    }
+    function reset() {
+      state = 'ready'; score = 0; timeLeft = TIME;
+      for (const b of pieces) { scene.remove(b.mesh); b.mesh.geometry.dispose(); }
+      pieces.length = 0;
+      for (const c of chipSlots) c.alive = false; chipDirty = true;
+      for (const sl of rackSlots) { sl.alive = true; sl.pop = 1; sl.timer = 0; drawRack(sl.idx); }
+      rackMesh.instanceMatrix.needsUpdate = true; rackMesh.instanceColor.needsUpdate = true;
+      hudEl.style.display = 'none'; resultEl.style.display = 'none';
+      fillEl.style.transform = 'scaleX(1)'; lastFill = '';
+      renderControls(); resize();
+    }
     function step(dt) {
+      if (state === 'play') { timeLeft -= dt; if (timeLeft <= 0) { timeLeft = 0; state = 'end'; endT = 0; } }
+      else if (state === 'end') { endT += dt; if (endT > 1.0) finish(); }
       for (const b of pieces) if (!b.rest) stepBody(b, dt);
       for (const s of chipSlots) if (s.alive && !s.rest) { stepBody(s, dt); chipDirty = true; }
       // 棚のお皿の補充
@@ -736,6 +786,7 @@
     const _o = new THREE.Vector3(), _hit = new THREE.Vector3();
     cvs.addEventListener('pointerdown', e => {
       const r = cvs.getBoundingClientRect();
+      if (state !== 'ready' && state !== 'play') return;
       ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / layout.w * 2 - 1, -((e.clientY - r.top) / layout.H) * 2 + 1), camera);
       tapRay(ray.ray);
     });
@@ -782,14 +833,18 @@
     function resize() {
       const w = stage.clientWidth, H = stage.clientHeight;
       renderer.setSize(w, H, false);
-      // 下の空白（80px）には大事な物を置かない
-      const reserve = Math.max(0, stage.getBoundingClientRect().bottom - floorline.getBoundingClientRect().bottom);
+      // 下の空白（80px）には大事な物を置かない。結果画面ではボタンの分も空ける
+      const btnH = Math.min(72, Math.max(56, 0.08 * Math.min(innerWidth, innerHeight))) + 12;
+      const reserve = Math.max(0, stage.getBoundingClientRect().bottom - controls.getBoundingClientRect().bottom) + (state === 'result' ? btnH : 0);
       const h = Math.max(140, H - reserve);
       Object.assign(layout, { w, h, H });
       const [c, r, side] = chooseShape(w / h);
       if (!rack || rack.cols !== c || rack.rows !== r || rack.catSide !== side) buildRack(c, r, side);
       const { left, right, top } = rack;
-      KEY = [[left, top + 0.05, WALL_Z + 0.05], [right, top + 0.05, WALL_Z + 0.05], [left, 0, WALL_Z + 0.35], [right, 0, WALL_Z + 0.35], [left * 0.8, 0, WALL_Z + 0.75], [right * 0.8, 0, WALL_Z + 0.75]].map(a => new THREE.Vector3(...a));
+      // 上に残り時間と枚数を出すので、棚の上を少し空ける（背の低い横長画面では左上に出すので不要）。結果画面では手前の床を広く見せて、そこに枚数を出す
+      const lowWide = innerHeight <= 520 && innerWidth / innerHeight >= 4 / 3;
+      const topM = lowWide ? 0.05 : 0.38, front = state === 'result' ? WALL_Z + 1.5 : WALL_Z + 0.75;
+      KEY = [[left, top + topM, WALL_Z + 0.05], [right, top + topM, WALL_Z + 0.05], [left, 0, WALL_Z + 0.35], [right, 0, WALL_Z + 0.35], [left * 0.8, 0, front], [right * 0.8, 0, front]].map(a => new THREE.Vector3(...a));
       LOOK.set((left + right) / 2, top * 0.48, WALL_Z + 0.2);
       fitCamera();
     }
@@ -809,11 +864,104 @@
       const b = placeCam(hi);
       camera.setViewOffset(w, h, Math.round((b.x0 + b.x1) / 2 * w / 2), Math.round(-(b.y0 + b.y1) / 2 * h / 2), w, H);
       camera.updateProjectionMatrix();
+      // 結果の枚数は、棚の手前の床の上に出す
+      _p.set(0, 0, WALL_Z + 1.0).project(camera);
+      resultEl.style.top = Math.round(clamp((1 - _p.y) / 2 * H, 80, h - 50)) + 'px';
+    }
+
+    // ---------- 結果 ----------
+    function renderControls() {
+      controls.innerHTML = '';
+      controls.classList.toggle('hide', state !== 'result');
+      if (state !== 'result') return;
+      const b = document.createElement('button');
+      b.className = 'go'; b.textContent = t('again');
+      b.addEventListener('click', reset);
+      controls.append(b);
+      const a = document.createElement('a');
+      a.className = 'post'; a.textContent = t('post');
+      a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('share')(score))}&url=${encodeURIComponent(SHARE_URL)}`;
+      const coarse = matchMedia('(pointer: coarse)').matches;
+      if (!coarse) { a.target = '_blank'; a.rel = 'noopener'; }
+      // スマホは画像ごと共有シートへ。PCは画像を保存してから投稿画面を開く
+      a.addEventListener('click', e => {
+        const text = t('share')(score);
+        if (coarse && navigator.share) {
+          e.preventDefault();
+          const file = shareFile();
+          const data = file && navigator.canShare?.({ files: [file] }) ? { files: [file], text: `${text}\n${SHARE_URL}` } : { text: `${text}\n${SHARE_URL}` };
+          navigator.share(data).catch(() => {});
+          return;
+        }
+        const img = resultImage();
+        if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'plate-smash.png'; d.click(); }
+      });
+      controls.append(a);
+    }
+    // 結果画像: かけらだらけの棚に枚数を重ねる
+    let snap = null, shareCache = null, needSnap = false;
+    function takeSnap() {
+      const src = renderer.domElement;
+      const f = _v.set((rack.left + rack.right) / 2, rack.top * 0.45, WALL_Z + 0.3).project(camera);
+      const fx = (f.x + 1) / 2 * src.width, fy = (1 - f.y) / 2 * src.height;
+      const side = Math.min(src.width, src.height);
+      const sx = clamp(fx - side / 2, 0, src.width - side), sy = clamp(fy - side / 2, 0, src.height - side);
+      snap = document.createElement('canvas'); snap.width = snap.height = 1080;
+      snap.getContext('2d').drawImage(src, sx, sy, side, side, 0, 0, 1080, 1080);
+      shareCache = null;
+    }
+    function resultImage() {
+      if (!snap) return null;
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      g.drawImage(snap, 0, 0);
+      let gr = g.createLinearGradient(0, 0, 0, 260); gr.addColorStop(0, 'rgba(0,0,0,.3)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 1080, 260);
+      gr = g.createLinearGradient(0, 700, 0, 1080); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.45)'); g.fillStyle = gr; g.fillRect(0, 700, 1080, 380);
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.lineJoin = 'round';
+      const font = px => `900 ${px}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Noto Sans Thai", sans-serif`;
+      const text = (str, y, px, max) => {
+        g.font = font(px);
+        const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = font(px); }
+        g.lineWidth = px * .16; g.strokeStyle = '#1f4a78'; g.strokeText(str, 540, y); g.fillText(str, 540, y);
+      };
+      text(t('count')(score), 980, 190, 960);
+      text(t('title'), 100, 60, 900);
+      return c;
+    }
+    function prepareShare() {
+      if (!snap) return;
+      const key = lang;
+      if (shareCache?.key === key) return;
+      shareCache = { key, file: null };
+      resultImage().toBlob(b => { if (b && shareCache?.key === key) shareCache.file = new File([b], 'plate-smash.png', { type: 'image/png' }); }, 'image/png');
+    }
+    const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
+    function showResult() {
+      resultEl.children[0].textContent = t('count')(score);
+      resultEl.children[1].textContent = t('best')(bestScore);
+    }
+    function finish() {
+      state = 'result';
+      if (score > bestScore) { bestScore = score; store.set('best', bestScore); }
+      hudEl.style.display = 'none';
+      showResult();
+      resultEl.style.display = 'flex';
+      renderControls(); resize();
+      snap = null; needSnap = true;
     }
 
     // ---------- ループ ----------
-    let last = performance.now(), acc = 0, lastHint = '', timeScale = 1;
+    let last = performance.now(), acc = 0, lastHint = '', timeScale = 1, lastFill = '';
     function render(dt) {
+      // 残り時間のゲージ（値が変わった時だけ書く。残り3秒からゆっくり赤くする。点滅はさせない）
+      if (state === 'play' || state === 'end') {
+        const fr = (timeLeft / TIME).toFixed(3);
+        if (fr !== lastFill) {
+          fillEl.style.transform = `scaleX(${fr})`; lastFill = fr;
+          const red = clamp((3 - timeLeft) / 3, 0, 1);
+          fillEl.style.background = `rgb(255,${Math.round(211 - 140 * red)},${Math.round(74 - 30 * red)})`;
+        }
+      }
       for (let i = pieces.length - 1; i >= 0; i--) {
         const b = pieces[i];
         if (b.dead) { scene.remove(b.mesh); b.mesh.geometry.dispose(); pieces.splice(i, 1); continue; }
@@ -836,6 +984,7 @@
       }
       if (hint !== lastHint) { hintEl.style.display = hint; lastHint = hint; }
       renderer.render(scene, camera);
+      if (needSnap) { needSnap = false; takeSnap(); prepareShare(); }
     }
     function loop(now) {
       const dt = Math.min(0.05, (now - last) / 1000) * timeScale; last = now;
@@ -849,7 +998,7 @@
     resize();
     applyLang();
     // テスト用の入口: 段・列を指定して、お皿の上の点（px, pz）を叩く
-    window.__game = { get state() { return state; }, get score() { return score; }, get pieces() { return pieces.length; }, tap: (i, px, pz) => { const s = rackSlots[i]; if (s && s.alive) breakPlate(s, px, pz); }, get n() { return rackSlots.length; }, set timeScale(v) { timeScale = v; } };
+    window.__game = { get state() { return state; }, get score() { return score; }, get pieces() { return pieces.length; }, tap: (i, px, pz) => { const s = rackSlots[i]; if (s && s.alive) breakPlate(s, px, pz); }, get n() { return rackSlots.length; }, set timeScale(v) { timeScale = v; }, set timeLeft(v) { timeLeft = v; } };
     // 最初の1回が重くならないように、全部の形を一度描いておく（かけら用の材質も先に用意）
     {
       for (const d of dusts) d.sp.visible = true;
@@ -860,6 +1009,7 @@
     }
     requestAnimationFrame(t0 => { last = t0; loop(t0); });
   </script>
-  <!-- 結果画面がないおもちゃなので広告（ad.js）は入れない -->
+  <!-- 結果画面の広告（../../ad.js の説明を参照） -->
+  <script src="../../ad.js" data-result="#result"></script>
 </body>
 </html>
