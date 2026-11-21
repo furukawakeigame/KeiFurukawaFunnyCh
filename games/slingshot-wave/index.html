@@ -254,17 +254,23 @@ function tone(type, f0, f1, dur, vol, delay = 0) {
   o.type = type; o.frequency.setValueAtTime(f0, n); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), n + dur);
   g.gain.setValueAtTime(0.0001, n); g.gain.linearRampToValueAtTime(vol, n + 0.005); g.gain.exponentialRampToValueAtTime(0.001, n + dur);
   o.connect(g).connect(master); o.start(n); o.stop(n + dur + 0.02);
+  o.onended = () => { o.disconnect(); g.disconnect(); };
 }
+// 鳴り終わった音の部品は必ず切り離す（Safari はつながったままの部品を消さず、長く遊ぶとメモリがあふれる）
+const unplug = nodes => () => { for (const x of nodes) { try { x.disconnect(); } catch {} } };
 // ノイズを共鳴に通す（打撃・破裂の音）
 function burst(dur, vol, bands, delay = 0) {
   if (!on() || !slot(dur + delay)) return;
   const n = ac.currentTime + delay, s = ac.createBufferSource(); s.buffer = noiseBuf;
   const env = ac.createGain(); env.gain.setValueAtTime(vol, n); env.gain.exponentialRampToValueAtTime(0.001, n + dur);
   s.connect(env);
+  const nodes = [s, env];
   for (const [f, q, g0] of bands) {
     const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * (0.93 + Math.random() * 0.14); bp.Q.value = q;
     const g = ac.createGain(); g.gain.value = g0; env.connect(bp).connect(g).connect(master);
+    nodes.push(bp, g);
   }
+  s.onended = unplug(nodes);
   s.start(n, Math.random() * 0.5); s.stop(n + dur + 0.02);
 }
 const VOWEL = { a: [800, 1200, 2600], i: [300, 2300, 3000], u: [350, 1250, 2500], e: [500, 1900, 2600], o: [500, 850, 2500], g: [450, 1100, 2400] };
@@ -283,13 +289,15 @@ function voice(f0, seq, dur, vol = 0.4, shake = 0.05, breath = 0.15, delay = 0) 
   const out = ac.createGain();
   out.gain.setValueAtTime(0, now); out.gain.linearRampToValueAtTime(vol, now + 0.02);
   out.gain.setValueAtTime(vol, now + dur * 0.55); out.gain.exponentialRampToValueAtTime(0.001, now + dur);
-  const k = f0 > 260 ? 1.2 : 1;
+  const k = f0 > 260 ? 1.2 : 1, parts3 = [];
   [1, 0.6, 0.25].forEach((amp, fi) => {
     const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = fi === 0 ? 6 : 9;
     seq.forEach((v, si) => { const tt = now + dur * si / Math.max(1, seq.length - 1) * 0.7; bp.frequency[si ? 'linearRampToValueAtTime' : 'setValueAtTime'](VOWEL[v][fi] * k, tt); });
     const g = ac.createGain(); g.gain.value = amp * 3; src.connect(bp).connect(g).connect(out);
+    parts3.push(bp, g);
   });
   out.connect(master);
+  o.onended = unplug([o, vib, vg, ns, ng, src, out, ...parts3]);
   o.start(now); vib.start(now); ns.start(now, Math.random() * 0.5);
   o.stop(now + dur); vib.stop(now + dur); ns.stop(now + dur);
 }
@@ -989,8 +997,10 @@ function confetti() {
 
 // ===== 配置 =====
 const TOP = 52, BOTTOM = 84;
+// 画質: 1 = ふつう、0 = 軽い（描画が追いつかない端末で自動で切り替える。解像度を下げ、2重線と斜線を省く）
+let quality = 1;
 function resize() {
-  const r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  const r = cv.getBoundingClientRect(), dpr = Math.min(quality ? 2 : 1, devicePixelRatio || 1);
   cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
   const W = r.width, H = r.height, avail = Math.max(160, H - BOTTOM - 16);
   // 縦は砦の下から600ぶんを映す。背の低い画面では400ぶんまで減らして、小さくなりすぎないようにする
@@ -1014,7 +1024,7 @@ let boil = 0;
 const hash = n => { const x = Math.sin(n * 127.1 + boil * 311.7) * 43758.5453; return (x - Math.floor(x)) * 2 - 1; };
 function ink(id = 0, lw = 2.2, col = INK) {
   ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < (quality ? 2 : 1); i++) {
     const dx = hash(id + i * 3.1) * 0.9, dy = hash(id + i * 5.7 + 1) * 0.9;
     ctx.save(); ctx.translate(dx, dy); ctx.lineWidth = lw * (i ? 0.7 : 1); ctx.stroke(); ctx.restore();
   }
@@ -1022,7 +1032,7 @@ function ink(id = 0, lw = 2.2, col = INK) {
 // 形を作る関数 pb で、べた塗り → 右下に斜線の影 → ペンのふち
 function shape(pb, col, id, cx, cy, r, opt = {}) {
   pb(); ctx.fillStyle = col; ctx.fill();
-  if (opt.hatch !== false) {
+  if (opt.hatch !== false && quality) {
     ctx.save(); pb(); ctx.clip();
     ctx.beginPath(); ctx.arc(cx + r * 0.55, cy + r * 0.6, r * 1.05, 0, 7); ctx.clip();
     ctx.strokeStyle = opt.hc || 'rgba(46,36,24,.35)'; ctx.lineWidth = Math.max(1, r * 0.06); ctx.lineCap = 'round';
@@ -1625,13 +1635,36 @@ const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
 
 // ===== ループ（固定刻み＋補間） =====
 let last = performance.now(), acc = 0;
+let frameEma = 16, slowT = 0;
 function loop(now) {
-  const fdt = Math.min(0.05, (now - last) / 1000); last = now;
+  const raw = now - last;
+  const fdt = Math.min(0.05, raw / 1000); last = now;
+  // 1コマが平均26ms（約38fps）より遅い状態が4秒続いたら、軽い画質にする（戻さない）
+  frameEma = frameEma * 0.95 + Math.min(100, raw) * 0.05;
+  if (quality && state === 'play') { slowT = frameEma > 26 ? slowT + fdt : 0; if (slowT > 4) { quality = 0; resize(); } }
   acc += fdt;
   while (acc >= DT) { step(DT); acc -= DT; }
   draw(acc / DT);
   requestAnimationFrame(loop);
 }
+// 落ちた時の記録: 遊んでいる間は15秒ごとに状態をメモし、ふつうに閉じた時は「きれいに終わった」と書く。
+// 次に開いた時、途中で落ちていたら Google アナリティクスに送る（何ウェーブ・何分・画質・端末の種類だけ。個人の情報は送らない）
+let playStart = performance.now();
+function heartbeat(clean) {
+  if (state === 'ready' && !clean) return;
+  store.set('hb', { t: Date.now(), wave, min: Math.round((performance.now() - playStart) / 6000) / 10, q: quality, state, clean: !!clean });
+}
+try {
+  const hb = store.get('hb', null);
+  if (hb && !hb.clean && (hb.state === 'play' || hb.state === 'pick' || hb.state === 'clear') && Date.now() - hb.t < 3 * 60 * 1000 && typeof gtag === 'function') {
+    gtag('event', 'game_crash', { game: 'slingshot-wave', wave: hb.wave, minutes: hb.min, quality: hb.q, in_app: /Twitter|FBAN|FBAV|Line\//i.test(navigator.userAgent) ? 1 : 0, mobile: matchMedia('(pointer: coarse)').matches ? 1 : 0 });
+  }
+  store.set('hb', null);
+} catch {}
+setInterval(() => heartbeat(false), 15000);
+addEventListener('pagehide', () => heartbeat(true));
+document.addEventListener('visibilitychange', () => { if (document.hidden) heartbeat(true); });
+
 resize(); reset(); applyLang(); draw(1); requestAnimationFrame(loop);
 </script>
   <!-- 結果画面の広告（../../ad.js の説明を参照） -->
