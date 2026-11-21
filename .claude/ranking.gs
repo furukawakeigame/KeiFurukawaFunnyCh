@@ -1,4 +1,4 @@
-// ゲームの「今日のランキング」を保存・返す Google Apps Script（無料）。
+// ゲームのランキング（今日・全期間）を保存・返す Google Apps Script（無料）。
 // スコアはこのスクリプトを入れたスプレッドシートの「scores」シートに1行ずつたまる。
 // 変な名前やズルの記録は、シートの行を消せば消える。
 //
@@ -11,8 +11,9 @@
 //      ゲームの index.html の RANK_URL に入れる
 //   コードを書き換えたときは「デプロイを管理」→ 鉛筆 → バージョン「新バージョン」で更新する（URLは変わらない）。
 //
-// GET  ?game=<フォルダ名>            → { top: [{ name, wave, kills }] }  今日（日本時間）のトップ10
-// POST {game, name, wave, kills, sec, dev} → { ok, rank, top } または { ok: false, error }
+// GET  ?game=<フォルダ名>            → { today: [{ name, wave, kills }], all: [...] }  今日（日本時間）と全期間のトップ10
+// POST {game, name, wave, kills, sec, dev} → { ok, rank: { today, all }, today, all } または { ok: false, error }
+//      同じ端末（dev）の記録は、一番良いものだけがランキングに載る
 //      ブラウザからは Content-Type: text/plain で送る（事前確認の通信を起こさないため）
 
 const SHEET = 'scores';
@@ -34,30 +35,37 @@ function sheet() {
 const today = () => Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 const json = o => ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
 
-// 今日の記録（新しい行ほど下にあるので、下から最大5000行だけ読む）
-function todayRows(game) {
+// 記録を読む（today=true なら今日の分だけ。新しい行ほど下にあるので、今日の分は下から5000行だけ見る）
+function readRows(game, todayOnly) {
   const sh = sheet(), last = sh.getLastRow();
   if (last < 2) return [];
-  const n = Math.min(5000, last - 1);
+  const n = todayOnly ? Math.min(5000, last - 1) : last - 1;
   const d = today();
   return sh.getRange(last - n + 1, 1, n, 8).getValues()
-    .filter(r => (r[1] instanceof Date ? Utilities.formatDate(r[1], 'Asia/Tokyo', 'yyyy-MM-dd') : String(r[1])) === d && r[2] === game)
-    .map(r => ({ t: new Date(r[0]).getTime(), name: String(r[3]), wave: Number(r[4]), kills: Number(r[5]) }));
+    .filter(r => r[2] === game && (!todayOnly || (r[1] instanceof Date ? Utilities.formatDate(r[1], 'Asia/Tokyo', 'yyyy-MM-dd') : String(r[1])) === d))
+    .map(r => ({ t: new Date(r[0]).getTime(), name: String(r[3]), wave: Number(r[4]), kills: Number(r[5]), dev: String(r[7]) }));
 }
-const order = (a, b) => b.wave - a.wave || b.kills - a.kills || a.t - b.t;
-function top(game) {
-  const key = 'top:' + game + ':' + today();
-  const hit = CacheService.getScriptCache().get(key);
+const better = (a, b) => b.wave - a.wave || b.kills - a.kills || a.t - b.t;
+// 同じ端末の記録は一番良いものだけ（1人でトップ10を埋めないように）
+function bestPerDev(rows) {
+  const best = {};
+  for (const r of rows) { const k = r.dev || ('row' + r.t); if (!best[k] || better(r, best[k]) < 0) best[k] = r; }
+  return Object.values(best).sort(better);
+}
+const pub = list => list.slice(0, TOP_N).map(({ name, wave, kills }) => ({ name, wave, kills }));
+function tops(game) {
+  const cache = CacheService.getScriptCache(), key = 'tops:' + game + ':' + today();
+  const hit = cache.get(key);
   if (hit) return JSON.parse(hit);
-  const list = todayRows(game).sort(order).slice(0, TOP_N).map(({ name, wave, kills }) => ({ name, wave, kills }));
-  CacheService.getScriptCache().put(key, JSON.stringify(list), 30);
-  return list;
+  const o = { today: pub(bestPerDev(readRows(game, true))), all: pub(bestPerDev(readRows(game, false))) };
+  cache.put(key, JSON.stringify(o), 60);
+  return o;
 }
 
 function doGet(e) {
   const game = String(e.parameter.game || '');
-  if (!GAMES.includes(game)) return json({ top: [] });
-  return json({ top: top(game) });
+  if (!GAMES.includes(game)) return json({ today: [], all: [] });
+  return json(tops(game));
 }
 
 function cleanName(s) {
@@ -92,9 +100,12 @@ function doPost(e) {
     sheet().appendRow([t, "'" + today(), game, "'" + name, wave, kills, sec, "'" + dev]);
     if (dev) cache.put('dev:' + dev, '1', 20);
     cache.put(minute, String(cnt + 1), 70);
-    cache.remove('top:' + game + ':' + today());
-    const rows = todayRows(game).sort(order);
-    const rank = rows.filter(r => r.wave > wave || (r.wave === wave && r.kills >= kills)).length; // 同じ記録なら先に出した人が上
-    return json({ ok: true, rank, top: rows.slice(0, TOP_N).map(({ name, wave, kills }) => ({ name, wave, kills })) });
+    cache.remove('tops:' + game + ':' + today());
+    // 順位: ほかの人（端末）の一番良い記録のうち、この記録より上のものの数 + 1
+    const rankIn = rows => bestPerDev(rows).filter(r => r.dev !== dev && better(r, { wave, kills, t: t.getTime() }) < 0).length + 1;
+    const todayRows = readRows(game, true), allRows = readRows(game, false);
+    const o = { today: pub(bestPerDev(todayRows)), all: pub(bestPerDev(allRows)) };
+    cache.put('tops:' + game + ':' + today(), JSON.stringify(o), 60);
+    return json({ ok: true, rank: { today: rankIn(todayRows), all: rankIn(allRows) }, today: o.today, all: o.all });
   } finally { lock.releaseLock(); }
 }

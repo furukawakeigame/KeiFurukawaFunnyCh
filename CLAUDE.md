@@ -47,7 +47,7 @@ Each game card on the top page shows its all-time Google Analytics page views. T
 
 ## Rankings
 
-Games can have a daily (JST) top-10 ranking. `.claude/ranking.gs` is a free Google Apps Script web app bound to a Google Sheet in the owner's account (setup steps at the top of the file); scores are rows in its `scores` sheet, so a bad name or fake score is removed by deleting the row. It accepts only games listed in `GAMES` there, rejects NG-word names, implausible scores and rapid repeats. In the game, put the deploy URL in `RANK_URL` (empty = no ranking button) and POST with `Content-Type: text/plain` (avoids the CORS preflight). Cheating can't be fully prevented without a backend; that's accepted.
+Games can have a ranking with two tabs: today (resets at 0:00 JST) and all time, top 10 each, best score per device only. `.claude/ranking.gs` is a free Google Apps Script web app bound to a Google Sheet in the owner's account (setup steps at the top of the file); scores are rows in its `scores` sheet, so a bad name or fake score is removed by deleting the row. It accepts only games listed in `GAMES` there, rejects NG-word names, implausible scores and rapid repeats. In the game, put the deploy URL in `RANK_URL` (empty = no ranking button) and POST with `Content-Type: text/plain` (avoids the CORS preflight). Cheating can't be fully prevented without a backend; that's accepted.
 
 ## Running locally
 
