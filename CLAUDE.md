@@ -45,6 +45,10 @@ People in games use the realistic human model `.claude/skills/make-game/human.js
 
 Each game card on the top page shows its all-time Google Analytics page views. The browser can't read GA directly, so `.claude/ga-views.gs` runs as a free Google Apps Script web app (owner's Google account, Analytics Data API advanced service) and returns `{ "/games/<name>/": views }`, cached for 1 hour. Its deploy URL goes in `VIEWS_URL` in `index.html`; if empty, no counts are shown. When a game is renamed, add the old path to `OLD_PATHS` there so its past views carry over.
 
+## Rankings
+
+Games can have a daily (JST) top-10 ranking. `.claude/ranking.gs` is a free Google Apps Script web app bound to a Google Sheet in the owner's account (setup steps at the top of the file); scores are rows in its `scores` sheet, so a bad name or fake score is removed by deleting the row. It accepts only games listed in `GAMES` there, rejects NG-word names, implausible scores and rapid repeats. In the game, put the deploy URL in `RANK_URL` (empty = no ranking button) and POST with `Content-Type: text/plain` (avoids the CORS preflight). Cheating can't be fully prevented without a backend; that's accepted.
+
 ## Running locally
 
 No build. Open `index.html` directly in a browser, or serve the folder so relative paths behave like production. This PC has no Python, so use the PowerShell server `.claude/serve.ps1` (also launchable as `site` from `.claude/launch.json`); elsewhere:

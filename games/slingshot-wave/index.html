@@ -74,6 +74,28 @@
     .btn { border: 3px solid var(--ink); border-radius: var(--rough); background: #ff8a3d; color: var(--ink); font-size: clamp(21px, 2.9vmin, 31px); font-weight: 400; padding: 10px 34px; cursor: pointer; text-decoration: none; font-family: inherit; box-shadow: 3px 5px 0 var(--ink); }
     .btn:active { transform: translate(2px, 3px); box-shadow: 1px 2px 0 var(--ink); }
     .btn.x { background: var(--paper); font-size: clamp(16px, 2.3vmin, 24px); padding: 6px 22px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    .row [hidden] { display: none; }
+    .modal { position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center; padding: 56px 12px calc(84px + env(safe-area-inset-bottom)); background: rgba(46,36,24,.35); }
+    .modal[hidden] { display: none; }
+    .sheet { position: relative; width: min(100%, 380px); max-height: 100%; overflow: auto; background: var(--paper); border: 3px solid var(--ink); border-radius: var(--rough); box-shadow: 5px 7px 0 var(--ink); padding: 14px 16px 16px; transform: rotate(-.6deg); }
+    .sheet h2 { margin: 0 34px 0 0; font-size: clamp(22px, 3.2vmin, 28px); font-weight: 400; }
+    .note { margin: 2px 0 8px; font-size: 13px; opacity: .7; }
+    .close { position: absolute; top: 8px; right: 8px; width: 36px; height: 36px; border: 2px solid var(--ink); border-radius: var(--rough); background: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    #rkList { list-style: none; margin: 0; padding: 0; }
+    #rkList li { display: flex; align-items: baseline; gap: 8px; padding: 5px 4px; border-bottom: 2px dashed rgba(46,36,24,.25); font-size: clamp(16px, 2.3vmin, 20px); }
+    #rkList li.me { background: #ffe680; border-radius: 8px; }
+    #rkList .n { width: 1.8em; text-align: right; font-size: 1.1em; }
+    #rkList li:nth-child(1) .n { color: #e8590c; } #rkList li:nth-child(2) .n { color: #868e96; } #rkList li:nth-child(3) .n { color: #a5662f; }
+    #rkList .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #rkList .w { white-space: nowrap; }
+    #rkList .k { white-space: nowrap; font-size: .8em; opacity: .7; }
+    #rkList .empty { justify-content: center; opacity: .7; border: none; }
+    .msg { min-height: 1.3em; margin: 8px 0 6px; text-align: center; font-size: 17px; }
+    #rkForm { display: flex; gap: 8px; }
+    #rkForm[hidden] { display: none; }
+    #rkName { flex: 1; min-width: 0; font: inherit; font-size: 18px; padding: 6px 10px; border: 2px solid var(--ink); border-radius: var(--rough); background: #fff; color: var(--ink); -webkit-user-select: text; user-select: text; }
+    #rkSend { font-size: 18px; padding: 6px 18px; box-shadow: 2px 3px 0 var(--ink); }
     @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
       .panel { flex-direction: row; flex-wrap: wrap; align-content: flex-start; justify-content: center; align-items: center; padding-top: 52px; gap: 8px 12px; }
       .big { font-size: 40px; }
@@ -101,7 +123,18 @@
       <p class="sub" id="rKill"></p>
       <p class="sub" id="rBest"></p>
       <button id="again" class="btn"></button>
-      <a id="share" class="btn x"></a>
+      <div class="row"><button id="rankBtn" class="btn x" hidden></button><a id="share" class="btn x"></a></div>
+    </div>
+    <!-- 今日のランキング（RANK_URL が空なら出さない） -->
+    <div id="rank" class="modal" hidden>
+      <div class="sheet">
+        <button id="rkClose" class="close" aria-label="close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2e2418" stroke-width="3" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+        <h2 id="rkTitle"></h2>
+        <p id="rkNote" class="note"></p>
+        <ol id="rkList"></ol>
+        <p id="rkMsg" class="msg"></p>
+        <form id="rkForm"><input id="rkName" maxlength="8" autocomplete="nickname" enterkeyhint="send"><button id="rkSend" class="btn"></button></form>
+      </div>
     </div>
   </div>
   </main>
@@ -116,18 +149,22 @@ const URL_ = 'https://keifurukawafunnych.com/games/slingshot-wave/';
 const TAG = '#最強パチンコゲーム';
 const L = {
   ja: { title: '最強パチンコ', back: '← トップへ戻る', again: 'もう一度', share: 'Xでポスト',
+        rank: 'ランキング', rkTitle: '今日のランキング', rkNote: '毎日 0:00（日本時間）にリセット', rkName: '名前（8文字まで）', rkSend: '登録', rkYou: n => `あなたは今日 ${n}位`, rkLoad: '読み込み中…', rkFail: 'つながりませんでした', rkEmpty: 'まだ記録がありません。1位になろう', rkNg: 'その名前は使えません', rkWait: '少し待ってからもう一度', rkBad: '登録できませんでした', killS: k => `${k}体`,
         wave: n => `ウェーブ ${n}`, kill: k => `倒した敵 ${k}体`, best: n => `自己ベスト ウェーブ ${n}`,
         post: (n, k) => `最強パチンコでウェーブ${n}まで到達（${k}体撃破）\n${TAG}`,
         up: { dmg: '威力アップ', reload: '早撃ち', speed: '豪速', big: '巨大弾', heal: '回復', multi: '拡散', pierce: '貫通', bounce: '跳ね返り', boom: '爆発', chain: '雷', ice: '氷', poison: '毒', homing: '追尾', shard: '分裂弾', crit: '会心', guard: '石垣強化', paw: '猫パンチ', charge: '溜め撃ち', glass: 'ガラスの大砲', knock: 'ふっとばし', double: '二連射', spikes: 'トゲ柵', boomer: 'ブーメラン', execute: 'とどめ', deathboom: '誘爆', stun: 'ひるみ', grow: 'ふくらむ弾', lucky: '幸運', golden: '黄金の弾', snack: '猫のおやつ', turret: '見張り猫', heavy: '重い弾', sacrifice: 'いけにえ' } },
   ko: { title: '최강 새총', back: '← 처음으로', again: '다시 하기', share: 'X에 게시',
+        rank: '랭킹', rkTitle: '오늘의 랭킹', rkNote: '매일 0:00(일본 시간)에 초기화', rkName: '이름 (8자까지)', rkSend: '등록', rkYou: n => `오늘 ${n}위`, rkLoad: '불러오는 중…', rkFail: '연결하지 못했어요', rkEmpty: '아직 기록이 없어요. 1위에 도전!', rkNg: '사용할 수 없는 이름이에요', rkWait: '잠시 후 다시 시도해 주세요', rkBad: '등록하지 못했어요', killS: k => `${k}마리`,
         wave: n => `웨이브 ${n}`, kill: k => `처치 ${k}마리`, best: n => `최고 기록 웨이브 ${n}`,
         post: (n, k) => `최강 새총에서 웨이브 ${n}까지 도달 (${k}마리 처치)\n${TAG}`,
         up: { dmg: '위력 업', reload: '속사', speed: '초고속', big: '거대탄', heal: '회복', multi: '확산', pierce: '관통', bounce: '튕기기', boom: '폭발', chain: '번개', ice: '얼음', poison: '독', homing: '추적', shard: '분열탄', crit: '치명타', guard: '성벽 강화', paw: '고양이 펀치', charge: '차지샷', glass: '유리 대포', knock: '넉백', double: '2연사', spikes: '가시 울타리', boomer: '부메랑', execute: '마무리', deathboom: '유폭', stun: '기절', grow: '부푸는 탄', lucky: '행운', golden: '황금탄', snack: '고양이 간식', turret: '보초 고양이', heavy: '무거운 탄', sacrifice: '제물' } },
   en: { title: 'Ultimate Slingshot', back: '← Top', again: 'Retry', share: 'Post on X',
+        rank: 'Ranking', rkTitle: "Today's Ranking", rkNote: 'Resets daily at 0:00 (Japan time)', rkName: 'Name (up to 8)', rkSend: 'Submit', rkYou: n => `You are #${n} today`, rkLoad: 'Loading…', rkFail: 'Could not connect', rkEmpty: 'No scores yet. Be the first!', rkNg: "That name can't be used", rkWait: 'Please wait a moment and try again', rkBad: 'Could not submit', killS: k => `${k} defeated`,
         wave: n => `Wave ${n}`, kill: k => `${k} defeated`, best: n => `Best: Wave ${n}`,
         post: (n, k) => `Reached Wave ${n} in Ultimate Slingshot (${k} defeated)\n${TAG}`,
         up: { dmg: 'Power', reload: 'Rapid', speed: 'Velocity', big: 'Big Shot', heal: 'Heal', multi: 'Spread', pierce: 'Pierce', bounce: 'Bounce', boom: 'Blast', chain: 'Lightning', ice: 'Frost', poison: 'Poison', homing: 'Homing', shard: 'Shards', crit: 'Critical', guard: 'Rampart', paw: 'Cat Punch', charge: 'Charge Shot', glass: 'Glass Cannon', knock: 'Knockback', double: 'Double Shot', spikes: 'Spikes', boomer: 'Boomerang', execute: 'Finisher', deathboom: 'Chain Blast', stun: 'Stun', grow: 'Swelling Shot', lucky: 'Lucky', golden: 'Golden Shot', snack: 'Cat Snack', turret: 'Sentry Cat', heavy: 'Heavy Shot', sacrifice: 'Sacrifice' } },
   th: { title: 'หนังสติ๊กสุดแกร่ง', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X',
+        rank: 'อันดับ', rkTitle: 'อันดับวันนี้', rkNote: 'รีเซ็ตทุกวันเวลา 0:00 (เวลาญี่ปุ่น)', rkName: 'ชื่อ (ไม่เกิน 8 ตัว)', rkSend: 'ส่ง', rkYou: n => `วันนี้คุณได้อันดับ ${n}`, rkLoad: 'กำลังโหลด…', rkFail: 'เชื่อมต่อไม่ได้', rkEmpty: 'ยังไม่มีสถิติ มาเป็นที่ 1 กัน!', rkNg: 'ใช้ชื่อนี้ไม่ได้', rkWait: 'รอสักครู่แล้วลองใหม่', rkBad: 'ส่งไม่สำเร็จ', killS: k => `${k} ตัว`,
         wave: n => `เวฟ ${n}`, kill: k => `กำจัด ${k} ตัว`, best: n => `สถิติสูงสุด เวฟ ${n}`,
         post: (n, k) => `ไปถึงเวฟ ${n} ในหนังสติ๊กสุดแกร่ง (กำจัด ${k} ตัว)\n${TAG}`,
         up: { dmg: 'พลังแรงขึ้น', reload: 'ยิงเร็ว', speed: 'ความเร็วสูง', big: 'กระสุนยักษ์', heal: 'ฟื้นฟู', multi: 'กระจาย', pierce: 'ทะลุ', bounce: 'สะท้อน', boom: 'ระเบิด', chain: 'สายฟ้า', ice: 'น้ำแข็ง', poison: 'พิษ', homing: 'ติดตาม', shard: 'กระสุนแตก', crit: 'คริติคอล', guard: 'กำแพงแกร่ง', paw: 'หมัดแมว', charge: 'ยิงชาร์จ', glass: 'ปืนใหญ่แก้ว', knock: 'กระเด็น', double: 'ยิงสองนัด', spikes: 'รั้วหนาม', boomer: 'บูมเมอแรง', execute: 'ปิดฉาก', deathboom: 'ระเบิดต่อเนื่อง', stun: 'มึนงง', grow: 'กระสุนพองโต', lucky: 'โชคดี', golden: 'กระสุนทอง', snack: 'ขนมแมว', turret: 'แมวยาม', heavy: 'กระสุนหนัก', sacrifice: 'การสังเวย' } },
@@ -143,6 +180,8 @@ function applyLang() {
   $('lang').value = lang;
   $('back').textContent = t('back');
   $('again').textContent = t('again'); $('share').textContent = t('share');
+  $('rankBtn').textContent = t('rank'); $('rkTitle').textContent = t('rkTitle'); $('rkNote').textContent = t('rkNote'); $('rkName').placeholder = t('rkName'); $('rkSend').textContent = t('rkSend');
+  if (!$('rank').hidden) renderRank();
   if (!$('result').hidden) showResult();
   if (!$('pick').hidden) renderCards();
 }
@@ -312,7 +351,7 @@ const RW = [10, 6, 2.6, 1.6]; // レア度ごとの出やすさ
 
 let state, wave, kills, life, maxLife, lv, enemies, bullets, rocks, parts, splats, rings, bolts, queue, spawnT, waveTotal, waveDone;
 let reloadT, aim, queued, catHurt, shake, clearT, overT, best = store.get('best', 0), time = 0;
-let guardLeft = 0, pawT = 0, paw = null, volleys = [], booms = [], shots = 0, snackN = 0, turretT = [0, 0], gains = [];
+let playSec = 0, guardLeft = 0, pawT = 0, paw = null, volleys = [], booms = [], shots = 0, snackN = 0, turretT = [0, 0], gains = [];
 
 function stats() {
   return {
@@ -329,7 +368,8 @@ function stats() {
 }
 
 function reset() {
-  state = 'ready'; wave = 1; kills = 0; life = maxLife = 5;
+  state = 'ready'; wave = 1; kills = 0; life = maxLife = 5; playSec = 0;
+  if (typeof rank !== 'undefined') { rank.sent = false; rank.me = null; rank.msg = ''; }
   lv = Object.fromEntries(UPS.map(k => [k, 0]));
   enemies = []; bullets = []; rocks = []; parts = []; splats = []; rings = []; bolts = [];
   reloadT = 0; aim = null; queued = null; catHurt = 0; shake = 0; clearT = 0; overT = 0; pawT = 0; paw = null; volleys = []; booms = []; shots = 0; snackN = 0; turretT = [0, 0.5]; gains = [];
@@ -758,6 +798,7 @@ function step(dt) {
   if (state === 'clear') { clearT += dt; stepBullets(dt); if (clearT > 1.1) offer(); return; }
   if (state !== 'play') return;
 
+  playSec += dt;
   reloadT = Math.max(0, reloadT - dt);
   if (reloadT === 0 && queued) fire(queued);
   for (const v of volleys) { v.t -= dt; if (v.t <= 0) { volley(v.ang, v.sp, v.k, false); sShoot(0.4); } }
@@ -1412,6 +1453,53 @@ function drawHud(top) {
   ctx.fillStyle = '#ffd43b'; ctx.fillRect(gx, y - 4, gw * rest, 8);
   ctx.beginPath(); ctx.rect(gx, y - 4, gw, 8); ink(473, 1.6);
 }
+
+// ===== 今日のランキング（.claude/ranking.gs を Google Apps Script で公開した URL） =====
+const RANK_URL = '';
+const GAME_ID = 'slingshot-wave';
+let rank = { list: null, err: '', msg: '', sent: false, me: null, busy: false };
+let dev = store.get('dev', '');
+if (!dev) { dev = Math.random().toString(36).slice(2) + Date.now().toString(36); store.set('dev', dev); }
+$('rankBtn').hidden = !RANK_URL;
+function renderRank() {
+  const ol = $('rkList'); ol.innerHTML = '';
+  if (!rank.list) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = rank.err || t('rkLoad'); ol.append(li); }
+  else if (!rank.list.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = t('rkEmpty'); ol.append(li); }
+  else rank.list.forEach((r, i) => {
+    const li = document.createElement('li');
+    if (rank.me && r.name === rank.me.name && r.wave === rank.me.wave && r.kills === rank.me.kills) li.className = 'me';
+    for (const [c, v] of [['n', i + 1], ['nm', r.name], ['w', L[lang].wave(r.wave)], ['k', L[lang].killS(r.kills)]]) { const sp = document.createElement('span'); sp.className = c; sp.textContent = v; li.append(sp); }
+    ol.append(li);
+  });
+  $('rkMsg').textContent = rank.msg ? (typeof rank.msg === 'number' ? L[lang].rkYou(rank.msg) : t(rank.msg)) : '';
+  $('rkForm').hidden = rank.sent;
+  $('rkSend').disabled = rank.busy;
+}
+async function loadRank() {
+  rank.list = null; rank.err = ''; renderRank();
+  try { const r = await fetch(`${RANK_URL}?game=${GAME_ID}`); rank.list = (await r.json()).top || []; }
+  catch { rank.err = t('rkFail'); }
+  renderRank();
+}
+// ランキングを開いている間は結果を隠す（広告もいったん消える）
+$('rankBtn').onclick = () => { $('result').hidden = true; $('rank').hidden = false; $('rkName').value = store.get('name', ''); loadRank(); };
+$('rkClose').onclick = () => { $('rank').hidden = true; $('result').hidden = false; };
+$('rkForm').onsubmit = async e => {
+  e.preventDefault();
+  if (rank.busy || rank.sent) return;
+  const name = $('rkName').value.replace(/\s+/g, ' ').trim().slice(0, 8);
+  if (!name) { $('rkName').focus(); return; }
+  store.set('name', name);
+  rank.busy = true; rank.msg = ''; renderRank();
+  try {
+    const r = await fetch(RANK_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ game: GAME_ID, name, wave, kills, sec: Math.floor(playSec), dev }) });
+    const j = await r.json();
+    if (j.ok) { rank.sent = true; rank.me = { name: name, wave, kills }; rank.list = j.top; rank.msg = j.rank; sCard(); }
+    else rank.msg = j.error === 'ng' ? 'rkNg' : j.error === 'wait' ? 'rkWait' : 'rkBad';
+  } catch { rank.msg = 'rkFail'; }
+  rank.busy = false; renderRank();
+};
+$('rkName').addEventListener('keydown', e => e.stopPropagation());
 
 // ===== 結果 =====
 const coarse = matchMedia('(pointer: coarse)').matches;
