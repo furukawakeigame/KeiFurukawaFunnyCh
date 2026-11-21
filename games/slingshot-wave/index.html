@@ -236,8 +236,20 @@ function initAudio() {
 addEventListener('pointerdown', initAudio, true);
 addEventListener('keydown', initAudio, true);
 const on = () => soundOn && ac;
+// 鳴らしすぎない: 同時に鳴る音は最大24個まで（iPhone の Safari は音を作りすぎるとページが落ちることがある）
+let voiceEnds = [];
+function slot(dur) {
+  const n = ac.currentTime;
+  voiceEnds = voiceEnds.filter(t => t > n);
+  if (voiceEnds.length >= 24) return false;
+  voiceEnds.push(n + dur);
+  return true;
+}
+// 同じ種類の音は ms ミリ秒より短い間隔では重ねない
+const gate = {};
+function every(key, ms) { const t = performance.now(); if (t - (gate[key] || 0) < ms) return false; gate[key] = t; return true; }
 function tone(type, f0, f1, dur, vol, delay = 0) {
-  if (!on()) return;
+  if (!on() || !slot(dur + delay)) return;
   const n = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
   o.type = type; o.frequency.setValueAtTime(f0, n); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), n + dur);
   g.gain.setValueAtTime(0.0001, n); g.gain.linearRampToValueAtTime(vol, n + 0.005); g.gain.exponentialRampToValueAtTime(0.001, n + dur);
@@ -245,7 +257,7 @@ function tone(type, f0, f1, dur, vol, delay = 0) {
 }
 // ノイズを共鳴に通す（打撃・破裂の音）
 function burst(dur, vol, bands, delay = 0) {
-  if (!on()) return;
+  if (!on() || !slot(dur + delay)) return;
   const n = ac.currentTime + delay, s = ac.createBufferSource(); s.buffer = noiseBuf;
   const env = ac.createGain(); env.gain.setValueAtTime(vol, n); env.gain.exponentialRampToValueAtTime(0.001, n + dur);
   s.connect(env);
@@ -257,7 +269,7 @@ function burst(dur, vol, bands, delay = 0) {
 }
 const VOWEL = { a: [800, 1200, 2600], i: [300, 2300, 3000], u: [350, 1250, 2500], e: [500, 1900, 2600], o: [500, 850, 2500], g: [450, 1100, 2400] };
 function voice(f0, seq, dur, vol = 0.4, shake = 0.05, breath = 0.15, delay = 0) {
-  if (!on()) return;
+  if (!on() || !slot(dur + delay)) return;
   const now = ac.currentTime + delay;
   const o = ac.createOscillator(); o.type = 'sawtooth';
   o.frequency.setValueAtTime(f0 * 1.2, now);
@@ -289,6 +301,7 @@ const sStretch = () => { // ゴムが伸びる「ギュッ」
   tone('sawtooth', 70, 140, 0.18, 0.05); burst(0.12, 0.25, [[900, 3, 0.4], [2200, 4, 0.2]]);
 };
 const sShoot = p => { // 「バシュッ」＋ゴムの弦鳴り
+  if (!every('shoot', 45)) return;
   burst(0.16, 0.6 + p * 0.4, [[1800, 1.2, 0.5], [600, 2, 0.6]]);
   tone('triangle', 220 + p * 80, 90, 0.2, 0.18);
 };
@@ -298,25 +311,26 @@ const sHit = () => { // 当たった「ポコッ」
   tone('sine', 300, 120, 0.08, 0.2);
 };
 const sPop = (f0) => { // 倒れた時の破裂と鳴き声
+  if (!every('pop', 40)) return;
   burst(0.18, 0.8, [[400, 3, 1], [1200, 4, 0.5]]);
   tone('sine', 500, 160, 0.12, 0.2);
   const now = performance.now(); if (now - lastCry < 90) return; lastCry = now;
   voice(f0 * (0.9 + Math.random() * 0.2), pick(SQUEAKS), 0.18 + Math.random() * 0.12, 0.22, 0.06, 0.1, 0.02);
 };
-const sBoom = () => { burst(0.5, 0.9, [[120, 1, 1.5], [400, 1.5, 0.6]]); tone('sine', 90, 35, 0.4, 0.4); };
-const sBounce = () => tone('triangle', 900, 500, 0.05, 0.08);
+const sBoom = () => { if (!every('boom', 80)) return; burst(0.5, 0.9, [[120, 1, 1.5], [400, 1.5, 0.6]]); tone('sine', 90, 35, 0.4, 0.4); };
+const sBounce = () => every('bounce', 50) && tone('triangle', 900, 500, 0.05, 0.08);
 const sCat = (sad) => { // いつもの猫の「ニャッ」
   voice(sad ? 420 : 560, sad ? ['i', 'a', 'o', 'u'] : ['i', 'a', 'u'], sad ? 0.9 : 0.35, 0.4, sad ? 0.1 : 0.04, 0.12);
   burst(0.25, 0.7, [[150, 1, 1.2], [500, 2, 0.4]]);
 };
 const sClear = () => [523, 659, 784, 1047].forEach((f, i) => { tone('triangle', f, f, 0.35, 0.16, i * 0.09); tone('sine', f * 2, f * 2, 0.25, 0.05, i * 0.09); });
 const sCard = () => { tone('triangle', 660, 660, 0.12, 0.15); tone('triangle', 990, 990, 0.25, 0.15, 0.08); };
-const sCrit = () => { tone('square', 1400, 2400, 0.08, 0.06); tone('triangle', 1800, 1800, 0.15, 0.08, 0.04); };
-const sZap = () => { burst(0.12, 0.5, [[3000, 2, 0.6], [6000, 3, 0.3]]); tone('sawtooth', 900, 300, 0.1, 0.05); };
+const sCrit = () => { if (!every('crit', 70)) return; tone('square', 1400, 2400, 0.08, 0.06); tone('triangle', 1800, 1800, 0.15, 0.08, 0.04); };
+const sZap = () => { if (!every('zap', 70)) return; burst(0.12, 0.5, [[3000, 2, 0.6], [6000, 3, 0.3]]); tone('sawtooth', 900, 300, 0.1, 0.05); };
 const sGuard = () => { burst(0.25, 0.8, [[1200, 12, 0.8], [2500, 14, 0.4]]); tone('triangle', 880, 880, 0.3, 0.12); };
-const sClank = () => { burst(0.1, 0.8, [[2200, 14, 0.7], [4100, 16, 0.4]]); tone('triangle', 1500, 1300, 0.12, 0.08); };
-const sThrow = () => { burst(0.12, 0.4, [[500, 1.5, 0.5]]); voice(380, ['o', 'a'], 0.18, 0.12, 0.03, 0.2); };
-const sHealE = () => [700, 940].forEach((f, i) => tone('sine', f, f * 1.05, 0.25, 0.06, i * 0.08));
+const sClank = () => { if (!every('clank', 60)) return; burst(0.1, 0.8, [[2200, 14, 0.7], [4100, 16, 0.4]]); tone('triangle', 1500, 1300, 0.12, 0.08); };
+const sThrow = () => { if (!every('throw', 120)) return; burst(0.12, 0.4, [[500, 1.5, 0.5]]); voice(380, ['o', 'a'], 0.18, 0.12, 0.03, 0.2); };
+const sHealE = () => every('heale', 300) && [700, 940].forEach((f, i) => tone('sine', f, f * 1.05, 0.25, 0.06, i * 0.08));
 const sPaw = () => { burst(0.1, 1, [[300, 2, 1.2], [900, 4, 0.5]]); tone('sine', 180, 60, 0.18, 0.4); voice(600, ['i', 'a'], 0.2, 0.25, 0.03, 0.1); };
 const sCharge = () => { burst(0.35, 1, [[600, 1, 0.8], [1800, 1.5, 0.5]]); tone('sawtooth', 160, 60, 0.35, 0.18); };
 const sReady = () => tone('sine', 1200, 1600, 0.12, 0.1);
@@ -743,7 +757,8 @@ function killEnemy(e) {
   if (e.dead) return;
   e.dead = true; kills++; waveDone += e.type === 'mini' ? 0 : 1;
   const T = TYPES[e.type];
-  for (let i = 0; i < 14 + e.r * 0.4; i++) { const a = Math.random() * 7, sp = rnd(60, 260); parts.push({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: rnd(0.4, 0.8), max: 0.8, c: pick(T.col), s: rnd(3, 6) * Math.sqrt(e.r / 18) }); }
+  const many = parts.length > 250 ? 0.4 : 1; // 粒が多い時は少なめに
+  for (let i = 0; i < (14 + e.r * 0.4) * many; i++) { const a = Math.random() * 7, sp = rnd(60, 260); parts.push({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: rnd(0.4, 0.8), max: 0.8, c: pick(T.col), s: rnd(3, 6) * Math.sqrt(e.r / 18) }); }
   splats.push({ x: e.x, y: e.y, r: e.r * 1.2, c: T.col[1], life: 6, rot: Math.random() * 7, k: Math.floor(Math.random() * 3) });
   if (splats.length > 70) splats.shift();
   if (e.type === 'splitter') for (const d of [-1, 1]) { const m = makeEnemy('mini', clamp(e.x + d * 16, 20, FW - 20), e.y); m.vx = d * 90; enemies.push(m); }
@@ -796,7 +811,9 @@ function step(dt) {
   shake = Math.max(0, shake - dt);
   // 粒・しみ・爆発の輪・雷は、どの状態でも時間で進める
   for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92; p.life -= dt; if (p.life <= 0) parts.splice(i, 1); }
-  if (parts.length > 600) parts.splice(0, parts.length - 600);
+  if (parts.length > 450) parts.splice(0, parts.length - 450);
+  if (rings.length > 36) rings.splice(0, rings.length - 36);
+  if (bolts.length > 24) bolts.splice(0, bolts.length - 24);
   for (let i = splats.length - 1; i >= 0; i--) { splats[i].life -= dt; if (splats[i].life <= 0) splats.splice(i, 1); }
   for (let i = rings.length - 1; i >= 0; i--) { rings[i].t += dt; if (rings[i].t > 0.45) rings.splice(i, 1); }
   for (let i = bolts.length - 1; i >= 0; i--) { bolts[i].t += dt; if (bolts[i].t > 0.25) bolts.splice(i, 1); }
@@ -1059,6 +1076,7 @@ const lerp = (a, b, k) => a + (b - a) * k;
 function draw(k) {
   const { s, ox, oy, W, H, dpr } = lay;
   boil = Math.floor(time * 6);
+  if (parts.length > 450) parts.splice(0, parts.length - 450); // 粒は多すぎると重いので古いものから消す
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   // 草原（画面いっぱい、下端まで）
   ctx.fillStyle = grassPat; ctx.fillRect(0, 0, W, H);
