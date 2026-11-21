@@ -27,7 +27,7 @@
 
 const SHEET = 'scores', BAN = 'ban';
 const TOP_N = 10, MAX_WAVE = 150, DAY_CAP = 3000;
-const GAMES = ['slingshot-wave']; // ランキングを受け付けるゲーム（フォルダ名）
+const GAMES = ['slingshot-wave', 'minna-tsumo']; // ランキングを受け付けるゲーム（フォルダ名）
 const NG = [ // 名前に使えない言葉（ひらがな・小文字にそろえてから、含まれているかを見る）
   'しね', 'ころす', 'ころせ', 'きちがい', 'がいじ', 'ちんこ', 'ちんぽ', 'まんこ', 'うんこ', 'せっくす', 'れいぷ', 'ばいた', 'くそ',
   'fuck', 'shit', 'bitch', 'dick', 'pussy', 'cunt', 'nigg', 'fag', 'rape', 'sex', 'porn', 'kill',
@@ -40,6 +40,13 @@ const RULES = {
   'slingshot-wave': {
     count: w => 6 + Math.floor(Math.min(w, 25) * 1.8 + Math.max(0, w - 25) * 0.5) + (w % 5 === 0 ? Math.floor(w / 10) + 1 : 0),
     interval: w => Math.max(0.18, 1.3 - w * 0.05),
+  },
+  // みんなで積もう: wave = 積めた個数、kills = 塔の高さ（cm）。1個積むたびに wave で知らせる。
+  // 1個ごとに最低でも約1秒（落ちて止まるまで）かかる。高さは1個あたり30cmより高くはならない。
+  // ランキングは高さの順（order: 'kills'）。submit の wave は最後に知らせた個数と同じ。
+  'minna-tsumo': {
+    custom: true, order: 'kills',
+    ok: (s, wave, kills, now) => kills >= 0 && kills <= wave * 30 + 10 && (now - s.t0) / 1000 >= wave * 0.9 - 4,
   },
 };
 function totalEnemies(R, w) { let n = 0; for (let i = 1; i <= w; i++) n += R.count(i); return n; }
@@ -80,18 +87,18 @@ function readRows(game, todayOnly) {
     .map(r => ({ t: new Date(r[0]).getTime(), name: String(r[3]), wave: Number(r[4]), kills: Number(r[5]), dev: String(r[7]) }))
     .filter(r => !ban.has(r.name) && !ban.has(r.dev));
 }
-const better = (a, b) => b.wave - a.wave || b.kills - a.kills || a.t - b.t;
+const better = (a, b, game) => (RULES[game] && RULES[game].order === 'kills') ? (b.kills - a.kills || b.wave - a.wave || a.t - b.t) : (b.wave - a.wave || b.kills - a.kills || a.t - b.t);
 // 同じ端末の記録は一番良いものだけ（1人でトップ10を埋めないように）
-function bestPerDev(rows) {
+function bestPerDev(rows, game) {
   const best = {};
-  for (const r of rows) { const k = r.dev || ('row' + r.t); if (!best[k] || better(r, best[k]) < 0) best[k] = r; }
-  return Object.values(best).sort(better);
+  for (const r of rows) { const k = r.dev || ('row' + r.t); if (!best[k] || better(r, best[k], game) < 0) best[k] = r; }
+  return Object.values(best).sort((a, b) => better(a, b, game));
 }
 const pub = list => list.slice(0, TOP_N).map(({ name, wave, kills }) => ({ name, wave, kills }));
 function tops(game) {
   const key = 'tops:' + game + ':' + today(), hit = cache().get(key);
   if (hit) return JSON.parse(hit);
-  const o = { today: pub(bestPerDev(readRows(game, true))), all: pub(bestPerDev(readRows(game, false))) };
+  const o = { today: pub(bestPerDev(readRows(game, true), game)), all: pub(bestPerDev(readRows(game, false), game)) };
   cache().put(key, JSON.stringify(o), 60);
   return o;
 }
@@ -139,6 +146,11 @@ function doPost(e) {
     if (!s || s.used) return json({ ok: false, error: 'bad' });
     const R = RULES[s.game];
     const wave = Math.floor(Number(b.wave)), kills = Math.floor(Number(b.kills));
+    if (act === 'wave' && R.custom) {
+      if (wave !== s.wave + 1 || wave > MAX_WAVE || !(R.ok(s, wave, kills, now))) { s.used = true; putSess(tok, s); return json({ ok: false, error: 'bad' }); }
+      s.wave = wave; s.kills = kills; s.last = now; putSess(tok, s);
+      return json({ ok: true });
+    }
     if (act === 'wave') {
       // ウェーブは1つずつ。前のクリアから、本当にそのウェーブの分の時間がたっていること
       if (wave !== s.wave + 1 || wave > MAX_WAVE) return json({ ok: false, error: 'bad' });
@@ -154,9 +166,14 @@ function doPost(e) {
     if (badName(name)) return json({ ok: false, error: 'ng' });
     const ban = banned();
     if (ban.has(name) || ban.has(dev) || ban.has(s.dev)) return json({ ok: false, error: 'bad' });
-    // 最後のウェーブ（倒れたウェーブ）は、クリア済みのウェーブ + 1
-    if (wave !== s.wave + 1 || wave > MAX_WAVE || dev !== s.dev) return json({ ok: false, error: 'bad' });
-    if (!(kills >= s.kills && killsOk(R, wave - 1, wave, kills) && sec >= 0 && sec <= (now - s.t0) / 1000 + 5)) return json({ ok: false, error: 'bad' });
+    if (R.custom) {
+      // 最後に知らせた個数・高さのまま
+      if (wave !== s.wave || wave < 1 || kills !== s.kills || dev !== s.dev || !R.ok(s, wave, kills, now) || !(sec >= 0 && sec <= (now - s.t0) / 1000 + 5)) return json({ ok: false, error: 'bad' });
+    } else {
+      // 最後のウェーブ（倒れたウェーブ）は、クリア済みのウェーブ + 1
+      if (wave !== s.wave + 1 || wave > MAX_WAVE || dev !== s.dev) return json({ ok: false, error: 'bad' });
+      if (!(kills >= s.kills && killsOk(R, wave - 1, wave, kills) && sec >= 0 && sec <= (now - s.t0) / 1000 + 5)) return json({ ok: false, error: 'bad' });
+    }
     if (limited('dev:' + dev, 1, 20)) return json({ ok: false, error: 'wait' });
     if (limited('min:' + Math.floor(now / 60000), 60, 70) || limited('day:' + today(), DAY_CAP, 90000)) return json({ ok: false, error: 'wait' });
     s.used = true; putSess(tok, s);
@@ -164,9 +181,9 @@ function doPost(e) {
     // 先頭の ' で文字として保存する（日付への変換や、= で始まる名前が数式になるのを防ぐ）
     sheet().appendRow([t, "'" + today(), game, "'" + name, wave, kills, sec, "'" + dev]);
     // 順位: ほかの人（端末）の一番良い記録のうち、この記録より上のものの数 + 1
-    const rankIn = rows => bestPerDev(rows).filter(r => r.dev !== dev && better(r, { wave, kills, t: now }) < 0).length + 1;
+    const rankIn = rows => bestPerDev(rows, game).filter(r => r.dev !== dev && better(r, { wave, kills, t: now }, game) < 0).length + 1;
     const todayRows = readRows(game, true), allRows = readRows(game, false);
-    const o = { today: pub(bestPerDev(todayRows)), all: pub(bestPerDev(allRows)) };
+    const o = { today: pub(bestPerDev(todayRows, game)), all: pub(bestPerDev(allRows, game)) };
     cache().put('tops:' + game + ':' + today(), JSON.stringify(o), 60);
     return json({ ok: true, rank: { today: rankIn(todayRows), all: rankIn(allRows) }, today: o.today, all: o.all });
   } finally { lock.releaseLock(); }
