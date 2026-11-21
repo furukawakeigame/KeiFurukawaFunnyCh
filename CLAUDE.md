@@ -39,6 +39,7 @@ People in games use the realistic human model `.claude/skills/make-game/human.js
   - No result element: call `window.resultAd?.(isResult)` from the game loop instead.
   - While the ad shows, `ad.js` visually shrinks everything except the header toward the bottom-center (CSS `scale`/`translate`, no relayout) and puts the ad in the freed strip under the header, so the ad never covers the game, the result or the 見せ場, and stays far from the buttons (AdSense policy: no ads over content, none next to buttons).
   - One ad per page view (never refreshed), loaded only at the first result, not shown on screens shorter than 600px.
+  - `data-inline="<selector>"` (optional): instead of shrinking the page, `ad.js` puts the ad inside that empty slot in the result panel. Put the slot above the result text so the buttons stay ≥150px away, and reserve its height so nothing shifts when the ad appears (see the comment in `ad.js`; `games/slingshot-wave` uses this).
 - Toy/maker games without a result screen get no ad. Full-screen ads before the result (H5 Games Ads, `adBreak()`) need a separate approval the owner applied for.
 
 ## View counts

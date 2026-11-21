@@ -10,6 +10,11 @@
 // ヘッダー以外の画面全体を下（ボタンのある側）へ向かって縮めて、上に広告の帯を空ける。
 // ゲームの描画や配置の計算は変えず、見た目だけ縮める（CSS の scale / translate）。
 //
+// 画面を縮めたくないゲームは、結果パネルの中に広告用の空き枠を用意して data-inline にそのセレクタを書く:
+//   <script src="../../ad.js" data-result="#result" data-inline="#adSlot"></script>
+// その場合は縮めずに、枠の中へ広告を入れる。枠は、ボタンから GAP 以上離れる位置（結果の文字より上など）に置き、
+// 広告が後から出てもボタンがずれないよう、高さを空けておく（背の高さ800px以上は約128px、それ以外は約78px）。
+//
 // ・広告は1回の訪問につき1回だけ読み込む（結果が出るたびに入れ替えると AdSense の規約違反になる）
 // ・adsbygoogle.js は最初の結果が出た時に読み込む（プレイ中を重くしないため）
 // ・背の低い画面（横向きスマホなど）では出さない
@@ -20,6 +25,8 @@
 
   const me = document.currentScript;
   const selector = me && me.dataset.result;
+  const inlineSel = me && me.dataset.inline; // 結果パネルの中の広告枠（あれば縮めない）
+  const slotEl = () => inlineSel && document.querySelector(inlineSel);
   const MIN_H = 600; // これより背の低い画面では出さない
   const GAP = 150;    // 広告とボタンの間に空ける距離（AdSense の推奨）
   const MIN_SCALE = 0.55; // これより縮めないと離せないときは、広告を出さない
@@ -33,7 +40,8 @@
     #result-ad.on { display: block; }
     #result-ad .label { font: 11px/1.4 system-ui, sans-serif; color: #889; margin: 0 0 3px; }
     #result-ad ins { display: block; width: 100%; }
-    #result-ad:has(ins[data-ad-status="unfilled"]) { display: none !important; }`;
+    #result-ad:has(ins[data-ad-status="unfilled"]) { display: none !important; }
+    #result-ad.inline { position: static; transform: none; margin: 0 auto; width: min(100%, 352px); z-index: auto; }`;
   document.head.append(style);
 
   let box = null, filled = false, on = false, shown = false, blocked = false, scale = 1;
@@ -50,7 +58,9 @@
     ins.dataset.adClient = CLIENT;
     ins.dataset.adSlot = SLOT;
     box.append(ins);
-    document.body.append(box);
+    const slot = slotEl();
+    if (slot) { box.classList.add('inline'); slot.append(box); }
+    else document.body.append(box);
   }
 
   // ラベルは、ゲームが今表示している言語に合わせる（ヘッダーの「トップへ戻る」リンクの文字で判断する）
@@ -144,6 +154,14 @@
     if (innerHeight < MIN_H || blocked) return;
     if (!box) build();
     box.querySelector('.label').textContent = label();
+    if (box.classList.contains('inline')) {
+      // 結果パネルの中の枠に出す（縮めない）。ボタンに近すぎるなら、この結果の間は出さない
+      box.classList.add('on');
+      if (tooClose()) { box.classList.remove('on'); blocked = true; return; }
+      if (!filled) fill();
+      shown = true;
+      return;
+    }
     const header = document.querySelector('header');
     box.style.top = (header ? Math.max(6, header.getBoundingClientRect().bottom + 6) : 6) + 'px';
     box.classList.add('on');
@@ -162,7 +180,7 @@
     : el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden');
   setInterval(() => {
     if (selector) resultAd(visible(document.querySelector(selector)));
-    if (shown) { shrink(); if (tooClose()) hideAd(); } // あとから広告の近くにボタンが出たら、広告をやめる
+    if (shown) { if (!box.classList.contains('inline')) shrink(); if (tooClose()) hideAd(); } // あとから広告の近くにボタンが出たら、広告をやめる
     else if (on) tryShow(); // ボタンが動いている途中などで出せなかったら、もう一度試す
   }, 400);
 })();
