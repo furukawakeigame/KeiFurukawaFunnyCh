@@ -55,10 +55,12 @@
       min-width: 40px; height: 32px; padding: 0 10px; cursor: pointer;
     }
     #sound { padding: 0; width: 40px; }
+    select.pill { appearance: none; -webkit-appearance: none; background: var(--felt); text-align: center; }
+    select.pill option { color: var(--ink); background: var(--ivory); }
     main {
       flex: 1; min-height: 0; width: 100%; max-width: 480px; margin: 0 auto;
       display: flex; flex-direction: column; box-sizing: border-box; gap: 8px;
-      padding: 0 12px calc(80px + env(safe-area-inset-bottom));
+      padding: 0 12px;
     }
 
     /* プレイヤーの札（象牙色の紙。左端に色の帯） */
@@ -140,7 +142,12 @@
     }
 
     /* ボタン（ベタ塗り＋墨の影） */
-    #ctrl { min-height: 60px; display: flex; gap: 8px; align-items: center; }
+    /* ボタンは画面の下 80px（Xのアプリ内ブラウザで投稿文が重なる所）の上に浮かせる。ルーレットはその下まで描く */
+    #ctrl {
+      position: fixed; left: 0; right: 0; bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 2;
+      min-height: 60px; display: flex; gap: 8px; align-items: center;
+      width: 100%; max-width: 480px; margin: 0 auto; padding: 0 12px; box-sizing: border-box;
+    }
     #ctrl > * { flex: 1; }
     .big {
       font: inherit; font-size: 18px; font-weight: 700; letter-spacing: .08em; padding: 14px 8px; border-radius: 4px;
@@ -157,7 +164,7 @@
     .big.x svg { width: 16px; height: 16px; }
 
     /* パネル */
-    #panel { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; padding: 0 24px; box-sizing: border-box; }
+    #panel { position: absolute; inset: 0 0 var(--rsv, 150px) 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; padding: 0 24px; box-sizing: border-box; }
     #panel[hidden] { display: none; }
     #panel > :first-child { margin-top: auto; }
     #panel > :last-child { margin-bottom: auto; }
@@ -209,6 +216,22 @@
     @media (max-height: 599px) { #adSlot { display: none; } }
     @media (min-height: 600px) { #adSlot { min-height: 82px; } }
     @media (min-height: 800px) { #adSlot { min-height: 132px; } }
+    /* 背の低い横長画面：ルーレットを左、札とボタンを右に並べる */
+    @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+      header { max-width: none; }
+      main {
+        max-width: none; display: grid; gap: 6px 12px; align-content: start;
+        grid-template-columns: 1fr min(42%, 400px); grid-template-rows: auto auto auto 1fr;
+        grid-template-areas: "stage players" "stage info" "stage timer" "stage .";
+      }
+      #players { grid-area: players; grid-template-columns: repeat(2, 1fr); }
+      #info { grid-area: info; } #timer { grid-area: timer; margin: 0; }
+      #stage { grid-area: stage; margin: 0 0 0 -12px; }
+      #ctrl { left: auto; width: min(42%, 400px); padding: 0 12px 0 0; max-width: none; }
+      .turnb { gap: 4px; padding: 4px 8px; font-size: 13px; } .turnb .sep { margin: 0 1px; } .turnb .cells i { width: 7px; } .turnb .num { font-size: 19px; }
+      .head { font-size: 32px; margin-bottom: 4px; }
+      .row { padding: 4px 2px; }
+    }
     .link { background: none; border: none; color: var(--mute); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 8px; text-decoration: underline; text-underline-offset: 3px; }
   </style>
 </head>
@@ -216,7 +239,7 @@
   <h1 style="position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">ピンルーレット</h1>
   <header>
     <a href="../../" id="back">← トップへ戻る</a>
-    <div class="hbtns"><button id="lang" class="pill">EN</button><button id="sound" class="pill" aria-label="音のオン/オフ">🔊</button></div>
+    <div class="hbtns"><select id="lang" class="pill" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select><button id="sound" class="pill" aria-label="音のオン/オフ"></button></div>
   </header>
   <main>
     <div id="players" hidden></div>
@@ -389,49 +412,84 @@
     // ブラウザは最初の操作まで音を出せないので、最初のタップで準備する
     addEventListener('pointerdown', () => { if (soundOn) A(); }, { once: true });
 
-    // ---- 文言（日本語／英語） ----
+    // ---- 文言（日本語・韓国語・英語・タイ語）。X投稿のハッシュタグはどの言語でも同じ ----
+    const TAG = '#ピンルーレットゲーム';
     const L = {
       ja: {
-        title: 'ピンルーレット', tagline: '4人対戦', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
+        title: 'ピンルーレット', tagline: '4人対戦', back: '← トップへ戻る',
         name: 'なまえ', create: '部屋をつくる', join: '部屋に入る', solo: 'ひとりで遊ぶ',
         code: 'コード', enter: '入る', backBtn: '戻る', start: 'スタート', waitHost: 'ホストを待っています…',
         invite: '招待リンク', copied: 'コピーしました', connecting: 'つながっています…',
         notFound: '部屋が見つかりません', full: '満員です', started: 'もう始まっています',
         hostLeft: 'ホストが抜けました', netErr: 'つながりませんでした',
-        ok: '決定', skip: 'スキップ', left: 'のこり', sqUnit: 'マス', own: n => `持ちマス ${n}`, ifHit: p => `当たれば +${p}点`, noOwn: '持ちマスなし', yourTurn: 'あなたの番', round: r => `ラウンド ${r}`,
+        ok: '決定', skip: 'スキップ', left: 'のこり', sqUnit: 'マス', own: n => `持ちマス ${n}`, ifHit: p => `当たれば +${p}点`, noOwn: '持ちマスなし', yourTurn: 'あなたの番',
         stock: '占有できるマス', ptUnit: '点', pts: n => `${n}点`, you: 'あなた', cpu: 'CPU', colors: ['あか', 'あお', 'きいろ', 'みどり'],
         cpuNames: ['ケン', 'ミナ', 'ソラ', 'ハナ', 'タロウ', 'ユキ', 'リン', 'ゴロウ', 'サクラ', 'ジロウ', 'モモ', 'テツ'],
         rank: ['1位', '2位', '3位', '4位'],
         retry: 'もう一度', toTitle: 'タイトルへ', share: 'Xに投稿', waitRetry: 'ホストの再戦を待っています',
-        shareText: (r, p) => `ピンルーレットで${r}位！（${p}点）\n#ピンルーレット`,
+        shareText: (r, p) => `ピンルーレットで${r}位！（${p}点）\n${TAG}`,
+      },
+      ko: {
+        title: '핀 룰렛', tagline: '4인 대전', back: '← 처음으로',
+        name: '이름', create: '방 만들기', join: '방 들어가기', solo: '혼자 하기',
+        code: '코드', enter: '입장', backBtn: '뒤로', start: '시작', waitHost: '호스트를 기다리는 중…',
+        invite: '초대 링크', copied: '복사했습니다', connecting: '연결 중…',
+        notFound: '방을 찾을 수 없습니다', full: '방이 꽉 찼습니다', started: '이미 시작했습니다',
+        hostLeft: '호스트가 나갔습니다', netErr: '연결하지 못했습니다',
+        ok: '결정', skip: '건너뛰기', left: '남은', sqUnit: '칸', own: n => `내 칸 ${n}`, ifHit: p => `당첨 시 +${p}점`, noOwn: '내 칸 없음', yourTurn: '내 차례',
+        stock: '차지할 수 있는 칸', ptUnit: '점', pts: n => `${n}점`, you: '나', cpu: 'CPU', colors: ['빨강', '파랑', '노랑', '초록'],
+        cpuNames: ['민준', '서연', '지호', '하은', '도윤', '수아', '시우', '지유', '준서', '하린', '유진', '태민'],
+        rank: ['1위', '2위', '3위', '4위'],
+        retry: '다시 하기', toTitle: '타이틀로', share: 'X에 게시', waitRetry: '호스트의 재대결을 기다리는 중',
+        shareText: (r, p) => `핀 룰렛에서 ${r}위! (${p}점)\n${TAG}`,
       },
       en: {
-        title: 'Pin Roulette', tagline: '4 PLAYERS', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
+        title: 'Pin Roulette', tagline: '4 PLAYERS', back: '← Top',
         name: 'Name', create: 'Create room', join: 'Join room', solo: 'Play solo',
         code: 'CODE', enter: 'Join', backBtn: 'Back', start: 'Start', waitHost: 'Waiting for host…',
         invite: 'Invite link', copied: 'Copied', connecting: 'Connecting…',
         notFound: 'Room not found', full: 'Room is full', started: 'Game already started',
         hostLeft: 'The host left', netErr: 'Could not connect',
-        ok: 'Place', skip: 'Skip', left: 'left', sqUnit: '', own: n => `${n} squares`, ifHit: p => `hit: +${p} pts`, noOwn: 'No squares', yourTurn: 'Your turn', round: r => `ROUND ${r}`,
+        ok: 'Place', skip: 'Skip', left: 'left', sqUnit: '', own: n => `${n} squares`, ifHit: p => `hit: +${p} pts`, noOwn: 'No squares', yourTurn: 'Your turn',
         stock: 'Squares you can claim', ptUnit: 'pts', pts: n => `${n} pts`, you: 'YOU', cpu: 'CPU', colors: ['Red', 'Blue', 'Yellow', 'Green'],
         cpuNames: ['Ken', 'Mia', 'Leo', 'Nina', 'Max', 'Emma', 'Sam', 'Lily', 'Jack', 'Zoe', 'Hugo', 'Ruby'],
         rank: ['1st', '2nd', '3rd', '4th'],
         retry: 'Again', toTitle: 'Title', share: 'Post on X', waitRetry: 'Waiting for the host',
-        shareText: (r, p) => `I placed #${r} in Pin Roulette! (${p} pts)\n#PinRoulette`,
+        shareText: (r, p) => `I placed #${r} in Pin Roulette! (${p} pts)\n${TAG}`,
+      },
+      th: {
+        title: 'พินรูเล็ต', tagline: '4 ผู้เล่น', back: '← หน้าแรก',
+        name: 'ชื่อ', create: 'สร้างห้อง', join: 'เข้าห้อง', solo: 'เล่นคนเดียว',
+        code: 'รหัส', enter: 'เข้า', backBtn: 'กลับ', start: 'เริ่ม', waitHost: 'กำลังรอโฮสต์…',
+        invite: 'ลิงก์เชิญ', copied: 'คัดลอกแล้ว', connecting: 'กำลังเชื่อมต่อ…',
+        notFound: 'ไม่พบห้อง', full: 'ห้องเต็มแล้ว', started: 'เกมเริ่มไปแล้ว',
+        hostLeft: 'โฮสต์ออกไปแล้ว', netErr: 'เชื่อมต่อไม่ได้',
+        ok: 'ตกลง', skip: 'ข้าม', left: 'เหลือ', sqUnit: 'ช่อง', own: n => `ช่องของคุณ ${n}`, ifHit: p => `ถ้าออก +${p} แต้ม`, noOwn: 'ไม่มีช่อง', yourTurn: 'ตาของคุณ',
+        stock: 'ช่องที่จองได้', ptUnit: 'แต้ม', pts: n => `${n} แต้ม`, you: 'คุณ', cpu: 'CPU', colors: ['แดง', 'น้ำเงิน', 'เหลือง', 'เขียว'],
+        cpuNames: ['สมชาย', 'มะลิ', 'ต้น', 'ฟ้า', 'บอย', 'แพรว', 'โอ๊ต', 'ใบเตย', 'เก่ง', 'น้ำ', 'ภูมิ', 'ขวัญ'],
+        rank: ['อันดับ 1', 'อันดับ 2', 'อันดับ 3', 'อันดับ 4'],
+        retry: 'เล่นอีกครั้ง', toTitle: 'หน้าเริ่ม', share: 'โพสต์ลง X', waitRetry: 'กำลังรอโฮสต์เริ่มใหม่',
+        shareText: (r, p) => `ได้อันดับ ${r} ในพินรูเล็ต! (${p} แต้ม)\n${TAG}`,
       },
     };
-    let lang = store.get('lang', navigator.language.startsWith('ja') ? 'ja' : 'en');
-    if (!L[lang]) lang = 'ja';
+    // 最初の言語は端末の言語設定の優先順で決める（どれにも当たらなければ英語）。選び直したときだけ保存する
+    const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
+    let lang = store.get('lang', null) || autoLang();
+    if (!L[lang]) lang = 'en';
     const t = k => L[lang][k];
-    const langBtn = document.getElementById('lang');
+    const langSel = document.getElementById('lang');
     function applyLang() {
       document.documentElement.lang = lang;
       document.title = t('title');
       document.getElementById('back').textContent = t('back');
-      langBtn.textContent = t('lang'); langBtn.setAttribute('aria-label', t('langLabel'));
-      panelKey = ''; renderAll();
+      langSel.value = lang;
+      panelKey = ''; renderAll(); prepareShare();
     }
-    langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+    langSel.onchange = () => { lang = langSel.value; store.set('lang', lang); applyLang(); };
+    // 長押しで拡大鏡やメニューが出ないようにする（パネルは中身が多いとき指でスクロールできるよう除く）
+    document.addEventListener('touchstart', e => { if (!e.target.closest('a, button, select, input, #panel')) e.preventDefault(); }, { passive: false });
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('selectstart', e => { if (!e.target.closest('input')) e.preventDefault(); });
 
     // ---- ルール ----
     const range = (s, len) => Array.from({ length: len }, (_, i) => (s + i) % N);
@@ -845,6 +903,8 @@
     function onState(s) {
       const prev = view; view = s;
       if (s.spin && s.spin.id !== anim.id) { anim = { ...s.spin, start: performance.now() }; if (s.spin.frames) sndLaunch(); }
+      if (s.phase === 'end' && (!prev || prev.phase !== 'end')) wantSnap = true;
+      if (s.phase !== 'end') { snap = null; shareCache = null; }
       if (!prev || s.turn !== prev.turn) { sel = []; if (s.turn === me && s.phase === 'pin') sndTurn(); }
       turnDeadline = s.tl ? performance.now() + s.tl : 0;
       if (prev) {
@@ -955,6 +1015,49 @@
       pop.appendChild(el('div', 'pp', last.seat < 0 ? '0' : '+' + last.pts));
       void pop.offsetWidth; pop.classList.add('show');
     }
+    const coarse = () => matchMedia('(pointer: coarse)').matches;
+    // ---- X投稿用の結果画像（結果が出た瞬間のルーレットを正方形に切り抜き、順位と点数を重ねる） ----
+    let wantSnap = false, snap = null, shareCache = null;
+    function takeSnap() {
+      const dpr = cv.width / Math.max(1, cv.clientWidth), uh = (cv.clientHeight - lastRsv) * dpr;
+      const side = Math.min(cv.width, uh), sx = (cv.width - side) / 2, sy = Math.max(0, (uh - side) / 2);
+      snap = document.createElement('canvas'); snap.width = snap.height = 1080;
+      const g = snap.getContext('2d');
+      g.fillStyle = '#10261f'; g.fillRect(0, 0, 1080, 1080);
+      g.drawImage(cv, sx, sy, side, side, 0, 0, 1080, 1080);
+      shareCache = null; prepareShare();
+    }
+    function resultImage() {
+      if (!snap || !view || me < 0) return null;
+      const c = document.createElement('canvas'); c.width = c.height = 1080;
+      const g = c.getContext('2d');
+      g.drawImage(snap, 0, 0);
+      g.fillStyle = 'rgba(10,20,16,.35)'; g.fillRect(0, 0, 1080, 1080);
+      const FONT = '"Zen Kaku Gothic New", "Hiragino Kaku Gothic ProN", sans-serif';
+      // 象牙色の札に順位と点数（ゲーム内の結果パネルと同じ見た目）
+      const r = myRank(), card = { x: 250, y: 330, w: 580, h: 360 };
+      g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(card.x, card.y + 12, card.w, card.h);
+      g.fillStyle = '#f1e8d4'; g.fillRect(card.x, card.y, card.w, card.h);
+      g.fillStyle = COLORS[me]; g.fillRect(card.x, card.y, card.w, 16);
+      g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+      const text = (str, y, px, max, fill) => {
+        g.font = `900 ${px}px ${FONT}`;
+        const w = g.measureText(str).width; if (w > max) { px *= max / w; g.font = `900 ${px}px ${FONT}`; }
+        g.fillStyle = fill; g.fillText(str, 540, y);
+      };
+      text(t('rank')[r - 1], card.y + 190, 150, card.w - 60, r === 1 ? '#b8322a' : '#1d1813');
+      text(t('pts')(view.players[me].score), card.y + 300, 84, card.w - 60, '#1d1813');
+      g.font = `700 48px ${FONT}`; g.fillStyle = '#f1e8d4'; g.fillText(t('title'), 540, 1030);
+      return c;
+    }
+    function prepareShare() {
+      if (!snap) return;
+      const key = lang;
+      if (shareCache?.key === key) return;
+      shareCache = { key, file: null };
+      document.fonts.ready.then(() => { const img = resultImage(); if (img) img.toBlob(b => { if (b && shareCache?.key === key) shareCache.file = new File([b], 'pin-roulette.png', { type: 'image/png' }); }, 'image/png'); });
+    }
+    const shareFile = () => shareCache?.key === lang ? shareCache.file : null;
     const X_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>';
 
     let panelKey = '';
@@ -1034,7 +1137,19 @@
         const a = el('a', 'big x'); a.innerHTML = X_ICON; a.append(t('share'));
         const r = myRank();
         a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('shareText')(r, view.players[me].score))}&url=${encodeURIComponent(SHARE_URL)}`;
-        if (!matchMedia('(pointer: coarse)').matches) { a.target = '_blank'; a.rel = 'noopener'; }
+        if (!coarse()) { a.target = '_blank'; a.rel = 'noopener'; }
+        a.addEventListener('click', e => {
+          // スマホは結果画像ごと共有メニューへ。PCは画像を保存してから投稿画面を開く
+          const text = `${t('shareText')(r, view.players[me].score)}\n${SHARE_URL}`;
+          if (coarse() && navigator.share) {
+            e.preventDefault();
+            const file = shareFile();
+            navigator.share(file && navigator.canShare?.({ files: [file] }) ? { files: [file], text } : { text }).catch(() => {});
+            return;
+          }
+          const img = resultImage();
+          if (img) { const d = document.createElement('a'); d.href = img.toDataURL('image/png'); d.download = 'pin-roulette.png'; d.click(); }
+        });
         ctrl.appendChild(a);
         if (isHost()) { const b = el('button', 'big', t('retry')); b.onclick = () => { sndTap(true); startGame(); }; ctrl.appendChild(b); }
       }
@@ -1285,9 +1400,16 @@
     let faceDirty = true;
     const dirty = () => { faceDirty = true; };
 
+    let lastRsv = -1;
     function resize() {
-      const r = stage.getBoundingClientRect(), w = Math.max(60, Math.floor(r.width)), h = Math.max(60, Math.floor(r.height));
-      renderer.setSize(w, h, false); cv.style.width = w + 'px'; cv.style.height = h + 'px';
+      const r = stage.getBoundingClientRect(), w = Math.max(60, Math.floor(r.width)), H = Math.max(60, Math.floor(r.height));
+      renderer.setSize(w, H, false); cv.style.width = w + 'px'; cv.style.height = H + 'px';
+      // 下の 80px とボタン（空のときも同じ高さ）の所には大事な物を置かないので、その上の範囲にルーレットを収める（描画は下まで）
+      const cr = $('ctrl').getBoundingClientRect();
+      const rsv = Math.max(0, Math.round(r.bottom - (cr.left < r.right - 1 ? cr.top : cr.bottom + 4) + 8));
+      if (rsv !== lastRsv) { lastRsv = rsv; stage.style.setProperty('--rsv', rsv + 'px'); }
+      const h = Math.max(60, H - rsv);
+      camera.setViewOffset(w, h, 0, 0, w, H);
       camera.aspect = w / h;
       const tn = Math.tan(camera.fov * Math.PI / 360);
       const d = Math.max(1.38 / (tn * camera.aspect), (1.42 * Math.sin(TILT) + 0.25) / tn);
@@ -1360,6 +1482,7 @@
       timerBar.parentNode.style.visibility = turnDeadline && view && view.phase === 'pin' ? 'visible' : 'hidden';
       timerBar.style.background = left < 0.25 ? '#ff6b6b' : view && view.turn >= 0 ? COLORS[view.turn] : '#fff';
       renderer.render(scene, camera);
+      if (wantSnap) { wantSnap = false; takeSnap(); }   // 描いた直後なら preserveDrawingBuffer なしで読める
     }
     const timerBar = $('timer').firstElementChild;
 
