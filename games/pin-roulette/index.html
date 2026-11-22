@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9E13VFBMWN"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9E13VFBMWN');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ピンルーレット</title>
+  <meta name="description" content="ピンで陣地を張って、玉の行き先に賭ける4人対戦">
+  <link rel="canonical" href="https://keifurukawafunnych.com/games/pin-roulette/">
+  <script type="application/ld+json">
+  {"@context": "https://schema.org", "@type": "VideoGame", "name": "ピンルーレット", "description": "ピンで陣地を張って、玉の行き先に賭ける4人対戦", "url": "https://keifurukawafunnych.com/games/pin-roulette/", "image": "https://keifurukawafunnych.com/games/pin-roulette/icon.png", "inLanguage": "ja", "gamePlatform": "Web browser", "applicationCategory": "Game", "operatingSystem": "Any", "isAccessibleForFree": true, "numberOfPlayers": {"@type": "QuantitativeValue", "minValue": 1, "maxValue": 4}, "offers": {"@type": "Offer", "price": 0, "priceCurrency": "JPY"}, "author": {"@type": "Person", "name": "ふるかわけい"}}
+  </script>
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <!-- X などにURLを貼ったときのカード表示（ここだけは https:// から書く） -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ふるかわけい面白チャンネル">
+  <meta property="og:title" content="ピンルーレット">
+  <meta property="og:url" content="https://keifurukawafunnych.com/games/pin-roulette/">
+  <meta property="og:image" content="https://keifurukawafunnych.com/games/pin-roulette/icon.png">
+  <meta name="twitter:card" content="summary">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@800&family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+  <style>
+    /* 卓のフェルトの上に、象牙色の紙の札を置いたような見た目。グラデーションや光らせる演出は使わない */
+    :root { --felt: #10261f; --ivory: #f1e8d4; --paper: #e7dcc4; --ink: #1d1813; --red: #b8322a; --mute: #8c8270; }
+    html, body { margin: 0; height: 100%; color: var(--ivory); background: var(--felt); }
+    body {
+      display: flex; flex-direction: column; height: 100dvh;
+      font-family: "Zen Kaku Gothic New", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", system-ui, sans-serif;
+      overflow: hidden; touch-action: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    .num { font-family: inherit; font-variant-numeric: lining-nums tabular-nums; }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; width: 100%; max-width: 480px; margin: 0 auto; box-sizing: border-box;
+    }
+    header a { color: var(--ivory); text-decoration: none; font-weight: 700; font-size: 14px; opacity: .75; }
+    .hbtns { display: flex; gap: 6px; }
+    .pill {
+      display: flex; align-items: center; justify-content: center;
+      font: inherit; font-size: 13px; font-weight: 700; color: var(--ivory);
+      background: transparent; border: 1px solid rgba(241,232,212,.35); border-radius: 4px;
+      min-width: 40px; height: 32px; padding: 0 10px; cursor: pointer;
+    }
+    #sound { padding: 0; width: 40px; }
+    main {
+      flex: 1; min-height: 0; width: 100%; max-width: 480px; margin: 0 auto;
+      display: flex; flex-direction: column; box-sizing: border-box; gap: 8px;
+      padding: 0 12px calc(80px + env(safe-area-inset-bottom));
+    }
+
+    /* プレイヤーの札（象牙色の紙。左端に色の帯） */
+    #players { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+    #players[hidden] { display: none; }
+    .chip {
+      position: relative; min-width: 0; text-align: left; padding: 5px 4px 5px 10px;
+      background: var(--ivory); color: var(--ink); border-radius: 3px;
+      box-shadow: 0 2px 0 rgba(0,0,0,.35);
+      transition: transform .2s;
+    }
+    .chip::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; border-radius: 3px 0 0 3px; background: var(--c); }
+    .chip .av { display: none; }
+    .chip .ord {
+      position: absolute; right: 3px; top: 3px; font-size: 10px; font-weight: 700; color: var(--mute);
+      font-family: inherit;
+    }
+    .chip .ord:empty { display: none; }
+    .chip .nm { font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 12px; }
+    .chip .sc { font-family: inherit; font-size: min(19px, 5vw); font-weight: 900; line-height: 1.15; min-height: 22px; white-space: nowrap; font-variant-numeric: lining-nums tabular-nums; }
+    .chip .sc small { font-family: "Zen Kaku Gothic New", sans-serif; font-size: 9px; font-weight: 700; color: var(--mute); margin-left: 2px; }
+    .chip .stk { display: flex; gap: 2px; height: 5px; margin-top: 2px; }
+    .chip .stk i { width: 8px; height: 5px; background: rgba(29,24,19,.12); }
+    .chip .stk i.on { background: var(--c); }
+    .chip .stk i.use { animation: blink .5s steps(2) infinite; }
+    @keyframes blink { to { opacity: .25; } }
+    .chip.me .nm::after { content: ' ●'; color: var(--red); font-size: 8px; vertical-align: 2px; }
+    .chip.empty { opacity: .35; }
+    .chip.turn { transform: translateY(-4px); box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--c), 0 4px 0 rgba(0,0,0,.35); }
+    .chip .gain {
+      position: absolute; left: 0; right: 0; top: -6px; text-align: center; pointer-events: none;
+      font-family: inherit; font-size: 18px; font-weight: 900; color: var(--ivory);
+      text-shadow: 0 1px 0 var(--ink), 0 -1px 0 var(--ink), 1px 0 0 var(--ink), -1px 0 0 var(--ink);
+      animation: gain 1.4s ease-out forwards;
+    }
+    @keyframes gain { 0% { opacity: 0; transform: translateY(6px); } 15% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-20px); } }
+
+    /* ラウンド・手番 */
+    #info { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 24px; }
+    #info .mine { font-size: 13px; font-weight: 700; color: var(--ivory); opacity: .9; }
+    #info[hidden] { display: none; }
+    .rnd { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; letter-spacing: .2em; color: rgba(241,232,212,.7); }
+    .rnd::before, .rnd::after { content: ''; width: 36px; height: 1px; background: rgba(241,232,212,.3); }
+    .rnd i { display: none; }
+    .rnd .num { font-size: 15px; letter-spacing: .05em; color: var(--ivory); }
+    .turnb {
+      display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; white-space: nowrap;
+      padding: 4px 12px; border-radius: 3px; background: var(--ivory); color: var(--ink); box-shadow: 0 2px 0 rgba(0,0,0,.35);
+    }
+    .turnb::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+    .turnb .sep { width: 1px; height: 16px; background: rgba(29,24,19,.2); margin: 0 4px; }
+    .turnb .lbl { font-size: 12px; color: var(--mute); }
+    .turnb .num { font-family: inherit; font-size: 22px; font-weight: 900; line-height: 1; }
+    .turnb .cells { display: flex; gap: 2px; margin-left: 4px; }
+    .turnb .cells i { width: 10px; height: 14px; background: rgba(29,24,19,.12); }
+    .turnb .cells i.on { background: var(--c); }
+    .turnb .cells i.use { animation: blink .5s steps(2) infinite; }
+    @media (max-width: 360px) { .turnb { gap: 4px; padding: 4px 8px; font-size: 13px; } .turnb .sep { margin: 0 1px; } .turnb .cells i { width: 7px; } .turnb .num { font-size: 19px; } }
+    #timer { height: 2px; background: rgba(241,232,212,.15); overflow: hidden; visibility: hidden; margin: -2px 40px 0; }
+    #timer i { display: block; height: 100%; transform-origin: left; }
+
+    #stage { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; margin: 0 -12px; }
+    canvas { position: absolute; inset: 0; display: block; touch-action: none; cursor: pointer; }
+
+    /* 当たりの札 */
+    #pop {
+      position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%); pointer-events: none; opacity: 0;
+      min-width: 150px; text-align: center; white-space: nowrap; padding: 8px 22px 10px;
+      background: var(--ivory); color: var(--ink); border-radius: 3px;
+      border-top: 6px solid var(--c, var(--mute)); box-shadow: 0 4px 0 rgba(0,0,0,.4);
+    }
+    #pop .pn { font-size: 13px; font-weight: 700; color: var(--mute); }
+    #pop .pp { font-family: inherit; font-size: min(50px, 13vw); font-weight: 900; line-height: 1.05; font-variant-numeric: lining-nums; }
+    #pop.miss .pp { color: var(--mute); }
+    #pop.show { animation: pop 2.6s ease-out forwards; }
+    @keyframes pop {
+      0% { opacity: 0; transform: translate(-50%, -40%); } 8% { opacity: 1; transform: translate(-50%, -50%); }
+      85% { opacity: 1; transform: translate(-50%, -50%); } 100% { opacity: 0; transform: translate(-50%, -56%); }
+    }
+
+    /* ボタン（ベタ塗り＋墨の影） */
+    #ctrl { min-height: 60px; display: flex; gap: 8px; align-items: center; }
+    #ctrl > * { flex: 1; }
+    .big {
+      font: inherit; font-size: 18px; font-weight: 700; letter-spacing: .08em; padding: 14px 8px; border-radius: 4px;
+      border: none; cursor: pointer; color: var(--ivory); background: var(--red);
+      box-shadow: 0 4px 0 #6e1c17; touch-action: manipulation;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      text-align: center; text-decoration: none; line-height: normal; width: 100%; box-sizing: border-box;
+    }
+    .big:active { transform: translateY(3px); box-shadow: 0 1px 0 #6e1c17; }
+    button.big:disabled { background: #4a4338; color: rgba(241,232,212,.45); box-shadow: 0 4px 0 #2a2620; cursor: default; transform: none; }
+    .big.sub { color: var(--ink); background: var(--ivory); box-shadow: 0 4px 0 #9c917b; }
+    .big.sub:active { box-shadow: 0 1px 0 #9c917b; }
+    .big.x { color: #fff; background: #111; box-shadow: 0 4px 0 #000; }
+    .big.x svg { width: 16px; height: 16px; }
+
+    /* パネル */
+    #panel { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; padding: 0 24px; box-sizing: border-box; }
+    #panel[hidden] { display: none; }
+    #panel > :first-child { margin-top: auto; }
+    #panel > :last-child { margin-bottom: auto; }
+    #panel.dim { background: rgba(16,38,31,.72); }
+    #panel.over {
+      justify-content: flex-start; gap: 0; padding: 16px 16px 10px; margin: 0 16px; border-radius: 3px;
+      background: var(--ivory); color: var(--ink); box-shadow: 0 5px 0 rgba(0,0,0,.4);
+    }
+    .emblem { display: none; }
+    .logo {
+      text-align: center; font-family: "Shippori Mincho B1", serif; font-size: min(44px, 11.5vw); font-weight: 800;
+      letter-spacing: .06em; color: var(--ivory); line-height: 1.1;
+    }
+    .tag { text-align: center; font-size: 11px; font-weight: 700; letter-spacing: .4em; color: rgba(241,232,212,.55); margin: -4px 0 10px; }
+    .tag::before, .tag::after { content: '—'; margin: 0 .6em; opacity: .6; }
+    input {
+      font: inherit; font-size: 18px; font-weight: 700; padding: 12px; border-radius: 4px; text-align: center;
+      width: 100%; box-sizing: border-box; color: var(--ink); outline: none; border: none;
+      background: transparent; color: var(--ivory); border-bottom: 1px solid rgba(241,232,212,.5); border-radius: 0;
+      user-select: text; -webkit-user-select: text;
+    }
+    input::placeholder { color: rgba(241,232,212,.35); }
+    input:focus { border-bottom-color: var(--ivory); }
+    #codeIn { font-family: inherit; font-size: 30px; letter-spacing: .4em; text-transform: uppercase; }
+    .code { display: flex; justify-content: center; gap: 6px; }
+    .code b {
+      width: min(56px, 15vw); height: min(70px, 19vw); display: flex; align-items: center; justify-content: center;
+      font-family: inherit; font-size: min(40px, 10vw); font-weight: 900;
+      color: var(--ink); background: var(--ivory); border-radius: 3px; box-shadow: 0 3px 0 rgba(0,0,0,.4);
+    }
+    .err { text-align: center; color: #f0a59c; font-weight: 700; min-height: 1.2em; font-size: 14px; }
+    .note { text-align: center; color: rgba(241,232,212,.7); font-weight: 700; font-size: 14px; }
+    #panel.over .note { color: var(--mute); margin-top: 8px; }
+    .head { text-align: center; font-family: inherit; font-size: min(44px, 11vw); font-weight: 900; line-height: 1.1; margin-bottom: 12px; }
+    .sub2 { text-align: center; font-size: 13px; font-weight: 700; color: var(--mute); margin: 2px 0 10px; }
+    .row {
+      display: flex; align-items: center; gap: 10px; padding: 7px 2px; font-size: 16px; font-weight: 700;
+      border-top: 1px solid rgba(29,24,19,.15);
+    }
+    .row:last-of-type { border-bottom: 1px solid rgba(29,24,19,.15); }
+    .row .rk { width: 22px; flex: none; text-align: center; font-family: inherit; font-size: 20px; font-weight: 900; }
+    .row .rk.r1 { color: var(--red); }
+    .row .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 7px; }
+    .row .nm::before { content: ''; flex: none; width: 4px; height: 16px; background: var(--c); }
+    .row .pt { font-family: inherit; font-size: 18px; font-weight: 900; font-variant-numeric: lining-nums tabular-nums; }
+    .row.me { background: rgba(184,50,42,.08); }
+    #adSlot { width: min(100%, 352px); flex: none; margin: 0 auto 10px; }
+    #result-ad.inline { background: var(--paper); border-radius: 3px; box-shadow: none; }
+    @media (max-height: 599px) { #adSlot { display: none; } }
+    @media (min-height: 600px) { #adSlot { min-height: 82px; } }
+    @media (min-height: 800px) { #adSlot { min-height: 132px; } }
+    .link { background: none; border: none; color: var(--mute); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 8px; text-decoration: underline; text-underline-offset: 3px; }
+  </style>
+</head>
+<body>
+  <h1 style="position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">ピンルーレット</h1>
+  <header>
+    <a href="../../" id="back">← トップへ戻る</a>
+    <div class="hbtns"><button id="lang" class="pill">EN</button><button id="sound" class="pill" aria-label="音のオン/オフ">🔊</button></div>
+  </header>
+  <main>
+    <div id="players" hidden></div>
+    <div id="info" hidden></div>
+    <div id="timer"><i></i></div>
+    <div id="stage"><canvas id="cv"></canvas><div id="pop"></div><div id="panel"></div></div>
+    <div id="ctrl"></div>
+  </main>
+  <script>
+    const SHARE_URL = 'https://keifurukawafunnych.com/games/pin-roulette/';
+    const N = 20;              // マスの数（＝ピンを立てられる位置の数）
+    const MAXW = 5;            // 1回で張れるエリアの最大幅
+    const ROUNDS = 4;
+    const TURN_MS = 30000;     // 1手の制限時間（人間が2人以上のとき）
+    const PEER_PREFIX = 'kfc-pinroulette-';
+    const STOCK0 = 5, STOCK_MAX = 5;   // 占有できるマスのストック（最初の数・上限）
+    const SIM_FPS = 30;                // 玉の物理演算を記録するコマ数（毎秒）
+    const HB_LOST = 15000;     // この時間合図がなければ通信が切れたとみなす
+    const COLORS = ['#ef5350', '#3f8ef0', '#f5c02c', '#43b85c'];
+    const FACE = ['#b8221f', '#1f55b8', '#d39a10', '#1f8a3c'];   // 盤面に塗る色（少し深めの色）
+    const STEP = 2 * Math.PI / N;
+
+    const store = {
+      get(k, d) { try { const v = localStorage.getItem('pin-roulette:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { localStorage.setItem('pin-roulette:' + k, JSON.stringify(v)); } catch {} },
+    };
+
+    // ---- 音（素材は使わず Web Audio で合成。部屋の響き＝リバーブを付ける） ----
+    let soundOn = store.get('sound', true);
+    const soundBtn = document.getElementById('sound');
+    const SPK_ON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>';
+    const SPK_OFF = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M17 9l5 6M22 9l-5 6"/></svg>';
+    const updateSoundBtn = () => { soundBtn.innerHTML = soundOn ? SPK_ON : SPK_OFF; };
+    soundBtn.onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updateSoundBtn(); if (soundOn) A(); };
+    updateSoundBtn();
+    let actx = null, master, wet, noiseBuf;
+    function A() {
+      if (!soundOn) return null;
+      try {
+        if (!actx) {
+          actx = new (window.AudioContext || window.webkitAudioContext)();
+          const comp = actx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
+          comp.connect(actx.destination);
+          master = actx.createGain(); master.gain.value = 0.9; master.connect(comp);
+          // リバーブ：減衰するノイズを畳み込む（広めの部屋）
+          const len = Math.floor(actx.sampleRate * 1.8), ir = actx.createBuffer(2, len, actx.sampleRate);
+          for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2); }
+          const conv = actx.createConvolver(); conv.buffer = ir;
+          wet = actx.createGain(); wet.gain.value = 0.28; wet.connect(conv).connect(comp);
+          noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate);
+          const nd = noiseBuf.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+        }
+        if (actx.state === 'suspended') actx.resume();
+        return actx;
+      } catch { return null; }
+    }
+    // 出力先（そのまま＋リバーブへ少し）
+    function route(node, rev = 0.5, pan = 0) {
+      let n = node;
+      if (pan && actx.createStereoPanner) { const p = actx.createStereoPanner(); p.pan.value = pan; n.connect(p); n = p; }
+      n.connect(master);
+      const s = actx.createGain(); s.gain.value = rev; n.connect(s).connect(wet);
+    }
+    // ノイズの一撃（フィルターで音色を作る）
+    function noiseHit(t, { f = 2000, q = 1, type = 'bandpass', dur = 0.03, vol = 0.3, rev = 0.5, pan = 0 }) {
+      const src = actx.createBufferSource(); src.buffer = noiseBuf;
+      const fl = actx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+      const g = actx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + 0.001); g.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+      src.connect(fl).connect(g); route(g, rev, pan);
+      src.start(t, Math.random() * 1.5); src.stop(t + dur + 0.02);
+    }
+    // 減衰する正弦波の集まり（金属・陶器の響き）
+    function modal(t, freqs, decays, vol, rev = 0.6, pan = 0, slide = 0) {
+      const g = actx.createGain(); g.gain.value = vol; route(g, rev, pan);
+      freqs.forEach((f, i) => {
+        const o = actx.createOscillator(), e = actx.createGain(), d = decays[i] ?? decays[decays.length - 1];
+        o.frequency.setValueAtTime(f, t); if (slide) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+        e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(1 / (i + 1), t + 0.002); e.gain.exponentialRampToValueAtTime(0.0005, t + d);
+        o.connect(e).connect(g); o.start(t); o.stop(t + d + 0.02);
+      });
+    }
+    const jit = (f, a = 0.04) => f * (1 + (Math.random() * 2 - 1) * a);
+    // 玉の衝突：1=仕切り（金属）、2=ダイヤ（真ちゅう）、3=木や盤面に落ちる
+    function sndImpact(type, s) {
+      if (!A()) return;
+      const t = actx.currentTime, v = 0.25 + 0.75 * s, pan = (Math.random() - 0.5) * 0.5;
+      if (type === 1) {
+        noiseHit(t, { f: jit(5200), q: 0.9, type: 'highpass', dur: 0.012, vol: 0.5 * v, rev: 0.4, pan });
+        modal(t, [jit(3100), jit(4650), jit(7300)], [0.06, 0.045, 0.025], 0.1 * v, 0.5, pan);
+        modal(t, [jit(260)], [0.05], 0.18 * v, 0.2, pan, 0.7);
+      } else if (type === 2) {
+        noiseHit(t, { f: 6000, q: 0.8, type: 'highpass', dur: 0.015, vol: 0.55 * v, rev: 0.5, pan });
+        modal(t, [jit(2350), jit(5250), jit(8650)], [0.16, 0.1, 0.06], 0.12 * v, 0.7, pan);
+      } else {
+        noiseHit(t, { f: jit(1100), q: 1.6, dur: 0.035, vol: 0.45 * v, rev: 0.35, pan });
+        modal(t, [jit(340), jit(820)], [0.06, 0.03], 0.16 * v, 0.25, pan, 0.8);
+      }
+    }
+    // 転がる音：ノイズを低域と帯域フィルターに通し、細かい凹凸の揺れを加える
+    let roll = null;
+    function rollSound(v, onTrack = true) {
+      if (!soundOn) v = 0;
+      if (!roll) { if (v <= 0 || !A()) return;
+        const src = actx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+        const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.7;
+        const bp = actx.createBiquadFilter(); bp.type = 'peaking'; bp.gain.value = 9; bp.Q.value = 3;
+        const g = actx.createGain(); g.gain.value = 0;
+        const lfo = actx.createOscillator(), lg = actx.createGain(); lfo.frequency.value = 20; lg.gain.value = 0;
+        lfo.connect(lg).connect(g.gain); lfo.start();
+        src.connect(lp).connect(bp).connect(g); route(g, 0.35); src.start();
+        roll = { lp, bp, g, lfo, lg };
+      }
+      const t = actx.currentTime, k = Math.max(0, v);
+      roll.g.gain.setTargetAtTime(k * (onTrack ? 0.16 : 0.12), t, 0.04);
+      roll.lg.gain.setTargetAtTime(k * 0.05, t, 0.04);
+      roll.lfo.frequency.setTargetAtTime(8 + k * 40, t, 0.05);
+      roll.lp.frequency.setTargetAtTime((onTrack ? 700 : 1400) + k * 2600, t, 0.05);
+      roll.bp.frequency.setTargetAtTime((onTrack ? 420 : 950) + k * 700, t, 0.05);
+    }
+    // 盤が回るゴーッという低い音
+    let rum = null;
+    function wheelSound(v) {
+      if (!soundOn) v = 0;
+      if (!rum) { if (v <= 0 || !A()) return;
+        const src = actx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+        const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 160; lp.Q.value = 1.5;
+        const g = actx.createGain(); g.gain.value = 0;
+        src.connect(lp).connect(g); route(g, 0.2); src.start();
+        rum = { lp, g };
+      }
+      const t = actx.currentTime;
+      rum.g.gain.setTargetAtTime(Math.max(0, v) * 0.22, t, 0.1);
+      rum.lp.frequency.setTargetAtTime(90 + v * 120, t, 0.1);
+    }
+    // ピンを木に差し込む音
+    function sndPin() { if (!A()) return; const t = actx.currentTime;
+      noiseHit(t, { f: 1700, q: 3, dur: 0.05, vol: 0.5, rev: 0.3 });
+      modal(t, [jit(620), jit(1480)], [0.07, 0.04], 0.22, 0.25, 0, 0.85);
+      modal(t + 0.004, [jit(4300)], [0.05], 0.05, 0.5);
+    }
+    // 卓上ベル（自分の番）
+    function bell(t, f, vol) { modal(t, [f, f * 2.76, f * 5.4, f * 8.93], [1.4, 0.7, 0.35, 0.2], vol, 0.8); }
+    function sndTurn() { if (!A()) return; bell(actx.currentTime, 1320, 0.09); }
+    // チップがぶつかる音（陶器っぽいカチッ）
+    function chip(t, vol = 0.3) {
+      noiseHit(t, { f: jit(3800, 0.1), q: 5, dur: 0.02, vol, rev: 0.45 });
+      modal(t, [jit(5200, 0.08), jit(7600, 0.08)], [0.035, 0.02], vol * 0.25, 0.4);
+    }
+    function sndOrder() { if (!A()) return; const t = actx.currentTime; chip(t, 0.35); chip(t + 0.05, 0.25); }
+    // 自分の当たり：チップがジャラジャラ＋ベル
+    function sndWin() { if (!A()) return; const t = actx.currentTime;
+      for (let i = 0; i < 14; i++) chip(t + 0.05 + Math.random() * 0.55 + i * 0.02, 0.18 + Math.random() * 0.2);
+      bell(t, 1046, 0.07); bell(t + 0.12, 1568, 0.06);
+    }
+    function sndOther() { if (!A()) return; const t = actx.currentTime; chip(t, 0.25); chip(t + 0.07, 0.2); chip(t + 0.15, 0.15); }
+    function sndMiss() { if (!A()) return; const t = actx.currentTime;
+      noiseHit(t, { f: 380, q: 1.2, dur: 0.12, vol: 0.4, rev: 0.5 }); modal(t, [jit(140)], [0.18], 0.25, 0.4, 0, 0.6);
+    }
+    // ボタンなどの軽いクリック
+    function sndTap(hi) { if (!A()) return; const t = actx.currentTime;
+      noiseHit(t, { f: hi ? 3200 : 2200, q: 4, dur: 0.018, vol: 0.25, rev: 0.2 }); }
+    // 玉を投げ入れる音（シュッ）
+    function sndLaunch() { if (!A()) return; const t = actx.currentTime;
+      const src = actx.createBufferSource(); src.buffer = noiseBuf;
+      const fl = actx.createBiquadFilter(); fl.type = 'bandpass'; fl.Q.value = 2;
+      fl.frequency.setValueAtTime(800, t); fl.frequency.exponentialRampToValueAtTime(3500, t + 0.25);
+      const g = actx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.18, t + 0.05); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      src.connect(fl).connect(g); route(g, 0.4); src.start(t); src.stop(t + 0.4);
+    }
+    // ブラウザは最初の操作まで音を出せないので、最初のタップで準備する
+    addEventListener('pointerdown', () => { if (soundOn) A(); }, { once: true });
+
+    // ---- 文言（日本語／英語） ----
+    const L = {
+      ja: {
+        title: 'ピンルーレット', tagline: '4人対戦', back: '← トップへ戻る', lang: 'EN', langLabel: 'Switch to English',
+        name: 'なまえ', create: '部屋をつくる', join: '部屋に入る', solo: 'ひとりで遊ぶ',
+        code: 'コード', enter: '入る', backBtn: '戻る', start: 'スタート', waitHost: 'ホストを待っています…',
+        invite: '招待リンク', copied: 'コピーしました', connecting: 'つながっています…',
+        notFound: '部屋が見つかりません', full: '満員です', started: 'もう始まっています',
+        hostLeft: 'ホストが抜けました', netErr: 'つながりませんでした',
+        ok: '決定', skip: 'スキップ', left: 'のこり', sqUnit: 'マス', own: n => `持ちマス ${n}`, ifHit: p => `当たれば +${p}点`, noOwn: '持ちマスなし', yourTurn: 'あなたの番', round: r => `ラウンド ${r}`,
+        stock: '占有できるマス', ptUnit: '点', pts: n => `${n}点`, you: 'あなた', cpu: 'CPU', colors: ['あか', 'あお', 'きいろ', 'みどり'],
+        cpuNames: ['ケン', 'ミナ', 'ソラ', 'ハナ', 'タロウ', 'ユキ', 'リン', 'ゴロウ', 'サクラ', 'ジロウ', 'モモ', 'テツ'],
+        rank: ['1位', '2位', '3位', '4位'],
+        retry: 'もう一度', toTitle: 'タイトルへ', share: 'Xに投稿', waitRetry: 'ホストの再戦を待っています',
+        shareText: (r, p) => `ピンルーレットで${r}位！（${p}点）\n#ピンルーレット`,
+      },
+      en: {
+        title: 'Pin Roulette', tagline: '4 PLAYERS', back: '← Top', lang: '日本語', langLabel: '日本語に切り替え',
+        name: 'Name', create: 'Create room', join: 'Join room', solo: 'Play solo',
+        code: 'CODE', enter: 'Join', backBtn: 'Back', start: 'Start', waitHost: 'Waiting for host…',
+        invite: 'Invite link', copied: 'Copied', connecting: 'Connecting…',
+        notFound: 'Room not found', full: 'Room is full', started: 'Game already started',
+        hostLeft: 'The host left', netErr: 'Could not connect',
+        ok: 'Place', skip: 'Skip', left: 'left', sqUnit: '', own: n => `${n} squares`, ifHit: p => `hit: +${p} pts`, noOwn: 'No squares', yourTurn: 'Your turn', round: r => `ROUND ${r}`,
+        stock: 'Squares you can claim', ptUnit: 'pts', pts: n => `${n} pts`, you: 'YOU', cpu: 'CPU', colors: ['Red', 'Blue', 'Yellow', 'Green'],
+        cpuNames: ['Ken', 'Mia', 'Leo', 'Nina', 'Max', 'Emma', 'Sam', 'Lily', 'Jack', 'Zoe', 'Hugo', 'Ruby'],
+        rank: ['1st', '2nd', '3rd', '4th'],
+        retry: 'Again', toTitle: 'Title', share: 'Post on X', waitRetry: 'Waiting for the host',
+        shareText: (r, p) => `I placed #${r} in Pin Roulette! (${p} pts)\n#PinRoulette`,
+      },
+    };
+    let lang = store.get('lang', navigator.language.startsWith('ja') ? 'ja' : 'en');
+    if (!L[lang]) lang = 'ja';
+    const t = k => L[lang][k];
+    const langBtn = document.getElementById('lang');
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      document.getElementById('back').textContent = t('back');
+      langBtn.textContent = t('lang'); langBtn.setAttribute('aria-label', t('langLabel'));
+      panelKey = ''; renderAll();
+    }
+    langBtn.onclick = () => { lang = lang === 'ja' ? 'en' : 'ja'; store.set('lang', lang); applyLang(); };
+
+    // ---- ルール ----
+    const range = (s, len) => Array.from({ length: len }, (_, i) => (s + i) % N);
+    // 2本のピンの間（短いほうの弧）のマス。幅が1〜5でなければ null
+    function arcSquares(a, b) {
+      const d = (b - a + N) % N; if (d >= 1 && d <= MAXW) return range(a, d);
+      const e = (a - b + N) % N; if (e >= 1 && e <= MAXW) return range(b, e);
+      return null;
+    }
+    // lvl 2: 1ラウンド目の本来のルール（他人のマス・ピンと重ねない）
+    // lvl 1: 置き場がないときの救済（ピンの共有はOK）  lvl 0: 何でもOK（2ラウンド目以降）
+    // 張れる幅は手持ちのストックまで（最初5、毎ラウンド+1、使った幅だけ減る）
+    function okAt(s, seat, a, b, lvl) {
+      const sq = arcSquares(a, b); if (!sq) return null;
+      const p = s.players[seat]; if (p && p.stock !== undefined && sq.length > p.stock) return null;
+      if (lvl >= 1 && !sq.every(i => s.owner[i] < 0)) return null;
+      if (lvl >= 2 && (s.pins[a].some(x => x !== seat) || s.pins[b].some(x => x !== seat))) return null;
+      return sq;
+    }
+    function anyMove(s, seat, lvl) {
+      for (let a = 0; a < N; a++) for (let d = 1; d <= MAXW; d++) if (okAt(s, seat, a, (a + d) % N, lvl)) return true;
+      return false;
+    }
+    function ruleLevel(s, seat) {
+      if (s.round !== 1) return 0;
+      if (anyMove(s, seat, 2)) return 2;
+      if (anyMove(s, seat, 1)) return 1;
+      return 0;
+    }
+    const counts = own => { const c = [0, 0, 0, 0]; own.forEach(o => { if (o >= 0) c[o]++; }); return c; };
+
+    // ---- ホスト（ゲームの進行役。ひとり遊びでも自分がホスト） ----
+    let S = null;          // ホストが持つ正式な状態
+    let net = null;        // { role: 'host' | 'guest' | 'solo', peer, conns, conn, code }
+    let gid = 0, pending = null, spinId = 0;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const alive = g => { if (g !== gid) throw 'abort'; };
+    function newState() {
+      return { phase: 'lobby', round: 0, players: [null, null, null, null], owner: Array(N).fill(-1),
+        pins: Array.from({ length: N }, () => []), order: [], turn: -1, turnEnds: 0, spin: null, last: null, code: '', wheelAngle: 0 };
+    }
+    function broadcast() {
+      const s = { ...S, tl: S.turnEnds ? Math.max(0, S.turnEnds - Date.now()) : 0 };
+      delete s.turnEnds;
+      const msg = { t: 'state', s };
+      if (net && net.conns) for (const c of net.conns.values()) if (c.open) try { c.send(msg); } catch {}
+      onState(JSON.parse(JSON.stringify(s)));
+    }
+    function startGame() {
+      gid++; pending = null; const g = gid;
+      const pool = t('cpuNames').filter(n => !S.players.some(p => p && p.name === n)).sort(() => Math.random() - 0.5);
+      for (let i = 0; i < 4; i++) {
+        if (!S.players[i]) S.players[i] = { name: pool.pop(), cpu: true, score: 0 };
+        S.players[i].score = 0;
+        S.players[i].stock = STOCK0;
+        S.players[i].style = Math.random() * 2 - 1;   // CPUの性格（狭く張るか広く張るか）
+      }
+      Object.assign(S, { owner: Array(N).fill(-1), pins: Array.from({ length: N }, () => []),
+        order: [], turn: -1, turnEnds: 0, spin: null, last: null, round: 0, wheelAngle: 0 });
+      S.timed = S.players.filter(p => !p.cpu).length > 1;
+      runGame(g).catch(e => { if (e !== 'abort') console.error(e); });
+    }
+    async function runGame(g) {
+      for (let r = 1; r <= ROUNDS; r++) {
+        Object.assign(S, { round: r, phase: 'order', order: [], turn: -1, last: null });
+        if (r > 1) S.players.forEach(p => { p.stock = Math.min(STOCK_MAX, p.stock + 1); });
+        broadcast(); await sleep(700); alive(g);
+        await decideOrder(g);
+        await sleep(900); alive(g);
+        S.phase = 'pin';
+        for (const seat of S.order) {
+          S.turn = seat;
+          S.turnEnds = S.timed && !S.players[seat].cpu ? Date.now() + TURN_MS : 0;
+          broadcast();
+          const mv = await getMove(seat); alive(g);
+          if (mv) {   // null ならスキップ（ピンを立てず、ストックも使わない）
+            const [a, b] = mv, sq = arcSquares(a, b);
+            sq.forEach(i => { S.owner[i] = seat; });
+            S.pins[a].push(seat); S.pins[b].push(seat);
+            S.players[seat].stock -= sq.length;
+          }
+          S.turnEnds = 0; broadcast();
+          await sleep(500); alive(g);
+        }
+        S.turn = -1; S.phase = 'spin';
+        const sim = simulateSpin(S.wheelAngle, false);
+        S.spin = { id: ++spinId, kind: 'main', frames: sim.frames, fps: SIM_FPS };
+        broadcast(); await sleep(sim.dur * 1000 + 300); alive(g);
+        delete S.spin.frames;
+        S.wheelAngle = sim.wheelEnd;
+        const sq = Math.floor(sim.rel / STEP) % N;
+        const o = S.owner[sq]; let pts = 0;
+        if (o >= 0) { pts = Math.floor(2000 / S.owner.filter(x => x === o).length); S.players[o].score += pts; }
+        S.last = { id: spinId, sq, seat: o, pts };
+        broadcast(); await sleep(2600); alive(g);
+      }
+      S.phase = 'end'; S.turn = -1; broadcast();
+    }
+    // 点数の高い順。同点の人どうしはランダム（1ラウンド目は全員0点なのでランダムな順番になる）
+    async function decideOrder(g) {
+      const rnd = [0, 1, 2, 3].map(() => Math.random());
+      S.order = [0, 1, 2, 3].sort((a, b) => S.players[b].score - S.players[a].score || rnd[a] - rnd[b]);
+      broadcast();
+    }
+    // ---- 玉の物理演算（cannon.js。ホストだけが計算し、軌跡を全員に配る） ----
+    // 単位はホイール半径=1。ボウル（斜面と外壁）・障害物・回る盤（仕切りと中央のドーム）を物理の形として作り、
+    // 玉を重力・摩擦・衝突だけで転がす。
+    const BALL_R = 0.045;
+    const TRACK = [[1.02, -0.06], [1.03, 0.03], [1.1, 0.08], [1.18, 0.14], [1.2, 0.175], [1.21, 0.4]];
+    function surfaceY(r) {   // 見た目用（障害物の高さなど）
+      if (r <= 1.03) return 0;
+      if (r <= 1.1) return 0.03 + (r - 1.03) / 0.07 * 0.05;
+      return 0.08 + (r - 1.1) / 0.08 * 0.06;
+    }
+    function simulateSpin(W0, quick) {
+      for (let tries = 0; tries < 4; tries++) {
+        const res = physicsRun(W0, quick);
+        if (res) return res;
+      }
+      return physicsRun(W0, quick, true);
+    }
+    function physicsRun(W0, quick, force) {
+      const C = CANNON, rnd = (a, b) => a + Math.random() * (b - a);
+      const world = new C.World();
+      world.gravity.set(0, -24, 0);
+      world.broadphase = new C.NaiveBroadphase();
+      world.solver.iterations = 12;
+      const mBall = new C.Material('ball'), mWood = new C.Material('wood'), mMetal = new C.Material('metal'), mFace = new C.Material('face');
+      world.addContactMaterial(new C.ContactMaterial(mBall, mWood, { friction: 0.03, restitution: 0.05 }));
+      world.addContactMaterial(new C.ContactMaterial(mBall, mFace, { friction: 0.25, restitution: 0.35 }));
+      world.addContactMaterial(new C.ContactMaterial(mBall, mMetal, { friction: 0.05, restitution: 0.55 }));
+
+      // ボウル：斜面と外壁を、ぐるりと並べた小さな箱で作る
+      {
+        const bowl = new C.Body({ mass: 0, material: mWood }), SEG = 240, up = new C.Vec3(0, 1, 0), ax = new C.Vec3(1, 0, 0);
+        const parts = [[1.0, -0.02, 1.03, 0.03], [1.03, 0.03, 1.1, 0.08], [1.1, 0.08, 1.18, 0.14], [1.18, 0.14, 1.2, 0.175]];
+        for (let k = 0; k < SEG; k++) {
+          const th = (k + 0.5) / SEG * 2 * Math.PI, qy = new C.Quaternion(); qy.setFromAxisAngle(up, -th);
+          const add = (ra, ya, rb, yb, thick) => {
+            const len = Math.hypot(rb - ra, yb - ya), al = Math.atan2(yb - ya, rb - ra);
+            const qt = new C.Quaternion(); qt.setFromAxisAngle(ax, al);
+            const rm = (ra + rb) / 2, ym = (ya + yb) / 2;
+            // 上の面が断面の線に乗るよう、厚みの半分だけ法線の反対側へずらす
+            const nr = -Math.sin(al), ny = Math.cos(al), cr = rm - nr * thick / 2, cy = ym - ny * thick / 2;
+            const w = 2 * Math.PI * Math.max(ra, rb) / SEG * 0.505;
+            bowl.addShape(new C.Box(new C.Vec3(w, thick / 2, len / 2 + 0.004)), new C.Vec3(cr * Math.sin(th), cy, -cr * Math.cos(th)), qy.mult(qt));
+          };
+          parts.forEach(([ra, ya, rb, yb]) => add(ra, ya, rb, yb, 0.06));
+          add(1.2, 0.175, 1.2, 0.8, 0.06);    // 外壁（垂直・高め）
+        }
+        world.addBody(bowl);
+        // ダイヤ型の障害物（8個）
+        for (let k = 0; k < 8; k++) {
+          const th = k * Math.PI / 4 + Math.PI / 8, rr = 1.085;
+          const d = new C.Body({ mass: 0, material: mMetal });
+          const sh = new C.Box(new C.Vec3(0.012, 0.014, 0.045)); sh.tag = 'diamond';
+          d.addShape(sh);
+          d.position.set(rr * Math.sin(th), surfaceY(rr) + 0.012, -rr * Math.cos(th));
+          d.quaternion.setFromAxisAngle(new C.Vec3(0, 1, 0), -th);
+          world.addBody(d);
+        }
+      }
+      // 回る盤（キネマティック：決まった速さで回る）
+      const wheel = new C.Body({ mass: 0, type: C.Body.KINEMATIC });
+      {
+        const q = new C.Quaternion(); q.setFromAxisAngle(new C.Vec3(1, 0, 0), Math.PI / 2);
+        const disc = new C.Box(new C.Vec3(1.0, 0.03, 1.0)); disc.material = mFace; disc.tag = 'face';
+        wheel.addShape(disc, new C.Vec3(0, -0.03, 0));
+        const hub = new C.Cylinder(0.3, 0.45, 0.15, 24); hub.tag = 'hub';
+        wheel.addShape(hub, new C.Vec3(0, 0.075, 0), q);
+        for (let i = 0; i < N; i++) {
+          const th = i * STEP, fq = new C.Quaternion(); fq.setFromAxisAngle(new C.Vec3(0, 1, 0), Math.PI - th);
+          const fr = new C.Box(new C.Vec3(0.008, 0.0175, 0.28)); fr.tag = 'fret';
+          wheel.addShape(fr, new C.Vec3(0.71 * Math.sin(th), 0.0175, -0.71 * Math.cos(th)), fq);
+          // ポケットの奥（外周の低い縁）
+          const mid = (i + 0.5) * STEP, lq = new C.Quaternion(); lq.setFromAxisAngle(new C.Vec3(0, 1, 0), -mid);
+          const lip = new C.Box(new C.Vec3(0.09, 0.01, 0.006)); lip.tag = 'fret';
+          wheel.addShape(lip, new C.Vec3(0.985 * Math.sin(mid), 0.01, -0.985 * Math.cos(mid)), lq);
+        }
+        wheel.material = mMetal;
+        world.addBody(wheel);
+      }
+      // 形ごとの材質（cannon 0.6 は形に material を持てるので、盤面だけ別の摩擦にする）
+      wheel.shapes.forEach(s => { if (!s.material) s.material = mMetal; });
+
+      // 玉
+      const ball = new C.Body({ mass: 0.01, material: mBall, linearDamping: 0.02, angularDamping: 0.2 });
+      ball.addShape(new C.Sphere(BALL_R));
+      const th0 = rnd(0, 2 * Math.PI), r0 = 1.2 - BALL_R - 0.002, sp = (quick ? rnd(6.5, 7.5) : rnd(9.5, 11.5)) * r0;
+      ball.position.set(r0 * Math.sin(th0), 0.24, -r0 * Math.cos(th0));   // 外壁に沿わせて投げ入れる
+      ball.velocity.set(sp * Math.cos(th0), 0, sp * Math.sin(th0));   // 時計回り
+      ball.angularVelocity.set(0, sp / BALL_R, 0);   // 壁に沿って転がる向きに回転をかけて投げる（滑って減速しないように）
+      world.addBody(ball);
+
+      let W = W0, Om = -(quick ? rnd(1.8, 2.4) : rnd(1.4, 2.0));
+      let dec = -Om / (quick ? rnd(5, 6) : rnd(9, 11));
+      let ev = 0, evS = 0;
+      ball.addEventListener('collide', e => {
+        const c = e.contact, sh = c.bi === ball ? c.sj : c.si;
+        const v = Math.abs(c.getImpactVelocityAlongNormal());
+        if (v < 0.35) return;
+        const type = sh && sh.tag === 'fret' ? 1 : sh && sh.tag === 'diamond' ? 2 : 3;
+        const s = Math.min(1, v / 3);
+        if (s > evS) { ev = type; evS = s; }
+      });
+
+      const dt = 1 / 720, every = 720 / SIM_FPS, frames = [];
+      let t = 0, step = 0, calm = 0, locked = false, after = 0, relLock = 0, rLock = 0;
+      const relOf = () => Math.atan2(ball.position.x, -ball.position.z) - W;
+      while (t < 18) {
+        if (Om < 0) Om = Math.min(0, Om + dec * dt);
+        W += Om * dt;
+        wheel.angularVelocity.set(0, -Om, 0);
+        wheel.quaternion.setFromAxisAngle(new C.Vec3(0, 1, 0), -W);
+        if (!locked) {
+          world.step(dt);
+          const p = ball.position, r = Math.hypot(p.x, p.z);
+          if (p.y < -0.3 || r > 1.3) { if (!force) return null; }
+          // 盤と一緒に回っていて、ほとんど動かなくなったら止まったとみなす
+          const rv = Math.hypot(ball.velocity.x + Om * p.z, ball.velocity.z - Om * p.x);   // 盤の表面に対する速さ
+          if (r < 0.99 && p.y < 0.08 && rv < 0.12) calm += dt; else calm = 0;
+          if (calm > 0.4 || (force && t > 14)) {
+            locked = true; relLock = relOf(); rLock = r;
+            dec = Math.max(dec, -Om / (quick ? 0.6 : 1.6));
+          }
+        } else {
+          const a = relLock + W;
+          ball.position.set(rLock * Math.sin(a), BALL_R, -rLock * Math.cos(a));
+        }
+        if (step % every === 0) {
+          const p = ball.position, q = ball.quaternion;
+          frames.push([+W.toFixed(4), +p.x.toFixed(4), +p.y.toFixed(4), +p.z.toFixed(4),
+            +q.x.toFixed(3), +q.y.toFixed(3), +q.z.toFixed(3), +q.w.toFixed(3), ev, +evS.toFixed(2)]);
+          ev = 0; evS = 0;
+        }
+        step++; t += dt;
+        if (locked && Om === 0 && (after += dt) > 0.4) break;
+      }
+      if (!locked && !force) return null;
+      const rel = ((relOf() % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      return { frames, dur: frames.length / SIM_FPS, rel, wheelEnd: ((W % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) };
+    }
+    function getMove(seat) {
+      return new Promise(res => {
+        const mine = { seat };
+        mine.done = mv => { if (pending !== mine) return; clearTimeout(mine.timer); pending = null; res(mv); };
+        pending = mine;
+        if (S.players[seat].cpu) mine.timer = setTimeout(() => mine.done(cpuMove(seat)), 900 + Math.random() * 900);
+        else if (S.turnEnds) mine.timer = setTimeout(() => mine.done(cpuMove(seat)), S.turnEnds - Date.now());
+      });
+    }
+    function hostAction(seat, m) {
+      if (m.t === 'skip' && pending && pending.seat === seat && S.phase === 'pin' && S.turn === seat) { pending.done(null); return; }
+      if (m.t === 'place' && pending && pending.seat === seat && S.phase === 'pin' && S.turn === seat
+        && Number.isInteger(m.a) && Number.isInteger(m.b) && m.a >= 0 && m.a < N && m.b >= 0 && m.b < N
+        && okAt(S, seat, m.a, m.b, ruleLevel(S, seat))) pending.done([m.a, m.b]);
+    }
+    // CPU: 期待値はどこに張っても同じなので、負けている時は狭く（一発逆転）、勝っている時は広く。
+    // 2ラウンド目以降は、相手のマスを全部消せる手（特に上位の相手）を狙う。
+    function cpuMove(seat) {
+      const lvl = ruleLevel(S, seat), sc = S.players.map(p => p.score), mine = sc[seat];
+      const top = Math.max(...sc.filter((_, i) => i !== seat));
+      const before = counts(S.owner);
+      const lean = S.round === 1 ? S.players[seat].style : (mine < top ? -1 : mine > top ? 1 : 0);
+      let best = [0, 1], bv = -Infinity;
+      for (let a = 0; a < N; a++) for (let d = 1; d <= MAXW; d++) {
+        const b = (a + d) % N, sq = okAt(S, seat, a, b, lvl); if (!sq) continue;
+        const own = S.owner.slice(); sq.forEach(i => { own[i] = seat; });
+        const after = counts(own);
+        let v = Math.random() * 25 + lean * after[seat] * 10;
+        if (S.round < ROUNDS) v += (S.players[seat].stock - sq.length) * 5;   // 次のラウンドのために少し残したい
+        v -= sq.filter(i => S.owner[i] === seat).length * 6;
+        for (let o = 0; o < 4; o++) {
+          if (o === seat) continue;
+          if (before[o] > 0 && after[o] === 0) v += 100 + (sc[o] >= mine ? 80 : 0);
+          v += (before[o] - after[o]) * (sc[o] > mine ? 8 : 3);
+        }
+        if (v > bv) { bv = v; best = [a, b]; }
+      }
+      return best;
+    }
+
+    // ---- 通信（PeerJS） ----
+    const CODE_CH = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    const randCode = () => Array.from({ length: 4 }, () => CODE_CH[Math.floor(Math.random() * CODE_CH.length)]).join('');
+    function loadPeer() {
+      if (window.Peer) return Promise.resolve();
+      return new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+        s.onload = res; s.onerror = rej; document.head.appendChild(s);
+      });
+    }
+    const myName = () => (store.get('name', '') || '').slice(0, 8);
+    async function createRoom() {
+      leave(); ui.screen = 'connecting'; ui.err = ''; renderAll();
+      try { await loadPeer(); } catch { return fail('netErr'); }
+      if (ui.screen !== 'connecting') return;
+      const code = randCode(), peer = new Peer(PEER_PREFIX + code);
+      net = { role: 'host', peer, code, conns: new Map() };
+      peer.on('open', () => {
+        if (!net || net.peer !== peer) return;
+        S = newState(); S.code = code;
+        S.players[0] = { name: myName(), cpu: false, score: 0 };
+        me = 0; broadcast();
+      });
+      peer.on('error', e => {
+        if (!net || net.peer !== peer) return;
+        if (e.type === 'unavailable-id') { createRoom(); return; }
+        if (!S) fail('netErr');
+      });
+      peer.on('connection', conn => {
+        conn.lastSeen = Date.now();
+        conn.on('data', m => { conn.lastSeen = Date.now(); hostRecv(conn, m); });
+        conn.on('close', () => hostLeave(conn));
+      });
+      // タブを閉じても close が届かないことがあるので、合図が途絶えたら抜けた扱いにする
+      net.hb = setInterval(() => {
+        for (const c of [...net.conns.values()]) {
+          if (Date.now() - c.lastSeen > HB_LOST) { try { c.close(); } catch {} hostLeave(c); }
+          else if (c.open) try { c.send({ t: 'ping' }); } catch {}
+        }
+      }, 2000);
+    }
+    function hostRecv(conn, m) {
+      if (!S) return;
+      if (m && m.t === 'hello') {
+        if (conn.seat !== undefined) return;
+        const refuse = k => { try { conn.send({ t: 'err', k }); } catch {} setTimeout(() => conn.close(), 800); };
+        if (S.phase !== 'lobby') return refuse('started');
+        const seat = S.players.findIndex(p => !p);
+        if (seat < 0) return refuse('full');
+        S.players[seat] = { name: String(m.name || '').slice(0, 8), cpu: false, score: 0 };
+        conn.seat = seat; net.conns.set(seat, conn);
+        conn.send({ t: 'welcome', seat }); broadcast();
+        return;
+      }
+      if (conn.seat !== undefined && m) hostAction(conn.seat, m);
+    }
+    function hostLeave(conn) {
+      if (!net || !net.conns || net.conns.get(conn.seat) !== conn) return;
+      const seat = conn.seat; net.conns.delete(seat);
+      if (S.phase === 'lobby') S.players[seat] = null;
+      else {
+        S.players[seat].cpu = true;   // 抜けた人の席はCPUが引き継ぐ
+        if (pending && pending.seat === seat) { const p = pending; setTimeout(() => p.done(cpuMove(seat)), 600); }
+      }
+      broadcast();
+    }
+    async function joinRoom(code) {
+      code = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (code.length !== 4) return;
+      leave(); ui.screen = 'connecting'; ui.err = ''; renderAll();
+      try { await loadPeer(); } catch { return fail('netErr'); }
+      if (ui.screen !== 'connecting') return;
+      const peer = new Peer();
+      const n = net = { role: 'guest', peer, code };
+      let opened = false;
+      peer.on('open', () => {
+        if (net !== n) return;
+        const conn = peer.connect(PEER_PREFIX + code, { reliable: true });
+        n.conn = conn;
+        conn.on('open', () => {
+          opened = true; n.lastSeen = Date.now(); conn.send({ t: 'hello', name: myName() });
+          n.hb = setInterval(() => {
+            if (Date.now() - n.lastSeen > HB_LOST) { if (net === n) fail('hostLeft'); return; }
+            try { conn.send({ t: 'ping' }); } catch {}
+          }, 2000);
+        });
+        conn.on('data', m => { n.lastSeen = Date.now(); if (net === n) guestRecv(m); });
+        conn.on('close', () => { if (net === n) fail(opened ? 'hostLeft' : 'notFound'); });
+      });
+      peer.on('error', e => { if (net === n) fail(e.type === 'peer-unavailable' ? 'notFound' : opened ? 'hostLeft' : 'netErr'); });
+      setTimeout(() => { if (net === n && !opened) fail('notFound'); }, 15000);
+    }
+    function guestRecv(m) {
+      if (!m) return;
+      if (m.t === 'welcome') me = m.seat;
+      else if (m.t === 'state') onState(m.s);
+      else if (m.t === 'err') fail(m.k);
+    }
+    function send(m) {
+      if (!net) return;
+      if (net.role === 'guest') { try { net.conn.send(m); } catch {} }
+      else hostAction(me, m);
+    }
+    function solo() {
+      leave();
+      net = { role: 'solo', conns: new Map() };
+      S = newState(); S.players[0] = { name: myName(), cpu: false, score: 0 }; me = 0;
+      startGame();
+    }
+    function leave() {
+      gid++; pending = null;
+      if (net) clearInterval(net.hb);
+      if (net && net.peer) try { net.peer.destroy(); } catch {}
+      net = null; S = null; view = null; me = -1; sel = [];
+    }
+    function fail(k) { leave(); ui.err = k; ui.screen = 'title'; renderAll(); }
+    function toTitle() { leave(); ui.err = ''; ui.screen = 'title'; renderAll(); }
+
+    // ---- 表示 ----
+    const ui = { screen: 'title', err: '', joinCode: '' };
+    let view = null;       // 画面に出している状態（ホストから届いたもの）
+    let me = -1, sel = [], anim = { id: -1 }, popup = null, turnDeadline = 0;
+    const isHost = () => net && net.role !== 'guest';
+    const screen = () => view ? (view.phase === 'lobby' ? 'lobby' : 'game') : ui.screen;
+    const roomParam = new URLSearchParams(location.search).get('room');
+    if (roomParam) { ui.screen = 'join'; ui.joinCode = roomParam.toUpperCase().slice(0, 4); }
+
+    function onState(s) {
+      const prev = view; view = s;
+      if (s.spin && s.spin.id !== anim.id) { anim = { ...s.spin, start: performance.now() }; if (s.spin.frames) sndLaunch(); }
+      if (!prev || s.turn !== prev.turn) { sel = []; if (s.turn === me && s.phase === 'pin') sndTurn(); }
+      turnDeadline = s.tl ? performance.now() + s.tl : 0;
+      if (prev) {
+        const pc = x => x.pins.reduce((n, p) => n + p.length, 0);
+        if (pc(s) > pc(prev)) sndPin();
+        if (s.order.length > prev.order.length && s.round === prev.round) sndOrder();
+      }
+      if (s.last && !(prev && prev.last && prev.last.id === s.last.id)) {
+        showPop(s.last);
+        (s.last.seat === me ? sndWin : s.last.seat < 0 ? sndMiss : sndOther)();
+      }
+      renderAll();
+    }
+
+    const $ = id => document.getElementById(id);
+    const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+    function pname(i) {
+      const p = view && view.players[i];
+      if (!p) return '—';
+      return p.name || (i === me ? t('you') : p.cpu ? t('cpu') : t('colors')[i]);
+    }
+    function myRank() {
+      const sc = view.players.map(p => p.score);
+      return 1 + sc.filter(x => x > sc[me]).length;
+    }
+
+    function renderAll() { renderPlayers(); renderInfo(); renderPanel(); renderCtrl(); resize(); }
+    // 札は作り直さずに中身だけ更新する（点数のカウントアップや「+500」の演出を続けるため）
+    const chips = [];
+    function countUp(elm, from, to) {
+      const t0 = performance.now(), dur = 700;
+      cancelAnimationFrame(elm._raf);
+      const tick = now => {
+        const k = Math.max(0, Math.min(1, (now - t0) / dur)), v = Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3)));
+        elm.firstChild.nodeValue = v;
+        if (k < 1) elm._raf = requestAnimationFrame(tick);
+      };
+      elm._raf = requestAnimationFrame(tick);
+    }
+    function renderPlayers() {
+      const box = $('players'), sc = screen();
+      box.hidden = !(sc === 'lobby' || sc === 'game');
+      if (box.hidden) return;
+      if (!chips.length) for (let i = 0; i < 4; i++) {
+        const c = el('div', 'chip'), av = el('div', 'av'), ord = el('span', 'ord'), sco = el('div', 'sc');
+        sco.append(document.createTextNode(''), el('small'));
+        av.appendChild(ord); c.style.setProperty('--c', COLORS[i]);
+        c.append(av, el('div', 'nm'), sco, el('div', 'stk'));
+        box.appendChild(c); chips.push({ c, av, ord, nm: c.children[1], sc: sco, stk: c.children[3], shown: null });
+      }
+      for (let i = 0; i < 4; i++) {
+        const p = view.players[i], ch = chips[i];
+        ch.c.classList.toggle('empty', !p);
+        ch.c.classList.toggle('me', i === me);
+        ch.c.classList.toggle('turn', view.turn === i);
+        const nm = pname(i);
+        ch.av.firstChild && ch.av.firstChild.nodeType === 3 ? (ch.av.firstChild.nodeValue = p ? nm.slice(0, 1) : '') : ch.av.prepend(document.createTextNode(p ? nm.slice(0, 1) : ''));
+        const oi = view.order.indexOf(i);
+        ch.ord.textContent = oi >= 0 && (view.phase === 'order' || view.phase === 'pin') ? oi + 1 : '';
+        ch.nm.textContent = nm;
+        // 点数（増えたらカウントアップして「+点」を浮かべる）
+        const score = sc === 'game' && p ? p.score : null;
+        ch.sc.lastChild.textContent = score === null ? '' : t('ptUnit');
+        if (score === null) { ch.sc.firstChild.nodeValue = ''; ch.shown = null; }
+        else if (ch.shown === null || score < ch.shown) { ch.sc.firstChild.nodeValue = score; ch.shown = score; }
+        else if (score > ch.shown) {
+          const g = el('span', 'gain', '+' + (score - ch.shown)); ch.c.appendChild(g); setTimeout(() => g.remove(), 1700);
+          countUp(ch.sc, ch.shown, score); ch.shown = score;
+        }
+        // ストック
+        ch.stk.innerHTML = '';
+        const use = i === me && view.phase === 'pin' && view.turn === me && sel.length === 2 ? (arcSquares(sel[0], sel[1]) || []).length : 0;
+        if (sc === 'game' && p && p.stock !== undefined) for (let k = 0; k < STOCK_MAX; k++) ch.stk.appendChild(el('i', k < p.stock - use ? 'on' : k < p.stock ? 'on use' : ''));
+        ch.stk.title = t('stock');
+      }
+    }
+    function renderInfo() {
+      const info = $('info');
+      info.hidden = screen() !== 'game' || view.phase === 'end';
+      if (info.hidden) return;
+      info.innerHTML = '';
+      if (view.phase === 'pin' && view.turn === me) {
+        // 自分の番：「あなたの番」と、残りのマス数（選んだ分を使うと何マス残るか）
+        const b = el('div', 'turnb'); b.style.setProperty('--c', COLORS[me]);
+        const st = view.players[me].stock, use = sel.length === 2 ? (arcSquares(sel[0], sel[1]) || []).length : 0;
+        const cells = el('span', 'cells');
+        for (let k = 0; k < STOCK_MAX; k++) cells.appendChild(el('i', k < st - use ? 'on' : k < st ? 'on use' : ''));
+        const n = el('b', 'num', use ? `${st}→${st - use}` : st);
+        b.append(el('span', '', t('yourTurn')), el('span', 'sep'), el('span', 'lbl', t('left')), n, el('span', 'lbl', t('sqUnit')), cells);
+        info.appendChild(b);
+        // その下に自分のことだけ：持ちマスの数と、当たったときにもらえる点（選んでいるピンを置いた後の値）
+        const own = view.owner.slice(); if (use) arcSquares(sel[0], sel[1]).forEach(i => { own[i] = me; });
+        const mine = counts(own)[me];
+        info.appendChild(el('div', 'mine', mine ? `${t('own')(mine)}　${t('ifHit')(Math.floor(2000 / mine))}` : t('noOwn')));
+      } else {
+        const r = el('div', 'rnd');
+        for (let k = 1; k <= ROUNDS; k++) r.appendChild(el('i', k < view.round ? 'done' : k === view.round ? 'now' : ''));
+        r.appendChild(el('span', 'num', `${view.round} / ${ROUNDS}`));
+        info.appendChild(r);
+      }
+    }
+    function showPop(last) {
+      const pop = $('pop');
+      pop.innerHTML = '';
+      pop.className = last.seat < 0 ? 'miss' : '';
+      pop.style.setProperty('--c', last.seat < 0 ? 'rgba(255,255,255,.3)' : COLORS[last.seat]);
+      if (last.seat >= 0) pop.appendChild(el('div', 'pn', pname(last.seat)));
+      pop.appendChild(el('div', 'pp', last.seat < 0 ? '0' : '+' + last.pts));
+      void pop.offsetWidth; pop.classList.add('show');
+    }
+    const X_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>';
+
+    let panelKey = '';
+    function renderPanel() {
+      const sc = screen(), panel = $('panel');
+      const key = [sc, lang, ui.err, view && view.phase === 'end', isHost(), sc === 'lobby' && view.code].join('|');
+      if (key === panelKey) return;
+      panelKey = key;
+      panel.innerHTML = ''; panel.className = sc === 'game' ? '' : 'dim'; panel.hidden = false;
+      const btn = (text, cls, fn) => { const b = el('button', 'big' + (cls ? ' ' + cls : ''), text); b.onclick = () => { sndTap(true); fn(); }; return b; };
+      const nameInput = () => {
+        const name = el('input'); name.placeholder = t('name'); name.maxLength = 8; name.value = myName();
+        name.oninput = () => store.set('name', name.value.trim()); return name;
+      };
+      if (sc === 'title') {
+        panel.append(el('div', 'logo', t('title')), el('div', 'tag', t('tagline')), nameInput(),
+          btn(t('create'), '', createRoom),
+          btn(t('join'), '', () => { ui.screen = 'join'; ui.err = ''; renderAll(); }),
+          btn(t('solo'), 'sub', solo),
+          el('div', 'err', ui.err ? t(ui.err) : ''));
+      } else if (sc === 'join') {
+        const code = el('input'); code.id = 'codeIn'; code.placeholder = t('code'); code.maxLength = 4;
+        code.autocapitalize = 'characters'; code.autocomplete = 'off'; code.value = ui.joinCode;
+        const go = btn(t('enter'), '', () => joinRoom(code.value));
+        const upd = () => { ui.joinCode = code.value.toUpperCase(); go.disabled = code.value.replace(/[^A-Za-z0-9]/g, '').length !== 4; };
+        code.oninput = upd; upd();
+        code.onkeydown = e => { if (e.key === 'Enter' && !go.disabled) go.click(); };
+        panel.append(nameInput(), code, go, btn(t('backBtn'), 'sub', toTitle), el('div', 'err', ui.err ? t(ui.err) : ''));
+      } else if (sc === 'connecting') {
+        panel.append(el('div', 'emblem'), el('div', 'note', t('connecting')), btn(t('backBtn'), 'sub', toTitle));
+      } else if (sc === 'lobby') {
+        const code = el('div', 'code'); [...view.code].forEach(ch => code.appendChild(el('b', '', ch)));
+        panel.append(code);
+        const inv = btn(t('invite'), 'sub', async () => {
+          const url = location.origin + location.pathname + '?room=' + view.code;
+          if (matchMedia('(pointer: coarse)').matches && navigator.share) { navigator.share({ url }).catch(() => {}); return; }
+          try { await navigator.clipboard.writeText(url); inv.textContent = t('copied'); setTimeout(() => { inv.textContent = t('invite'); }, 1500); } catch {}
+        });
+        panel.append(inv);
+        if (isHost()) panel.append(btn(t('start'), '', startGame));
+        else panel.append(el('div', 'note', t('waitHost')));
+        panel.append(btn(t('backBtn'), 'sub', toTitle));
+      } else if (sc === 'game' && view.phase === 'end') {
+        panel.className = 'over';
+        const r = myRank();
+        // 結果画面の広告の枠（ad.js が中に広告を入れる。後から出ても順位表やボタンがずれないよう高さを空けておく）
+        const slot = el('div'); slot.id = 'adSlot';
+        panel.append(slot, el('div', 'head', t('rank')[r - 1]));
+        const sc2 = view.players.map(p => p.score);
+        [0, 1, 2, 3].sort((a, b) => sc2[b] - sc2[a]).forEach(i => {
+          const rk = 1 + sc2.filter(x => x > sc2[i]).length;
+          const row = el('div', 'row' + (i === me ? ' me' : '')); row.style.setProperty('--c', COLORS[i]);
+          row.append(el('span', 'rk r' + rk, rk), el('span', 'nm', pname(i)), el('span', 'pt', t('pts')(sc2[i])));
+          panel.appendChild(row);
+        });
+        if (!isHost()) panel.append(el('div', 'note', t('waitRetry')));
+        const tt = el('button', 'link', t('toTitle')); tt.onclick = toTitle; panel.append(tt);
+      } else {
+        panel.hidden = true;
+      }
+    }
+    function renderCtrl() {
+      const ctrl = $('ctrl'); ctrl.innerHTML = '';
+      if (screen() !== 'game') return;
+      if (view.phase === 'pin' && view.turn === me) {
+        // ボタンは1つ：ピンを選んでいなければ「スキップ」（ピンを立てずにパス、ストックは減らない）、2本選べば「決定」
+        const ready = sel.length === 2 && okAt(view, me, sel[0], sel[1], ruleLevel(view, me));
+        const bt = el('button', ready || sel.length ? 'big' : 'big sub', ready || sel.length ? t('ok') : t('skip'));
+        bt.disabled = sel.length === 1;   // 1本だけ選んでいる途中は押せない
+        bt.onclick = () => {
+          if (ready) send({ t: 'place', a: sel[0], b: sel[1] });
+          else { sndTap(false); send({ t: 'skip' }); }
+          bt.disabled = true;
+        };
+        ctrl.appendChild(bt);
+      } else if (view.phase === 'end') {
+        const a = el('a', 'big x'); a.innerHTML = X_ICON; a.append(t('share'));
+        const r = myRank();
+        a.href = `https://x.com/intent/post?text=${encodeURIComponent(t('shareText')(r, view.players[me].score))}&url=${encodeURIComponent(SHARE_URL)}`;
+        if (!matchMedia('(pointer: coarse)').matches) { a.target = '_blank'; a.rel = 'noopener'; }
+        ctrl.appendChild(a);
+        if (isHost()) { const b = el('button', 'big', t('retry')); b.onclick = () => { sndTap(true); startGame(); }; ctrl.appendChild(b); }
+      }
+    }
+
+    // ---- ルーレットの描画（three.js で3D） ----
+    // 角度は「真上(奥)が0、上から見て時計回り」。ホイール上の位置 θ は x = r·sinθ, z = −r·cosθ。
+    const cv = $('cv'), stage = $('stage');
+    const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.85;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    const scene = new THREE.Scene();
+    renderer.setClearColor(0x000000, 0);
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
+    const TILT = 62 * Math.PI / 180;
+
+    const canvasTex = (w, h, fn) => {
+      const c = document.createElement('canvas'); c.width = w; c.height = h; fn(c.getContext('2d'), w, h);
+      const tx = new THREE.CanvasTexture(c); tx.encoding = THREE.sRGBEncoding;
+      tx.anisotropy = renderer.capabilities.getMaxAnisotropy(); return tx;
+    };
+    // 木目（濃淡の帯＋細い筋）
+    const woodTex = (base, dark, light) => canvasTex(1024, 512, (g, w, h) => {
+      g.fillStyle = base; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 40; i++) {
+        const y = Math.random() * h, hh = 4 + Math.random() * 26;
+        g.fillStyle = Math.random() < 0.5 ? dark : light; g.globalAlpha = 0.06 + Math.random() * 0.1;
+        g.beginPath(); for (let x = 0; x <= w; x += 16) g.lineTo(x, y + Math.sin(x * 0.006 + i) * 10); for (let x = w; x >= 0; x -= 16) g.lineTo(x, y + hh + Math.sin(x * 0.006 + i) * 10); g.fill();
+      }
+      for (let i = 0; i < 260; i++) {
+        const y = Math.random() * h, amp = 2 + Math.random() * 7, f = 0.004 + Math.random() * 0.01;
+        g.strokeStyle = dark; g.globalAlpha = 0.05 + Math.random() * 0.14; g.lineWidth = 0.4 + Math.random() * 1.6;
+        g.beginPath(); for (let x = 0; x <= w; x += 8) g.lineTo(x, y + Math.sin(x * f + i) * amp); g.stroke();
+      }
+      g.globalAlpha = 1;
+    });
+    // 映り込み用の部屋（暗い室内に、上から照明が数本）
+    {
+      const env = new THREE.Scene();
+      const sky = canvasTex(64, 256, (g, w, h) => {
+        const gr = g.createLinearGradient(0, 0, 0, h);
+        gr.addColorStop(0, '#3a3128'); gr.addColorStop(0.5, '#120e0b'); gr.addColorStop(1, '#050806');
+        g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      });
+      env.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), new THREE.MeshBasicMaterial({ map: sky, side: THREE.BackSide })));
+      [[0, 8, 0, 4, 1.2], [-6, 5, -3, 1.5, 0.6], [6, 5, 2, 1.5, 0.6]].forEach(([x, y, z, sw, sh]) => {
+        const lamp = new THREE.Mesh(new THREE.PlaneGeometry(sw, sh), new THREE.MeshBasicMaterial({ color: 0xfff1d8, side: THREE.DoubleSide }));
+        lamp.position.set(x, y, z); lamp.lookAt(0, 0, 0); env.add(lamp);
+      });
+      const pm = new THREE.PMREMGenerator(renderer);
+      scene.environment = pm.fromScene(env, 0.03).texture;
+    }
+    // ライト：真上のスポットライトだけが強く当たる、暗めのカジノの雰囲気
+    scene.add(new THREE.HemisphereLight(0xffe8c8, 0x050a08, 0.12));
+    const spot = new THREE.SpotLight(0xffe6c4, 1.9, 0, 0.42, 0.55, 1);
+    spot.position.set(0.7, 6.5, 1.6); spot.castShadow = true;
+    spot.shadow.mapSize.set(2048, 2048); spot.shadow.bias = -0.0003; spot.shadow.camera.near = 4; spot.shadow.camera.far = 9;
+    scene.add(spot);
+    const fill = new THREE.PointLight(0xffb070, 0.25, 8); fill.position.set(-2.5, 2, 2.5); scene.add(fill);
+
+    // テーブル（暗い緑のフェルト）
+    const felt = canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#0f3a2c'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 9000; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,.12)' : 'rgba(255,255,255,.04)'; g.fillRect(Math.random() * w, Math.random() * h, 1, 1); }
+    });
+    felt.wrapS = felt.wrapT = THREE.RepeatWrapping; felt.repeat.set(6, 6);
+    // 外側ほど透明にして、ページの背景色になじませる
+    const fade = canvasTex(256, 256, (g, w, h) => {
+      const gr = g.createRadialGradient(w / 2, h / 2, w * 0.18, w / 2, h / 2, w / 2);
+      gr.addColorStop(0, '#fff'); gr.addColorStop(1, '#000'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    });
+    fade.encoding = THREE.LinearEncoding;
+    const table = new THREE.Mesh(new THREE.CircleGeometry(4, 64), new THREE.MeshStandardMaterial({ map: felt, alphaMap: fade, transparent: true, roughness: 1, depthWrite: false }));
+    table.rotation.x = -Math.PI / 2; table.position.y = -0.12; table.receiveShadow = true; scene.add(table);
+
+    const chrome = new THREE.MeshStandardMaterial({ color: 0xdcdcdc, metalness: 1, roughness: 0.15 });
+    const brass = new THREE.MeshStandardMaterial({ color: 0xc9a14a, metalness: 1, roughness: 0.22 });
+    // ボウル（つやのある木の外枠と、玉が転がる斜面）
+    const lathe = (pts, mat) => {
+      const m = new THREE.Mesh(new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), 160), mat);
+      m.castShadow = m.receiveShadow = true; scene.add(m); return m;
+    };
+    const lacquer = (map, rough) => new THREE.MeshPhysicalMaterial({ map, roughness: rough, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08 });
+    const darkWood = woodTex('#3a1a0b', '#0e0402', '#6a3518'), lightWood = woodTex('#5c3016', '#1a0a03', '#8a5228');
+    lathe([[1.36, -0.12], [1.36, 0.12], [1.33, 0.17], [1.27, 0.185], [1.2, 0.175], [1.18, 0.14]], lacquer(darkWood, 0.4));
+    lathe([[1.18, 0.14], [1.1, 0.08], [1.03, 0.03], [1.02, -0.06]], lacquer(lightWood, 0.3));
+    lathe([[1.02, -0.06], [0.5, -0.06]], new THREE.MeshStandardMaterial({ color: 0x080402, roughness: 0.9 }));
+    // 斜面のダイヤ型の障害物（玉が当たって跳ねる）
+    {
+      const dg = new THREE.OctahedronGeometry(0.03, 0);
+      for (let k = 0; k < 8; k++) {
+        const th = k * Math.PI / 4 + Math.PI / 8, rr = 1.085, d = new THREE.Mesh(dg, brass);
+        d.position.set(rr * Math.sin(th), surfaceY(rr) + 0.012, -rr * Math.cos(th));
+        d.scale.set(0.6, 0.45, 1.6); d.rotation.y = -th; d.castShadow = true; scene.add(d);
+        d.userData.deflector = true;
+      }
+    }
+
+    // 回る盤
+    const wheel = new THREE.Group(); scene.add(wheel);
+    const faceCanvas = document.createElement('canvas'); faceCanvas.width = faceCanvas.height = 1024;
+    const faceTex = new THREE.CanvasTexture(faceCanvas);
+    faceTex.encoding = THREE.sRGBEncoding; faceTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    {
+      const side = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, 0.06, 128, 1, true), lacquer(darkWood, 0.4));
+      side.position.y = -0.03; wheel.add(side);
+      const face = new THREE.Mesh(new THREE.CircleGeometry(1.0, 128), new THREE.MeshPhysicalMaterial({ map: faceTex, roughness: 0.55, metalness: 0, clearcoat: 0.7, clearcoatRoughness: 0.15 }));
+      face.rotation.x = -Math.PI / 2; face.receiveShadow = true; wheel.add(face);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.012, 8, 128), brass);
+      ring.rotation.x = Math.PI / 2; ring.position.y = 0.006; wheel.add(ring);
+      // 仕切り（フレット）
+      const fretGeo = new THREE.BoxGeometry(0.012, 0.035, 0.56);
+      for (let i = 0; i < N; i++) {
+        const th = i * STEP, f = new THREE.Mesh(fretGeo, chrome);
+        f.position.set(0.71 * Math.sin(th), 0.0175, -0.71 * Math.cos(th)); f.rotation.y = Math.PI - th;
+        f.castShadow = true; wheel.add(f);
+      }
+      // 中央のドーム（真ん中には猫が座る）
+      const dome = new THREE.Mesh(new THREE.LatheGeometry([[0.45, 0], [0.43, 0.035], [0.32, 0.09], [0.16, 0.13], [0.07, 0.15], [0, 0.155]]
+        .map(([r, y]) => new THREE.Vector2(r, y)), 96), lacquer(lightWood, 0.3));
+      dome.castShadow = dome.receiveShadow = true; wheel.add(dome);
+    }
+    // ---- いつもの猫（作者の目印）：ルーレットの真ん中に、顔の写真をこちら向きに立てる ----
+    const CAT_H = 0.5;
+    const catTex = new THREE.TextureLoader().load('cat.png'); catTex.encoding = THREE.sRGBEncoding;
+    const cat = new THREE.Sprite(new THREE.SpriteMaterial({ map: catTex, transparent: true }));
+    cat.scale.set(CAT_H, CAT_H, 1); cat.position.set(0, 0.15 + CAT_H * 0.42, 0); cat.renderOrder = 5; scene.add(cat);
+    let catTilt = 0;
+    function animateCat(now) {
+      // ふだんはゆっくり上下にゆれ、玉が回っている間は玉のいる側へ首をかしげる
+      let tt = Math.sin(now / 1900) * 0.05;
+      if (ball.visible) {
+        const v = ball.position.clone().project(camera), c = cat.position.clone().project(camera);
+        tt = Math.max(-0.35, Math.min(0.35, -(v.x - c.x) * 0.9));
+      }
+      catTilt += (tt - catTilt) * 0.12;
+      cat.material.rotation = catTilt;
+      cat.position.y = 0.15 + CAT_H * 0.42 + Math.sin(now / 650) * 0.006;
+    }
+    // ピン・目印・玉
+    const pinGroup = new THREE.Group(); wheel.add(pinGroup);
+    const markGroup = new THREE.Group(); wheel.add(markGroup);
+    const pinGeo = new THREE.CylinderGeometry(0.013, 0.013, 1, 12), headGeo = new THREE.SphereGeometry(0.05, 24, 16);
+    const headMats = COLORS.map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.22, metalness: 0.05 }));
+    const glowMats = COLORS.map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.2, emissive: c, emissiveIntensity: 0.6 }));
+    const markGeo = new THREE.TorusGeometry(0.035, 0.007, 8, 32);
+    const markMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+    const PIN_R = 0.965, PIN_H = 0.17, HEAD_GAP = 0.085;
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.045, 32, 20), new THREE.MeshStandardMaterial({ color: 0xfbfbf6, roughness: 0.12, metalness: 0 }));
+    ball.castShadow = true; scene.add(ball);
+    let selHeads = [];
+
+    function buildPins() {
+      pinGroup.clear(); markGroup.clear(); selHeads = [];
+      if (!view || (view.phase === 'order' && orderWheelOn())) return;
+      const addPin = (i, cols, extra) => {
+        const th = i * STEP, x = PIN_R * Math.sin(th), z = -PIN_R * Math.cos(th);
+        const n = cols.length + (extra >= 0 ? 1 : 0), h = PIN_H + (n - 1) * HEAD_GAP;
+        const p = new THREE.Mesh(pinGeo, chrome); p.scale.y = h; p.position.set(x, h / 2, z); p.castShadow = true; pinGroup.add(p);
+        cols.forEach((c, k) => {
+          const hd = new THREE.Mesh(headGeo, headMats[c]); hd.position.set(x, PIN_H + k * HEAD_GAP, z); hd.castShadow = true; pinGroup.add(hd);
+        });
+        if (extra >= 0) {
+          const hd = new THREE.Mesh(headGeo, glowMats[extra]); hd.position.set(x, PIN_H + cols.length * HEAD_GAP, z);
+          hd.castShadow = true; hd.userData.y = hd.position.y; pinGroup.add(hd); selHeads.push(hd);
+        }
+      };
+      const mine = myTurn() ? sel : [];
+      for (let i = 0; i < N; i++) {
+        const st = view.pins[i].slice(-4);
+        if (st.length || mine.includes(i)) addPin(i, st, mine.includes(i) ? me : -1);
+      }
+      if (myTurn()) targets().forEach(i => {
+        const th = i * STEP, m = new THREE.Mesh(markGeo, markMat);
+        m.rotation.x = Math.PI / 2; m.position.set(PIN_R * Math.sin(th), 0.008, -PIN_R * Math.cos(th)); markGroup.add(m);
+      });
+    }
+
+    // 盤面の絵（マスの色・名前・当たったときの点数）を Canvas に描いて貼る
+    const runsOf = own => {
+      const res = [], s0 = own.findIndex((o, i) => o !== own[(i + N - 1) % N]);
+      if (s0 < 0) return own[0] >= 0 ? [{ o: own[0], start: 0, len: N }] : [];
+      let i = s0;
+      do { const o = own[i]; let len = 0; while (len < N && own[(i + len) % N] === o) len++; if (o >= 0) res.push({ o, start: i, len }); i = (i + len) % N; } while (i !== s0);
+      return res;
+    };
+    const orderWheelOn = () => view && view.phase === 'order' && view.spin && view.spin.kind === 'order' && anim.id === view.spin.id;
+    function drawFace() {
+      const g = faceCanvas.getContext('2d'), W = 1024, C = W / 2, R = C, r0 = R * 0.44;
+      const H = Math.PI / 2;
+      const sector = (t0, t1, fill, a = r0, b = R) => { g.beginPath(); g.arc(C, C, b, t0 - H, t1 - H); g.arc(C, C, a, t1 - H, t0 - H, true); g.closePath(); if (fill) { g.fillStyle = fill; g.fill(); } };
+      const label = (th, text, rIn, rOut, maxH, color = '#fff') => {
+        let f = maxH; g.font = `bold ${f}px system-ui, sans-serif`;
+        const w = g.measureText(text).width; if (w > rOut - rIn) { f = Math.floor(f * (rOut - rIn) / w); g.font = `bold ${f}px system-ui, sans-serif`; }
+        const flip = th > Math.PI, rm = (rIn + rOut) / 2;
+        g.save(); g.translate(C, C); g.rotate(th - H + (flip ? Math.PI : 0));
+        g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.lineWidth = Math.max(3, f * 0.18); g.strokeStyle = 'rgba(0,0,0,.65)'; g.lineJoin = 'round';
+        g.strokeText(text, flip ? -rm : rm, 0); g.fillStyle = color; g.fillText(text, flip ? -rm : rm, 0);
+        g.restore();
+      };
+      const nameIn = (th, len, name, pts, w = STEP) => {
+        const wide = Math.min(64, len * w * r0 * 1.15 * 0.62 + 10);
+        label(th, pts, r0 + 8, r0 + (R - r0) * 0.47, Math.min(60, wide), '#ffe9a8');
+        label(th, name, r0 + (R - r0) * 0.5, R - 26, Math.min(50, wide));
+      };
+      g.clearRect(0, 0, W, W);
+      g.fillStyle = '#2a160a'; g.beginPath(); g.arc(C, C, R, 0, 7); g.fill();
+      if (orderWheelOn()) {
+        const k = anim.segs.length, seg = 2 * Math.PI / k;
+        anim.segs.forEach((s, i) => sector(i * seg, (i + 1) * seg, FACE[s]));
+
+      } else {
+        const own = view ? view.owner : Array(N).fill(-1);
+        for (let i = 0; i < N; i++) sector(i * STEP, (i + 1) * STEP, own[i] >= 0 ? FACE[own[i]] : i % 2 ? '#1c1714' : '#2a1d14');
+        let preview = null;
+        if (view && myTurn() && sel.length === 2) preview = arcSquares(sel[0], sel[1]);
+        if (preview) {
+          preview.forEach(i => sector(i * STEP, (i + 1) * STEP, FACE[me]));
+          g.save(); g.beginPath(); preview.forEach(i => { sector(i * STEP, (i + 1) * STEP); });
+          g.restore();
+          g.save();
+          preview.forEach(i => { sector(i * STEP, (i + 1) * STEP); g.save(); g.clip(); g.strokeStyle = 'rgba(255,255,255,.45)'; g.lineWidth = 12;
+            for (let d = -W; d < W; d += 34) { g.beginPath(); g.moveTo(d, 0); g.lineTo(d + W, W); g.stroke(); } g.restore(); });
+          g.restore();
+        }
+        if (view) {
+          const ownNow = view.owner.slice();
+          if (preview) preview.forEach(i => { ownNow[i] = me; });
+          const cnt = counts(ownNow);
+
+          if (view.phase === 'spin' && view.last) {
+            sector(view.last.sq * STEP, (view.last.sq + 1) * STEP);
+            g.strokeStyle = '#fff'; g.lineWidth = 12; g.stroke();
+          }
+        }
+      }
+      // 陰影と内側の縁
+      const sh = g.createRadialGradient(C, C, r0, C, C, R);
+      sh.addColorStop(0, 'rgba(0,0,0,.28)'); sh.addColorStop(0.18, 'rgba(0,0,0,0)'); sh.addColorStop(0.85, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(0,0,0,.3)');
+      g.fillStyle = sh; g.beginPath(); g.arc(C, C, R, 0, 7); g.arc(C, C, r0, 0, 7, true); g.fill();
+      faceTex.needsUpdate = true;
+    }
+    let faceDirty = true;
+    const dirty = () => { faceDirty = true; };
+
+    function resize() {
+      const r = stage.getBoundingClientRect(), w = Math.max(60, Math.floor(r.width)), h = Math.max(60, Math.floor(r.height));
+      renderer.setSize(w, h, false); cv.style.width = w + 'px'; cv.style.height = h + 'px';
+      camera.aspect = w / h;
+      const tn = Math.tan(camera.fov * Math.PI / 360);
+      const d = Math.max(1.38 / (tn * camera.aspect), (1.42 * Math.sin(TILT) + 0.25) / tn);
+      camera.position.set(0, d * Math.sin(TILT), d * Math.cos(TILT));
+      camera.lookAt(0, -0.05, 0.02);
+      camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(stage);
+
+    const myTurn = () => view && view.phase === 'pin' && view.turn === me;
+    function firstOk(a, lvl) {
+      for (let d = 1; d <= MAXW; d++) if (okAt(view, me, a, (a + d) % N, lvl) || okAt(view, me, a, (a - d + N) % N, lvl)) return true;
+      return false;
+    }
+    function targets() {
+      const lvl = ruleLevel(view, me), out = [];
+      for (let i = 0; i < N; i++) {
+        if (sel.includes(i)) continue;
+        if (sel.length === 0 ? firstOk(i, lvl) : okAt(view, me, sel[0], i, lvl)) out.push(i);
+      }
+      return out;
+    }
+
+    // 玉の動き：ホストが物理演算した軌跡（毎秒 SIM_FPS コマ）をなめらかにつないで再生する
+    let wheelAngle = 0, lastShown = '';
+    const qa = new THREE.Quaternion(), qb = new THREE.Quaternion();
+    function spinPose(now) {
+      const fr = anim.frames, f = Math.max(0, (now - anim.start) / 1000 * anim.fps);
+      const i = Math.min(fr.length - 1, Math.floor(f)), j = Math.min(fr.length - 1, i + 1), k = Math.min(1, f - i);
+      const L2 = n => fr[i][n] + (fr[j][n] - fr[i][n]) * k;
+      // このコマまでに起きた衝突の音を鳴らす（種類と強さつき）
+      for (let q = (anim.played ?? -1) + 1; q <= i; q++) if (fr[q][8]) sndImpact(fr[q][8], fr[q][9]);
+      anim.played = i;
+      qa.set(fr[i][4], fr[i][5], fr[i][6], fr[i][7]); qb.set(fr[j][4], fr[j][5], fr[j][6], fr[j][7]);
+      const dW = (fr[j][0] - fr[i][0]) * anim.fps;
+      return { wa: L2(0), x: L2(1), y: L2(2), z: L2(3), q: qa.slerp(qb, k), done: i >= fr.length - 1, wheelSpd: Math.abs(dW) };
+    }
+
+    function frame(now) {
+      requestAnimationFrame(frame);
+      const key = [view && view.phase, view && view.turn, sel.join(), lang, view && view.spin && view.spin.id, anim.id, JSON.stringify(view && view.pins), view && view.order.join()].join('|');
+      if (key !== lastShown) { lastShown = key; faceDirty = true; buildPins(); }
+      if (faceDirty) { faceDirty = false; drawFace(); }
+      const showBall = view && view.spin && anim.id === view.spin.id && (orderWheelOn() || view.phase === 'spin');
+      if (showBall) {
+        const s = spinPose(now);
+        wheelAngle = s.wa;
+        // 速さに合わせて転がる音を出す
+        let spd = 0;
+        if (ball.userData.px !== undefined) {
+          const d = Math.hypot(s.x - ball.userData.px, s.z - ball.userData.pz, s.y - ball.userData.py);
+          spd = d < 0.5 ? d / Math.max(0.001, (now - ball.userData.t) / 1000) : 0;
+        }
+        ball.userData.px = s.x; ball.userData.py = s.y; ball.userData.pz = s.z; ball.userData.t = now;
+        ball.visible = true; ball.position.set(s.x, s.y, s.z); ball.quaternion.copy(s.q);
+        const r = Math.hypot(s.x, s.z), grounded = s.y < (r > 1.02 ? surfaceY(r) : 0.035) + BALL_R + 0.012;
+        rollSound(s.done ? 0 : Math.min(1, spd / 14) * (grounded ? 1 : 0), r > 1.02);
+        wheelSound(s.done ? 0 : Math.min(1, s.wheelSpd / 2.2));
+      } else {
+        ball.visible = false; ball.userData.px = undefined; rollSound(0); wheelSound(0);
+        wheelAngle = view ? view.wheelAngle || 0 : -(now / 9000) % (2 * Math.PI);
+      }
+      wheel.rotation.y = -wheelAngle;
+      animateCat(now);
+      selHeads.forEach(h => { h.position.y = h.userData.y + 0.015 + 0.015 * Math.sin(now / 130); });
+      markGroup.children.forEach(m => { const s = 1 + 0.25 * Math.sin(now / 200); m.scale.set(s, s, s); });
+      // 制限時間のバー
+      const left = turnDeadline ? Math.max(0, (turnDeadline - now) / TURN_MS) : 0;
+      timerBar.style.transform = `scaleX(${left})`;
+      timerBar.parentNode.style.visibility = turnDeadline && view && view.phase === 'pin' ? 'visible' : 'hidden';
+      timerBar.style.background = left < 0.25 ? '#ff6b6b' : view && view.turn >= 0 ? COLORS[view.turn] : '#fff';
+      renderer.render(scene, camera);
+    }
+    const timerBar = $('timer').firstElementChild;
+
+    // ---- 操作：盤の縁（マスの境目）をタップしてピンを立てる ----
+    const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit = new THREE.Vector3();
+    cv.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (!myTurn()) return;
+      const rect = cv.getBoundingClientRect();
+      ray.setFromCamera({ x: (e.clientX - rect.left) / rect.width * 2 - 1, y: -(e.clientY - rect.top) / rect.height * 2 + 1 }, camera);
+      // ピンの頭の高さあたりも押しやすいよう、少し上の面でも当たりを取る
+      let best = null;
+      for (const hgt of [0, PIN_H]) {
+        plane.constant = -hgt;
+        if (!ray.ray.intersectPlane(plane, hit)) continue;
+        const r = Math.hypot(hit.x, hit.z);
+        if (r < 0.4 || r > 1.3) continue;
+        let th = Math.atan2(hit.x, -hit.z) - wheelAngle; th = ((th % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+        const i = Math.round(th / STEP) % N, err = Math.abs(th - Math.round(th / STEP) * STEP) * r + Math.abs(r - PIN_R) * 0.3;
+        if (!best || err < best.err) best = { i, err };
+      }
+      if (!best) return;
+      const i = best.i, lvl = ruleLevel(view, me), before = sel.join();
+      if (sel.includes(i)) sel = sel.filter(x => x !== i);
+      else if (sel.length === 0) { if (firstOk(i, lvl)) sel = [i]; }
+      else if (okAt(view, me, sel[0], i, lvl)) sel = [sel[0], i];
+      else if (firstOk(i, lvl)) sel = [i];
+      if (sel.join() !== before) sndTap(sel.includes(i));
+      renderCtrl(); renderPlayers(); renderInfo();
+    });
+
+    applyLang();
+    requestAnimationFrame(frame);
+  </script>
+  <!-- 結果画面の広告（../../ad.js の説明を参照） -->
+  <script src="../../ad.js" data-result="#panel.over" data-inline="#adSlot"></script>
+</body>
+</html>
