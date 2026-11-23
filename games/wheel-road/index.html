@@ -365,7 +365,8 @@ const MASS = 80, IPERP = 30;    // 車体の重さと、車軸に垂直な向き
 const IWK = 8;                  // 車輪1つの回しにくさ = IWK × r²
 const KN = 90000, CN = 3200;    // 道からの押し返し（ばね・ダンパー）
 const MU = 1.05;                // 摩擦
-const TQ = 230, WMAX = 10.5;    // 車輪1つあたりのアクセルの力と、最高回転 (rad/s)
+const TQ = 140, WMAX = 10.5;    // 車輪1つあたりのアクセルの力と、最高回転 (rad/s)
+const COAST = 130;              // アクセルを離した時の減速（エンジンブレーキ）
 const BRAKE = 600;              // 車輪1つあたりのブレーキの力
 const RRES = 6;                 // 転がり抵抗
 const ARM = 0.5, GOND = 0.72;   // ゴンドラ（猫の乗る所）の腕の長さと底までの距離
@@ -441,20 +442,118 @@ function contact(pt, center, spin, mu, r) {
   if (g.surf === 3 && spin >= 0) { const along = S.v.x * g.dx + S.v.z * g.dz; if (along < 17) { S.v.x += g.dx * 3.5 * h; S.v.z += g.dz * 3.5 * h; } }
   return N;
 }
-// 樽やコーンにぶつかる（横から押し返す）
-const KO = 50000, CO = 2200;
+// ===== 樽とコーン（倒れたり転がったりする物体） =====
+// o.p 中心、o.q 向き、o.v 速度、o.w 回転。止まって0.6秒たつと眠り、ぶつかると起きる
+const KO = 50000, CO = 1600;
+const _lp = new THREE.Vector3(), _ln = new THREE.Vector3(), _qi = new THREE.Quaternion(), _ov = new THREE.Vector3(), _or = new THREE.Vector3(), _ot = new THREE.Vector3(), _oq = new THREE.Quaternion();
+const obsRad = (o, yl) => o.cone ? o.R * (o.H / 2 - yl) / o.H + 0.05 : o.R;
+// 点が物体の中に入っている深さ（_n に外向きの向き）
+function obsPen(o, pt) {
+  _lp.copy(pt).sub(o.p).applyQuaternion(_qi.copy(o.q).invert());
+  const hy = o.H / 2;
+  if (_lp.y <= -hy || _lp.y >= hy) return 0;
+  const rr = obsRad(o, _lp.y), d = Math.hypot(_lp.x, _lp.z);
+  if (d >= rr) return 0;
+  const ps = rr - d, pT = hy - _lp.y, pB = _lp.y + hy;
+  let pen;
+  if (ps <= pT && ps <= pB) { _ln.set(_lp.x / (d || 1), 0, _lp.z / (d || 1)); pen = ps; }
+  else if (pT < pB) { _ln.set(0, 1, 0); pen = pT; } else { _ln.set(0, -1, 0); pen = pB; }
+  _n.copy(_ln).applyQuaternion(o.q);
+  return pen;
+}
+function obsVel(o, pt, out) { _or.subVectors(pt, o.p); return out.copy(o.v).add(_ot.crossVectors(o.w, _or)); }
+// 回しにくさ（円柱）を使って、物体に衝撃を加える
+function obsInvI(o, v) { // v（世界）に慣性の逆数をかける
+  _lp.copy(v).applyQuaternion(_qi.copy(o.q).invert());
+  _lp.x /= o.Ix; _lp.y /= o.Iy; _lp.z /= o.Ix;
+  return _lp.applyQuaternion(o.q);
+}
+function obsImp(o, J, pt) {
+  o.v.addScaledVector(J, 1 / o.m);
+  _or.subVectors(pt, o.p);
+  o.w.add(obsInvI(o, _ot.crossVectors(_or, J)));
+  o.awake = true; o.rest = 0;
+}
+function obsInvMass(o, pt, dir) {
+  _or.subVectors(pt, o.p);
+  const a = obsInvI(o, _ot.crossVectors(_or, dir));
+  return 1 / o.m + _ot.crossVectors(a, _or).dot(dir);
+}
+// 乗り物の点が物体に当たった: 両方を押し返す
 function hitObstacles(pt, center, spin, obs) {
   for (const o of obs) {
-    const dx = pt.x - o.x, dz = pt.z - o.z, d2 = dx * dx + dz * dz;
-    if (d2 >= o.R * o.R || pt.y < o.y - 0.05 || pt.y > o.y + o.H) continue;
-    const d = Math.sqrt(d2) || 1e-4, pen = o.R - d;
-    _n.set(dx / d, 0, dz / d);
+    if (o.gone) continue;
+    const pen = obsPen(o, pt);
+    if (pen <= 0) continue;
+    const nx = _n.x, ny = _n.y, nz = _n.z;
     _rb.subVectors(pt, S.p); _rho.subVectors(pt, center);
     velAt(_rb, _rho, spin, _vel);
-    const vn = _vel.dot(_n);
+    obsVel(o, pt, _ov);
+    _n.set(nx, ny, nz);
+    const vn = _vel.sub(_ov).dot(_n);
     const N = Math.max(0, KO * pen - CO * vn);
-    _J.copy(_n).multiplyScalar(N * DT / SUB); applyImp(_J, _rb, _rho, spin);
-    if (vn < -1.2) S.hit = Math.max(S.hit, -vn);
+    _J.copy(_n).multiplyScalar(N * DT / SUB);
+    applyImp(_J, _rb, _rho, spin);
+    obsImp(o, _J.negate(), pt);
+    if (vn < -1.2) S.hit = Math.max(S.hit, -vn * (o.cone ? 0.5 : 1));
+  }
+}
+// 物体ひとつ分の計算（地面・ほかの物体）
+const OBS_PTS = [];
+for (const yl of [-1, 1]) for (let j = 0; j < 8; j++) OBS_PTS.push([j / 8 * Math.PI * 2, yl]);
+function simObs(list, h) {
+  for (const o of list) {
+    if (!o.awake || o.gone) continue;
+    o.v.y -= G * h;
+    // 地面との接触: 上下のふちの16点
+    const hy = o.H / 2, KG = o.m * 1500, CG = o.m * 30;
+    for (const [a, yl] of OBS_PTS) {
+      const ly = yl * hy * 0.999, rr = obsRad(o, ly);
+      _pt.set(Math.cos(a) * rr, ly, Math.sin(a) * rr).applyQuaternion(o.q).add(o.p);
+      const g = road.ground(_pt.x, _pt.z, o.hint, 0);
+      if (!g) continue;
+      _n.set(-g.gs * g.dx, 1, -g.gs * g.dz).normalize();
+      const pen = (g.y - _pt.y) * _n.y;
+      if (pen <= 0 || pen > 0.3) continue;
+      const nx = _n.x, ny = _n.y, nz = _n.z;
+      obsVel(o, _pt, _ov);
+      const vn = _ov.x * nx + _ov.y * ny + _ov.z * nz;
+      const N = Math.max(0, KG * pen - CG * vn);
+      _J.set(nx, ny, nz).multiplyScalar(N * h); obsImp(o, _J, _pt);
+      obsVel(o, _pt, _ov); _n.set(nx, ny, nz);
+      _ov.addScaledVector(_n, -_ov.dot(_n));
+      const sl = _ov.length();
+      if (sl > 1e-5) { _t.copy(_ov).divideScalar(sl); const J = Math.min(sl / obsInvMass(o, _pt, _t), 0.6 * SURF_MU[g.surf] * N * h); _J.copy(_t).multiplyScalar(-J); obsImp(o, _J, _pt); }
+    }
+    // ほかの物体: 球として押し合う
+    for (const b of list) {
+      if (b === o || b.gone) continue;
+      const rA = o.cone ? 0.3 : 0.45, rB = b.cone ? 0.3 : 0.45;
+      _tmp.subVectors(o.p, b.p); const d = _tmp.length();
+      if (d >= rA + rB || d < 1e-4) continue;
+      _tmp.divideScalar(d);
+      const rv = _tmp2.subVectors(o.v, b.v).dot(_tmp);
+      const N = Math.max(0, 20000 * (rA + rB - d) - 300 * rv);
+      _tmp.multiplyScalar(N * h * 0.5);
+      o.v.addScaledVector(_tmp, 1 / o.m); b.v.addScaledVector(_tmp, -1 / b.m); b.awake = true; b.rest = 0;
+    }
+  }
+  for (const o of list) {
+    if (!o.awake || o.gone) continue;
+    o.p.addScaledVector(o.v, h);
+    _oq.set(o.w.x * h * 0.5, o.w.y * h * 0.5, o.w.z * h * 0.5, 0).multiply(o.q);
+    o.q.set(o.q.x + _oq.x, o.q.y + _oq.y, o.q.z + _oq.z, o.q.w + _oq.w).normalize();
+    o.v.multiplyScalar(1 - 0.15 * h); o.w.multiplyScalar(1 - 0.8 * h);
+  }
+}
+function obsAfterStep(list) {
+  for (const o of list) {
+    if (!o.awake || o.gone) continue;
+    o.moved = true;
+    o.hint = road.query(o.p.x, o.p.z, o.hint).i;
+    if (o.p.y < SEA_Y) { o.gone = true; o.awake = false; if (o.mesh) o.mesh.visible = false; continue; }
+    if (o.v.lengthSq() < 0.01 && o.w.lengthSq() < 0.04) { o.rest += DT; if (o.rest > 0.6) { o.awake = false; o.v.set(0, 0, 0); o.w.set(0, 0, 0); } }
+    else o.rest = 0;
   }
 }
 function substep(h) {
@@ -469,7 +568,7 @@ function substep(h) {
     if (S.ac[k]) tq = TQ * Math.max(0, 1 - om / WMAX);
     om += tq * h / Iw;
     if (S.br[k]) { const d = BRAKE * h / Iw; br = Math.min(Math.abs(om), d) * Math.sign(om) * Iw / h; om = Math.abs(om) <= d ? 0 : om - Math.sign(om) * d; }
-    const rr = (RRES / 2 + 0.6 * Math.abs(om) + (S.surf[k] === 2 ? 95 : 0)) * h / Iw; om = Math.abs(om) <= rr ? 0 : om - Math.sign(om) * rr;  // 泥は重い
+    const rr = (RRES / 2 + 0.6 * Math.abs(om) + (S.surf[k] === 2 ? 95 : 0) + (S.ac[k] || S.br[k] ? 0 : COAST)) * h / Iw; om = Math.abs(om) <= rr ? 0 : om - Math.sign(om) * rr;  // 泥は重い
     S.om[k] = om; S.tq += tq - br;
   }
   frame();
@@ -498,6 +597,7 @@ function substep(h) {
   _pt.copy(S.p).addScaledVector(_u, -Math.cos(S.th) * GOND).addScaledVector(_f, Math.sin(S.th) * GOND);
   const Ng = contact(_pt, S.p, -1, 0.45, 0);
   if (Ng > 0) S.scrape = Math.max(S.scrape, Math.hypot(S.v.x, S.v.z));
+  simObs(obsActive, h);
   if (obsNear.length) {
     hitObstacles(_pt, S.p, -1, obsNear);
     for (const sd of [-1, 1]) { _tmp2.copy(S.p).addScaledVector(_u, -GOND * 0.6).addScaledVector(_f, sd * 0.42); hitObstacles(_tmp2, S.p, -1, obsNear); }
@@ -509,12 +609,14 @@ function substep(h) {
   S.v.multiplyScalar(1 - 0.02 * h); S.w.multiplyScalar(1 - 0.3 * h);
   S.phi[0] += S.om[0] * h; S.phi[1] += S.om[1] * h;
 }
-let obsNear = [];
+let obsNear = [], obsActive = [];
 function physStep() {
   S.contact[0] = S.contact[1] = false; S.scrape = 0;
-  obsNear = road.obsNear(S.hint);
+  obsActive = road.obsAround(S.hint);
+  obsNear = obsActive.filter(o => !o.gone && o.p.distanceToSquared(S.p) < 36);
   S.vPrev.copy(S.v);
   for (let i = 0; i < SUB; i++) substep(DT / SUB);
+  obsAfterStep(obsActive);
   // ゴンドラの振り子: 加速すると後ろへ、ブレーキで前へ揺れる
   _tmp.subVectors(S.v, S.vPrev).divideScalar(DT);
   S.accS.lerp(_tmp, 0.15);
@@ -620,18 +722,21 @@ const road = {
         const cone = R() < 0.45, rad = cone ? 0.24 : 0.36;
         if (Math.abs(lat - lane) < 1.3 + rad) continue;
         if (f.obs.some(o => Math.hypot(o.s - sc, o.lat - lat) < 0.9)) continue;
-        const p = this.at(sc, {});
-        f.obs.push({ s: sc, lat, cone, R: rad, H: cone ? 0.75 : 0.95, x: p.x + Math.cos(p.h) * lat, z: p.z + Math.sin(p.h) * lat, y: p.y, h: p.h });
+        const p = this.at(sc, {}), H = cone ? 0.75 : 0.95, m = cone ? 4 : 15;
+        f.obs.push({ id: this.feats.indexOf(f) * 16 + f.obs.length, s: sc, cone, R: rad, H, m, Iy: 0.5 * m * rad * rad, Ix: m * (3 * rad * rad + H * H) / 12,
+          p: new THREE.Vector3(p.x + Math.cos(p.h) * lat, p.y + H / 2, p.z + Math.sin(p.h) * lat), q: new THREE.Quaternion().setFromAxisAngle(UP, -p.h + sc),
+          v: new THREE.Vector3(), w: new THREE.Vector3(), awake: false, rest: 0, hint: sc, gone: false, mesh: null, lat });
         k++;
       }
     }
     return f.obs;
   },
-  obsNear(hint) {
+  obsAround(hint) {
     const out = [];
-    for (const f of this.featsIn(hint - 4, hint + 4)) if (f.type === 'barrels') for (const o of this.obsOf(f)) if (Math.abs(o.s - hint) < 4) out.push(o);
+    for (const f of this.featsIn(hint - 30, hint + 30)) if (f.type === 'barrels') for (const o of this.obsOf(f)) out.push(o);
     return out;
   },
+  obsById(id) { const f = this.feats[id >> 4]; return f && f.type === 'barrels' ? this.obsOf(f)[id & 15] : null; },
   ensure(n) {
     if (this.x.length > n) return;
     this.genFeats(n + 60);
@@ -1013,7 +1118,8 @@ function buildChunk(c) {
     } else if (f.type === 'barrels') {
       for (const o of road.obsOf(f)) {
         if (o.s < s0c || o.s >= s1c) continue;
-        const g = new THREE.Group(); g.position.set(o.x, o.y, o.z); g.rotation.y = -o.h + o.s;
+        const g0 = new THREE.Group(); g0.position.copy(o.p); g0.quaternion.copy(o.q); g0.visible = !o.gone;
+        const g = new THREE.Group(); g.position.y = -o.H / 2; g0.add(g); o.mesh = g0;
         if (o.cone) {
           const b = new THREE.Mesh(G_.coneBase, M.cone); b.position.y = 0.025; g.add(b);
           const cn = new THREE.Mesh(G_.cone, M.cone); cn.position.y = 0.41; cn.castShadow = true; g.add(cn);
@@ -1021,9 +1127,9 @@ function buildChunk(c) {
         } else {
           const b = new THREE.Mesh(G_.barrel, M.barrel); b.castShadow = true; g.add(b);
           const tp = new THREE.Mesh(G_.barrelTop, M.logEnd); tp.rotation.x = -Math.PI / 2; tp.position.y = 0.95; g.add(tp);
-          for (const y of [0.2, 0.74]) { const bd = new THREE.Mesh(G_.band, M.band); bd.rotation.x = Math.PI / 2; bd.position.y = y; bd.scale.setScalar(y === 0.2 ? 0.97 : 0.97); g.add(bd); }
+          for (const y of [0.2, 0.74]) { const bd = new THREE.Mesh(G_.band, M.band); bd.rotation.x = Math.PI / 2; bd.position.y = y; bd.scale.setScalar(0.97); g.add(bd); }
         }
-        grp.add(g);
+        grp.add(g0);
       }
     }
   }
@@ -1318,7 +1424,7 @@ function reset(newSeed) {
   S.splashed = false; S.phi = [0, 0]; S.om = [0, 0]; S.th = 0; S.thd = 0; S.rL = S.rR = S.tL = S.tR = R0; S.accS.set(0, 0, 0); S.hint = START_S;
   inp.tL = inp.tR = R0; Object.assign(remote, { tL: R0, tR: R0, aL: false, bL: false, aR: false, bR: false });
   dist = 0; fallT = 0; state = 'ready';
-  netBuf.length = 0;
+  netBuf.length = 0; guestObs.clear(); obsActive = []; obsNear = [];
   for (let i = 0; i < 60; i++) physStep();   // 置いた瞬間の揺れを先に落ち着かせる
   snapPrev(); snapPrev(); interp(prev, cur, 1, view);
   camInit = true; fallCam.set = false; snapTaken = false; camHint = START_S; S.hit = 0;
@@ -1475,7 +1581,8 @@ function updCamera(dt) {
 
 // ===== 1コマの描画 =====
 const _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _zb = new THREE.Vector3();
-let lastPlankL = 0, lastPlankR = 0;
+let lastPlankL = 0, lastPlankR = 0, renderDt = 0.016;
+const guestObs = new Set();
 function render() {
   const vs = view;
   // 乗り物
@@ -1488,6 +1595,17 @@ function render() {
   wheelL.scale.set(1.5, vs.rL, vs.rL); wheelR.scale.set(1.5, vs.rR, vs.rR);
   wheelL.userData.spin.rotation.x = -vs.phiL; wheelR.userData.spin.rotation.x = -vs.phiR;
   chassis.rotation.x = vs.th;
+  // 樽とコーン
+  if (mode !== 'guest') {
+    for (const o of obsActive) if (o.moved && o.mesh) { o.mesh.position.copy(o.p); o.mesh.quaternion.copy(o.q); o.mesh.visible = !o.gone; o.moved = false; o.netDirty = true; }
+  } else {
+    const k = 1 - Math.exp(-14 * renderDt);
+    for (const o of guestObs) {
+      if (!o.mesh) continue;
+      o.p.lerp(o.tp, k); o.q.slerp(o.tq, k);
+      o.mesh.position.copy(o.p); o.mesh.quaternion.copy(o.q); o.mesh.visible = !o.gone;
+    }
+  }
   // 光と影は乗り物について行く
   sun.target.position.copy(vs.p); sun.position.copy(vs.p).add(SUN_OFF);
   sky.position.copy(camera.position);
@@ -1581,7 +1699,7 @@ $('coopX').onclick = () => {
 };
 function hookConn() {
   lastRecv = performance.now();
-  conn.on('data', onNet);
+  if (!conn._hooked) { conn._hooked = true; conn.on('data', onNet); }
   conn.on('close', () => onLeave());
   conn.on('error', () => onLeave());
 }
@@ -1594,8 +1712,7 @@ function setModeUI() {
 function becomeHost() {
   mode = 'host'; hookConn(); closeCoop(); setModeUI();
   toast(t('joined'));
-  reset();
-  netSend({ t: 'reset', seed });
+  // 道の種は、相手の準備ができた知らせ（hello）が来てから送る
 }
 function onLeave() {
   if (mode === 'solo') return;
@@ -1611,7 +1728,8 @@ function onNet(m) {
   lastRecv = performance.now();
   if (m.t === 'bye') { onLeave(); return; }
   if (mode === 'host') {
-    if (m.t === 'i') { remote.tR = clamp(+m.r || R0, RMIN, RMAX); remote.aR = !!m.a; remote.bR = !!m.b; }
+    if (m.t === 'hello') { reset(); netSend({ t: 'reset', seed }); }
+    else if (m.t === 'i') { remote.tR = clamp(+m.r || R0, RMIN, RMAX); remote.aR = !!m.a; remote.bR = !!m.b; }
     else if (m.t === 'go') { if (state === 'ready') startPlay(); }
     else if (m.t === 'retry') { if (state === 'over') { reset(); netSend({ t: 'reset', seed }); } }
   } else if (mode === 'guest') {
@@ -1622,6 +1740,12 @@ function onNet(m) {
       const off = m.k - now;
       netOffset = netOffset == null ? off : Math.min(off, netOffset + 0.002); // 一番早く届いた分に合わせる
       netBuf.push(m); if (netBuf.length > 40) netBuf.shift();
+      if (Array.isArray(m.o)) for (const e of m.o) {
+        const o = road.obsById(e[0]); if (!o) continue;
+        if (!o.tp) { o.tp = o.p.clone(); o.tq = o.q.clone(); }
+        o.tp.set(e[1], e[2], e[3]); o.tq.set(e[4], e[5], e[6], e[7]).normalize(); o.gone = !!e[8];
+        guestObs.add(o);
+      }
     }
   }
 }
@@ -1631,7 +1755,9 @@ function hostSend(now) {
   if (mode !== 'host' || now - lastSend < 1 / 30) return;
   lastSend = now;
   const st = { ready: 0, play: 1, fall: 2, over: 3 }[state];
-  netSend({ t: 's', k: now, d: [R3(S.p.x), R3(S.p.y), R3(S.p.z), R3(S.a.x), R3(S.a.y), R3(S.a.z), R3(S.phi[0]), R3(S.phi[1]), R3(S.th), R3(S.rL), R3(S.rR), R3(S.om[0]), R3(S.om[1]), R3(inp.tL), inp.aL ? 1 : 0, inp.bL ? 1 : 0, R3(dist), st, R3(S.scrape), (S.contact[0] || S.contact[1]) ? 1 : 0, R3(fallT)] });
+  const ob = [];
+  for (const o of obsActive) if (o.netDirty) { o.netDirty = false; ob.push([o.id, R3(o.p.x), R3(o.p.y), R3(o.p.z), R3(o.q.x), R3(o.q.y), R3(o.q.z), R3(o.q.w), o.gone ? 1 : 0]); }
+  netSend({ t: 's', k: now, o: ob.length ? ob : undefined, d: [R3(S.p.x), R3(S.p.y), R3(S.p.z), R3(S.a.x), R3(S.a.y), R3(S.a.z), R3(S.phi[0]), R3(S.phi[1]), R3(S.th), R3(S.rL), R3(S.rR), R3(S.om[0]), R3(S.om[1]), R3(inp.tL), inp.aL ? 1 : 0, inp.bL ? 1 : 0, R3(dist), st, R3(S.scrape), (S.contact[0] || S.contact[1]) ? 1 : 0, R3(fallT)] });
 }
 // ゲスト: 自分の入力を送る（変わった時と、1秒に10回）
 let lastIn = '';
@@ -1679,9 +1805,11 @@ async function joinRoom(room) {
     peer.on('error', () => { clearTimeout(timer); fail(); });
     peer.on('open', () => {
       const c = peer.connect('kfwheel-' + room, { reliable: true });
+      c._hooked = true; c.on('data', onNet);   // 先に受け取る準備をしてから
       c.on('open', () => {
         clearTimeout(timer);
         conn = c; mode = 'guest'; hookConn(); closeCoop(); setModeUI(); toast(t('joined'));
+        netSend({ t: 'hello' });                // 準備できたら、ホストに道の種を送ってもらう
       });
     });
   } catch { setStatus('fail'); }
@@ -1765,6 +1893,7 @@ function loop(nowMs) {
   updParts(dt);
   updateChunks(Math.max(0, camHint));
   updCamera(dt);
+  renderDt = dt;
   render();
   // 結果画像は、落ち始めて少したった（転げ落ちていく）所で撮っておく
   if (mode === 'guest' && state === 'fall' && fallT > 0.45 && !snapTaken) needSnap = true;
