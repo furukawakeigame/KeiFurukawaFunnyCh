@@ -18,16 +18,34 @@
 //     ゲームの時間は実際の時間より速く進まないので、正直に遊んだ人が弾かれることはない。
 //   ・整理券は1回だけ使える。ウェーブ150より上、1日3000件より多い登録は受け付けない。
 //
-// GET  ?game=<フォルダ名>                         → { today: [{ name, wave, kills }], all: [...] }
+// 距離で競うゲーム（どこまで車輪: wheel-road / wheel-road-2p）のズル対策:
+//   ・走る道の種（seed）は start でサーバーが決めて渡す（走りやすい道を選べない）。
+//   ・最初の操作で go を送り、そこから100m進むたびに cp を送る。サーバーは
+//     「100mを最高速度（18m/s）より速く進んでいないか」「go からの本当の時間で、平均15m/sより速く進んでいないか」を確かめる。
+//   ・最後の submit の距離は、最後に届いた cp の距離から次の cp の手前まで。整理券は1回だけ。
+//   ・ゲームのプログラム自体を改造して本当に走らせるズルまでは防げない（見つけたら行を消す・ban に書く）。
+//   ・2人用は name と name2 を「名前1&名前2」で保存し、端末は2人分を合わせたものを1組として扱う。
+//
+// GET  ?game=<フォルダ名>                         → { today: [{ name, wave, kills }], all: [...] }   （距離のゲームは wave が距離 m）
 // POST {act:'start', game, dev}                    → { ok, tok }
 // POST {act:'wave', tok, wave, kills}              → { ok }        （wave = クリアしたウェーブ）
 // POST {act:'submit', tok, name, wave, kills, sec, dev} → { ok, rank: { today, all }, today, all } または { ok: false, error }
 //      ブラウザからは Content-Type: text/plain で送る（事前確認の通信を起こさないため）
 //      同じ端末（dev）の記録は、一番良いものだけがランキングに載る
+// 距離のゲーム:
+// POST {act:'start', game, dev}                    → { ok, tok, seed }
+// POST {act:'go', tok}                             → { ok }        （最初の操作をした時）
+// POST {act:'cp', tok, n, sec}                     → { ok }        （n×100m に着いた。sec は go からの秒数）
+// POST {act:'submit', tok, name, name2?, dev2?, dist, sec, dev} → 上と同じ
 
 const SHEET = 'scores', BAN = 'ban';
 const TOP_N = 10, MAX_WAVE = 150, DAY_CAP = 3000;
-const GAMES = ['slingshot-wave']; // ランキングを受け付けるゲーム（フォルダ名）
+const GAMES = ['slingshot-wave', 'wheel-road', 'wheel-road-2p']; // ランキングを受け付けるゲーム（フォルダ名）
+// 距離で競うゲーム: cp 何mごとに知らせるか / vmax 平均速度の上限 / top 一瞬の最高速度 / max 距離の上限 / duo 2人用
+const DIST = {
+  'wheel-road': { cp: 100, vmax: 15, top: 18, max: 100000 },
+  'wheel-road-2p': { cp: 100, vmax: 15, top: 18, max: 100000, duo: true },
+};
 const NG = [ // 名前に使えない言葉（ひらがな・小文字にそろえてから、含まれているかを見る）
   'しね', 'ころす', 'ころせ', 'きちがい', 'がいじ', 'ちんこ', 'ちんぽ', 'まんこ', 'うんこ', 'せっくす', 'れいぷ', 'ばいた', 'くそ',
   'fuck', 'shit', 'bitch', 'dick', 'pussy', 'cunt', 'nigg', 'fag', 'rape', 'sex', 'porn', 'kill',
@@ -130,13 +148,19 @@ function doPost(e) {
     if (act === 'start') {
       const game = String(b.game || ''), dev = String(b.dev || '').slice(0, 40);
       if (!GAMES.includes(game)) return json({ ok: false, error: 'bad' });
-      if (limited('st:' + dev, 10, 60) || limited('stmin:' + Math.floor(now / 60000), 400, 70)) return json({ ok: false, error: 'wait' });
+      if (limited('st:' + dev, DIST[game] ? 40 : 10, 60) || limited('stmin:' + Math.floor(now / 60000), 400, 70)) return json({ ok: false, error: 'wait' });
       const tok = Utilities.getUuid();
+      if (DIST[game]) {
+        const seed = Math.floor(Math.random() * 1e9);
+        putSess(tok, { game, dev, seed, issued: now, go: 0, cp: 0, ct: 0, used: false });
+        return json({ ok: true, tok, seed });
+      }
       putSess(tok, { game, dev, t0: now, last: now, wave: 0, kills: 0, used: false });
       return json({ ok: true, tok });
     }
     const tok = String(b.tok || ''), s = getSess(tok);
     if (!s || s.used) return json({ ok: false, error: 'bad' });
+    if (DIST[s.game]) return distAct(act, b, s, tok, now);
     const R = RULES[s.game];
     const wave = Math.floor(Number(b.wave)), kills = Math.floor(Number(b.kills));
     if (act === 'wave') {
@@ -170,4 +194,47 @@ function doPost(e) {
     cache().put('tops:' + game + ':' + today(), JSON.stringify(o), 60);
     return json({ ok: true, rank: { today: rankIn(todayRows), all: rankIn(allRows) }, today: o.today, all: o.all });
   } finally { lock.releaseLock(); }
+}
+
+// ---- 距離で競うゲーム ----
+function distAct(act, b, s, tok, now) {
+  const D = DIST[s.game];
+  const fail = () => { s.used = true; putSess(tok, s); return json({ ok: false, error: 'bad' }); };
+  if (act === 'go') {
+    if (s.go || now - s.issued > 3600 * 1000) return fail();
+    s.go = now; putSess(tok, s);
+    return json({ ok: true });
+  }
+  if (!s.go) return fail();
+  const real = (now - s.go) / 1000;                 // go から本当にたった秒数
+  if (act === 'cp') {
+    const n = Math.floor(Number(b.n)), ct = Number(b.sec);
+    if (n !== s.cp + 1 || n * D.cp > D.max || !(ct >= s.ct) || ct > real + 3) return fail();
+    if (n > 1 && ct - s.ct < D.cp / D.top) return fail();          // 100m を最高速度より速く
+    if (n * D.cp > D.vmax * real + 60) return fail();               // 平均速度が速すぎる
+    s.cp = n; s.ct = ct; putSess(tok, s);
+    return json({ ok: true });
+  }
+  if (act !== 'submit') return json({ ok: false, error: 'bad' });
+  const dist = Math.floor(Number(b.dist)), sec = Math.floor(Number(b.sec)), dev = String(b.dev || '').slice(0, 40);
+  if (dev !== s.dev) return json({ ok: false, error: 'bad' });
+  if (!(dist >= s.cp * D.cp && dist < (s.cp + 1) * D.cp + 1 && dist <= D.max)) return fail();
+  if (!(sec >= Math.floor(s.ct) && sec <= real + 3) || dist > D.vmax * real + 60) return fail();
+  const n1 = cleanName(b.name), n2 = D.duo ? (cleanName(b.name2) || '?') : '';
+  if (!n1) return json({ ok: false, error: 'name' });
+  if (badName(n1) || (n2 && badName(n2))) return json({ ok: false, error: 'ng' });
+  const name = D.duo ? n1 + '&' + n2 : n1;
+  const pairDev = D.duo ? (dev.slice(0, 19) + '+' + String(b.dev2 || '').replace(/[^0-9a-z]/gi, '').slice(0, 19)) : dev;
+  const ban = banned();
+  if (ban.has(name) || ban.has(n1) || (n2 && ban.has(n2)) || ban.has(dev) || ban.has(pairDev) || (D.duo && ban.has(String(b.dev2 || '')))) return json({ ok: false, error: 'bad' });
+  if (limited('dev:' + dev, 1, 20)) return json({ ok: false, error: 'wait' });
+  if (limited('min:' + Math.floor(now / 60000), 60, 70) || limited('day:' + today(), DAY_CAP, 90000)) return json({ ok: false, error: 'wait' });
+  s.used = true; putSess(tok, s);
+  const game = s.game, t = new Date(now);
+  sheet().appendRow([t, "'" + today(), game, "'" + name, dist, 0, sec, "'" + pairDev]);
+  const rankIn = rows => bestPerDev(rows).filter(r => r.dev !== pairDev && better(r, { wave: dist, kills: 0, t: now }) < 0).length + 1;
+  const todayRows = readRows(game, true), allRows = readRows(game, false);
+  const o = { today: pub(bestPerDev(todayRows)), all: pub(bestPerDev(allRows)) };
+  cache().put('tops:' + game + ':' + today(), JSON.stringify(o), 60);
+  return json({ ok: true, rank: { today: rankIn(todayRows), all: rankIn(allRows) }, today: o.today, all: o.all });
 }
