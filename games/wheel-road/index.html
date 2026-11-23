@@ -334,6 +334,15 @@ function whoosh() {
   o.connect(g); g.connect(master); o.start(t0); o.stop(t0 + 0.5);
   noiseHit(t0, 0.4, 2500, 1, 0.06);
 }
+// バネ板の「ボヨーン」
+function boing() {
+  if (!aOn()) return;
+  const t0 = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(180, t0); o.frequency.exponentialRampToValueAtTime(520, t0 + 0.12); o.frequency.exponentialRampToValueAtTime(260, t0 + 0.45);
+  const lfo = ac.createOscillator(), lg = ac.createGain(); lfo.frequency.value = 18; lg.gain.value = 40; lfo.connect(lg); lg.connect(o.frequency);
+  g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
+  o.connect(g); g.connect(master); o.start(t0); lfo.start(t0); o.stop(t0 + 0.55); lfo.stop(t0 + 0.55);
+}
 // 雲の海に落ちた「ボフッ」
 function poof() {
   if (!aOn()) return;
@@ -363,7 +372,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 const S = {
   p: new THREE.Vector3(), v: new THREE.Vector3(), a: new THREE.Vector3(1, 0, 0), w: new THREE.Vector3(),
   phi: [0, 0], om: [0, 0], ac: [false, false], br: [false, false], Iw: [1, 1], th: 0, thd: 0, rL: R0, rR: R0, tL: R0, tR: R0,
-  accS: new THREE.Vector3(), vPrev: new THREE.Vector3(), scrape: 0, contact: [false, false], surf: [0, 0], lastN: [0, 0], hit: 0, tq: 0, hint: START_S,
+  accS: new THREE.Vector3(), vPrev: new THREE.Vector3(), scrape: 0, contact: [false, false], surf: [0, 0], lastN: [0, 0], hit: 0, time: 0, springCd: [0, 0], boing: 0, tq: 0, hint: START_S,
 };
 const _f = new THREE.Vector3(), _u = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _pt = new THREE.Vector3();
 const _rb = new THREE.Vector3(), _rho = new THREE.Vector3(), _vel = new THREE.Vector3(), _s = new THREE.Vector3(), _t = new THREE.Vector3();
@@ -392,13 +401,13 @@ function invMass(dir, rb, rho, w) {
 }
 // 1点の接触: 道の上で地面より下に入っていれば、地面の向き（坂・段差）に押し返し、すべりを摩擦で止める
 // r は車輪の半径（すき間をまたげるか、丸太をどう越えるかに使う。車輪でなければ 0）
-const SURF_MU = [1, 0.2, 0.85, 1];   // 板・氷・泥・加速板
+const SURF_MU = [1, 0.2, 0.85, 1, 1, 1];   // 板・氷・泥・加速板・ベルト・バネ板
 const _n = new THREE.Vector3();
 let lastSurf = 0;
 function contact(pt, center, spin, mu, r) {
   const g = road.ground(pt.x, pt.z, S.hint, r);
   if (!g) return 0;
-  _n.set(-g.gs * g.dx, 1, -g.gs * g.dz).normalize();
+  _n.set(-g.gs * g.dx - g.gl * g.rx, 1, -g.gs * g.dz - g.gl * g.rz).normalize();
   const pen = (g.y - pt.y) * _n.y;
   if (pen <= 0) return 0;
   // 道の面より深く入っている = すき間や穴の切り口（壁）にぶつかった。上ではなく、来た方へ押し返す
@@ -418,6 +427,7 @@ function contact(pt, center, spin, mu, r) {
   const h = DT / SUB;
   _J.copy(_n).multiplyScalar(N * h); applyImp(_J, _rb, _rho, spin);
   velAt(_rb, _rho, spin, _vel);
+  _vel.x -= g.vx; _vel.z -= g.vz;           // ベルトや回転床は床が動いている
   _vel.addScaledVector(_n, -_vel.dot(_n));
   const sl = _vel.length();
   if (sl > 1e-5) {
@@ -425,6 +435,8 @@ function contact(pt, center, spin, mu, r) {
     const J = Math.min(sl / invMass(_t, _rb, _rho, spin), mu * SURF_MU[g.surf] * N * h);
     _J.copy(_t).multiplyScalar(-J); applyImp(_J, _rb, _rho, spin);
   }
+  // バネ板: 踏んだ車輪を跳ね上げる
+  if (g.surf === 5 && spin >= 0 && S.springCd[spin] <= 0) { S.springCd[spin] = 0.6; _J.set(0, 300, 0); applyImp(_J, _rb, _rho, spin); S.boing = 1; if (g.pad) g.pad.t = S.time; }
   // 加速板: 道の進む向きへ押す
   if (g.surf === 3 && spin >= 0) { const along = S.v.x * g.dx + S.v.z * g.dz; if (along < 17) { S.v.x += g.dx * 3.5 * h; S.v.z += g.dz * 3.5 * h; } }
   return N;
@@ -485,6 +497,35 @@ function hitObstacles(pt, center, spin, obs) {
     if (vn < -1.2) S.hit = Math.max(S.hit, -vn * (o.cone ? 0.5 : 1));
   }
 }
+// 振り子ハンマーの玉・押し出し壁（決まった動きをする）にぶつかる
+function kinHit(pt, center, spin) {
+  for (const f of kinNear) {
+    const k = f.kin;
+    let pen = 0;
+    if (f.type === 'hammer') {
+      _tmp.subVectors(pt, k.p); const d = _tmp.length();
+      if (d >= 0.62 || d < 1e-4) continue;
+      pen = 0.62 - d; _n.copy(_tmp).divideScalar(d);
+    } else {
+      const rx = Math.cos(f.ch), rz = Math.sin(f.ch), dx = Math.sin(f.ch), dz = -Math.cos(f.ch);
+      const ox = pt.x - k.p.x, oy = pt.y - k.p.y, oz = pt.z - k.p.z;
+      const a = ox * dx + oz * dz, b = ox * rx + oz * rz;
+      const pa = 0.6 - Math.abs(a), pb = 0.9 - Math.abs(b), pc = 0.55 - Math.abs(oy);
+      if (pa <= 0 || pb <= 0 || pc <= 0) continue;
+      if (pb <= pa && pb <= pc) { pen = pb; _n.set(rx * Math.sign(b), 0, rz * Math.sign(b)); }
+      else if (pa <= pc) { pen = pa; _n.set(dx * Math.sign(a), 0, dz * Math.sign(a)); }
+      else { pen = pc; _n.set(0, Math.sign(oy), 0); }
+    }
+    const nx = _n.x, ny = _n.y, nz = _n.z;
+    _rb.subVectors(pt, S.p); _rho.subVectors(pt, center);
+    velAt(_rb, _rho, spin, _vel);
+    _n.set(nx, ny, nz);
+    const vn = _vel.sub(k.v).dot(_n);
+    const N = Math.max(0, 60000 * pen - 2500 * vn);
+    _J.copy(_n).multiplyScalar(N * DT / SUB); applyImp(_J, _rb, _rho, spin);
+    if (vn < -1.5) S.hit = Math.max(S.hit, -vn);
+  }
+}
 // 物体ひとつ分の計算（地面・ほかの物体）
 const OBS_PTS = [];
 for (const yl of [-1, 1]) for (let j = 0; j < 8; j++) OBS_PTS.push([j / 8 * Math.PI * 2, yl]);
@@ -499,7 +540,7 @@ function simObs(list, h) {
       _pt.set(Math.cos(a) * rr, ly, Math.sin(a) * rr).applyQuaternion(o.q).add(o.p);
       const g = road.ground(_pt.x, _pt.z, o.hint, 0);
       if (!g) continue;
-      _n.set(-g.gs * g.dx, 1, -g.gs * g.dz).normalize();
+      _n.set(-g.gs * g.dx - g.gl * g.rx, 1, -g.gs * g.dz - g.gl * g.rz).normalize();
       const pen = (g.y - _pt.y) * _n.y;
       if (pen <= 0 || pen > 0.3) continue;
       const nx = _n.x, ny = _n.y, nz = _n.z;
@@ -576,10 +617,11 @@ function substep(h) {
     if (N - S.lastN[k] > 26000) S.hit = Math.max(S.hit, (N - S.lastN[k]) / 9000);  // 段差でドスン
     S.lastN[k] = N;
     // 樽・コーン: 車輪のふちの8点で当たりを見る
-    if (obsNear.length) for (let j = 0; j < 8; j++) {
+    if (obsNear.length || kinNear.length) for (let j = 0; j < 8; j++) {
       const th = j / 8 * Math.PI * 2;
       _pt.copy(_c).addScaledVector(_f, Math.cos(th) * r).addScaledVector(_d, Math.sin(th) * r);
-      hitObstacles(_pt, _c, k, obsNear);
+      if (obsNear.length) hitObstacles(_pt, _c, k, obsNear);
+      if (kinNear.length) { _tmp2.copy(_pt); kinHit(_tmp2, _c, k); }
     }
   }
   // ゴンドラの底がこすれる
@@ -587,6 +629,10 @@ function substep(h) {
   const Ng = contact(_pt, S.p, -1, 0.45, 0);
   if (Ng > 0) S.scrape = Math.max(S.scrape, Math.hypot(S.v.x, S.v.z));
   simObs(obsActive, h);
+  if (kinNear.length) {
+    for (const sd of [-1, 0, 1]) { _pt.copy(S.p).addScaledVector(_u, -GOND * 0.6).addScaledVector(_f, sd * 0.42); kinHit(_pt, S.p, -1); }
+    for (const sd of [-1, 1]) { _pt.copy(S.p).addScaledVector(S.a, sd * TRACK / 2); kinHit(_pt, S.p, -1); }
+  }
   if (obsNear.length) {
     hitObstacles(_pt, S.p, -1, obsNear);
     for (const sd of [-1, 1]) { _tmp2.copy(S.p).addScaledVector(_u, -GOND * 0.6).addScaledVector(_f, sd * 0.42); hitObstacles(_tmp2, S.p, -1, obsNear); }
@@ -598,9 +644,19 @@ function substep(h) {
   S.v.multiplyScalar(1 - 0.02 * h); S.w.multiplyScalar(1 - 0.3 * h);
   S.phi[0] += S.om[0] * h; S.phi[1] += S.om[1] * h;
 }
-let obsNear = [], obsActive = [];
+let obsNear = [], obsActive = [], kinNear = [];
 function physStep() {
   S.contact[0] = S.contact[1] = false; S.scrape = 0;
+  S.time += DT; S.springCd[0] -= DT; S.springCd[1] -= DT;
+  kinNear = road.featsIn(S.hint - 8, S.hint + 8).filter(f => f.type === 'hammer' || f.type === 'pusher');
+  for (const f of kinNear) road.kin(f, S.time);
+  // 横風
+  const wf = road.featAt(S.hint);
+  if (wf && wf.type === 'wind') {
+    let e = clamp(Math.min(S.hint - wf.s0, wf.s1 - S.hint) / 4, 0, 1);
+    const a = wf.dir * wf.str * (0.65 + 0.35 * Math.sin(1.7 * S.time + wf.ph)) * e, hh = road.h[Math.min(road.h.length - 1, Math.round(S.hint))];
+    S.v.x += Math.cos(hh) * a * DT; S.v.z += Math.sin(hh) * a * DT;
+  }
   obsActive = road.obsAround(S.hint);
   obsNear = obsActive.filter(o => !o.gone && o.p.distanceToSquared(S.p) < 36);
   S.vPrev.copy(S.v);
@@ -628,7 +684,11 @@ function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0
 // 道の上の仕掛け（feats）: 進む順に重ならないように並べる
 //   gap すき間（大きい車輪ならまたげる） / hole 片側の穴 / logs 丸太の段差 / barrels 樽とコーン
 //   narrow 細い橋 / wide 広い所 / ice 氷 / mud 泥 / dash 加速板
-const SURF = { ice: 1, mud: 2, dash: 3 };
+//   bumpy 凸凹道 / washboard 洗濯板 / tilt 傾いた道 / zigzag ジグザグ / belt ベルトコンベア / steps 段々 / wind 横風
+//   hammer 振り子ハンマー / pusher 押し出し壁 / spring バネ板 / turntable 回転床 / jump ジャンプ台
+const SURF = { ice: 1, mud: 2, dash: 3, belt: 4 };
+const TAU = Math.PI * 2;
+function noise2(x, y, salt) { const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy); const hh = (a, b) => hash(a * 7919 + b * 104729, salt) * 2 - 1; return lerp(lerp(hh(i, j), hh(i + 1, j), u), lerp(hh(i, j + 1), hh(i + 1, j + 1), u), v); }
 const road = {
   seed: 1, x: [], z: [], h: [], w: [], y: [], feats: [], featEnd: 0, R: null,
   reset(seed) {
@@ -642,9 +702,10 @@ const road = {
   },
   width(s) {
     const b = this.base(s), f = this.featAt(s);
-    if (!f || (f.type !== 'narrow' && f.type !== 'wide')) return b;
+    if (!f || (f.type !== 'narrow' && f.type !== 'wide' && f.type !== 'zigzag' && f.type !== 'turntable')) return b;
     let k = clamp(Math.min(s - f.s0, f.s1 - s) / 6, 0, 1); k = k * k * (3 - 2 * k);
-    return lerp(b, f.type === 'narrow' ? Math.min(b, f.wt) : b * 1.55, k);
+    if (f.type === 'turntable') return Math.max(b, 4.6);
+    return lerp(b, f.type === 'narrow' ? Math.min(b, f.wt) : b * (f.type === 'wide' ? 1.55 : 1.2), k);
   },
   // 坂（60mから少しずつ起伏が大きくなる）
   hill(s) {
@@ -658,8 +719,13 @@ const road = {
     let k = amp * ramp * (0.7 * noise(s / 36, this.seed + 1) + 0.45 * noise(s / 12, this.seed + 2));
     k -= h * 0.012;
     if (Math.abs(h) > 1.0) k -= (h - Math.sign(h)) * 0.25;
-    const f = this.featAt(s);  // 細い橋・すき間・穴の所はカーブをゆるく
-    if (f && (f.type === 'narrow' || f.type === 'gap' || f.type === 'hole')) k *= 0.35;
+    const f = this.featAt(s);
+    if (f && f.type === 'zigzag') {  // ジグザグ: 左右の急カーブを繰り返す
+      let e = clamp(Math.min(s - f.s0, f.s1 - s) / 4, 0, 1); e = e * e * (3 - 2 * e);
+      return f.amp * Math.sin(TAU * (s - f.s0) / f.per) * e - h * 0.01;
+    }
+    // 細い橋・すき間・穴・動く仕掛けの所はカーブをゆるく
+    if (f && ['narrow', 'gap', 'hole', 'jump', 'steps', 'turntable', 'hammer', 'pusher', 'spring'].includes(f.type)) k *= 0.3;
     return k;
   },
   genFeats(upTo) {
@@ -671,6 +737,11 @@ const road = {
       if (s > 120) pool.push(['hole', 2], ['mud', 1.1]);
       if (s > 170) pool.push(['gap', 2.4], ['ice', 1.2]);
       if (s > 240) pool.push(['dash', 1]);
+      if (s > 60) pool.push(['bumpy', 1.6], ['washboard', 1.2]);
+      if (s > 100) pool.push(['tilt', 1.3], ['zigzag', 1.0]);
+      if (s > 150) pool.push(['belt', 1.0], ['steps', 1.0], ['wind', 1.2]);
+      if (s > 200) pool.push(['hammer', 1.4], ['pusher', 1.3], ['spring', 1.1], ['turntable', 1.0]);
+      if (s > 260) pool.push(['jump', 1.2]);
       let r = R() * pool.reduce((a, q) => a + q[1], 0), type = pool[0][0];
       for (const [t, wt] of pool) { if ((r -= wt) < 0) { type = t; break; } }
       const f = { type, s0: s, s1: s + 10 };
@@ -681,6 +752,18 @@ const road = {
       else if (type === 'wide') { f.s1 = s + 20 + R() * 25; }
       else if (type === 'hole') { f.s1 = s + 2 + R() * 2.2; f.side = R() < 0.5 ? -1 : 1; f.hw = 1.1 + R() * 0.7; }
       else if (type === 'gap') { f.s1 = s + 1.2 + 0.4 * hard * R() + R() * 0.3; }
+      else if (type === 'bumpy') { f.s1 = s + 15 + R() * 20; f.amp = 0.07 + 0.06 * R(); }
+      else if (type === 'washboard') { f.s1 = s + 12 + R() * 15; f.amp = 0.05 + 0.04 * R(); f.lam = 0.8 + 0.4 * R(); }
+      else if (type === 'tilt') { f.s1 = s + 18 + R() * 20; f.ang = (0.1 + 0.1 * R()) * (R() < 0.5 ? -1 : 1); }
+      else if (type === 'zigzag') { f.per = 16 + R() * 6; f.s1 = s + f.per * (2 + Math.floor(R() * 2)); f.amp = 0.1 + 0.05 * R(); }
+      else if (type === 'belt') { f.s1 = s + 12 + R() * 14; f.surf = SURF.belt; f.spd = 2.5 + 1.5 * R(); }
+      else if (type === 'steps') { f.len = 1.3; f.h = 0.12; const fl = 2 + 2 * R(); f.edges = [0, 1, 2].map(k => s + k * f.len).concat([0, 1, 2].map(k => s + 3 * f.len + fl + k * f.len)); f.s1 = s + 6 * f.len + fl; }
+      else if (type === 'wind') { f.s1 = s + 20 + R() * 15; f.dir = R() < 0.5 ? -1 : 1; f.str = 2.5 + 1.8 * R(); f.ph = R() * 6; }
+      else if (type === 'hammer') { f.s1 = s + 4; f.per = 2.4 + 1.2 * R(); f.ph = R(); }
+      else if (type === 'pusher') { f.s1 = s + 3; f.side = R() < 0.5 ? -1 : 1; f.per = 2.6 + 1.2 * R(); f.ph = R(); f.reach = 0.42 + 0.18 * R(); }
+      else if (type === 'spring') { f.s1 = s + 8 + R() * 6; f.pads = []; const n = 2 + Math.floor(R() * 3); for (let k = 0; k < n; k++) f.pads.push({ s: f.s0 + 1 + (k + R() * 0.6) * (f.s1 - f.s0 - 2) / n, lf: R() - 0.5, t: -9 }); }
+      else if (type === 'turntable') { f.s1 = s + 7; f.om = (R() < 0.5 ? -1 : 1) * (0.7 + 0.5 * R()); }
+      else if (type === 'jump') { f.L = 5; f.H = 0.75 + 0.2 * R(); f.G = 2.4 + 0.8 * R(); f.s1 = s + f.L + f.G; }
       else { f.s1 = s + 14 + R() * 22; f.surf = SURF[type]; }
       this.feats.push(f);
       this.featEnd = f.s1 + lerp(24, 10, clamp(s / 1500, 0, 1)) + R() * 14;
@@ -755,15 +838,57 @@ const road = {
     }
     return best;
   },
-  // 地面: 高さ y、進む向きの傾き gs、進む向き (dx, dz)、路面 surf。道の外・すき間・穴なら null
-  G: { y: 0, gs: 0, dx: 0, dz: -1, surf: 0 },
+  // 路面の上下（凸凹・洗濯板・傾き・ジャンプ台の坂・段々）。中心線の高さからのずれ
+  extra(s, lat) {
+    const f = this.featAt(s); if (!f) return 0;
+    const env = m => { let k = clamp(Math.min(s - f.s0, f.s1 - s) / m, 0, 1); return k * k * (3 - 2 * k); };
+    switch (f.type) {
+      case 'bumpy': return env(1.5) * f.amp * (0.5 + 0.5 * noise2(s / 0.8, lat / 0.8, this.seed + 9));
+      case 'washboard': return env(1) * f.amp * (0.5 - 0.5 * Math.cos(TAU * (s - f.s0) / f.lam));
+      case 'tilt': return env(5) * lat * f.ang;
+      case 'jump': { const u = s - f.s0; return u <= f.L ? f.H * u / f.L : 0; }
+      case 'steps': { const u = s - f.s0, L3 = 3 * f.len, fl = f.edges[3] - f.s0 - L3; if (u < L3) return f.h * (Math.floor(u / f.len) + 1); if (u < L3 + fl) return f.h * 3; return f.h * Math.max(0, 2 - Math.floor((u - L3 - fl) / f.len)); }
+    }
+    return 0;
+  },
+  hasExtra(f) { return f && ['bumpy', 'washboard', 'tilt', 'jump', 'steps'].includes(f.type); },
+  // 回転床・バネ板の位置（世界座標）
+  place(f) {
+    if (f.cx === undefined) {
+      const sc = (f.s0 + f.s1) / 2, p = this.at(sc, {});
+      f.cx = p.x; f.cz = p.z; f.cy = p.y; f.ch = p.h; f.cw = p.w; f.rad = Math.min(p.w / 2 - 0.15, 3.1);
+      if (f.pads) for (const pd of f.pads) { const q = this.at(pd.s, {}); pd.lat = pd.lf * (q.w - 1.5); pd.x = q.x + Math.cos(q.h) * pd.lat; pd.z = q.z + Math.sin(q.h) * pd.lat; pd.y = q.y; pd.h = q.h; }
+    }
+    return f;
+  },
+  // 動く仕掛けの今の位置: ハンマーの玉（中心・速度）、押し出し壁（中心・横の速さ）
+  kin(f, t) {
+    this.place(f);
+    const rx = Math.cos(f.ch), rz = Math.sin(f.ch), k = f.kin || (f.kin = { p: new THREE.Vector3(), v: new THREE.Vector3() });
+    if (f.type === 'hammer') {
+      const L = 4.7, w = TAU / f.per, th = 1.05 * Math.sin(w * t + TAU * f.ph), thd = 1.05 * w * Math.cos(w * t + TAU * f.ph);
+      k.th = th;
+      k.p.set(f.cx + rx * L * Math.sin(th), f.cy + 5.6 - L * Math.cos(th), f.cz + rz * L * Math.sin(th));
+      k.v.set(rx * thd * L * Math.cos(th), thd * L * Math.sin(th), rz * thd * L * Math.cos(th));
+    } else if (f.type === 'pusher') {
+      const w = TAU / f.per, a = w * t + TAU * f.ph, ext = f.reach * f.cw;
+      const e = 0.5 - 0.5 * Math.cos(a), ed = 0.5 * w * Math.sin(a);
+      k.lat = f.side * (f.cw / 2 + 0.9 - ext * e);
+      const vl = -f.side * ext * ed;
+      k.p.set(f.cx + rx * k.lat, f.cy + 0.55, f.cz + rz * k.lat);
+      k.v.set(rx * vl, 0, rz * vl);
+    }
+    return k;
+  },
+  // 地面: 高さ y、進む向きの傾き gs、横の傾き gl、進む向き (dx, dz)、右 (rx, rz)、路面 surf、床の動き (vx, vz)。道の外・すき間・穴なら null
+  G: { y: 0, gs: 0, gl: 0, dx: 0, dz: -1, rx: 1, rz: 0, surf: 0, vx: 0, vz: 0, pad: null },
   ground(x, z, hint, r) {
     const q = this.query(x, z, hint);
     if (Math.abs(q.lat) > q.w / 2) return null;
     const s = q.s, i = q.i, g = this.G;
     g.y = lerp(this.y[i], this.y[i + 1], q.f); g.gs = this.y[i + 1] - this.y[i];
-    const h = lerp(this.h[i], this.h[i + 1], q.f); g.dx = Math.sin(h); g.dz = -Math.cos(h);
-    g.surf = 0;
+    const h = lerp(this.h[i], this.h[i + 1], q.f); g.dx = Math.sin(h); g.dz = -Math.cos(h); g.rx = Math.cos(h); g.rz = Math.sin(h);
+    g.surf = 0; g.gl = 0; g.vx = 0; g.vz = 0; g.pad = null;
     const f = this.featAt(s);
     if (f) {
       if (f.type === 'gap') {
@@ -785,7 +910,23 @@ const road = {
           if (hb > best) { best = hb; bg = -d / Math.max(sq, 0.05); }
         }
         g.y += best; g.gs += bg;
-      } else if (f.surf) g.surf = f.surf;
+      } else if (f.type === 'jump') {
+        if (s - f.s0 > f.L) return null;            // ジャンプ台の先の穴（勢いがないと越えられない）
+      } else if (f.type === 'spring') {
+        this.place(f);
+        for (const pd of f.pads) if (Math.abs(s - pd.s) < 0.55 && Math.abs(q.lat - pd.lat) < 0.55) { g.surf = 5; g.y += 0.07; g.pad = pd; }
+      } else if (f.type === 'turntable') {
+        this.place(f);
+        const ox = x - f.cx, oz = z - f.cz;
+        if (ox * ox + oz * oz < f.rad * f.rad) { g.y = f.cy + 0.06; g.gs = 0; g.vx = -f.om * oz; g.vz = f.om * ox; }
+      }
+      if (f.surf) { g.surf = f.surf; if (f.surf === SURF.belt) { g.vx = -g.dx * f.spd; g.vz = -g.dz * f.spd; } }
+      if (this.hasExtra(f)) {
+        const e = 0.04, lat = q.lat;
+        g.y += this.extra(s, lat);
+        g.gs += clamp((this.extra(s + e, lat) - this.extra(s - e, lat)) / (2 * e), -2.5, 2.5);
+        g.gl = clamp((this.extra(s, lat + e) - this.extra(s, lat - e)) / (2 * e), -2.5, 2.5);
+      }
     }
     return g;
   },
@@ -929,6 +1070,40 @@ const barkTex = canvasTex(128, 64, (g, w, h) => {
   for (let k = 0; k < 40; k++) { g.strokeStyle = `rgba(40,22,10,${0.2 + Math.random() * 0.3})`; g.lineWidth = 1 + Math.random() * 2; const y = Math.random() * h; g.beginPath(); g.moveTo(0, y); g.lineTo(w, y + (Math.random() - 0.5) * 8); g.stroke(); }
 }, true);
 
+// 石だたみ・ベルト・回転床・バネ板・吹き流し・ジグザグの看板
+const cobbleTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#6f6a63'; g.fillRect(0, 0, w, h);
+  const r = rng(13), n = 6, c = w / n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const x = i * c + (j % 2) * c / 2, y = j * c, sh = 150 + r() * 50;
+    for (const ox of [0, -w]) { const gr = g.createRadialGradient(x + ox + c * 0.4, y + c * 0.35, 2, x + ox + c * 0.5, y + c * 0.5, c * 0.6); gr.addColorStop(0, `rgb(${sh + 30},${sh + 24},${sh + 14})`); gr.addColorStop(1, `rgb(${sh - 40},${sh - 44},${sh - 50})`); g.fillStyle = gr; g.beginPath(); g.roundRect(x + ox + 3, y + 3, c - 6, c - 6, 10); g.fill(); }
+  }
+}, true);
+const beltTex = canvasTex(128, 128, (g, w, h) => {
+  g.fillStyle = '#2f3237'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#3a3e44'; for (let y = 0; y < h; y += 8) g.fillRect(0, y, w, 3);
+  g.strokeStyle = '#ffd43b'; g.lineWidth = 12; g.lineCap = 'round'; g.lineJoin = 'round';
+  g.beginPath(); g.moveTo(w * 0.22, h * 0.32); g.lineTo(w / 2, h * 0.68); g.lineTo(w * 0.78, h * 0.32); g.stroke();
+}, true);
+const ttTex = canvasTex(256, 256, (g, w, h) => {
+  const c = w / 2;
+  for (let k = 0; k < 12; k++) { g.fillStyle = k % 2 ? '#4dabf7' : '#e7f5ff'; g.beginPath(); g.moveTo(c, c); g.arc(c, c, c, k / 12 * TAU, (k + 1) / 12 * TAU); g.fill(); }
+  g.lineWidth = 14; g.strokeStyle = '#ffd43b'; g.beginPath(); g.arc(c, c, c - 8, 0, TAU); g.stroke();
+  g.fillStyle = '#1d3557'; g.beginPath(); g.arc(c, c, 18, 0, TAU); g.fill();
+});
+const padTex = canvasTex(128, 128, (g, w, h) => {
+  g.fillStyle = '#e5484d'; g.fillRect(0, 0, w, h);
+  g.strokeStyle = '#ffd43b'; g.lineWidth = 10; g.strokeRect(8, 8, w - 16, h - 16);
+  g.fillStyle = '#fff'; g.beginPath(); g.moveTo(w / 2, 26); g.lineTo(w - 34, 70); g.lineTo(w / 2 + 14, 70); g.lineTo(w / 2 + 14, 102); g.lineTo(w / 2 - 14, 102); g.lineTo(w / 2 - 14, 70); g.lineTo(34, 70); g.closePath(); g.fill();
+});
+const sockTex = canvasTex(64, 32, (g, w, h) => { for (let k = 0; k < 4; k++) { g.fillStyle = k % 2 ? '#fff' : '#ff6b1a'; g.fillRect(k * w / 4, 0, w / 4, h); } });
+const zigTex = canvasTex(128, 128, (g, w, h) => {
+  g.fillStyle = '#ffd43b'; g.beginPath(); g.roundRect(4, 4, w - 8, h - 8, 14); g.fill();
+  g.strokeStyle = '#1d3557'; g.lineWidth = 12; g.lineJoin = 'round'; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(40, 110); g.lineTo(40, 84); g.lineTo(88, 62); g.lineTo(40, 40); g.lineTo(64, 20); g.stroke();
+  g.beginPath(); g.moveTo(52, 14); g.lineTo(72, 16); g.lineTo(66, 34); g.stroke();
+});
+
 // --- 材質（使い回す） ---
 const M = {
   plank: new THREE.MeshStandardMaterial({ map: plankTex, roughness: 0.82 }),
@@ -943,6 +1118,17 @@ const M = {
   band: new THREE.MeshStandardMaterial({ color: 0x4a4f57, roughness: 0.4, metalness: 0.6 }),
   cone: new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.55 }),
   white: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 }),
+  cobble: new THREE.MeshStandardMaterial({ map: cobbleTex, roughness: 0.85 }),
+  wash: new THREE.MeshStandardMaterial({ map: plankTex, roughness: 0.8, color: 0xd9c2a0 }),
+  belt: new THREE.MeshStandardMaterial({ map: beltTex, roughness: 0.75 }),
+  tt: new THREE.MeshStandardMaterial({ map: ttTex, roughness: 0.4 }),
+  pad: new THREE.MeshStandardMaterial({ map: padTex, roughness: 0.5 }),
+  padSide: new THREE.MeshStandardMaterial({ color: 0x9b1c20, roughness: 0.6 }),
+  sock: new THREE.MeshStandardMaterial({ map: sockTex, roughness: 0.7, side: THREE.DoubleSide }),
+  zig: new THREE.MeshBasicMaterial({ map: zigTex, side: THREE.DoubleSide }),
+  iron: new THREE.MeshStandardMaterial({ color: 0x3d434b, roughness: 0.35, metalness: 0.7 }),
+  housing: new THREE.MeshStandardMaterial({ color: 0x8a96a3, roughness: 0.5, metalness: 0.3 }),
+  rope: new THREE.MeshStandardMaterial({ color: 0x8a6f4d, roughness: 0.9 }),
   curb: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
   stone: new THREE.MeshStandardMaterial({ color: 0xb9b3a7, roughness: 0.95 }),
   rock: new THREE.MeshStandardMaterial({ color: 0x9a8a78, roughness: 1, flatShading: true }),
@@ -994,8 +1180,14 @@ const G_ = {
   cone: new THREE.ConeGeometry(0.24, 0.72, 16),
   coneBase: new THREE.BoxGeometry(0.52, 0.05, 0.52),
   coneBand: new THREE.CylinderGeometry(0.135, 0.165, 0.11, 16, 1, true),
+  ball: new THREE.SphereGeometry(0.6, 24, 16),
+  box: new THREE.BoxGeometry(1, 1, 1),
+  disc: new THREE.CylinderGeometry(1, 1, 0.06, 48),
+  sock: new THREE.CylinderGeometry(0.16, 0.06, 0.9, 12, 1, true),
+  board: new THREE.PlaneGeometry(0.9, 0.9),
 };
-const TOP_MATS = [M.plank, M.ice, M.mud, M.dash];
+const TOP_MATS = [M.plank, M.ice, M.mud, M.dash, M.belt];
+M.hazardBox = new THREE.MeshStandardMaterial({ map: hazardTex, roughness: 0.6 });
 const tmpP = {};
 function edgeAt(i, side, off, out) {
   const x = road.x[i], z = road.z[i], h = road.h[i], w = road.w[i];
@@ -1011,7 +1203,13 @@ function rowAt(s) {
   p.s = s; p.lats = [-p.w / 2, a, b, p.w / 2];
   return p;
 }
-const vAt = (r, lat, dy) => [r.x + Math.cos(r.h) * lat, r.y + dy, r.z + Math.sin(r.h) * lat];
+const vAt = (r, lat, dy) => [r.x + Math.cos(r.h) * lat, r.y + road.extra(r.s, lat) + dy, r.z + Math.sin(r.h) * lat];
+const vBase = (r, lat, dy) => [r.x + Math.cos(r.h) * lat, r.y + dy, r.z + Math.sin(r.h) * lat];
+// 道の面がない所（すき間・ジャンプ台の先の穴）
+const isVoid = (f, s) => !!f && (f.type === 'gap' || (f.type === 'jump' && s - f.s0 > f.L));
+// 細かい凸凹は別の細かい網で描く
+const isRelief = f => !!f && (f.type === 'bumpy' || f.type === 'washboard');
+const animFeats = new Set();
 function buildChunk(c) {
   const grp = new THREE.Group();
   const s0c = c * CH, s1c = s0c + CH;
@@ -1021,7 +1219,13 @@ function buildChunk(c) {
   const fs = road.featsIn(s0c, s1c);
   // 横の並び（行）: 1mごと＋仕掛けの境目
   const ss = []; for (let i = s0c; i <= s1c; i++) ss.push(i);
-  for (const f of fs) for (const v of [f.s0, f.s1]) if (v > s0c && v < s1c) ss.push(v);
+  for (const f of fs) {
+    for (const v of [f.s0, f.s1]) if (v > s0c && v < s1c) ss.push(v);
+    if (f.type === 'jump') ss.push(f.s0 + f.L - 0.015, f.s0 + f.L + 0.015);
+    if (f.type === 'steps') for (const ed of f.edges) ss.push(ed - 0.016, ed + 0.016);
+    if (f.type === 'tilt') for (let v = Math.ceil(f.s0); v < f.s1; v += 0.5) ss.push(v + 0.25);
+  }
+  for (let k = ss.length - 1; k >= 0; k--) if (ss[k] < s0c || ss[k] > s1c) ss.splice(k, 1);
   ss.sort((x, y) => x - y);
   const rows = [];
   for (const v of ss) if (!rows.length || v - rows[rows.length - 1].s > 0.02) rows.push(rowAt(v));
@@ -1031,31 +1235,32 @@ function buildChunk(c) {
     if (f && f.type === 'hole' && !f.dead) for (const r of [rows[k], rows[k + 1]]) { r.lats[1] = f.a; r.lats[2] = f.b; }
   }
   // 上面（路面ごとにグループ分け）
-  const pos = [], uv = [], groups = [[], [], [], []];
+  const pos = [], uv = [], groups = [[], [], [], [], []];
   const side = [], sideUv = [];
   const quad = (A, B, C, D, u0 = 0, u1 = 1) => { side.push(...A, ...B, ...C, ...A, ...C, ...D); sideUv.push(u0, 1, u1, 1, u1, 0, u0, 1, u1, 0, u0, 0); };
   for (const r of rows) for (const lat of r.lats) { const v = vAt(r, lat, 0); pos.push(...v); uv.push((lat + r.w / 2) / r.w, r.s / 2); }
   const hz = [];
   for (let k = 0; k < rows.length - 1; k++) {
     const A = rows[k], B = rows[k + 1], mid = (A.s + B.s) / 2, f = road.featAt(mid);
-    const gap = f && f.type === 'gap', hole = f && f.type === 'hole' && !f.dead;
-    const surf = f && f.surf ? f.surf : 0;
+    const gap = isVoid(f, mid), hole = f && f.type === 'hole' && !f.dead, relief = isRelief(f);
+    const surf = f && f.surf ? f.surf : (f && f.type === 'jump' ? 3 : 0);
     const n0 = k * 4, n1 = n0 + 4;
     if (!gap) {
       for (let col = 0; col < 3; col++) {
-        if (hole && col === 1) continue;
+        if ((hole && col === 1) || relief) continue;
         groups[surf].push(n0 + col, n0 + col + 1, n1 + col, n0 + col + 1, n1 + col + 1, n1 + col);
       }
       // 左右の側面と底
-      quad(vAt(A, A.lats[0], 0), vAt(B, B.lats[0], 0), vAt(B, B.lats[0], -TH), vAt(A, A.lats[0], -TH), A.s / 3, B.s / 3);
-      quad(vAt(A, A.lats[3], 0), vAt(B, B.lats[3], 0), vAt(B, B.lats[3], -TH), vAt(A, A.lats[3], -TH), A.s / 3, B.s / 3);
-      for (let col = 0; col < 3; col++) { if (hole && col === 1) continue; quad(vAt(A, A.lats[col], -TH), vAt(B, B.lats[col], -TH), vAt(B, B.lats[col + 1], -TH), vAt(A, A.lats[col + 1], -TH)); }
-      if (hole) for (const col of [1, 2]) quad(vAt(A, A.lats[col], 0), vAt(B, B.lats[col], 0), vAt(B, B.lats[col], -TH), vAt(A, A.lats[col], -TH), A.s / 3, B.s / 3);
+      quad(vAt(A, A.lats[0], 0), vAt(B, B.lats[0], 0), vBase(B, B.lats[0], -TH), vBase(A, A.lats[0], -TH), A.s / 3, B.s / 3);
+      quad(vAt(A, A.lats[3], 0), vAt(B, B.lats[3], 0), vBase(B, B.lats[3], -TH), vBase(A, A.lats[3], -TH), A.s / 3, B.s / 3);
+      for (let col = 0; col < 3; col++) { if (hole && col === 1) continue; quad(vBase(A, A.lats[col], -TH), vBase(B, B.lats[col], -TH), vBase(B, B.lats[col + 1], -TH), vBase(A, A.lats[col + 1], -TH)); }
+      if (hole) for (const col of [1, 2]) quad(vAt(A, A.lats[col], 0), vAt(B, B.lats[col], 0), vBase(B, B.lats[col], -TH), vBase(A, A.lats[col], -TH), A.s / 3, B.s / 3);
     }
     // すき間・穴の切り口
     const prev = k > 0 ? road.featAt((rows[k - 1].s + A.s) / 2) : null;
-    const fGap = x => !!(x && x.type === 'gap'), fHole = x => !!(x && x.type === 'hole' && !x.dead);
-    if (fGap(f) !== fGap(prev) && k > 0) quad(vAt(A, A.lats[0], 0), vAt(A, A.lats[3], 0), vAt(A, A.lats[3], -TH), vAt(A, A.lats[0], -TH));
+    const fHole = x => !!(x && x.type === 'hole' && !x.dead);
+    const pv = k > 0 && isVoid(prev, (rows[k - 1].s + A.s) / 2), cv = isVoid(f, mid);
+    if (pv !== cv && k > 0) quad(vAt(A, A.lats[0], 0), vAt(A, A.lats[3], 0), vBase(A, A.lats[3], -TH), vBase(A, A.lats[0], -TH));
     if (fHole(f) !== fHole(prev) && k > 0) { const hf = fHole(f) ? f : prev; quad(vAt(A, hf.a, 0), vAt(A, hf.b, 0), vAt(A, hf.b, -TH), vAt(A, hf.a, -TH)); }
   }
   const top = new THREE.BufferGeometry();
@@ -1070,10 +1275,10 @@ function buildChunk(c) {
   // ふちの赤白（すき間の所は描かない）
   const qpos = [], qcol = [];
   for (let i = s0c; i < s1c; i++) {
-    if (fs.some(f => f.type === 'gap' && f.s0 < i + 1 && f.s1 > i)) continue;
+    if (fs.some(f => (f.type === 'gap' || f.type === 'jump' || isRelief(f)) && f.s0 < i + 1 && f.s1 > i)) continue;
     const col = i % 2 === 0 ? [0.86, 0.2, 0.22] : [0.97, 0.97, 0.97];
-    const y0 = road.y[i] + 0.004, y1 = road.y[i + 1] + 0.004;
     for (const sd of [-1, 1]) {
+      const lt = sd * (road.w[i] / 2 - 0.11), y0 = road.y[i] + road.extra(i, lt) + 0.004, y1 = road.y[i + 1] + road.extra(i + 1, lt) + 0.004;
       const a0 = edgeAt(i, sd, 0, [0, 0]), b0 = edgeAt(i, sd, -0.22, [0, 0]), a1 = edgeAt(i + 1, sd, 0, [0, 0]), b1 = edgeAt(i + 1, sd, -0.22, [0, 0]);
       const P = [[a0, y0], [b0, y0], [a1, y1], [b0, y0], [b1, y1], [a1, y1]];
       if (sd > 0) [P[1], P[2]] = [P[2], P[1]], [P[4], P[5]] = [P[5], P[4]];
@@ -1085,8 +1290,84 @@ function buildChunk(c) {
   cg.computeVertexNormals();
   const curb = new THREE.Mesh(cg, M.curb); curb.receiveShadow = true; grp.add(curb);
   // 仕掛けの見た目
+  const flat = (a, b, mat, uScale, dy = 0.006) => {   // 道に貼る四角（注意の縞など）
+    const A = road.at(a, {}), B = road.at(b, {}); A.s = a; B.s = b;
+    const g = new THREE.BufferGeometry(), P = [vAt(A, -A.w / 2, dy), vAt(A, A.w / 2, dy), vAt(B, B.w / 2, dy), vAt(B, -B.w / 2, dy)];
+    g.setAttribute('position', new THREE.Float32BufferAttribute([...P[0], ...P[1], ...P[2], ...P[0], ...P[2], ...P[3]], 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, A.w / uScale, 0, B.w / uScale, 1, 0, 0, B.w / uScale, 1, 0, 1], 2));
+    g.computeVertexNormals(); const m = new THREE.Mesh(g, mat); m.receiveShadow = true; grp.add(m);
+  };
+  const post = (s, sd, off, h, mat) => { const p = road.at(s, {}), lt = sd * (p.w / 2 + off); const m = new THREE.Mesh(G_.post, mat); m.scale.set(1.5, h, 1.5); m.position.set(p.x + Math.cos(p.h) * lt, p.y + h / 2, p.z + Math.sin(p.h) * lt); m.castShadow = true; grp.add(m); return p; };
   for (const f of fs) {
-    if (f.type === 'gap') {
+    if (isRelief(f)) {
+      // 凸凹・洗濯板: 細かい網を路面の形に合わせて描く
+      const a = Math.max(f.s0, s0c), b = Math.min(f.s1, s1c);
+      if (b > a) {
+        const ns = Math.max(2, Math.ceil((b - a) / 0.22)), P = [], U = [], I = [];
+        const nl = 14;
+        for (let i = 0; i <= ns; i++) {
+          const sv = a + (b - a) * i / ns, r = road.at(sv, {}); r.s = sv;
+          for (let j = 0; j <= nl; j++) { const lt = -r.w / 2 + r.w * j / nl; P.push(...vAt(r, lt, 0)); U.push(f.type === 'bumpy' ? (lt + r.w / 2) / 1.6 : (lt + r.w / 2) / r.w, f.type === 'bumpy' ? sv / 1.6 : (sv - f.s0) / (4 * f.lam)); }
+        }
+        for (let i = 0; i < ns; i++) for (let j = 0; j < nl; j++) { const n0 = i * (nl + 1) + j, n1 = n0 + nl + 1; I.push(n0, n0 + 1, n1, n0 + 1, n1 + 1, n1); }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); g.setIndex(I); g.computeVertexNormals();
+        const m = new THREE.Mesh(g, f.type === 'bumpy' ? M.cobble : M.wash); m.receiveShadow = true; grp.add(m);
+      }
+    } else if (f.type === 'jump') {
+      const e1 = f.s0 + f.L + f.G;
+      if (e1 >= s0c && e1 + 0.35 <= s1c + 1) flat(e1, e1 + 0.35, M.hazard, 1.2);
+    } else if (f.type === 'steps') {
+      for (const ed of f.edges) if (ed >= s0c && ed + 0.25 <= s1c + 1) flat(ed + 0.02, ed + 0.27, M.hazard, 1.2);
+    } else if (f.type === 'zigzag') {
+      if (f.s0 - 2 >= s0c && f.s0 - 2 < s1c) for (const sd of [-1, 1]) {
+        const p = post(f.s0 - 2, sd, 0.5, 1.4, M.metal);
+        const bd = new THREE.Mesh(G_.board, M.zig), lt = sd * (p.w / 2 + 0.5);
+        bd.position.set(p.x + Math.cos(p.h) * lt, p.y + 1.55, p.z + Math.sin(p.h) * lt); bd.rotation.y = -p.h; bd.scale.x = sd; grp.add(bd);
+      }
+    } else if (f.type === 'wind') {
+      f.socks = f.socks || [];
+      for (let sv = Math.ceil(f.s0 / 7) * 7; sv < f.s1; sv += 7) {
+        if (sv < s0c || sv >= s1c) continue;
+        for (const sd of [-1, 1]) {
+          const p = post(sv, sd, 0.4, 2.2, M.metal), lt = sd * (p.w / 2 + 0.4);
+          const piv = new THREE.Group(); piv.position.set(p.x + Math.cos(p.h) * lt, p.y + 2.1, p.z + Math.sin(p.h) * lt); piv.rotation.y = -p.h;
+          const sk = new THREE.Mesh(G_.sock, M.sock); sk.rotation.z = -f.dir * Math.PI / 2; sk.position.x = f.dir * 0.45; piv.add(sk);
+          grp.add(piv); f.socks.push(piv);
+        }
+      }
+      animFeats.add(f);
+    } else if (f.type === 'hammer' && f.s0 >= s0c && f.s0 < s1c) {
+      road.place(f);
+      const p = road.at((f.s0 + f.s1) / 2, {});
+      for (const sd of [-1, 1]) post((f.s0 + f.s1) / 2, sd, 0.5, 6, M.iron);
+      const beam = new THREE.Mesh(G_.beam, M.iron); beam.scale.set(p.w + 1.2, 1.6, 1.6); beam.position.set(p.x, p.y + 5.9, p.z); beam.rotation.y = -p.h; grp.add(beam);
+      const piv = new THREE.Group(); piv.position.set(p.x, p.y + 5.6, p.z); piv.rotation.y = -p.h;
+      const rope = new THREE.Mesh(G_.post, M.rope); rope.scale.set(0.5, 4.2, 0.5); rope.position.y = -2.1; piv.add(rope);
+      const ball = new THREE.Mesh(G_.ball, M.iron); ball.position.y = -4.7; ball.castShadow = true; piv.add(ball);
+      grp.add(piv); f.vis = piv; animFeats.add(f);
+    } else if (f.type === 'pusher' && f.s0 >= s0c && f.s0 < s1c) {
+      road.place(f);
+      const p = road.at((f.s0 + f.s1) / 2, {}), rx = Math.cos(p.h), rz = Math.sin(p.h);
+      const lt = f.side * (p.w / 2 + 1.6);
+      const hs = new THREE.Mesh(G_.box, M.housing); hs.scale.set(1.6, 1.4, 1.5); hs.position.set(p.x + rx * lt, p.y + 0.5, p.z + rz * lt); hs.rotation.y = -p.h; hs.castShadow = true; grp.add(hs);
+      const bx = new THREE.Mesh(G_.box, M.hazardBox); bx.scale.set(1.8, 1.1, 1.2); bx.rotation.y = -p.h; bx.castShadow = true; grp.add(bx);
+      f.vis = bx; animFeats.add(f);
+    } else if (f.type === 'spring') {
+      road.place(f);
+      for (const pd of f.pads) {
+        if (pd.s < s0c || pd.s >= s1c) continue;
+        const m = new THREE.Mesh(G_.box, [M.padSide, M.padSide, M.pad, M.padSide, M.padSide, M.padSide]);
+        m.scale.set(1.1, 0.07, 1.1); m.position.set(pd.x, pd.y + 0.035 + road.extra(pd.s, pd.lat), pd.z); m.rotation.y = -pd.h; m.receiveShadow = true; grp.add(m); pd.mesh = m;
+      }
+      animFeats.add(f);
+    } else if (f.type === 'turntable') {
+      road.place(f);
+      const sc = (f.s0 + f.s1) / 2;
+      if (sc >= s0c && sc < s1c) {
+        const d = new THREE.Mesh(G_.disc, [M.housing, M.tt, M.housing]); d.scale.set(f.rad, 1, f.rad); d.position.set(f.cx, f.cy + 0.03, f.cz); d.receiveShadow = true; grp.add(d);
+        f.vis = d; animFeats.add(f);
+      }
+    } else if (f.type === 'gap') {
       // すき間の手前と奥に注意の縞
       for (const [a, b] of [[f.s0 - 0.35, f.s0], [f.s1, f.s1 + 0.35]]) {
         if (a < s0c || b > s1c + 1) continue;
@@ -1133,8 +1414,8 @@ function buildChunk(c) {
   for (let i = i0 + 5; i < i1; i += 10) {
     for (const sd of [-1, 1]) {
       edgeAt(i, sd, 0.18, e);
-      const post = new THREE.Mesh(G_.post, M.metal); post.scale.y = 0.9; post.position.set(e[0], road.y[i] + 0.25, e[1]); grp.add(post);
-      const lamp = new THREE.Mesh(G_.lamp, M.gold); lamp.position.set(e[0], road.y[i] + 0.8, e[1]); grp.add(lamp);
+      const post = new THREE.Mesh(G_.post, M.metal); post.scale.y = 0.9; const ey = road.y[i] + road.extra(i, sd * road.w[i] / 2); post.position.set(e[0], ey + 0.25, e[1]); grp.add(post);
+      const lamp = new THREE.Mesh(G_.lamp, M.gold); lamp.position.set(e[0], ey + 0.8, e[1]); grp.add(lamp);
     }
   }
   // 100mごとの門（数字の看板）
@@ -1267,8 +1548,9 @@ function updParts(dt) {
   for (let i = parts.length - 1; i >= 0; i--) {
     const q = parts[i]; q.age += dt;
     const k = q.age / q.life;
-    if (k >= 1) { scene.remove(q.o); if (q.kind) q.o.material.dispose(); parts.splice(i, 1); continue; }
+    if (k >= 1) { scene.remove(q.o); if (q.kind === 1) q.o.material.dispose(); parts.splice(i, 1); continue; }
     if (q.kind === 0) { q.v.y -= 9.8 * dt; q.o.scale.setScalar(0.12 * (1 - k)); }
+    else if (q.kind === 2) { q.o.scale.x = 1.4 * Math.sin(k * Math.PI) + 0.01; }
     else {
       q.v.multiplyScalar(1 - 1.5 * dt);
       q.o.scale.setScalar(q.size * (0.5 + 1.5 * Math.sqrt(k)));
@@ -1278,7 +1560,12 @@ function updParts(dt) {
     q.o.position.addScaledVector(q.v, dt);
   }
 }
-function clearParts() { for (const q of parts) { scene.remove(q.o); if (q.kind) q.o.material.dispose(); } parts.length = 0; }
+const streakMat = new THREE.SpriteMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false, fog: false });
+function streak(p, v) {
+  const s = new THREE.Sprite(streakMat); s.position.copy(p); s.scale.set(1.4, 0.035, 1);
+  scene.add(s); parts.push({ o: s, v: v.clone(), life: 0.6, age: 0, kind: 2 });
+}
+function clearParts() { for (const q of parts) { scene.remove(q.o); if (q.kind === 1) q.o.material.dispose(); } parts.length = 0; }
 
 // ===== 画面の大きさ =====
 let W = 1, H = 1, camD = 8;
@@ -1367,7 +1654,7 @@ function reset(newSeed) {
   const q = road.at(START_S, tmpP);
   S.p.set(q.x, R0, q.z); S.v.set(0, 0, 0); S.w.set(0, 0, 0);
   S.a.set(Math.cos(q.h), 0, Math.sin(q.h));
-  S.splashed = false; S.phi = [0, 0]; S.om = [0, 0]; S.th = 0; S.thd = 0; S.rL = S.rR = S.tL = S.tR = R0; S.accS.set(0, 0, 0); S.hint = START_S;
+  S.splashed = false; S.phi = [0, 0]; S.om = [0, 0]; S.time = 0; S.springCd = [0, 0]; S.th = 0; S.thd = 0; S.rL = S.rR = S.tL = S.tR = R0; S.accS.set(0, 0, 0); S.hint = START_S;
   inp.tL = inp.tR = R0; Object.assign(remote, { tL: R0, tR: R0, aL: false, bL: false, aR: false, bR: false });
   dist = 0; fallT = 0; state = 'ready';
   netBuf.length = 0; guestObs.clear(); obsActive = []; obsNear = [];
@@ -1476,15 +1763,15 @@ function prepareShare() {
 const shareFile = () => shareCache?.key === lang + resultTwo ? shareCache.file : null;
 
 // ===== 描画用の状態（物理の2刻みの間を補間する） =====
-const V = () => ({ p: new THREE.Vector3(), a: new THREE.Vector3(1, 0, 0), phiL: 0, phiR: 0, th: 0, rL: R0, rR: R0, omL: 0, omR: 0 });
+const V = () => ({ p: new THREE.Vector3(), a: new THREE.Vector3(1, 0, 0), phiL: 0, phiR: 0, th: 0, rL: R0, rR: R0, omL: 0, omR: 0, time: 0 });
 const prev = V(), cur = V(), view = V();
 function snapPrev() {
-  Object.assign(prev, { phiL: cur.phiL, phiR: cur.phiR, th: cur.th, rL: cur.rL, rR: cur.rR, omL: cur.omL, omR: cur.omR }); prev.p.copy(cur.p); prev.a.copy(cur.a);
-  Object.assign(cur, { phiL: S.phi[0], phiR: S.phi[1], th: S.th, rL: S.rL, rR: S.rR, omL: S.om[0], omR: S.om[1] }); cur.p.copy(S.p); cur.a.copy(S.a);
+  Object.assign(prev, { phiL: cur.phiL, phiR: cur.phiR, th: cur.th, rL: cur.rL, rR: cur.rR, omL: cur.omL, omR: cur.omR, time: cur.time }); prev.p.copy(cur.p); prev.a.copy(cur.a);
+  Object.assign(cur, { phiL: S.phi[0], phiR: S.phi[1], th: S.th, rL: S.rL, rR: S.rR, omL: S.om[0], omR: S.om[1], time: S.time }); cur.p.copy(S.p); cur.a.copy(S.a);
 }
 function interp(A, B, k, out) {
   out.p.lerpVectors(A.p, B.p, k); out.a.lerpVectors(A.a, B.a, k).normalize();
-  for (const key of ['phiL', 'phiR', 'th', 'rL', 'rR', 'omL', 'omR']) out[key] = lerp(A[key], B[key], k);
+  for (const key of ['phiL', 'phiR', 'th', 'rL', 'rR', 'omL', 'omR', 'time']) out[key] = lerp(A[key], B[key], k);
 }
 
 // ===== カメラ =====
@@ -1555,6 +1842,18 @@ function render() {
       o.mesh.position.copy(o.p); o.mesh.quaternion.copy(o.q); o.mesh.visible = !o.gone;
     }
   }
+  // 動く仕掛け
+  const T = vs.time;
+  beltTex.offset.y = (T * 1.5) % 1;
+  for (const f of animFeats) {
+    if (f.s1 < camHint - 60) { animFeats.delete(f); continue; }
+    if (f.s0 > camHint + 320) continue;
+    if (f.type === 'hammer' && f.vis) f.vis.rotation.z = road.kin(f, T).th;
+    else if (f.type === 'pusher' && f.vis) f.vis.position.copy(road.kin(f, T).p);
+    else if (f.type === 'turntable' && f.vis) f.vis.rotation.y = f.om * T;
+    else if (f.type === 'spring') for (const pd of f.pads) { if (!pd.mesh) continue; const a = T - pd.t; pd.mesh.scale.y = a >= 0 && a < 0.35 ? 0.07 * (1 + 5 * Math.sin(a / 0.35 * Math.PI)) : 0.07; }
+    else if (f.type === 'wind' && f.socks) f.socks.forEach((pv, i) => { pv.rotation.x = 0.18 * Math.sin(T * 9 + i * 1.7); });
+  }
   // 光と影は乗り物について行く
   sun.target.position.copy(vs.p); sun.position.copy(vs.p).add(SUN_OFF);
   sky.position.copy(camera.position);
@@ -1579,7 +1878,8 @@ function updAudio(dt, vs, scrape, contact) {
   if (onGround && state === 'play') { const L_ = src('L'), R_ = src('R'); if (!L_.aL && !L_.bL && Math.abs(vs.omL) > 1.5) sq += Math.abs(vs.omL); if (!R_.aR && !R_.bR && Math.abs(vs.omR) > 1.5) sq += Math.abs(vs.omR); }
   loops.squeal.g.gain.setTargetAtTime(Math.min(0.035, sq * 0.004), now, 0.05);
   const fall = state === 'fall' ? Math.min(1, fallT) : 0;
-  loops.wind.g.gain.setTargetAtTime(fall * 0.3, now, 0.15);
+  const wzone = road.featAt(camHint), windy = wzone && wzone.type === 'wind' ? 0.12 : 0;
+  loops.wind.g.gain.setTargetAtTime(Math.max(fall * 0.3, windy), now, 0.15);
   loops.wind.fl.frequency.setTargetAtTime(400 + fall * 900, now, 0.2);
 }
 let plankAcc = [0, 0];
@@ -1706,7 +2006,7 @@ function hostSend(now) {
   const st = { ready: 0, play: 1, fall: 2, over: 3 }[state];
   const ob = [];
   for (const o of obsActive) if (o.netDirty) { o.netDirty = false; ob.push([o.id, R3(o.p.x), R3(o.p.y), R3(o.p.z), R3(o.q.x), R3(o.q.y), R3(o.q.z), R3(o.q.w), o.gone ? 1 : 0]); }
-  netSend({ t: 's', k: now, o: ob.length ? ob : undefined, d: [R3(S.p.x), R3(S.p.y), R3(S.p.z), R3(S.a.x), R3(S.a.y), R3(S.a.z), R3(S.phi[0]), R3(S.phi[1]), R3(S.th), R3(S.rL), R3(S.rR), R3(S.om[0]), R3(S.om[1]), R3(inp.tL), inp.aL ? 1 : 0, inp.bL ? 1 : 0, R3(dist), st, R3(S.scrape), (S.contact[0] || S.contact[1]) ? 1 : 0, R3(fallT)] });
+  netSend({ t: 's', k: now, o: ob.length ? ob : undefined, d: [R3(S.p.x), R3(S.p.y), R3(S.p.z), R3(S.a.x), R3(S.a.y), R3(S.a.z), R3(S.phi[0]), R3(S.phi[1]), R3(S.th), R3(S.rL), R3(S.rR), R3(S.om[0]), R3(S.om[1]), R3(inp.tL), inp.aL ? 1 : 0, inp.bL ? 1 : 0, R3(dist), st, R3(S.scrape), (S.contact[0] || S.contact[1]) ? 1 : 0, R3(fallT), R3(S.time)] });
 }
 // ゲスト: 自分の入力を送る（変わった時と、1秒に10回）
 let lastIn = '';
@@ -1720,7 +2020,7 @@ const gA = V(), gB = V();
 let gScrape = 0, gContact = false;
 function decode(m, out) {
   const d = m.d;
-  out.p.set(d[0], d[1], d[2]); out.a.set(d[3], d[4], d[5]).normalize(); out.phiL = d[6]; out.phiR = d[7]; out.th = d[8]; out.rL = d[9]; out.rR = d[10]; out.omL = d[11]; out.omR = d[12];
+  out.p.set(d[0], d[1], d[2]); out.a.set(d[3], d[4], d[5]).normalize(); out.phiL = d[6]; out.phiR = d[7]; out.th = d[8]; out.rL = d[9]; out.rR = d[10]; out.omL = d[11]; out.omR = d[12]; out.time = d[21] || 0;
 }
 function guestView() {
   if (!netBuf.length) return;
@@ -1817,6 +2117,7 @@ function loop(nowMs) {
     interp(prev, cur, accT / DT, view);
     scrape = S.scrape; contact = S.contact[0] || S.contact[1];
     if (S.hit > 0) { thump(Math.min(1, S.hit / 6)); S.hit = 0; }
+    if (S.boing) { boing(); S.boing = 0; }
     const sf = Math.max(S.surf[0], S.surf[1]);
     if (sf !== prevSurf) { if (sf === 3) whoosh(); else if (sf === 1) noiseHit(ac ? ac.currentTime : 0, 0.25, 5000, 2, 0.05); prevSurf = sf; }
     hostSend(now);
@@ -1838,6 +2139,13 @@ function loop(nowMs) {
     plankSounds([Math.abs(view.omL) * view.rL * dt, Math.abs(view.omR) * view.rR * dt], speed);
   }
   updAudio(dt, view, scrape, contact);
+  // 横風のすじ
+  const wz = road.featAt(camHint);
+  if (wz && wz.type === 'wind' && Math.random() < dt * 30) {
+    const hh = road.h[Math.min(road.h.length - 1, Math.round(camHint))], rx = Math.cos(hh), rz = Math.sin(hh), fx = Math.sin(hh), fz = -Math.cos(hh);
+    const fwd = (Math.random() - 0.3) * 14, lat = -wz.dir * (3 + Math.random() * 3);
+    streak(_tmp.set(view.p.x + fx * fwd + rx * lat, view.p.y + Math.random() * 2.5 - 0.6, view.p.z + fz * fwd + rz * lat), _tmp2.set(rx * wz.dir * 14, 0, rz * wz.dir * 14));
+  }
   updParts(dt);
   updateChunks(Math.max(0, camHint));
   updCamera(dt);
