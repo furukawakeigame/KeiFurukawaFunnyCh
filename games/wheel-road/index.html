@@ -105,6 +105,13 @@
     .dots::after { content: ''; animation: dots 1.4s steps(4) infinite; }
     @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
     .close { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; border: none; border-radius: 50%; background: #eef2f6; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .cta { position: fixed; z-index: 3; left: 50%; top: calc(96px + env(safe-area-inset-top)); transform: translateX(-50%); display: flex; align-items: center; gap: 8px; border: none; border-radius: 999px; background: #2fb36b; color: #fff; font: 800 clamp(15px, 2.2vmin, 19px) 'M PLUS Rounded 1c', system-ui, sans-serif; padding: 9px 18px 9px 14px; box-shadow: 0 4px 0 #17703f, 0 8px 16px rgba(29,53,87,.25); cursor: pointer; white-space: nowrap; animation: ctaIn .5s ease-out; }
+    .cta svg { width: 26px; height: 20px; flex: none; }
+    .cta:active { transform: translate(-50%, 3px); box-shadow: 0 1px 0 #17703f; }
+    .cta[hidden], .coopR[hidden] { display: none; }
+    @keyframes ctaIn { from { opacity: 0; transform: translate(-50%, -8px); } }
+    .coopR { display: inline-flex; align-items: center; gap: 6px; }
+    @media (max-height: 520px) and (min-aspect-ratio: 4/3) { .cta { top: calc(48px + env(safe-area-inset-top)); } }
     #toast { position: fixed; left: 50%; top: calc(100px + env(safe-area-inset-top)); transform: translate(-50%, -10px); z-index: 7; background: rgba(29,53,87,.9); color: #fff; font-weight: 700; font-size: 15px; padding: 8px 18px; border-radius: 999px; opacity: 0; transition: opacity .3s, transform .3s; pointer-events: none; max-width: calc(100vw - 32px); text-align: center; }
     #toast.on { opacity: 1; transform: translate(-50%, 0); }
     #msg { position: fixed; inset: 0; z-index: 8; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; font-weight: 700; background: #9fd0f0; }
@@ -135,6 +142,7 @@
   <main style="display:contents">
     <canvas id="cv"></canvas>
     <div id="hud">0<small>m</small></div>
+    <button id="coopCta" class="cta"><svg viewBox="0 0 26 20" fill="#fff"><circle cx="8" cy="6" r="3.6"/><path d="M1.5 18.5c0-4.2 2.9-7 6.5-7s6.5 2.8 6.5 7z"/><circle cx="18" cy="6" r="3.6" fill="#ffd8b8"/><path d="M11.5 18.5c0-4.2 2.9-7 6.5-7s6.5 2.8 6.5 7z" fill="#ffd8b8"/></svg><span id="ctaT"></span></button>
     <div id="kL" class="ped hint" aria-label="left forward / back">
       <svg viewBox="0 0 100 170"><rect x="8" y="4" width="84" height="162" rx="26" fill="#fffdf6" fill-opacity=".7"/>
         <g class="ta"><path d="M14 84V32a22 22 0 0 1 22-22h28a22 22 0 0 1 22 22v52z" fill="#2fb36b"/><path d="M34 56l16-16 16 16" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/></g>
@@ -155,6 +163,7 @@
       <div class="row">
         <button id="again" class="btn">もう一度</button>
         <a id="share" class="btn x" href="https://x.com/intent/post">Xに投稿</a>
+        <button id="coopR" class="btn x coopR"><svg viewBox="0 0 26 20" width="26" height="20" fill="#1d3557"><circle cx="8" cy="6" r="3.6"/><path d="M1.5 18.5c0-4.2 2.9-7 6.5-7s6.5 2.8 6.5 7z"/><circle cx="18" cy="6" r="3.6" fill="#ff8c42"/><path d="M11.5 18.5c0-4.2 2.9-7 6.5-7s6.5 2.8 6.5 7z" fill="#ff8c42"/></svg><span id="coopRT"></span></button>
       </div>
     </div>
     <div id="coopM" class="modal" hidden>
@@ -187,25 +196,25 @@ const TAG = '#どこまで車輪ゲーム';
 // ===== 言葉 =====
 const L = {
   ja: { title: 'どこまで車輪', back: '← トップへ戻る', again: 'もう一度', share: 'Xに投稿', best: n => `ベスト ${n}m`, newBest: n => `ベスト更新 ${n}m`,
-        cTitle: '2人で遊ぶ', cMe: 'あなた<br>左の車輪', cYou: 'あいて<br>右の車輪', cMeG: 'あなた<br>右の車輪', cYouG: 'あいて<br>左の車輪',
+        cta: 'オンラインで2人で遊ぶ', ctaR: 'オンラインで2人', cTitle: 'オンラインで2人で遊ぶ', cMe: 'あなた<br>左の車輪', cYou: 'あいて<br>右の車輪', cMeG: 'あなた<br>右の車輪', cYouG: 'あいて<br>左の車輪',
         cDesc: 'このリンクを送ってね。相手が開くとつながります。', send: 'リンクを送る', copy: 'リンクをコピー', copied: 'コピーしました',
         prep: '準備しています', waiting: '相手を待っています', joining: 'つないでいます', joined: 'つながりました！', left: '相手が抜けました。1人で続けます',
         fail: 'つながりませんでした。ネットワークによってはつながりません', invite: 'いっしょに「どこまで車輪」を遊ぼう！1台の乗り物を2人で操縦するよ',
         post: (d, two) => `${two ? '2人で' : ''}「どこまで車輪」で${d}m進んだ\n${TAG}` },
   ko: { title: '어디까지 바퀴', back: '← 홈으로', again: '다시 하기', share: 'X에 게시', best: n => `최고 ${n}m`, newBest: n => `최고 기록 ${n}m`,
-        cTitle: '둘이서 하기', cMe: '나<br>왼쪽 바퀴', cYou: '상대<br>오른쪽 바퀴', cMeG: '나<br>오른쪽 바퀴', cYouG: '상대<br>왼쪽 바퀴',
+        cta: '온라인으로 둘이서 하기', ctaR: '온라인 2인', cTitle: '온라인으로 둘이서 하기', cMe: '나<br>왼쪽 바퀴', cYou: '상대<br>오른쪽 바퀴', cMeG: '나<br>오른쪽 바퀴', cYouG: '상대<br>왼쪽 바퀴',
         cDesc: '이 링크를 보내 주세요. 상대가 열면 연결됩니다.', send: '링크 보내기', copy: '링크 복사', copied: '복사했어요',
         prep: '준비 중', waiting: '상대를 기다리는 중', joining: '연결 중', joined: '연결됐어요!', left: '상대가 나갔어요. 혼자서 계속합니다',
         fail: '연결하지 못했어요. 네트워크에 따라 연결되지 않을 수 있어요', invite: '같이 「어디까지 바퀴」 하자! 탈것 하나를 둘이서 조종해',
         post: (d, two) => `${two ? '둘이서 ' : ''}「어디까지 바퀴」에서 ${d}m 갔다\n${TAG}` },
   en: { title: 'Wheel Road', back: '← Home', again: 'Play again', share: 'Post on X', best: n => `Best ${n}m`, newBest: n => `New best ${n}m`,
-        cTitle: 'Play with 2', cMe: 'You<br>left wheel', cYou: 'Friend<br>right wheel', cMeG: 'You<br>right wheel', cYouG: 'Friend<br>left wheel',
+        cta: 'Play online with a friend', ctaR: 'Online 2P', cTitle: 'Play online with a friend', cMe: 'You<br>left wheel', cYou: 'Friend<br>right wheel', cMeG: 'You<br>right wheel', cYouG: 'Friend<br>left wheel',
         cDesc: 'Send this link. You connect when your friend opens it.', send: 'Send link', copy: 'Copy link', copied: 'Copied',
         prep: 'Getting ready', waiting: 'Waiting for your friend', joining: 'Connecting', joined: 'Connected!', left: 'Your friend left. Going on solo',
         fail: 'Could not connect. Some networks block this', invite: "Let's play Wheel Road together! Two people drive one vehicle",
         post: (d, two) => `${two ? 'Together we' : 'I'} rolled ${d}m in Wheel Road\n${TAG}` },
   th: { title: 'ล้อไปได้ไกลแค่ไหน', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X', best: n => `สถิติ ${n}m`, newBest: n => `สถิติใหม่ ${n}m`,
-        cTitle: 'เล่น 2 คน', cMe: 'คุณ<br>ล้อซ้าย', cYou: 'เพื่อน<br>ล้อขวา', cMeG: 'คุณ<br>ล้อขวา', cYouG: 'เพื่อน<br>ล้อซ้าย',
+        cta: 'เล่นออนไลน์กับเพื่อน', ctaR: 'ออนไลน์ 2 คน', cTitle: 'เล่นออนไลน์กับเพื่อน', cMe: 'คุณ<br>ล้อซ้าย', cYou: 'เพื่อน<br>ล้อขวา', cMeG: 'คุณ<br>ล้อขวา', cYouG: 'เพื่อน<br>ล้อซ้าย',
         cDesc: 'ส่งลิงก์นี้ไปให้เพื่อน พอเพื่อนเปิดก็จะเชื่อมต่อกัน', send: 'ส่งลิงก์', copy: 'คัดลอกลิงก์', copied: 'คัดลอกแล้ว',
         prep: 'กำลังเตรียม', waiting: 'กำลังรอเพื่อน', joining: 'กำลังเชื่อมต่อ', joined: 'เชื่อมต่อแล้ว!', left: 'เพื่อนออกไปแล้ว เล่นต่อคนเดียว',
         fail: 'เชื่อมต่อไม่ได้ บางเครือข่ายใช้ไม่ได้', invite: 'มาเล่น "ล้อไปได้ไกลแค่ไหน" ด้วยกัน! ขับรถคันเดียวกันสองคน',
@@ -372,7 +381,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 const S = {
   p: new THREE.Vector3(), v: new THREE.Vector3(), a: new THREE.Vector3(1, 0, 0), w: new THREE.Vector3(),
   phi: [0, 0], om: [0, 0], ac: [false, false], br: [false, false], Iw: [1, 1], th: 0, thd: 0, rL: R0, rR: R0, tL: R0, tR: R0,
-  accS: new THREE.Vector3(), vPrev: new THREE.Vector3(), scrape: 0, contact: [false, false], surf: [0, 0], lastN: [0, 0], hit: 0, time: 0, springCd: [0, 0], boing: 0, tq: 0, hint: START_S,
+  accS: new THREE.Vector3(), vPrev: new THREE.Vector3(), scrape: 0, contact: [false, false], surf: [0, 0], lastN: [0, 0], hit: 0, time: 0, springCd: [0, 0], boing: 0, hitN: 0, hitV: 0, boingN: 0, boingPad: -1, boingT: 0, tq: 0, hint: START_S,
 };
 const _f = new THREE.Vector3(), _u = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _pt = new THREE.Vector3();
 const _rb = new THREE.Vector3(), _rho = new THREE.Vector3(), _vel = new THREE.Vector3(), _s = new THREE.Vector3(), _t = new THREE.Vector3();
@@ -436,7 +445,7 @@ function contact(pt, center, spin, mu, r) {
     _J.copy(_t).multiplyScalar(-J); applyImp(_J, _rb, _rho, spin);
   }
   // バネ板: 踏んだ車輪を跳ね上げる
-  if (g.surf === 5 && spin >= 0 && S.springCd[spin] <= 0) { S.springCd[spin] = 0.6; _J.set(0, 300, 0); applyImp(_J, _rb, _rho, spin); S.boing = 1; if (g.pad) g.pad.t = S.time; }
+  if (g.surf === 5 && spin >= 0 && S.springCd[spin] <= 0) { S.springCd[spin] = 0.6; _J.set(0, 300, 0); applyImp(_J, _rb, _rho, spin); S.boing = 1; if (g.pad) { g.pad.t = S.time; S.boingPad = g.pad.id; S.boingT = S.time; } }
   // 加速板: 道の進む向きへ押す
   if (g.surf === 3 && spin >= 0) { const along = S.v.x * g.dx + S.v.z * g.dz; if (along < 17) { S.v.x += g.dx * 3.5 * h; S.v.z += g.dz * 3.5 * h; } }
   return N;
@@ -808,6 +817,7 @@ const road = {
     for (const f of this.featsIn(hint - 30, hint + 30)) if (f.type === 'barrels') for (const o of this.obsOf(f)) out.push(o);
     return out;
   },
+  padById(id) { const f = this.feats[id >> 4]; if (!f || !f.pads) return null; this.place(f); return f.pads[id & 15] || null; },
   obsById(id) { const f = this.feats[id >> 4]; return f && f.type === 'barrels' ? this.obsOf(f)[id & 15] : null; },
   ensure(n) {
     if (this.x.length > n) return;
@@ -857,7 +867,7 @@ const road = {
     if (f.cx === undefined) {
       const sc = (f.s0 + f.s1) / 2, p = this.at(sc, {});
       f.cx = p.x; f.cz = p.z; f.cy = p.y; f.ch = p.h; f.cw = p.w; f.rad = Math.min(p.w / 2 - 0.15, 3.1);
-      if (f.pads) for (const pd of f.pads) { const q = this.at(pd.s, {}); pd.lat = pd.lf * (q.w - 1.5); pd.x = q.x + Math.cos(q.h) * pd.lat; pd.z = q.z + Math.sin(q.h) * pd.lat; pd.y = q.y; pd.h = q.h; }
+      if (f.pads) f.pads.forEach((pd, j) => { pd.id = this.feats.indexOf(f) * 16 + j; }); if (f.pads) for (const pd of f.pads) { const q = this.at(pd.s, {}); pd.lat = pd.lf * (q.w - 1.5); pd.x = q.x + Math.cos(q.h) * pd.lat; pd.z = q.z + Math.sin(q.h) * pd.lat; pd.y = q.y; pd.h = q.h; }
     }
     return f;
   },
@@ -1657,13 +1667,14 @@ function reset(newSeed) {
   S.splashed = false; S.topT = 0; S.phi = [0, 0]; S.om = [0, 0]; S.time = 0; S.springCd = [0, 0]; S.th = 0; S.thd = 0; S.rL = S.rR = S.tL = S.tR = R0; S.accS.set(0, 0, 0); S.hint = START_S;
   inp.tL = inp.tR = R0; Object.assign(remote, { tL: R0, tR: R0, aL: false, bL: false, aR: false, bR: false });
   dist = 0; fallT = 0; state = 'ready';
-  netBuf.length = 0; guestObs.clear(); obsActive = []; obsNear = [];
+  netBuf.length = 0; guestObs.clear(); obsActive = []; obsNear = []; gHitN = -1; gBoingN = -1;
   for (let i = 0; i < 60; i++) physStep();   // 置いた瞬間の揺れを先に落ち着かせる
   snapPrev(); snapPrev(); interp(prev, cur, 1, view);
   camInit = true; fallCam.set = false; snapTaken = false; camHint = START_S; S.hit = 0;
   placeBestArch(mode === 'solo' ? best : best2);
   $('result').hidden = true; $('hud').style.visibility = ''; document.body.classList.remove('res');
   setHints(true);
+  if (typeof updCta === 'function') updCta();
   layoutKnobs(true);
 }
 function setHints(on) {
@@ -1675,7 +1686,7 @@ function firstInput() {
   startPlay();
 }
 function startPlay() {
-  state = 'play'; setHints(false); meow('start');
+  state = 'play'; setHints(false); updCta(); meow('start');
   if (mode === 'host') netSend({ t: 'go' });
 }
 function finish(d) {
@@ -1835,10 +1846,8 @@ function render() {
   if (mode !== 'guest') {
     for (const o of obsActive) if (o.moved && o.mesh) { o.mesh.position.copy(o.p); o.mesh.quaternion.copy(o.q); o.mesh.visible = !o.gone; o.moved = false; o.netDirty = true; }
   } else {
-    const k = 1 - Math.exp(-14 * renderDt);
     for (const o of guestObs) {
       if (!o.mesh) continue;
-      o.p.lerp(o.tp, k); o.q.slerp(o.tq, k);
       o.mesh.position.copy(o.p); o.mesh.quaternion.copy(o.q); o.mesh.visible = !o.gone;
     }
   }
@@ -1891,7 +1900,9 @@ function plankSounds(rollDelta, speed) {
 }
 
 // ===== 2人プレイ（PeerJS で相手と直接つなぐ） =====
-let peer = null, conn = null, netBuf = [], netOffset = null, lastSend = 0, lastInSend = 0;
+// 通信路は2本: ctl（確実・順番どおり。始まり・やり直し・終わり）と str（確実だが順番は保証しない。状態・入力・時計合わせ）
+// ホストが物理を計算し、1秒に60回状態を送る。ゲストは時計を合わせ、少しだけ遅らせて補間して描く
+let peer = null, conn = null, sconn = null, netBuf = [], netOffset = null, lastSend = 0, lastInSend = 0, sendN = 0, lastSnapN = -1;
 const PEER_JS = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
 function loadPeer() {
   if (window.Peer) return Promise.resolve();
@@ -1899,6 +1910,7 @@ function loadPeer() {
 }
 let lastRecv = 0;
 function netSend(m) { try { if (conn && conn.open) conn.send(m); } catch {} }
+function streamSend(m) { try { if (sconn && sconn.open) sconn.send(m); else if (conn && conn.open) conn.send(m); } catch {} }
 function toast(msg, ms = 2600) {
   const el = $('toast'); el.textContent = msg; el.classList.add('on');
   clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('on'), ms);
@@ -1912,7 +1924,7 @@ function openCoop(guest) {
 }
 function closeCoop() { $('coopM').hidden = true; }
 const rid = () => { const c = 'abcdefghijkmnpqrstuvwxyz23456789'; let s = ''; const a = crypto.getRandomValues(new Uint8Array(10)); for (const x of a) s += c[x % c.length]; return s; };
-$('coop').onclick = async () => {
+async function startHosting() {
   if (mode !== 'solo') { openCoop(mode === 'guest'); $('cInvite').hidden = true; setStatus('joined'); return; }
   openCoop(false);
   $('cLink').textContent = ''; $('cSend').disabled = true;
@@ -1928,12 +1940,18 @@ $('coop').onclick = async () => {
       setStatus('waiting', true);
     });
     peer.on('connection', c => {
+      const ch = c.metadata && c.metadata.ch;
+      if (ch === 'str') { c.on('data', onNet); c.on('open', () => { sconn = c; }); return; }
       if (conn && conn.open) { c.close(); return; }
+      c.on('data', onNet);
       c.on('open', () => { conn = c; becomeHost(); });
     });
-    peer.on('error', err => { if (mode === 'solo') setStatus('fail'); });
+    peer.on('error', () => { if (mode === 'solo') setStatus('fail'); });
   } catch { setStatus('fail'); }
-};
+}
+$('coop').onclick = startHosting;
+$('coopCta').onclick = startHosting;
+$('coopR').onclick = startHosting;
 $('cSend').textContent = coarse && navigator.share ? t('send') : t('copy');
 $('cSend').onclick = async () => {
   if (!inviteUrl) return;
@@ -1948,15 +1966,20 @@ $('coopX').onclick = () => {
 };
 function hookConn() {
   lastRecv = performance.now();
-  if (!conn._hooked) { conn._hooked = true; conn.on('data', onNet); }
   conn.on('close', () => onLeave());
   conn.on('error', () => onLeave());
+}
+// スタート前と結果画面に「オンラインで2人」ボタンを出す（1人のときだけ）
+function updCta() {
+  $('coopCta').hidden = !(mode === 'solo' && state === 'ready');
+  $('coopR').hidden = mode !== 'solo';
 }
 function setModeUI() {
   $('coop').classList.toggle('on', mode !== 'solo');
   $('kL').classList.toggle('ghost', mode === 'guest');
   $('kR').classList.toggle('ghost', mode === 'host');
   shown.kL = shown.kR = null; layoutKnobs(true);
+  updCta();
 }
 function becomeHost() {
   mode = 'host'; hookConn(); closeCoop(); setModeUI();
@@ -1966,80 +1989,112 @@ function becomeHost() {
 function onLeave() {
   if (mode === 'solo') return;
   const wasGuest = mode === 'guest';
-  mode = 'solo'; conn = null;
+  mode = 'solo'; conn = null; sconn = null;
   if (peer) { peer.destroy(); peer = null; }
   setModeUI(); toast(t('left'), 3500);
   if (wasGuest || state === 'over') reset();
   else { inp.tR = remote.tR; }
 }
+// 時計合わせ: 往復時間が一番短かった測定を信じる
+const clk = { samples: [], delay: 0.1, latM: 0.05, latD: 0.02 };
+let lastPing = 0, lastInSeq = -1, inSeq = 0;
 function onNet(m) {
   if (!m || typeof m !== 'object') return;
   lastRecv = performance.now();
   if (m.t === 'bye') { onLeave(); return; }
+  if (m.t === 'pi') { streamSend({ t: 'po', c: m.c, h: performance.now() / 1000 }); return; }
   if (mode === 'host') {
     if (m.t === 'hello') { reset(); netSend({ t: 'reset', seed }); }
-    else if (m.t === 'i') { remote.tR = clamp(+m.r || R0, RMIN, RMAX); remote.aR = !!m.a; remote.bR = !!m.b; }
+    else if (m.t === 'i') { if (m.n > lastInSeq) { lastInSeq = m.n; remote.aR = !!m.a; remote.bR = !!m.b; } }
     else if (m.t === 'go') { if (state === 'ready') startPlay(); }
     else if (m.t === 'retry') { reset(); netSend({ t: 'reset', seed }); }
   } else if (mode === 'guest') {
-    if (m.t === 'reset') { reset(m.seed); }
-    else if (m.t === 'go') { if (state === 'ready') { state = 'play'; setHints(false); meow('start'); } }
+    if (m.t === 'reset') { reset(m.seed); lastSnapN = -1; }
+    else if (m.t === 'go') { if (state === 'ready') { state = 'play'; setHints(false); updCta(); meow('start'); } }
+    else if (m.t === 'po') {
+      const now = performance.now() / 1000, rtt = now - m.c;
+      clk.samples.push({ rtt, off: m.h + rtt / 2 - now }); if (clk.samples.length > 12) clk.samples.shift();
+      const best = clk.samples.reduce((a, b) => b.rtt < a.rtt ? b : a);
+      netOffset = netOffset == null ? best.off : lerp(netOffset, best.off, 0.3);
+    }
     else if (m.t === 's') {
-      const now = performance.now() / 1000;
-      const off = m.k - now;
-      netOffset = netOffset == null ? off : Math.min(off, netOffset + 0.002); // 一番早く届いた分に合わせる
-      netBuf.push(m); if (netBuf.length > 40) netBuf.shift();
+      if (m.n <= lastSnapN || netOffset == null) return;   // 古い・順番が入れかわった状態は捨てる
+      lastSnapN = m.n;
+      // 届くまでの遅れとばらつきから、補間で待つ時間を決める
+      const lat = performance.now() / 1000 + netOffset - m.k;
+      clk.latM = lerp(clk.latM, lat, 0.05); clk.latD = lerp(clk.latD, Math.abs(lat - clk.latM), 0.05);
+      netBuf.push(m); if (netBuf.length > 90) netBuf.shift();
       if (Array.isArray(m.o)) for (const e of m.o) {
         const o = road.obsById(e[0]); if (!o) continue;
-        if (!o.tp) { o.tp = o.p.clone(); o.tq = o.q.clone(); }
-        o.tp.set(e[1], e[2], e[3]); o.tq.set(e[4], e[5], e[6], e[7]).normalize(); o.gone = !!e[8];
+        (o.hist || (o.hist = [])).push(e.concat([m.k])); if (o.hist.length > 30) o.hist.shift();
         guestObs.add(o);
       }
     }
   }
 }
-// ホスト: 状態を1秒に30回送る
+// ホスト: 状態を1秒に60回送る
 const R3 = x => Math.round(x * 1000) / 1000;
 function hostSend(now) {
-  if (mode !== 'host' || now - lastSend < 1 / 30) return;
+  if (mode !== 'host' || now - lastSend < 1 / 61) return;
   lastSend = now;
   const st = { ready: 0, play: 1, fall: 2, over: 3 }[state];
   const ob = [];
-  for (const o of obsActive) if (o.netDirty) { o.netDirty = false; ob.push([o.id, R3(o.p.x), R3(o.p.y), R3(o.p.z), R3(o.q.x), R3(o.q.y), R3(o.q.z), R3(o.q.w), o.gone ? 1 : 0]); }
-  netSend({ t: 's', k: now, o: ob.length ? ob : undefined, d: [R3(S.p.x), R3(S.p.y), R3(S.p.z), R3(S.a.x), R3(S.a.y), R3(S.a.z), R3(S.phi[0]), R3(S.phi[1]), R3(S.th), R3(S.rL), R3(S.rR), R3(S.om[0]), R3(S.om[1]), R3(inp.tL), inp.aL ? 1 : 0, inp.bL ? 1 : 0, R3(dist), st, R3(S.scrape), (S.contact[0] || S.contact[1]) ? 1 : 0, R3(fallT), R3(S.time)] });
+  for (const o of obsActive) if (o.netDirty || o.awake) { o.netDirty = false; ob.push([o.id, R3(o.p.x), R3(o.p.y), R3(o.p.z), R3(o.q.x), R3(o.q.y), R3(o.q.z), R3(o.q.w), o.gone ? 1 : 0]); }
+  streamSend({ t: 's', n: sendN++, k: now, o: ob.length ? ob : undefined, d: [R3(S.p.x), R3(S.p.y), R3(S.p.z), R3(S.a.x), R3(S.a.y), R3(S.a.z), R3(S.phi[0]), R3(S.phi[1]), R3(S.th), R3(S.rL), R3(S.rR), R3(S.om[0]), R3(S.om[1]), R3(inp.tL), inp.aL ? 1 : 0, inp.bL ? 1 : 0, R3(dist), st, R3(S.scrape), (S.contact[0] || S.contact[1]) ? 1 : 0, R3(fallT), R3(S.time), S.hitN, R3(S.hitV), S.boingN, S.boingPad, R3(S.boingT)] });
 }
-// ゲスト: 自分の入力を送る（変わった時と、1秒に10回）
+// ゲスト: 自分の入力を送る（変わった時はすぐ、それ以外も1秒に20回）。時計合わせも定期的に
 let lastIn = '';
 function guestSend(now) {
   if (mode !== 'guest') return;
-  const key = R3(inp.tR) + ',' + (inp.aR ? 1 : 0) + (inp.bR ? 1 : 0);
-  if (key !== lastIn || now - lastInSend > 0.1) { lastIn = key; lastInSend = now; netSend({ t: 'i', r: R3(inp.tR), a: inp.aR ? 1 : 0, b: inp.bR ? 1 : 0 }); }
+  const key = (inp.aR ? 1 : 0) + ',' + (inp.bR ? 1 : 0);
+  if (key !== lastIn || now - lastInSend > 0.05) { lastIn = key; lastInSend = now; streamSend({ t: 'i', n: inSeq++, a: inp.aR ? 1 : 0, b: inp.bR ? 1 : 0 }); }
+  if (now - lastPing > (clk.samples.length < 5 ? 0.12 : 0.6)) { lastPing = now; streamSend({ t: 'pi', c: now }); }
 }
-// ゲスト: 0.1秒遅れで、届いた状態の間を補間して描く
+// ゲスト: 合わせた時計で、少しだけ前の時刻の状態を、届いた状態の間で補間して描く
 const gA = V(), gB = V();
-let gScrape = 0, gContact = false;
+let gScrape = 0, gContact = false, gHitN = 0, gBoingN = 0;
 function decode(m, out) {
   const d = m.d;
   out.p.set(d[0], d[1], d[2]); out.a.set(d[3], d[4], d[5]).normalize(); out.phiL = d[6]; out.phiR = d[7]; out.th = d[8]; out.rL = d[9]; out.rR = d[10]; out.omL = d[11]; out.omR = d[12]; out.time = d[21] || 0;
 }
+const _gq = new THREE.Quaternion();
 function guestView() {
-  if (!netBuf.length) return;
-  const tNow = performance.now() / 1000 + netOffset - 0.1;
+  if (!netBuf.length || netOffset == null) return;
+  // 待つ時間 = 届くまでの遅れ + ばらつき + 送る間隔。急に変えず、ゆっくり合わせる
+  const want = clamp(clk.latM + 2.5 * clk.latD + 1 / 60, 0.03, 0.35);
+  clk.delay = lerp(clk.delay, want, 0.02);
+  const tNow = performance.now() / 1000 + netOffset - clk.delay;
   let i = netBuf.length - 1;
   while (i > 0 && netBuf[i - 1].k > tNow) i--;
   const B = netBuf[i], A = netBuf[Math.max(0, i - 1)];
   decode(A, gA); decode(B, gB);
   const k = B.k > A.k ? clamp((tNow - A.k) / (B.k - A.k), 0, 1) : 1;
   interp(gA, gB, k, view);
+  // 樽とコーンも同じ時刻で補間
+  for (const o of guestObs) {
+    const hst = o.hist; if (!hst || !hst.length) continue;
+    let j = hst.length - 1;
+    while (j > 0 && hst[j - 1][9] > tNow) j--;
+    const e1 = hst[j], e0 = hst[Math.max(0, j - 1)];
+    const u = e1[9] > e0[9] ? clamp((tNow - e0[9]) / (e1[9] - e0[9]), 0, 1) : 1;
+    o.p.set(lerp(e0[1], e1[1], u), lerp(e0[2], e1[2], u), lerp(e0[3], e1[3], u));
+    o.q.set(e0[4], e0[5], e0[6], e0[7]).normalize(); _gq.set(e1[4], e1[5], e1[6], e1[7]).normalize(); o.q.slerp(_gq, u);
+    o.gone = !!e1[8];
+  }
   const d = B.d;
   remote.tL = d[13]; remote.aL = !!d[14]; remote.bL = !!d[15];
   dist = d[16]; gScrape = d[18]; gContact = !!d[19]; fallT = d[20];
+  // ぶつかった音・バネ板（ホストで起きた回数が増えたら鳴らす）
+  if (gHitN < 0) { gHitN = d[22]; gBoingN = d[24]; }
+  if (d[22] > gHitN) { gHitN = d[22]; thump(Math.min(1, (d[23] || 0) / 6)); }
+  if (d[24] > gBoingN) { gBoingN = d[24]; boing(); const pd = road.padById(d[25]); if (pd) pd.t = d[26]; }
   const st = ['ready', 'play', 'fall', 'over'][d[17]];
   if (st !== state) {
     if (st === 'play' && state === 'ready') { setHints(false); }
     if (st === 'fall' && state !== 'fall') meow('fall');
     if (st === 'over' && state !== 'over') { state = 'over'; finish(d[16]); return; }
     if (st !== 'over') state = st;
+    updCta();
   }
 }
 // 招待リンクで開いた時: ホストにつなぐ
@@ -2053,11 +2108,14 @@ async function joinRoom(room) {
     const timer = setTimeout(fail, 15000);
     peer.on('error', () => { clearTimeout(timer); fail(); });
     peer.on('open', () => {
-      const c = peer.connect('kfwheel-' + room, { reliable: true });
-      c._hooked = true; c.on('data', onNet);   // 先に受け取る準備をしてから
+      const c = peer.connect('kfwheel-' + room, { reliable: true, metadata: { ch: 'ctl' } });
+      c.on('data', onNet);   // 先に受け取る準備をしてから
       c.on('open', () => {
         clearTimeout(timer);
         conn = c; mode = 'guest'; hookConn(); closeCoop(); setModeUI(); toast(t('joined'));
+        // 状態用の通信路（順番を保証しない）も開く
+        const sc = peer.connect('kfwheel-' + room, { reliable: false, metadata: { ch: 'str' } });
+        sc.on('data', onNet); sc.on('open', () => { sconn = sc; });
         netSend({ t: 'hello' });                // 準備できたら、ホストに道の種を送ってもらう
       });
     });
@@ -2073,7 +2131,7 @@ function applyLang() {
   $('lang').value = lang;
   $('back').textContent = t('back');
   $('again').textContent = t('again'); $('share').textContent = t('share');
-  $('cTitle').textContent = t('cTitle'); $('cDesc').textContent = t('cDesc');
+  $('cTitle').textContent = t('cTitle'); $('ctaT').textContent = t('cta'); $('coopRT').textContent = t('ctaR'); $('cDesc').textContent = t('cDesc');
   $('cSend').textContent = coarse && navigator.share ? t('send') : t('copy');
   const guest = mode === 'guest' || cStatusKey === 'joining';
   $('cMe').innerHTML = t(guest ? 'cMeG' : 'cMe'); $('cYou').innerHTML = t(guest ? 'cYouG' : 'cYou');
@@ -2084,7 +2142,7 @@ $('lang').onchange = () => { lang = $('lang').value; store.set('lang', lang); ap
 
 // ===== ループ（固定刻み＋補間） =====
 let needSnap = false, prevSurf = 0;
-let last = performance.now(), accT = 0, hudShown = -1, lastPing = 0;
+let last = performance.now(), accT = 0, hudShown = -1, lastKeep = 0;
 function loop(nowMs) {
   const dt = Math.min(0.05, (nowMs - last) / 1000); last = nowMs;
   const now = nowMs / 1000;
@@ -2118,12 +2176,12 @@ function loop(nowMs) {
     }
     interp(prev, cur, accT / DT, view);
     scrape = S.scrape; contact = S.contact[0] || S.contact[1];
-    if (S.hit > 0) { thump(Math.min(1, S.hit / 6)); S.hit = 0; }
-    if (S.boing) { boing(); S.boing = 0; }
+    if (S.hit > 0) { thump(Math.min(1, S.hit / 6)); S.hitN++; S.hitV = S.hit; S.hit = 0; }
+    if (S.boing) { boing(); S.boingN++; S.boing = 0; }
     const sf = Math.max(S.surf[0], S.surf[1]);
     if (sf !== prevSurf) { if (sf === 3) whoosh(); else if (sf === 1) noiseHit(ac ? ac.currentTime : 0, 0.25, 5000, 2, 0.05); prevSurf = sf; }
     hostSend(now);
-    if (mode === 'host') { if (now - lastPing > 0.5) { lastPing = now; netSend({ t: 'p' }); } }
+    if (mode === 'host') { if (now - lastKeep > 0.5) { lastKeep = now; netSend({ t: 'p' }); } }
   } else {
     guestView();
     guestSend(now);
