@@ -1654,7 +1654,7 @@ function reset(newSeed) {
   const q = road.at(START_S, tmpP);
   S.p.set(q.x, R0, q.z); S.v.set(0, 0, 0); S.w.set(0, 0, 0);
   S.a.set(Math.cos(q.h), 0, Math.sin(q.h));
-  S.splashed = false; S.phi = [0, 0]; S.om = [0, 0]; S.time = 0; S.springCd = [0, 0]; S.th = 0; S.thd = 0; S.rL = S.rR = S.tL = S.tR = R0; S.accS.set(0, 0, 0); S.hint = START_S;
+  S.splashed = false; S.topT = 0; S.phi = [0, 0]; S.om = [0, 0]; S.time = 0; S.springCd = [0, 0]; S.th = 0; S.thd = 0; S.rL = S.rR = S.tL = S.tR = R0; S.accS.set(0, 0, 0); S.hint = START_S;
   inp.tL = inp.tR = R0; Object.assign(remote, { tL: R0, tR: R0, aL: false, bL: false, aR: false, bR: false });
   dist = 0; fallT = 0; state = 'ready';
   netBuf.length = 0; guestObs.clear(); obsActive = []; obsNear = [];
@@ -2102,14 +2102,16 @@ function loop(nowMs) {
       if (state === 'play') dist = Math.max(dist, s - START_S);
       if (state === 'play') {
         const falling = S.p.y < road.yAt(S.hint) - 1.2 && !S.contact[0] && !S.contact[1];
-        const toppled = Math.abs(S.a.y) > 0.8;
+        // 横倒し: 一瞬傾いただけなら続ける。横倒しのまま1.5秒たったら失敗
+        S.topT = Math.abs(S.a.y) > 0.8 ? (S.topT || 0) + DT : 0;
+        const toppled = S.topT > 1.5;
         if (falling || toppled) { state = 'fall'; fallT = 0; meow('fall'); }
       } else if (state === 'fall') {
         fallT += DT;
         if (fallT > 0.45 && !snapTaken) needSnap = true;
         if (S.p.y < SEA_Y + 1 && !S.splashed) { S.splashed = true; S.splashT = fallT; splash(S.p); }
         if (S.splashed) { S.v.multiplyScalar(Math.exp(-4 * DT)); S.w.multiplyScalar(Math.exp(-3 * DT)); }  // 雲の中でふわっと止まる
-        if ((S.splashed && fallT > S.splashT + 0.6) || fallT > 4 || (S.p.y > road.yAt(S.hint) - 1 && fallT > 1.6)) finish();
+        if ((S.splashed && fallT > S.splashT + 0.6) || fallT > 4 || (S.p.y > road.yAt(S.hint) - 1 && fallT > 0.8)) finish();
       }
       snapPrev();
       accT -= DT;
