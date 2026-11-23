@@ -25,6 +25,7 @@
 //   ・最後の submit の距離は、最後に届いた cp の距離から次の cp の手前まで。整理券は1回だけ。
 //   ・ゲームのプログラム自体を改造して本当に走らせるズルまでは防げない（見つけたら行を消す・ban に書く）。
 //   ・2人用は name と name2 を「名前1&名前2」で保存し、端末は2人分を合わせたものを1組として扱う。
+//   ・通信が切れて送り直した go / cp / submit は、2回目もはじかずに同じ答えを返す。
 //
 // GET  ?game=<フォルダ名>                         → { today: [{ name, wave, kills }], all: [...] }   （距離のゲームは wave が距離 m）
 // POST {act:'start', game, dev}                    → { ok, tok }
@@ -159,6 +160,8 @@ function doPost(e) {
       return json({ ok: true, tok });
     }
     const tok = String(b.tok || ''), s = getSess(tok);
+    // 距離のゲーム: 通信が切れて同じ登録が2回届いたら、1回目の結果を返す
+    if (s && s.used && s.res && act === 'submit') return json(s.res);
     if (!s || s.used) return json({ ok: false, error: 'bad' });
     if (DIST[s.game]) return distAct(act, b, s, tok, now);
     const R = RULES[s.game];
@@ -201,6 +204,7 @@ function distAct(act, b, s, tok, now) {
   const D = DIST[s.game];
   const fail = () => { s.used = true; putSess(tok, s); return json({ ok: false, error: 'bad' }); };
   if (act === 'go') {
+    if (s.go && now - s.go < 60000) return json({ ok: true });   // 送り直し（2回目）
     if (s.go || now - s.issued > 3600 * 1000) return fail();
     s.go = now; putSess(tok, s);
     return json({ ok: true });
@@ -209,6 +213,7 @@ function distAct(act, b, s, tok, now) {
   const real = (now - s.go) / 1000;                 // go から本当にたった秒数
   if (act === 'cp') {
     const n = Math.floor(Number(b.n)), ct = Number(b.sec);
+    if (n === s.cp && n > 0) return json({ ok: true });            // 送り直し（2回目）
     if (n !== s.cp + 1 || n * D.cp > D.max || !(ct >= s.ct) || ct > real + 3) return fail();
     if (n > 1 && ct - s.ct < D.cp / D.top) return fail();          // 100m を最高速度より速く
     if (n * D.cp > D.vmax * real + 60) return fail();               // 平均速度が速すぎる
@@ -232,9 +237,11 @@ function distAct(act, b, s, tok, now) {
   s.used = true; putSess(tok, s);
   const game = s.game, t = new Date(now);
   sheet().appendRow([t, "'" + today(), game, "'" + name, dist, 0, sec, "'" + pairDev]);
+  s.res = { ok: true, rank: { today: 1, all: 1 } };
   const rankIn = rows => bestPerDev(rows).filter(r => r.dev !== pairDev && better(r, { wave: dist, kills: 0, t: now }) < 0).length + 1;
   const todayRows = readRows(game, true), allRows = readRows(game, false);
   const o = { today: pub(bestPerDev(todayRows)), all: pub(bestPerDev(allRows)) };
   cache().put('tops:' + game + ':' + today(), JSON.stringify(o), 60);
-  return json({ ok: true, rank: { today: rankIn(todayRows), all: rankIn(allRows) }, today: o.today, all: o.all });
+  s.res = { ok: true, rank: { today: rankIn(todayRows), all: rankIn(allRows) }, today: o.today, all: o.all }; putSess(tok, s);
+  return json(s.res);
 }
