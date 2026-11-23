@@ -1714,7 +1714,7 @@ function reset(newSeed, keepRank) {
   const q = road.at(START_S, tmpP);
   S.p.set(q.x, R0, q.z); S.v.set(0, 0, 0); S.w.set(0, 0, 0);
   S.a.set(Math.cos(q.h), 0, Math.sin(q.h));
-  S.splashed = false; S.topT = 0; S.phi = [0, 0]; S.om = [0, 0]; S.time = 0; S.springCd = [0, 0]; S.th = 0; S.thd = 0; S.rL = S.rR = S.tL = S.tR = R0; S.accS.set(0, 0, 0); S.hint = START_S;
+  S.splashed = false; S.topT = 0; S.righting = false; S.phi = [0, 0]; S.om = [0, 0]; S.time = 0; S.springCd = [0, 0]; S.th = 0; S.thd = 0; S.rL = S.rR = S.tL = S.tR = R0; S.accS.set(0, 0, 0); S.hint = START_S;
   inp.tL = inp.tR = R0; Object.assign(remote, { tL: R0, tR: R0, aL: false, bL: false, aR: false, bR: false });
   dist = 0; fallT = 0; state = 'ready';
   netBuf.length = 0; guestObs.clear(); obsActive = []; obsNear = []; gHitN = -1; gBoingN = -1;
@@ -2368,17 +2368,20 @@ function loop(nowMs) {
       const s = physStep();
       if (state === 'play') { dist = Math.max(dist, s - START_S); rkCheckpoint(); }
       if (state === 'play') {
+        // ゲームオーバーは道から本当に落ちた時だけ
         const falling = S.p.y < road.yAt(S.hint) - 1.2 && !S.contact[0] && !S.contact[1];
-        // 横倒し: 一瞬傾いただけなら続ける。横倒しのまま1.5秒たったら失敗
-        S.topT = Math.abs(S.a.y) > 0.8 ? (S.topT || 0) + DT : 0;
-        const toppled = S.topT > 1.5;
-        if (falling || toppled) { state = 'fall'; fallT = 0; meow('fall'); }
+        // 横倒しのまま1秒たったら、自分で起き上がる
+        S.topT = Math.abs(S.a.y) > 0.7 ? (S.topT || 0) + DT : 0;
+        if (S.topT > 1.0 || S.righting) selfRight();
+        if (falling) { state = 'fall'; fallT = 0; meow('fall'); }
       } else if (state === 'fall') {
         fallT += DT;
+        // 落ちかけても道に戻れたら続ける
+        if (!S.splashed && (S.contact[0] || S.contact[1]) && S.p.y > road.yAt(S.hint) - 0.6) { state = 'play'; snapTaken = false; needSnap = false; snapPrev(); accT -= DT; continue; }
         if (fallT > 0.45 && !snapTaken) needSnap = true;
         if (S.p.y < SEA_Y + 1 && !S.splashed) { S.splashed = true; S.splashT = fallT; splash(S.p); }
         if (S.splashed) { S.v.multiplyScalar(Math.exp(-4 * DT)); S.w.multiplyScalar(Math.exp(-3 * DT)); }  // 雲の中でふわっと止まる
-        if ((S.splashed && fallT > S.splashT + 0.6) || fallT > 4 || (S.p.y > road.yAt(S.hint) - 1 && fallT > 0.8)) finish();
+        if ((S.splashed && fallT > S.splashT + 0.6) || fallT > 4) finish();
       }
       snapPrev();
       accT -= DT;
@@ -2429,6 +2432,16 @@ function loop(nowMs) {
   // 相手から5秒なにも届かなければ、抜けたとみなす
   if (mode !== 'solo' && performance.now() - lastRecv > 5000) onLeave();
   requestAnimationFrame(loop);
+}
+// 横倒しから起き上がる: 車軸を水平に戻す向きに回し、少し持ち上げる
+function selfRight() {
+  if (!S.righting) { S.righting = true; meow('start'); }
+  _tmp.set(S.a.x, 0, S.a.z); if (_tmp.lengthSq() < 1e-4) _tmp.set(1, 0, 0); _tmp.normalize();
+  _tmp2.crossVectors(S.a, _tmp);                      // 水平に戻す向きの回転（傾きが小さいほど弱く）
+  S.w.copy(_tmp2).multiplyScalar(4); S.w.addScaledVector(S.a, -S.w.dot(S.a));
+  if (Math.abs(S.a.y) > 0.4 && S.v.y < 0.7) S.v.y += 18 * DT;   // 少し持ち上げる
+  S.v.x *= 0.9; S.v.z *= 0.9;                        // その場で起き上がる
+  if (Math.abs(S.a.y) < 0.08) { S.righting = false; S.topT = 0; S.w.set(0, 0, 0); }
 }
 function splash(p) {
   poof();
