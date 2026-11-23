@@ -554,7 +554,7 @@ function makeSkinMat(kind) {
         varying float vMud; varying float vWet; varying float vAO; varying vec3 vLP; varying vec4 vN;
         uniform float uClean; uniform vec4 uDent; uniform float uWob; uniform float uJig; uniform float uTime;
         #ifdef PIG_SKIN
-        attribute vec3 aSkin; uniform vec4 uLegs; uniform float uYaw; uniform float uPitch;
+        attribute vec3 aSkin; attribute float aSoft; uniform vec4 uLegs; uniform float uYaw; uniform float uPitch;
         #endif`)
       .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
         vec3 dPiv = vec3(0.0); mat3 dR = mat3(1.0);
@@ -588,8 +588,8 @@ function makeSkinMat(kind) {
           // お腹とわき腹のお肉がぷるぷる揺れる
           float belly = smoothstep(0.6, 0.28, position.y) * smoothstep(-0.6, -0.25, position.x) * smoothstep(0.5, 0.22, position.x);
           float jig = uJig * belly * (0.6 + 0.4 * sin(position.x * 9.0 + position.z * 4.0));
-          softD = -A * fall + B * ring + 0.0018 * wob + 0.009 * jig;
-          vec3 g = (2.0 * A * fall / (RR * RR)) * dp - (B * ring * 2.0 * (dd - RC) / (RWD * RWD)) * dp / max(dd, 1e-4);
+          softD = (-A * fall + B * ring + 0.0018 * wob + 0.009 * jig) * aSoft;
+          vec3 g = ((2.0 * A * fall / (RR * RR)) * dp - (B * ring * 2.0 * (dd - RC) / (RWD * RWD)) * dp / max(dd, 1e-4)) * aSoft;
           g -= objectNormal * dot(g, objectNormal);
           objectNormal = normalize(objectNormal - g);
         }
@@ -711,6 +711,23 @@ const buildMs = performance.now() - t0;
     else skin[i * 3 + 2] = sstep(0.42, 0.62, x);
   }
   bodyGeo.setAttribute('aSkin', new THREE.BufferAttribute(skin, 3));
+  // 柔らかさ（骨に近い所は硬い）: お腹・わき腹・ほおは柔らかく、脚・背骨・肩甲骨・腰の骨・頭蓋骨は硬い
+  const soft = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), az = Math.abs(z);
+    const lx = x > 0 ? LEG.fx : LEG.hx, dxz = Math.hypot(x - lx, az - LEG.z);
+    let sf = 1;
+    sf = lerp(sf, 0.06, sstep(0.36, 0.24, y) * sstep(0.14, 0.07, dxz));            // 脚
+    sf *= 1 - 0.6 * sstep(0.62, 0.7, y) * sstep(0.1, 0.02, az);                      // 背骨
+    sf *= 1 - 0.45 * Math.exp(-((x - 0.3) ** 2) / 0.01 - ((y - 0.56) ** 2) / 0.012); // 肩甲骨
+    sf *= 1 - 0.4 * Math.exp(-((x + 0.36) ** 2) / 0.008 - ((y - 0.62) ** 2) / 0.006); // 腰の骨
+    if (x > 0.5) {
+      sf = lerp(sf, 0.1, sstep(0.52, 0.62, x) * sstep(0.46, 0.55, y));               // 頭蓋骨（額・頭の上）
+      sf = lerp(sf, 0.3, sstep(0.8, 0.88, x));                                         // 鼻（軟骨）
+    }
+    soft[i] = clamp(sf, 0.04, 1);
+  }
+  bodyGeo.setAttribute('aSoft', new THREE.BufferAttribute(soft, 1));
 }
 // くぼみ（脚の付け根・お腹の下・目のまわり）を暗くする: 法線の先の距離を何回か測る
 function bakeAO(geo, extraSDF) {
@@ -824,7 +841,7 @@ for (const s of [1, -1]) {
   const mesh = new THREE.Mesh(geo, makeSkinMat('ear'));
   mesh.rotation.y = s > 0 ? Math.PI / 4 : Math.PI * 3 / 4; // 耳の穴を前と外に向ける
   piv.add(mesh); head.add(piv);
-  ears.push({ piv, s, base: piv.rotation.clone(), w: addWashable(mesh, geo) });
+  ears.push({ piv, s, base: piv.rotation.clone(), w: addWashable(mesh, geo), mesh, flap: 0, flapV: 0, inv: new THREE.Matrix4() });
 }
 // しっぽ: くるんと巻いた細い管（先ほど細い）
 {
@@ -879,6 +896,7 @@ for (const w of washables) {
   const p = w.geo.attributes.position, n = w.n;
   w.rest = new Float32Array(n * 3);
   const m = new THREE.Matrix4().multiplyMatrices(invPig0, w.mesh.matrixWorld);
+  w.restMat = m.clone();
   for (let i = 0; i < n; i++) { _v.fromBufferAttribute(p, i).applyMatrix4(m); w.rest[i * 3] = _v.x; w.rest[i * 3 + 1] = _v.y; w.rest[i * 3 + 2] = _v.z; }
   // 面積の重み（下向きの面・ひづめ近くは届きにくいので軽く）
   const idx = w.geo.index, nrm = w.geo.attributes.normal;
@@ -960,7 +978,6 @@ function cleanRatio() {
 // ===== まわり: 単色の背景と地面 =====
 const BG = new THREE.Color('#dde3e6');
 scene.background = BG;
-scene.fog = new THREE.Fog(BG, 6, 20);
 // 反射用の環境（空色の上と、土色の下）: 画面には出さない
 {
   const envMat = new THREE.ShaderMaterial({
@@ -970,7 +987,7 @@ scene.fog = new THREE.Fog(BG, 6, 20);
       void main(){
         float h = vD.y;
         vec3 c = mix(vec3(0.78, 0.84, 0.88), vec3(0.32, 0.48, 0.72), pow(clamp(h, 0.0, 1.0), 0.6));
-        c = mix(c, vec3(0.42, 0.36, 0.3), smoothstep(0.02, -0.1, h));
+        c = mix(c, vec3(0.55, 0.54, 0.52), smoothstep(0.02, -0.3, h));
         // 窓のような明るい面（つやのハイライトになる）
         c += vec3(2.2) * smoothstep(0.86, 0.9, dot(vD, normalize(vec3(-0.5, 0.75, 0.45))));
         c += vec3(0.8) * smoothstep(0.9, 0.93, dot(vD, normalize(vec3(0.7, 0.4, 0.6))));
@@ -984,7 +1001,7 @@ scene.fog = new THREE.Fog(BG, 6, 20);
   pm.dispose();
 }
 const SUN_DIR = new THREE.Vector3(-0.5, 0.78, 0.42).normalize();
-const hemi = new THREE.HemisphereLight('#d4e6ff', '#7a6a55', 0.7);
+const hemi = new THREE.HemisphereLight('#d8e6f5', '#9a948c', 0.75);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight('#fff2df', 2.6);
 sun.position.copy(SUN_DIR).multiplyScalar(8);
@@ -1009,40 +1026,7 @@ function canvasTex(w, h, draw, repeat = 1, srgb = true) {
   return tx;
 }
 const R = Math.random;
-// 地面: 単色。水が落ちた所だけ暗く・つやつやになる（白で描いた濡れの地図）
-const WET_SIZE = 6, wetCan = document.createElement('canvas'); wetCan.width = wetCan.height = 512;
-const wctx = wetCan.getContext('2d'); wctx.fillStyle = '#000'; wctx.fillRect(0, 0, 512, 512);
-const wetTex = new THREE.CanvasTexture(wetCan);
-let wetTexDirty = false;
-function paintWet(x, z, r, a, mud = 0) {
-  const px = (x / WET_SIZE + 0.5) * 512, py = (z / WET_SIZE + 0.5) * 512, pr = r / WET_SIZE * 512;
-  if (px < -pr || py < -pr || px > 512 + pr || py > 512 + pr) return;
-  const gr = wctx.createRadialGradient(px, py, 0, px, py, pr);
-  // 赤 = 濡れ、緑 = 泥水のしみ
-  gr.addColorStop(0, `rgba(255,${Math.round(255 * mud)},0,${a})`); gr.addColorStop(1, `rgba(255,${Math.round(255 * mud)},0,0)`);
-  wctx.globalCompositeOperation = 'lighter';
-  wctx.fillStyle = gr; wctx.fillRect(px - pr, py - pr, pr * 2, pr * 2);
-  wctx.globalCompositeOperation = 'source-over';
-  wetTexDirty = true;
-}
-const groundMat = new THREE.MeshStandardMaterial({ color: '#b3a18a', roughness: 0.95, envMapIntensity: 0.5 });
-groundMat.onBeforeCompile = sh => {
-  sh.uniforms.uWet = { value: wetTex };
-  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP;')
-    .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP; uniform sampler2D uWet; float gW;')
-    .replace('#include <map_fragment>', `#include <map_fragment>
-      {
-        vec4 wt = texture2D(uWet, vWP.xz / ${WET_SIZE.toFixed(1)} + 0.5);
-        gW = clamp(wt.r, 0.0, 1.0);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.3, 0.22, 0.15), clamp(wt.g, 0.0, 1.0) * 0.55);
-        diffuseColor.rgb *= 1.0 - gW * 0.42;
-      }`)
-    .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.08, gW);');
-};
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60, 1, 1), groundMat);
-ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
-scene.add(ground);
+// 床はない（豚は何もない空間に立っている）
 
 // ===== 産毛（きれいになった所にだけ見える、白っぽい細い毛） =====
 const ZERO4 = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -1290,6 +1274,7 @@ function flingDrops() {
 // へこみ: ばねで動かす（当て続けると沈み、外すとぷるんと戻って少し跳ね返る）
 const SOFT = { pos: new THREE.Vector3(0, -9, 0), tgt: new THREE.Vector3(0, -9, 0), amp: 0, vel: 0, lastHit: -1, jig: 0, jigV: 0, wob: 0, was: false };
 function stepSoft(dt) {
+  for (const e of ears) { e.flapV += (-70 * e.flap - 3.5 * e.flapV) * dt; e.flap = clamp(e.flap + e.flapV * dt, -0.4, 1.1); }
   const now = performance.now() / 1000;
   const hitting = now - SOFT.lastHit < 0.08;
   if (hitting && !SOFT.was) { SOFT.jigV += 7; if (SOFT.amp < 0.05) SOFT.pos.copy(SOFT.tgt); }
@@ -1319,7 +1304,7 @@ function poseFromState(a) {
     const flap = ST.earFlap * 0.5 * e.s;
     // ときどき耳をぴくっと動かす
     const tw = Math.max(0, Math.sin(tt * 0.9 + e.s * 2) - 0.92) * 4;
-    e.piv.rotation.set(e.base.x + flap + Math.sin(tt * 1.3 + e.s) * 0.03 + tw * 0.3 * e.s, e.base.y, e.base.z + Math.abs(ST.earFlap) * 0.3 + (vnoise(tt * 0.8, e.s * 5, 0) - 0.5) * 0.1);
+    e.piv.rotation.set(e.base.x + flap + Math.sin(tt * 1.3 + e.s) * 0.03 + tw * 0.3 * e.s + e.flap * 0.35 * e.s, e.base.y, e.base.z + Math.abs(ST.earFlap) * 0.3 + (vnoise(tt * 0.8, e.s * 5, 0) - 0.5) * 0.1 + e.flap * 0.8);
   }
   pig.userData.tail.rotation.set(Math.sin(ST.tailT) * 0.35, 0, Math.sin(ST.tailT * 0.5) * 0.1);
 }
@@ -1356,10 +1341,39 @@ function segHit(a, b) {
 // 1つの水の玉を dt 進める。p・v は世界の座標（書き換える）。戻り値: 0 = 飛んでいる、1 = 豚、2 = 地面
 const hitP = new THREE.Vector3(), hitN = new THREE.Vector3(), hitW = new THREE.Vector3();
 let hitMud = 0;
+// 耳の当たり判定: 耳の形をおおまかな平たい楕円体として、耳の座標で調べる
+const EAR_C = new THREE.Vector3(0, 0.085, 0.02), EAR_R = [0.07, 0.105, 0.024];
+let hitEar = -1;
+const _ea = new THREE.Vector3(), _eb = new THREE.Vector3();
+function earHit(p0, p1) {
+  for (let k = 0; k < ears.length; k++) {
+    const e = ears[k];
+    _ea.copy(p0).applyMatrix4(e.inv); _eb.copy(p1).applyMatrix4(e.inv);
+    const dx = _eb.x - _ea.x, dy = _eb.y - _ea.y, dz = _eb.z - _ea.z, len = Math.hypot(dx, dy, dz) || 1e-6;
+    if (_ea.distanceTo(EAR_C) > 0.14 + len) continue;
+    let t = 0;
+    for (let it = 0; it < 10 && t <= len; it++) {
+      const x = _ea.x + dx * t / len, y = _ea.y + dy * t / len, z = _ea.z + dz * t / len;
+      const d = sEll(x - EAR_C.x, y - EAR_C.y, z - EAR_C.z, EAR_R[0], EAR_R[1], EAR_R[2]);
+      if (d < 0.002) { _ea.set(x, y, z); return k; }
+      t += Math.max(d, 0.004);
+    }
+  }
+  return -1;
+}
 function advance(p, v, dt) {
   v.y -= G * dt;
   _a.copy(p); _b.copy(p).addScaledVector(v, dt);
   const nx = _b.x, ny = _b.y, nz = _b.z;
+  hitEar = earHit(_a, _b);
+  if (hitEar >= 0) {
+    const e = ears[hitEar];
+    hitW.copy(_ea).applyMatrix4(e.mesh.matrixWorld);
+    hitP.copy(_ea).applyMatrix4(e.w.restMat);
+    hitN.set(0, 0, 1).transformDirection(e.mesh.matrixWorld); if (hitN.dot(v) > 0) hitN.negate();
+    p.copy(hitW);
+    return 1;
+  }
   toRest(_a); toRest(_b);
   if (segHit(_a, _b)) {
     hitP.copy(_a);
@@ -1370,7 +1384,7 @@ function advance(p, v, dt) {
     return 1;
   }
   p.set(nx, ny, nz);
-  if (ny <= 0.002) { p.y = 0.002; return 2; }
+  if (ny < -2.5) return 2; // ずっと下まで落ちたら消す
   return 0;
 }
 // 豚に当たった時: 泥を落とし、しぶきを横に広げる
@@ -1389,20 +1403,15 @@ function pigSplash(v, strength) {
       rand(0.0018, 0.0045) * (mud > 0.3 ? 1.3 : 1), rand(0.4, 0.9), mud);
   }
   if (Math.random() < 0.05 * n) addMist(hitW, rand(0.1, 0.2), 0.28, _tr.copy(hitN).multiplyScalar(0.4).setY(0.3), m > 0.3 ? '#d8c4ae' : '#ffffff');
-  if (Math.random() < 0.03 * n && RUN.length < 40 && hitP.y > 0.25) RUN.push({ x: hitP.x, y: hitP.y, z: hitP.z, life: rand(0.6, 1.4), mud: mud });
+  if (Math.random() < 0.03 * n && RUN.length < 40 && hitEar < 0 && hitP.y > 0.25) RUN.push({ x: hitP.x, y: hitP.y, z: hitP.z, life: rand(0.6, 1.4), mud: mud });
   ST.hitT = 0.3;
-  if (strength > 0.5 && hitP.x < 0.45) { SOFT.tgt.copy(hitP); SOFT.lastHit = performance.now() / 1000; }
-}
-function groundSplash(p, v, strength) {
-  if (Math.random() < 0.4 * strength + 0.1) paintWet(p.x, p.z, rand(0.06, 0.13), 0.07);
-  const n = strength > 0.5 ? 2 : (Math.random() < 0.3 ? 1 : 0);
-  for (let k = 0; k < n; k++) addSpray(p.x, 0.004, p.z, v.x * 0.12 + rand(-0.5, 0.5), rand(0.3, 1.3), v.z * 0.12 + rand(-0.5, 0.5), rand(0.0018, 0.004), rand(0.3, 0.6), 0.25);
-  if (Math.random() < 0.03 * strength) addMist(_tr.set(p.x, 0.04, p.z), rand(0.15, 0.28), 0.2, new THREE.Vector3(0, 0.25, 0), '#ece6dc');
+  if (strength > 0.5 && hitEar < 0) { SOFT.tgt.copy(hitP); SOFT.lastHit = performance.now() / 1000; }
+  if (hitEar >= 0) ears[hitEar].flapV += strength > 0.5 ? 1.6 : 0.3; // 耳は軟骨: 水に押されてめくれる
 }
 let spraying = false, hitRate = 0, groundRate = 0, hitCount = 0, groundCount = 0, emitAcc = 0;
 const aim = new THREE.Vector3(0.15, 0.45, 0), aimSm = new THREE.Vector3(0.15, 0.45, 0);
 let aimOnPig = false;
-const SPEED = 9.5;
+const SPEED = 12;
 const _v0 = new THREE.Vector3();
 function launchVel(out) {
   const T = Math.max(0.1, nozzleTip.distanceTo(aimSm) / SPEED);
@@ -1433,6 +1442,7 @@ const RUN = []; // 体を伝って流れる水（泥の筋を作る）
 const _pp = new THREE.Vector3(), _vv = new THREE.Vector3();
 function stepWater(dt) {
   invInner.copy(inner.matrixWorld).invert();
+  for (const e of ears) e.inv.copy(e.mesh.matrixWorld).invert();
   let hits = 0, grounds = 0;
   // 芯
   for (let k = 0; k < SPINE.length; k++) {
@@ -1442,7 +1452,7 @@ function stepWater(dt) {
     s.age += dt;
     const r = advance(s.p, s.v, dt);
     if (r === 1) { s.hit = 1; hits += 3; pigSplash(s.v, 1); }
-    else if (r === 2) { s.hit = 2; grounds += 3; groundSplash(s.p, s.v, 1); }
+    else if (r === 2) { s.age = 99; }
     // 遠くまで飛んだ水はばらけて粒になる
     else if (s.age > 0.3 && Math.random() < 0.25 && W.n < MAXW) {
       const i = W.n++;
@@ -1464,7 +1474,7 @@ function stepWater(dt) {
     _pp.set(W.p[o], W.p[o + 1], W.p[o + 2]); _vv.set(W.v[o], W.v[o + 1], W.v[o + 2]);
     const r = advance(_pp, _vv, dt);
     if (r === 1) { hits++; pigSplash(_vv, 0); }
-    else if (r === 2) { grounds++; groundSplash(_pp, _vv, 0); }
+
     W.p[o] = _pp.x; W.p[o + 1] = _pp.y; W.p[o + 2] = _pp.z; W.v[o] = _vv.x; W.v[o + 1] = _vv.y; W.v[o + 2] = _vv.z;
     W.life[i] -= dt;
     if (r || W.life[i] <= 0) {
@@ -1499,11 +1509,7 @@ function stepWater(dt) {
     S.v[o] *= 0.99; S.v[o + 2] *= 0.99;
     S.p[o] += S.v[o] * dt; S.p[o + 1] += S.v[o + 1] * dt; S.p[o + 2] += S.v[o + 2] * dt;
     S.life[i] -= dt;
-    if (S.p[o + 1] < 0.003) {
-      S.p[o + 1] = 0.003; S.v[o] *= 0.2; S.v[o + 1] *= -0.15; S.v[o + 2] *= 0.2;
-      if (Math.random() < 0.08) { const g = S.c[o + 1]; paintWet(S.p[o], S.p[o + 2], 0.03, 0.06, clamp((1 - g) * 1.4, 0, 1)); }
-      S.life[i] = Math.min(S.life[i], 0.12);
-    }
+    if (S.p[o + 1] < -2.5) S.life[i] = 0;
     if (S.life[i] <= 0) {
       const l = --S.n;
       if (i !== l) { for (let k = 0; k < 3; k++) { S.p[o + k] = S.p[l * 3 + k]; S.q[o + k] = S.q[l * 3 + k]; S.v[o + k] = S.v[l * 3 + k]; S.c[o + k] = S.c[l * 3 + k]; } S.life[i] = S.life[l]; S.max[i] = S.max[l]; S.r[i] = S.r[l]; }
@@ -1596,8 +1602,15 @@ const stage = $('stage');
 const sabEl = document.createElement('div'); sabEl.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:env(safe-area-inset-bottom);pointer-events:none;visibility:hidden'; document.body.append(sabEl);
 let VIEW = { w: 1, H: 1, h: 1, reserve: 80 };
 const view = { cx: 0.12, cy: 0.4, cz: 0, R: 0.85, band: 0.2, side: 0 }, viewTo = { ...view };
-const orbit = { az: 0, el: 0.4, zoom: 1, az2: 0, el2: 0.4, zoom2: 1 };
-const AZ0 = 0.1;
+const orbit = { zoom: 1, zoom2: 1 };
+// カメラの向き: 横は世界の上下軸のまわり、縦はカメラの横軸のまわりに回す（制限なしで一周できる）
+const camQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.4, 0.1, 0, 'YXZ')), camQ2 = camQ.clone();
+const _qa = new THREE.Quaternion(), _X = new THREE.Vector3(1, 0, 0);
+function orbitBy(dx, dy) {
+  camQ.premultiply(_qa.setFromAxisAngle(_Y, -dx));
+  camQ.multiply(_qa.setFromAxisAngle(_X, -dy));
+  camQ.normalize();
+}
 function frame() {
   const w = VIEW.w, H = VIEW.H, h = VIEW.h;
   const band = Math.round(h * view.band), fh = Math.max(80, h - band);
@@ -1607,11 +1620,9 @@ function frame() {
   camera.setViewOffset(vw, fh, -sideW, -band, w, H);
   const vf = THREE.MathUtils.degToRad(camera.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
   const d = Math.min(view.R / Math.sin(Math.min(vf, hf) / 2), 9) * orbit.zoom2;
-  const az = AZ0 + orbit.az2, el = orbit.el2;
-  _d.set(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+  _d.set(0, 0, 1).applyQuaternion(camQ2);
   camera.position.set(view.cx, view.cy, view.cz).addScaledVector(_d, d);
-  if (camera.position.y < 0.08) camera.position.y = 0.08;
-  camera.lookAt(view.cx, view.cy, view.cz);
+  camera.quaternion.copy(camQ2);
   camera.updateProjectionMatrix(); camera.updateMatrixWorld();
   // ノズル: 画面の下、少し右。右手で持っている感じ
   const nyPx = H - VIEW.reserve + 30, nxPx = sideW + vw * 0.7;
@@ -1663,12 +1674,12 @@ function updateAim() {
   else {
     aimOnPig = false;
     const dy = ray.ray.direction.y;
-    if (dy < -0.01) { const s = -ray.ray.origin.y / dy; aim.copy(ray.ray.origin).addScaledVector(ray.ray.direction, Math.min(s, 20)); }
-    else aim.copy(ray.ray.origin).addScaledVector(ray.ray.direction, 10);
+    // 豚に当たらない時は、豚と同じくらいの奥行きを狙う
+    aim.copy(ray.ray.origin).addScaledVector(ray.ray.direction, camera.position.distanceTo(_tr.set(view.cx, view.cy, view.cz)));
   }
 }
 const ptrs = new Map();
-let orbiting = false, lastC = null, lastD = 0, rotatedOnce = false;
+let orbiting = false, lastC = null, lastD = 0, rotatedOnce = false, dragSum = 0;
 const centroid = () => { let x = 0, y = 0; for (const p of ptrs.values()) { x += p.x; y += p.y; } return { x: x / ptrs.size, y: y / ptrs.size }; };
 const pinch = () => { const a = [...ptrs.values()]; return a.length < 2 ? 0 : Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y); };
 function startSpray() {
@@ -1694,11 +1705,11 @@ cv.addEventListener('pointermove', e => {
   if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (orbiting && ptrs.size) {
     const c = centroid();
-    orbit.az -= (c.x - lastC.x) * 0.009;
-    orbit.el = clamp(orbit.el + (c.y - lastC.y) * 0.006, 0.06, 1.3);
+    orbitBy((c.x - lastC.x) * 0.009, (c.y - lastC.y) * 0.007);
+    dragSum += Math.abs(c.x - lastC.x) + Math.abs(c.y - lastC.y);
     if (ptrs.size >= 2) { const d = pinch(); if (lastD > 20 && d > 20) orbit.zoom = clamp(orbit.zoom * lastD / d, 0.55, 1.6); lastD = d; }
     lastC = c;
-    if (Math.abs(orbit.az) > 0.3) rotatedOnce = true;
+    if (dragSum > 60) rotatedOnce = true;
     return;
   }
   pointerX = e.clientX; pointerY = e.clientY;
@@ -1718,7 +1729,6 @@ let best = store.get('best', 0);
 function reset() {
   muddy();
   W.n = 0; S.n = 0; RUN.length = 0; SPINE.length = 0;
-  wctx.fillStyle = '#000'; wctx.fillRect(0, 0, 512, 512); wetTex.needsUpdate = true;
   Object.assign(ST, { shakeT: -1, roll: 0, proll: 0, earFlap: 0, headYaw: 0, headPitch: 0 });
   pigU.uClean.value = 0;
   state = 'ready'; playT = 0; clean = 0; spraying = false; pointerDown = false;
@@ -1844,9 +1854,17 @@ function step(dt) {
   // 狙いはすばやく追いかける（ホースの重さ）
   aimSm.lerp(aim, 1 - Math.exp(-dt * 16));
   // ノズルを狙いの向きに（実際に水が出る向き＝放物線の出だし）
+  // 見た目のノズルは、画面の正面から 26° までしか傾けない（上を狙っても上を向きすぎない）
   launchVel(_v0);
-  nozzle.lookAt(_tr.copy(nozzle.position).add(_v0));
-  nozzle.rotateY(Math.PI);
+  {
+    const camF = _n1.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    const dir = _n2.copy(_v0).normalize();
+    const ang = camF.angleTo(dir), MAXA = 0.45;
+    if (ang > MAXA) { _qa.setFromUnitVectors(camF, dir); _qa.slerp(new THREE.Quaternion(), 1 - MAXA / ang); dir.copy(camF).applyQuaternion(_qa); }
+    nozzle.up.set(0, 1, 0).applyQuaternion(camera.quaternion);
+    nozzle.lookAt(_tr.copy(nozzle.position).add(dir));
+    nozzle.rotateY(Math.PI);
+  }
   trigger.rotation.x = lerp(trigger.rotation.x, spraying ? -0.28 : 0, 1 - Math.exp(-dt * 20));
   nozzle.updateMatrixWorld();
   nozzleTip.set(0, 0.004, -0.168).applyMatrix4(nozzle.matrixWorld);
@@ -1859,8 +1877,6 @@ function step(dt) {
     if (w.dirty) { w.geo.attributes.aMud.needsUpdate = true; w.geo.attributes.aWet.needsUpdate = true; w.dirty = false; }
   }
   if (frameN % 12 === 0) updateHairs(false);
-  if (frameN % 30 === 0) { wctx.fillStyle = 'rgba(0,0,0,0.012)'; wctx.fillRect(0, 0, 512, 512); wetTexDirty = true; }
-  if (wetTexDirty && frameN % 3 === 0) { wetTex.needsUpdate = true; wetTexDirty = false; }
   // 音: 当たった量に合わせて
   hitRate = lerp(hitRate, hitCount / dt / 300, 0.2); groundRate = lerp(groundRate, groundCount / dt / 300, 0.2); hitCount = groundCount = 0;
   setLoop(hoseG, spraying ? 0.1 : 0, 0.04);
@@ -1918,7 +1934,7 @@ function loop(now) {
   // カメラはなめらかに追いかける
   const k = 1 - Math.exp(-fdt * 3), k2 = 1 - Math.exp(-fdt * 14);
   for (const key of ['cx', 'cy', 'cz', 'R', 'band', 'side']) view[key] = lerp(view[key], viewTo[key], k);
-  orbit.az2 = lerp(orbit.az2, orbit.az, k2); orbit.el2 = lerp(orbit.el2, orbit.el, k2); orbit.zoom2 = lerp(orbit.zoom2, orbit.zoom, k2);
+  camQ2.slerp(camQ, k2); orbit.zoom2 = lerp(orbit.zoom2, orbit.zoom, k2);
   frame();
   poseFromState(alpha);
   pigU.uTime.value = now / 1000;
