@@ -536,21 +536,23 @@ float snoise(vec3 v){
 // ===== 豚の肌＋泥の材質 =====
 // 頂点ごとに 泥の量 aMud（0=きれい、1以上=厚い泥）・濡れ aWet・くぼみの暗さ aAO を持たせ、
 // シェーダーで、ノイズでギザギザにした泥のふち・乾いた泥のひび・濡れたつや・肌の色むらを描く。
-const pigU = { uLegs: { value: new THREE.Vector4() }, uYaw: { value: 0 }, uPitch: { value: 0 }, uClean: { value: 0 } };
+// uDent: 水が当たってへこむ所（体の座標 xyz、深さ w）。uJig: お腹のお肉の揺れ。uSunV: 光の向き（カメラから見た向き）
+const pigU = { uLegs: { value: new THREE.Vector4() }, uYaw: { value: 0 }, uPitch: { value: 0 }, uClean: { value: 0 },
+  uDent: { value: new THREE.Vector4(0, -9, 0, 0) }, uWob: { value: 0 }, uJig: { value: 0 }, uTime: { value: 0 }, uSunV: { value: new THREE.Vector3(0, 1, 0) } };
 function makeSkinMat(kind) {
   const m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.55, sheen: 1, sheenColor: new THREE.Color('#ffe9df'), sheenRoughness: 0.45, clearcoat: 1, clearcoatRoughness: 0.12, envMapIntensity: 0.9 });
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, pigU, {
       uSkin: { value: new THREE.Color('#f2b9aa') }, uSkin2: { value: new THREE.Color('#e88f86') },
       uMudWet: { value: new THREE.Color('#22170f') }, uMudDry: { value: new THREE.Color('#8c7155') }, uMudMid: { value: new THREE.Color('#4d3826') },
-      uRed: { value: kind === 'ear' ? 0.75 : kind === 'tail' ? 0.45 : 0 },
+      uRed: { value: kind === 'ear' ? 0.75 : kind === 'tail' ? 0.45 : 0 }, uThin: { value: kind === 'ear' ? 1 : kind === 'tail' ? 0.5 : 0.12 },
     });
     if (kind === 'body') sh.defines = { ...(sh.defines || {}), PIG_SKIN: '' };
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
         attribute float aMud; attribute float aWet; attribute float aAO;
         varying float vMud; varying float vWet; varying float vAO; varying vec3 vLP;
-        uniform float uClean;
+        uniform float uClean; uniform vec4 uDent; uniform float uWob; uniform float uJig; uniform float uTime;
         #ifdef PIG_SKIN
         attribute vec3 aSkin; uniform vec4 uLegs; uniform float uYaw; uniform float uPitch;
         #endif
@@ -571,8 +573,27 @@ function makeSkinMat(kind) {
           dPiv = vec3(0.48, 0.5, 0.0);
         }
         #endif
+        float softD = 0.0;
+        #ifdef PIG_SKIN
+        {
+          // 水圧でへこむ（ふちは波打つ）。へこみの坂に合わせて法線も傾ける
+          vec3 dp = position - uDent.xyz; float d2 = dot(dp, dp), dd = sqrt(d2);
+          const float RR = 0.065;
+          float fall = exp(-d2 / (RR * RR));
+          float A = 0.016 * uDent.w;
+          float wob = uWob * sin(dd * 120.0 - uTime * 32.0) * exp(-dd / 0.06) * smoothstep(0.0, 0.02, dd);
+          // お腹とわき腹のお肉がぷるぷる揺れる
+          float belly = smoothstep(0.52, 0.3, position.y) * smoothstep(-0.5, -0.2, position.x) * smoothstep(0.45, 0.2, position.x);
+          float jig = uJig * belly * sin(uTime * 17.0 + position.x * 9.0 + position.z * 4.0);
+          softD = -A * fall + 0.0016 * wob + 0.004 * jig;
+          vec3 g = (2.0 * A * fall / (RR * RR)) * dp;
+          g -= objectNormal * dot(g, objectNormal);
+          objectNormal = normalize(objectNormal - g);
+        }
+        #endif
         objectNormal = dR * objectNormal;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
+        transformed += normal * softD;
         transformed = dPiv + dR * (transformed - dPiv);
         float mudN = snoise(position * 55.0);
         float mm = aMud * (1.0 - uClean);
@@ -581,6 +602,7 @@ function makeSkinMat(kind) {
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         varying float vMud; varying float vWet; varying float vAO; varying vec3 vLP;
+        uniform vec3 uSunV; uniform float uThin;
         uniform vec3 uSkin; uniform vec3 uSkin2; uniform vec3 uMudWet; uniform vec3 uMudDry; uniform vec3 uMudMid; uniform float uRed;
         float gCover; float gN1; float gN2; float gHeight; float gWetMud; float gSnout;
         ${GLSL_NOISE}
@@ -638,6 +660,18 @@ function makeSkinMat(kind) {
         roughnessFactor = mix(mix(mix(0.58, 0.3, vWet), 0.22, gSnout), mix(0.97, 0.2, gWetMud), gCover);`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         normal = bumpN(-vViewPosition, normal, gHeight, 0.0032);`)
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+        {
+          // 皮膚の下で光が回り込む赤み（光の当たる境目）と、薄い所（耳）が後ろから透ける光
+          float ndl = dot(normal, uSunV);
+          float wrap = max(0.0, (ndl + 0.6) / 1.6) - max(0.0, ndl);
+          vec3 V = normalize(vViewPosition);
+          float back = pow(max(dot(V, -uSunV), 0.0), 3.0);
+          float skinAmt = (1.0 - gCover);
+          vec3 sss = vec3(1.0, 0.32, 0.22);
+          reflectedLight.directDiffuse += diffuseColor.rgb * sss * (wrap * 0.9 + back * uThin * 1.6) * skinAmt * vAO;
+          reflectedLight.indirectDiffuse += diffuseColor.rgb * sss * 0.06 * skinAmt;
+        }`)
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
         reflectedLight.indirectDiffuse *= vAO; reflectedLight.indirectSpecular *= vAO;`)
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
@@ -1239,6 +1273,21 @@ function flingDrops() {
     addSpray(_w.x, _w.y, _w.z, _n.x * sp, _n.y * sp + 1.2, _n.z * sp, rand(0.003, 0.006), 1.2, 0);
   }
 }
+// へこみ: ばねで動かす（当て続けると沈み、外すとぷるんと戻って少し跳ね返る）
+const SOFT = { pos: new THREE.Vector3(0, -9, 0), tgt: new THREE.Vector3(0, -9, 0), amp: 0, vel: 0, lastHit: -1, jig: 0, jigV: 0, wob: 0, was: false };
+function stepSoft(dt) {
+  const now = performance.now() / 1000;
+  const hitting = now - SOFT.lastHit < 0.08;
+  if (hitting && !SOFT.was) { SOFT.jigV += 6; if (SOFT.amp < 0.05) SOFT.pos.copy(SOFT.tgt); }
+  SOFT.was = hitting;
+  SOFT.pos.lerp(SOFT.tgt, 1 - Math.exp(-dt * 25));
+  SOFT.vel += (220 * ((hitting ? 1 : 0) - SOFT.amp) - 9 * SOFT.vel) * dt;
+  SOFT.amp += SOFT.vel * dt;
+  SOFT.jigV += (-260 * SOFT.jig - 5 * SOFT.jigV) * dt; SOFT.jig += SOFT.jigV * dt;
+  SOFT.wob = lerp(SOFT.wob, hitting ? 1 : 0, 1 - Math.exp(-dt * 6));
+  pigU.uDent.value.set(SOFT.pos.x, SOFT.pos.y, SOFT.pos.z, SOFT.amp);
+  pigU.uWob.value = SOFT.wob; pigU.uJig.value = clamp(SOFT.jig, -1.5, 1.5);
+}
 function poseFromState(a) {
   pig.position.set(ST.x, 0, ST.z);
   pig.rotation.y = ST.yaw;
@@ -1325,6 +1374,7 @@ function pigSplash(v, strength) {
   if (Math.random() < 0.05 * n) addMist(hitW, rand(0.1, 0.2), 0.28, _tr.copy(hitN).multiplyScalar(0.4).setY(0.3), m > 0.3 ? '#d8c4ae' : '#ffffff');
   if (Math.random() < 0.03 * n && RUN.length < 40 && hitP.y > 0.25) RUN.push({ x: hitP.x, y: hitP.y, z: hitP.z, life: rand(0.6, 1.4), mud: mud });
   ST.hitT = 0.3;
+  if (strength > 0.5 && hitP.x < 0.45) { SOFT.tgt.copy(hitP); SOFT.lastHit = performance.now() / 1000; }
 }
 function groundSplash(p, v, strength) {
   if (Math.random() < 0.4 * strength + 0.1) paintWet(p.x, p.z, rand(0.06, 0.13), 0.07);
@@ -1573,10 +1623,12 @@ addEventListener('resize', resize);
 
 // ===== 入力: 1本指（左クリック）で水、2本指（右ドラッグ）でカメラを回す、ピンチ（ホイール）で寄る =====
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-let pointerX = 0, pointerY = 0, pointerDown = false;
+let pointerX = 0, pointerY = 0, pointerDown = false, touchAim = false;
 function updateAim() {
   const r = cv.getBoundingClientRect();
-  ndc.set((pointerX - r.left) / r.width * 2 - 1, -((pointerY - r.top) / r.height) * 2 + 1);
+  // 指で触っている時は、指の少し上を狙う（当たる所が指で隠れないように）
+  const lift = touchAim ? Math.min(80, Math.max(56, r.height * 0.08)) : 0;
+  ndc.set((pointerX - r.left) / r.width * 2 - 1, -((pointerY - lift - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
   invInner.copy(inner.matrixWorld).invert();
   const ro = ray.ray.origin.clone().applyMatrix4(invInner), rd = ray.ray.origin.clone().add(ray.ray.direction).applyMatrix4(invInner).sub(ro).normalize();
@@ -1617,7 +1669,7 @@ cv.addEventListener('pointerdown', e => {
     return;
   }
   if (orbiting || (e.pointerType === 'mouse' && e.button !== 0)) return;
-  pointerX = e.clientX; pointerY = e.clientY;
+  pointerX = e.clientX; pointerY = e.clientY; touchAim = e.pointerType !== 'mouse';
   pointerDown = true;
   startSpray();
 });
@@ -1768,6 +1820,7 @@ const _al = new THREE.Vector3();
 function aimLocalX() { return toRest(_al.copy(aimSm)).x; }
 function step(dt) {
   stepPig(dt);
+  stepSoft(dt);
   poseFromState(1);
   pig.updateMatrixWorld(true);
   if (pointerDown && !orbiting) updateAim();
@@ -1851,6 +1904,8 @@ function loop(now) {
   orbit.az2 = lerp(orbit.az2, orbit.az, k2); orbit.el2 = lerp(orbit.el2, orbit.el, k2); orbit.zoom2 = lerp(orbit.zoom2, orbit.zoom, k2);
   frame();
   poseFromState(alpha);
+  pigU.uTime.value = now / 1000;
+  pigU.uSunV.value.copy(SUN_DIR).transformDirection(camera.matrixWorldInverse);
   layoutDrops(alpha);
   // 最初の輪: 豚の背中の上に
   if (state === 'ready') {
