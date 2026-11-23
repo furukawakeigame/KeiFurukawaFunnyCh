@@ -41,6 +41,13 @@
     .pill { height: 34px; min-width: 34px; border: none; border-radius: 999px; background: rgba(255,253,246,.92); color: var(--ink); font: 700 14px 'M PLUS Rounded 1c', system-ui, sans-serif; padding: 0 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(29,53,87,.18); }
     select.pill { appearance: none; -webkit-appearance: none; }
     #coop.on { background: #c3f2d2; }
+    @media (max-width: 400px) {
+      header { padding-left: 6px; padding-right: 6px; gap: 4px; }
+      header a { font-size: 12px; padding: 6px 9px; }
+      .hbtns { gap: 4px; }
+      .pill { height: 32px; min-width: 32px; padding: 0 7px; font-size: 12px; }
+      .pill svg { transform: scale(.9); }
+    }
     #hud { position: fixed; top: calc(52px + env(safe-area-inset-top)); left: 0; right: 0; text-align: center; z-index: 3; pointer-events: none; font-weight: 800; font-size: clamp(26px, 5vmin, 44px); color: #fff; text-shadow: 0 2px 0 rgba(29,53,87,.55), 0 0 12px rgba(29,53,87,.35); font-variant-numeric: tabular-nums; }
     #hud small { font-size: .55em; margin-left: .15em; }
     /* 車輪の大きさのスライダー（左右の端）とペダル（その下） */
@@ -113,6 +120,9 @@
   <header>
     <a id="back" href="../../">← トップへ戻る</a>
     <div class="hbtns">
+      <button id="retry" class="pill" aria-label="reset">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1d3557" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5" /></svg>
+      </button>
       <button id="coop" class="pill" aria-label="2P">
         <svg width="26" height="20" viewBox="0 0 26 20" fill="#1d3557"><circle cx="8" cy="6" r="3.6"/><path d="M1.5 18.5c0-4.2 2.9-7 6.5-7s6.5 2.8 6.5 7z"/><circle cx="18" cy="6" r="3.6" fill="#ff8c42"/><path d="M11.5 18.5c0-4.2 2.9-7 6.5-7s6.5 2.8 6.5 7z" fill="#ff8c42"/></svg>
       </button>
@@ -1332,6 +1342,7 @@ const keys = { aL: false, bL: false, aR: false, bR: false };
 const KEYMAP = { KeyW: 'aL', KeyS: 'bL', ArrowUp: 'aR', ArrowDown: 'bR' };
 function keyEv(e, down) {
   if (e.target.closest && e.target.closest('select, input')) return;
+  if (e.code === 'KeyR') { if (down && !e.repeat) restart(); return; }
   let k = KEYMAP[e.code];
   if (!k) return;
   e.preventDefault();
@@ -1406,11 +1417,14 @@ function showResult() {
   if (coarse) { a.removeAttribute('target'); a.removeAttribute('rel'); } else { a.target = '_blank'; a.rel = 'noopener'; }
   prepareShare();
 }
-$('again').onclick = () => {
+function restart() {
   if (mode === 'guest') { netSend({ t: 'retry' }); return; }
   reset();
   if (mode === 'host') netSend({ t: 'reset', seed });
-};
+}
+$('again').onclick = restart;
+// リセット: いつでも最初からやり直す（新しい道）
+$('retry').onclick = () => { restart(); $('retry').blur(); };
 $('share').addEventListener('click', e => {
   const text = `${L[lang].post(Math.floor(dist), resultTwo)}\n${URL_}`;
   if (coarse && navigator.share) {
@@ -1666,7 +1680,7 @@ function onNet(m) {
     if (m.t === 'hello') { reset(); netSend({ t: 'reset', seed }); }
     else if (m.t === 'i') { remote.tR = clamp(+m.r || R0, RMIN, RMAX); remote.aR = !!m.a; remote.bR = !!m.b; }
     else if (m.t === 'go') { if (state === 'ready') startPlay(); }
-    else if (m.t === 'retry') { if (state === 'over') { reset(); netSend({ t: 'reset', seed }); } }
+    else if (m.t === 'retry') { reset(); netSend({ t: 'reset', seed }); }
   } else if (mode === 'guest') {
     if (m.t === 'reset') { reset(m.seed); }
     else if (m.t === 'go') { if (state === 'ready') { state = 'play'; setHints(false); meow('start'); } }
