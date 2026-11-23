@@ -76,15 +76,16 @@
       .btn { font-size: 18px; padding: 9px 26px; }
       .gap { height: 6px; }
     }
-    #hint2 { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%) scale(.85); pointer-events: none; opacity: 0; transition: opacity .5s, transform .5s; z-index: 1; }
-    #hint2.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-    #hint2 .disc { position: relative; width: 240px; height: 170px; border-radius: 50%; background: radial-gradient(closest-side, rgba(20,16,12,.45), rgba(20,16,12,0)); }
-    #hint2 svg { position: absolute; filter: drop-shadow(0 3px 5px rgba(0,0,0,.35)); }
-    #hint2 .arc { left: 10px; top: 46px; }
-    #hint2 .hand { left: 72px; top: 30px; animation: slide 1.8s ease-in-out infinite; }
-    #hint2 .hand.ms { left: 85px; top: 36px; }
-    #hint2 .tap { animation: tapg 1.8s ease-in-out infinite; }
-    @keyframes slide { 0% { transform: translateX(-46px) rotate(-8deg); } 50% { transform: translateX(46px) rotate(8deg); } 100% { transform: translateX(-46px) rotate(-8deg); } }
+    #hint2 { position: absolute; left: 0; top: 0; pointer-events: none; opacity: 0; transition: opacity .5s; z-index: 1; }
+    #hint2.on { opacity: 1; }
+    #hint2 .disc { position: relative; width: 240px; height: 200px; margin: -100px 0 0 -120px; border-radius: 50%; background: radial-gradient(closest-side, rgba(20,16,12,.4), rgba(20,16,12,0)); transform: scale(var(--hs, 1)); }
+    #hint2 svg { position: absolute; left: 0; top: 0; filter: drop-shadow(0 3px 5px rgba(0,0,0,.35)); }
+    #hint2 .arc { left: 10px; top: 0; }
+    #hint2 .hand.t2 { animation: slideT 2.4s ease-in-out infinite; }
+    #hint2 .hand.ms { animation: slideM 2.4s ease-in-out infinite; }
+    #hint2 .tap { animation: tapg 2.4s ease-in-out infinite; }
+    @keyframes slideT { 0.0% { transform: translate(3.4px, 57.8px) rotate(-6.0deg); } 6.25% { transform: translate(16.9px, 67.3px) rotate(-4.9deg); } 12.5% { transform: translate(34.4px, 74.1px) rotate(-3.5deg); } 18.75% { transform: translate(54.6px, 78.1px) rotate(-1.8deg); } 25.0% { transform: translate(76.0px, 79.5px) rotate(0.0deg); } 31.25% { transform: translate(97.4px, 78.1px) rotate(1.8deg); } 37.5% { transform: translate(117.6px, 74.1px) rotate(3.5deg); } 43.75% { transform: translate(135.1px, 67.3px) rotate(4.9deg); } 50.0% { transform: translate(148.6px, 57.8px) rotate(6.0deg); } 56.25% { transform: translate(135.1px, 67.3px) rotate(4.9deg); } 62.5% { transform: translate(117.6px, 74.1px) rotate(3.5deg); } 68.75% { transform: translate(97.4px, 78.1px) rotate(1.8deg); } 75.0% { transform: translate(76.0px, 79.5px) rotate(0.0deg); } 81.25% { transform: translate(54.6px, 78.1px) rotate(-1.8deg); } 87.5% { transform: translate(34.4px, 74.1px) rotate(-3.5deg); } 93.75% { transform: translate(16.9px, 67.3px) rotate(-4.9deg); } 100.0% { transform: translate(3.4px, 57.8px) rotate(-6.0deg); } }
+    @keyframes slideM { 0.0% { transform: translate(12.4px, 19.8px) rotate(-6.0deg); } 6.25% { transform: translate(25.9px, 29.3px) rotate(-4.9deg); } 12.5% { transform: translate(43.4px, 36.1px) rotate(-3.5deg); } 18.75% { transform: translate(63.6px, 40.1px) rotate(-1.8deg); } 25.0% { transform: translate(85.0px, 41.5px) rotate(0.0deg); } 31.25% { transform: translate(106.4px, 40.1px) rotate(1.8deg); } 37.5% { transform: translate(126.6px, 36.1px) rotate(3.5deg); } 43.75% { transform: translate(144.1px, 29.3px) rotate(4.9deg); } 50.0% { transform: translate(157.6px, 19.8px) rotate(6.0deg); } 56.25% { transform: translate(144.1px, 29.3px) rotate(4.9deg); } 62.5% { transform: translate(126.6px, 36.1px) rotate(3.5deg); } 68.75% { transform: translate(106.4px, 40.1px) rotate(1.8deg); } 75.0% { transform: translate(85.0px, 41.5px) rotate(0.0deg); } 81.25% { transform: translate(63.6px, 40.1px) rotate(-1.8deg); } 87.5% { transform: translate(43.4px, 36.1px) rotate(-3.5deg); } 93.75% { transform: translate(25.9px, 29.3px) rotate(-4.9deg); } 100.0% { transform: translate(12.4px, 19.8px) rotate(-6.0deg); } }
     @keyframes tapg { 0%, 100% { opacity: .2; } 50% { opacity: .9; } }
     #hint2 .ms { display: none; }
     @media (pointer: fine) { #hint2 .ms { display: block; } #hint2 .t2 { display: none; } }
@@ -1922,6 +1923,28 @@ const DT = 1 / 60;
 let last = performance.now(), acc = 0, frameN = 0, frameEma = 16, slowT = 0;
 const hintEl = $('hint'), hint2El = $('hint2');
 let hint2On = false;
+// 回す合図は、豚に重ならない一番広い所に置く（上・下・左・右から選ぶ）
+const _bb = new THREE.Box3();
+function placeHint2() {
+  const r = cv.getBoundingClientRect();
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (let i = 0; i < 8; i++) {
+    _p.set(i & 1 ? 1.0 : -0.68, i & 2 ? 0.8 : 0.02, i & 4 ? 0.3 : -0.3).applyMatrix4(inner.matrixWorld).project(camera);
+    const sx = (_p.x + 1) / 2 * r.width, sy = (1 - _p.y) / 2 * r.height;
+    x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
+  }
+  const top = 52, bottom = r.height - VIEW.reserve, W0 = 240, H0 = 200;
+  const opts = [
+    { sp: (y0 - top) / H0, sw: r.width / W0, x: r.width / 2, y: (top + y0) / 2 },
+    { sp: (bottom - y1) / H0, sw: r.width / W0, x: r.width / 2, y: (y1 + bottom) / 2 },
+    { sp: (bottom - top) / H0, sw: x0 / W0, x: x0 / 2, y: (top + bottom) / 2 },
+    { sp: (bottom - top) / H0, sw: (r.width - x1) / W0, x: (x1 + r.width) / 2, y: (top + bottom) / 2 },
+  ].map(o => ({ ...o, k: Math.min(1, o.sp, o.sw) }));
+  const best = opts.reduce((a, b) => b.k > a.k + 0.05 ? b : a);
+  const k = Math.max(0.7, best.k);
+  hint2El.style.transform = `translate(${best.x.toFixed(0)}px, ${best.y.toFixed(0)}px)`;
+  hint2El.style.setProperty('--hs', k.toFixed(2));
+}
 const _al = new THREE.Vector3();
 function aimLocalX() { return toRest(_al.copy(aimSm)).x; }
 function step(dt) {
@@ -1975,7 +1998,8 @@ function step(dt) {
     // カメラを回せることを、一度だけ絵で知らせる
     // 回したことがなければ、4秒後から 4.5秒見せて、14秒ごとにくり返す
     const showH = !rotatedOnce && playT > 4 && ((playT - 4) % 18) < 4.5;
-    if (showH !== hint2On) { hint2On = showH; hint2El.classList.toggle('on', showH); }
+    if (showH !== hint2On) { hint2On = showH; if (showH) placeHint2(); hint2El.classList.toggle('on', showH); }
+    if (hint2On && frameN % 10 === 0) placeHint2();
   } else if (state === 'finish' || state === 'done') {
     finishT += dt;
     pigU.uClean.value = Math.min(1, finishT / 0.8);
@@ -2041,7 +2065,7 @@ renderer.compile(scene, camera);
 renderer.render(scene, camera);
 window.__pigReady = true;
 window.__pig = {
-  buildMs, cleanRatio, wash, ST, orbit,
+  buildMs, cleanRatio, wash, ST, orbit, hint: () => { placeHint2(); hint2El.classList.add('on'); },
   view: o => { Object.assign(viewTo, o); Object.assign(view, o); },
   aim: (x, y, z) => { aim.set(x, y, z); aimSm.set(x, y, z); if (!spraying) { spraying = true; chainId++; } pointerDown = false; },
   finish: () => { for (const w of washables) { w.mud.fill(0); w.dirty = true; } },
