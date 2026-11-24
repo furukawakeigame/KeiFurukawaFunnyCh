@@ -1752,6 +1752,7 @@ function stopSpray() { pointerDown = false; spraying = false; }
 cv.addEventListener('pointerdown', e => {
   ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
   try { cv.setPointerCapture(e.pointerId); } catch {}
+  if (state === 'finish' && !thanked) return; // 「ありがとう」と言うまではカメラを動かさない
   if ((e.pointerType === 'mouse' && e.button === 2) || ptrs.size >= 2) {
     orbiting = true; stopSpray(); lastC = centroid(); lastD = pinch();
     return;
@@ -1763,7 +1764,7 @@ cv.addEventListener('pointerdown', e => {
 });
 cv.addEventListener('pointermove', e => {
   if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (orbiting && ptrs.size) {
+  if (orbiting && ptrs.size && !(state === 'finish' && !thanked)) {
     const c = centroid();
     orbitBy((c.x - lastC.x) * 0.009, (c.y - lastC.y) * 0.007);
     dragSum += Math.abs(c.x - lastC.x) + Math.abs(c.y - lastC.y);
@@ -1781,7 +1782,7 @@ const endPtr = e => {
 };
 cv.addEventListener('pointerup', endPtr);
 cv.addEventListener('pointercancel', endPtr);
-cv.addEventListener('wheel', e => { e.preventDefault(); orbit.zoom = clamp(orbit.zoom * Math.exp(e.deltaY * 0.001), 0.55, 1.6); }, { passive: false });
+cv.addEventListener('wheel', e => { e.preventDefault(); if (state === 'finish' && !thanked) return; orbit.zoom = clamp(orbit.zoom * Math.exp(e.deltaY * 0.001), 0.55, 1.6); }, { passive: false });
 
 // ===== ゲームの流れ =====
 let state = 'ready', playT = 0, clean = 0, finishT = 0, result = 0;
@@ -1799,7 +1800,7 @@ function reset() {
 }
 const fmt = s => (Math.floor(s * 10) / 10).toFixed(1);
 function finish() {
-  state = 'finish'; finishT = 0; frontT = -1; spraying = false; pointerDown = false;
+  state = 'finish'; finishT = 0; frontT = -1; spraying = false; pointerDown = false; orbiting = false; ptrs.clear();
   result = playT;
   // カメラを豚の正面（少し上）へ
   const yaw = pig.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw);
