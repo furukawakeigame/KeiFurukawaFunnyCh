@@ -40,11 +40,13 @@
     #timer { position: absolute; top: 50px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; background: rgba(251,246,234,.88); box-shadow: 0 2px 8px rgba(0,0,0,.18); pointer-events: none; transition: opacity .4s; }
     @media (min-width: 700px) { #timer { top: 8px; } } /* 横に広い画面ではヘッダーの列に並べ、紋章の猫を隠さない */
     #timer svg { flex: none; }
-    #bar { width: min(46vw, 280px); height: 12px; border-radius: 99px; background: rgba(20,32,56,.25); box-shadow: inset 0 1px 2px rgba(0,0,0,.3); overflow: hidden; }
-    #bar i { display: block; height: 100%; width: 100%; border-radius: 99px; background: linear-gradient(#f6d77c, #d29d2c); transform-origin: left; }
-    .dots { display: flex; gap: 5px; }
-    .dots b { width: 12px; height: 12px; border-radius: 50%; background: rgba(20,32,56,.25); transition: background .35s, transform .35s; }
-    .dots b.on { background: #d29d2c; transform: scale(1.15); }
+    #left { font-size: 17px; font-weight: 900; color: var(--navy); min-width: 6.2em; text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; transition: color .4s; }
+    #left.hurry { color: #b8322a; }
+    body.intro #timer { opacity: 0; }
+    /* カメラマンの吹き出し */
+    #say { position: absolute; left: 0; top: 0; z-index: 3; display: none; pointer-events: none; white-space: nowrap; background: #fff; color: var(--navy); border: 3px solid var(--navy); border-radius: 18px; padding: .35em .85em; font-size: clamp(15px, 3.6vmin, 26px); font-weight: 800; box-shadow: 0 3px 10px rgba(0,0,0,.18); }
+    #say::after { content: ""; position: absolute; left: var(--tail, 50%); bottom: -14px; margin-left: -9px; border: 9px solid transparent; border-top: 12px solid var(--navy); border-bottom: 0; }
+    body.done #say { display: none !important; }
     /* 体当たりボタン */
     #joy { position: fixed; z-index: 3; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%; border: 3px solid rgba(255,255,255,.7); background: rgba(20,32,56,.15); pointer-events: none; display: none; }
     #joy i { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(255,255,255,.85); box-shadow: 0 2px 6px rgba(0,0,0,.25); }
@@ -79,7 +81,7 @@
     #msg { position: absolute; inset: 0; z-index: 9; display: none; align-items: center; justify-content: center; text-align: center; padding: 20px; font-weight: 700; background: rgba(251,246,234,.9); }
   </style>
 </head>
-<body>
+<body class="intro">
   <h1 style="position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">ど真ん中外交</h1>
   <header>
     <a id="back" href="../../">← トップへ戻る</a>
@@ -94,9 +96,9 @@
     <canvas id="cv"></canvas>
     <div id="timer">
       <svg width="26" height="22" viewBox="0 0 26 22"><rect x="1" y="5" width="24" height="16" rx="3" fill="#142038"/><rect x="8" y="1.5" width="10" height="5" rx="1.5" fill="#142038"/><circle cx="13" cy="13" r="5.2" fill="#fbf6ea"/><circle cx="13" cy="13" r="3" fill="#142038"/><circle cx="21" cy="9" r="1.3" fill="#e2b84a"/></svg>
-      <div id="bar"><i></i></div>
-      <div class="dots"><b></b><b></b><b></b></div>
+      <b id="left"></b>
     </div>
+    <div id="say"></div>
     <div id="joy"><i></i></div>
     <div id="result" hidden>
       <!-- 結果画面の広告の枠（ad.js が中に広告を入れる。後から出てもボタンがずれないよう高さを空けておく） -->
@@ -133,10 +135,15 @@ const store = {
 const URL_ = 'https://keifurukawafunnych.com/games/summit-photo/';
 const TAG = '#ど真ん中外交ゲーム';
 const L = {
-  ja: { title: 'ど真ん中外交', back: '← トップへ戻る', again: 'もう一度', share: 'Xでポスト', pts: n => `${n}点`, post: n => `ど真ん中外交で写り${n}点\n${TAG}` },
-  ko: { title: '한가운데 외교', back: '← 처음으로', again: '다시 하기', share: 'X에 게시', pts: n => `${n}점`, post: n => `한가운데 외교에서 ${n}점\n${TAG}` },
-  en: { title: 'Center Stage Summit', back: '← Top', again: 'Retry', share: 'Post on X', pts: n => `${n} pts`, post: n => `I scored ${n} pts in Center Stage Summit\n${TAG}` },
-  th: { title: 'การทูตตรงกลางภาพ', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X', pts: n => `${n} คะแนน`, post: n => `ได้ ${n} คะแนนในเกมการทูตตรงกลางภาพ\n${TAG}` },
+  ja: { title: 'ど真ん中外交', back: '← トップへ戻る', again: 'もう一度', share: 'Xでポスト', pts: n => `${n}点`, post: n => `ど真ん中外交で写り${n}点\n${TAG}`, left: n => `残り${n}秒`,
+        // カメラマンのセリフ: [文字, 声の母音（ハンコう期と同じ人工音声）]
+        lines: { intro: ['写真撮影に入りまーす', 'aiaueiiaiiaau'], squeeze: ['もう少し詰めてくださーい', 'oouoiueeuaaai'], nopush: ['押さないでくださーい', 'oaaieuaaai'], eyes: ['目線こちらにお願いしまーす', 'eenoiaioeaiiaau'], forward: ['もう少し前へどうぞー', 'oouoiaeeooo'], center: ['真ん中に寄ってくださーい', 'annaioeuaaai'], go: ['はい、撮りまーす', 'aioiaau'], ok: ['大丈夫ですかー', 'aiooueuaa'], again: ['もう一枚いきまーす', 'ooiiaiiiaau'] } },
+  ko: { title: '한가운데 외교', back: '← 처음으로', again: '다시 하기', share: 'X에 게시', pts: n => `${n}점`, post: n => `한가운데 외교에서 ${n}점\n${TAG}`, left: n => `${n}초 남음`,
+        lines: { intro: ['사진 촬영 시작합니다~', 'aiaeoiaaiia'], squeeze: ['조금만 더 붙어 주세요~', 'oeaoueoueo'], nopush: ['밀지 마세요~', 'iiaeo'], eyes: ['여기 봐 주세요~', 'eiaueo'], forward: ['조금 앞으로 오세요~', 'oeaueooeo'], center: ['가운데로 모여 주세요~', 'aueooeueo'], go: ['자, 찍습니다!', 'aiuia'], ok: ['괜찮으세요?', 'eaueo'], again: ['한 장 더 갈게요~', 'aaoaeo'] } },
+  en: { title: 'Center Stage Summit', back: '← Top', again: 'Retry', share: 'Post on X', pts: n => `${n} pts`, post: n => `I scored ${n} pts in Center Stage Summit\n${TAG}`, left: n => `${n}s left`,
+        lines: { intro: ['Photo time, everyone!', 'ooaieeio'], squeeze: ['Squeeze in a little, please!', 'iiaiie'], nopush: ['No pushing, please!', 'ouiie'], eyes: ['Eyes on me, please!', 'aoiie'], forward: ['Step forward a bit!', 'eoaai'], center: ['Move to the center!', 'uoeee'], go: ['Okay, here we go!', 'oeeieo'], ok: ['Are you okay?', 'auoe'], again: ['One more shot!', 'aooo'] } },
+  th: { title: 'การทูตตรงกลางภาพ', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์บน X', pts: n => `${n} คะแนน`, post: n => `ได้ ${n} คะแนนในเกมการทูตตรงกลางภาพ\n${TAG}`, left: n => `เหลือ ${n} วินาที`,
+        lines: { intro: ['เริ่มถ่ายรูปแล้วครับ', 'eaiueaoa'], squeeze: ['ชิดกันอีกนิดครับ', 'iaiia'], nopush: ['อย่าผลักกันครับ', 'aaaa'], eyes: ['มองกล้องหน่อยครับ', 'ooooa'], forward: ['ขยับมาข้างหน้าหน่อยครับ', 'aaaaaoa'], center: ['มาตรงกลางครับ', 'aoaaa'], go: ['โอเค ถ่ายแล้วนะ', 'oeaieaa'], ok: ['เป็นอะไรไหมครับ', 'eaaiaia'], again: ['อีกรูปนะครับ', 'iuaa'] } },
 };
 const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
 let lang = store.get('lang', null) || autoLang();
@@ -149,6 +156,8 @@ function applyLang() {
   $('lang').value = lang;
   $('back').textContent = t('back');
   $('again').textContent = t('again'); $('share').textContent = t('share');
+  lastLeft = -1; updLeft();
+  if (sayKey && sayEl.style.display === 'block') sayEl.textContent = L[lang].lines[sayKey][0];
   if (!$('result').hidden) showResult();
 }
 $('lang').onchange = () => { lang = $('lang').value; store.set('lang', lang); applyLang(); };
@@ -275,8 +284,43 @@ const sClick = (vol = 1, delay = 0) => { // シャッター「カシャ」
   tone('square', 1800, 1200, 0.012, 0.04 * vol, delay);
 };
 const sTick = () => tone('sine', 1320, 1320, 0.09, 0.12);
-// カメラマンの声（男性・やや低め）
-const sCall = seq => voice(150, seq, 0.12 * seq.length + 0.25, 0.42, { shake: 0.03, breath: 0.12, contour: [[0, 1.1], [0.3, 1.25], [0.75, 1.1], [1, 0.8]] });
+// しゃべる声（ハンコう期と同じ人工音声）: 母音を1拍ずつ切り替え、拍の間で音量を落とす。抑揚は高く出て下がる（rise で語尾を上げる）
+const VOWEL2 = { ...VOWEL, n: [280, 1000, 2400] };
+function speak(f0, vowels, mora = 0.13, vol = 0.45, rise = 0) {
+  const seq = vowels.split(''), n = seq.length, dur = n * mora;
+  if (!on() || !slot(dur + 0.1)) return dur;
+  const now = ac.currentTime;
+  const o = ac.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(f0 * 1.2, now);
+  o.frequency.linearRampToValueAtTime(f0 * 1.35, now + mora * 1.5);
+  o.frequency.linearRampToValueAtTime(f0 * 0.9, now + dur * 0.85);
+  o.frequency.linearRampToValueAtTime(f0 * (0.75 + rise), now + dur);
+  const vib = ac.createOscillator(); vib.frequency.value = 5 + Math.random() * 2;
+  const vg = ac.createGain(); vg.gain.value = f0 * 0.03; vib.connect(vg).connect(o.frequency);
+  const ns = ac.createBufferSource(); ns.buffer = noiseBuf;
+  const ng = ac.createGain(); ng.gain.value = 0.15;
+  const src = ac.createGain(); o.connect(src); ns.connect(ng).connect(src);
+  const out = ac.createGain(); out.gain.setValueAtTime(0, now);
+  for (let i = 0; i < n; i++) {
+    const t0 = now + i * mora * (0.9 + Math.random() * 0.2) * (i ? 1 : 0);
+    out.gain.linearRampToValueAtTime(vol * (i === n - 1 ? 0.8 : 1), t0 + mora * 0.25);
+    out.gain.linearRampToValueAtTime(vol * 0.35, t0 + mora * 0.95);
+  }
+  out.gain.linearRampToValueAtTime(0.0001, now + dur + 0.05);
+  const parts = [];
+  [1, 0.6, 0.25].forEach((amp, fi) => {
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = fi === 0 ? 6 : 9;
+    seq.forEach((v, si) => bp.frequency[si ? 'linearRampToValueAtTime' : 'setValueAtTime'](VOWEL2[v][fi], now + si * mora + (si ? mora * 0.3 : 0)));
+    const g = ac.createGain(); g.gain.value = amp * 3;
+    src.connect(bp).connect(g).connect(out); parts.push(bp, g);
+  });
+  out.connect(master);
+  o.onended = unplug([o, vib, vg, ns, ng, src, out, ...parts]);
+  o.start(now); vib.start(now); ns.start(now, Math.random() * 0.5);
+  o.stop(now + dur + 0.1); vib.stop(now + dur + 0.1); ns.stop(now + dur + 0.1);
+  return dur;
+}
+const F_CAMERAMAN = 118;
 
 // ===== 描画の準備 =====
 const cv = $('cv');
@@ -465,8 +509,9 @@ hedge.position.set(0, 0.41, -3.2); scene.add(hedge);
 const trunkMat = std('#6a4528', 0.9);
 const foliage = (() => { const g = new THREE.IcosahedronGeometry(1, 2), p = g.attributes.position, v = new THREE.Vector3(); for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); v.multiplyScalar(1 + (Math.sin(v.x * 5) * Math.cos(v.y * 4 + v.z * 3)) * 0.08); p.setXYZ(i, v.x, v.y, v.z); } g.computeVertexNormals(); return g; })();
 const leafMats = ['#3b6f2c', '#4c7d33', '#5a8a3b', '#2f5f2a'].map(c => std(c, 0.85, { flatShading: false }));
-for (let i = 0; i < 18; i++) {
-  const side = i % 2 ? 1 : -1, x = side * rnd(3.5, 14), z = rnd(-12, -4.2) + (Math.abs(x) > 8 ? rnd(0, 6) : 0);
+for (let i = 0; i < 28; i++) {
+  // 舞台の後ろと両横、それにカメラマンの後ろ（カットシーンで見える）
+  const side = i % 2 ? 1 : -1, back = i >= 18, x = back ? rnd(-12, 12) : side * rnd(3.5, 14), z = back ? rnd(15, 26) : rnd(-12, -4.2) + (Math.abs(x) > 8 ? rnd(0, 6) : 0);
   const tr = new THREE.Group(); tr.position.set(x, -0.14, z); const k = rnd(0.9, 1.6); tr.scale.setScalar(k);
   const tk = shade(new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 2.2, 8), trunkMat)); tk.position.y = 1.1; tr.add(tk);
   for (let j = 0; j < 4; j++) { const f = shade(new THREE.Mesh(foliage, pick(leafMats))); f.position.set(rnd(-0.6, 0.6), 2.6 + rnd(0, 1.1), rnd(-0.5, 0.5)); f.scale.setScalar(rnd(0.9, 1.4)); tr.add(f); }
@@ -540,6 +585,64 @@ const people = DEFS.map((d, i) => {
     tiltX: 0, tiltZ: 0, tvx: 0, tvz: 0, fall: 0, fallX: 0, fallZ: 0, stun: 0, dashT: 0, dashCD: 0, charge: -1, chargeAim: 0, aimX: 0, aimZ: 1,
     armW: 0, pushW: 0, hurt: 0, pref: 0, home: { x: 0, z: 0 }, wander: 0, player: false, type: d.type };
 });
+// カメラマン（写真のカメラ photoCam の位置に立つ。本人の頭はカメラより後ろなので写真には写らない）
+const PH_POS = new THREE.Vector3(0, -0.14, 7.72);
+const ph = makeHuman({ sex: 'male', age: 'adult', seed: 5, build: 1.08, height: 1.74, top: '#56664a', sleeve: 'long', bottom: 'pants', bottomColor: '#3a3f47', shoes: '#3b2a1e', hair: 'short', glasses: false });
+ph.root.position.copy(PH_POS); ph.root.rotation.y = Math.PI; scene.add(ph.root);
+const phCam = new THREE.Group();
+phCam.add(shade(new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, 0.08), std('#1c1c1f', 0.4))));
+const phLens = shade(new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.14, 16), std('#2a2a2e', 0.25, { metalness: 0.4 })));
+phLens.rotation.x = Math.PI / 2; phLens.position.z = 0.1; phCam.add(phLens);
+const phStrap = shade(new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.006, 6, 20, Math.PI), std('#222', 0.8)));
+phStrap.rotation.z = Math.PI; phStrap.position.y = 0.04; phCam.add(phStrap);
+ph.root.add(phCam);
+const phState = { shoot: 0, talk: 0, wave: 0 };
+function posePh(dt, time) {
+  const tl = DUR - elapsed;
+  const want = state === 'photo' || state === 'result' || (state === 'play' && tl < 3.3) ? 1 : 0;
+  phState.shoot = lerp(phState.shoot, want, 1 - Math.exp(-dt * 5));
+  phState.talk = Math.max(0, phState.talk - dt);
+  const f = ph.face;
+  f.open = phState.talk > 0 ? q10(0.15 + Math.abs(Math.sin(time * 19)) * 0.5) : 0;
+  f.smile = 0.5; f.brow = phState.talk > 0 ? 0.4 : 0;
+  ph.lookAt(state === 'intro' ? camera.position : tmpV.set(0, 1.4, 0));
+  ph.update(dt);
+  const k = phState.shoot, j = ph.j;
+  // カメラは胸の前 → 構えると顔の前
+  phCam.position.set(0, lerp(1.13, 1.5, k), lerp(0.2, 0.15, k));
+  for (const [K, sd] of [['L', 1], ['R', -1]]) {
+    j['shoulder' + K].rotation.set(lerp(-0.45, -1.15, k), 0, sd * lerp(0.15, 0.32, k));
+    j['elbow' + K].rotation.set(lerp(-1.45, -2.15, k), 0, -sd * 0.25);
+  }
+  // しゃべっている間は右手で手招き（構えていない時）
+  phState.wave = lerp(phState.wave, phState.talk > 0 && k < 0.3 ? 1 : 0, 1 - Math.exp(-dt * 8));
+  if (phState.wave > 0.01) {
+    j.shoulderR.rotation.x = lerp(j.shoulderR.rotation.x, -1.2, phState.wave); j.shoulderR.rotation.z = lerp(j.shoulderR.rotation.z, -0.35, phState.wave);
+    j.elbowR.rotation.x = lerp(j.elbowR.rotation.x, -0.9 - 0.5 * Math.sin(time * 9), phState.wave);
+  }
+}
+// 吹き出し
+const sayEl = $('say');
+let sayKey = null, sayT = 0;
+function say(key) {
+  const [txt, vw] = L[lang].lines[key];
+  sayKey = key; sayEl.textContent = txt; sayEl.style.display = 'block';
+  const dur = speak(F_CAMERAMAN * rnd(0.97, 1.03), vw, 0.12, 0.5, key === 'ok' ? 0.25 : 0);
+  phState.talk = dur; sayT = Math.max(1.5, dur + 0.8);
+}
+const headV = new THREE.Vector3();
+function placeSay() {
+  if (sayEl.style.display !== 'block') return;
+  ph.j.head.getWorldPosition(headV); headV.y += 0.36; headV.project(camera);
+  const W = innerWidth, H = innerHeight, bw = sayEl.offsetWidth, bh = sayEl.offsetHeight;
+  const x = (headV.x + 1) / 2 * W;
+  let y = headV.z > 1 ? H : (1 - headV.y) / 2 * H;
+  y = clamp(y, bh + (state === 'intro' ? 60 : 96), H - 92);
+  const left = clamp(x - bw / 2, 8, W - bw - 8);
+  sayEl.style.setProperty('--tail', clamp(x - left, 20, bw - 20) + 'px');
+  sayEl.style.transform = `translate(${left}px, ${y - bh}px)`;
+}
+
 // 自分の目印（足元の輪と頭の上の三角）
 const ringMat = new THREE.MeshBasicMaterial({ color: '#ffd84a', transparent: true, opacity: 0.85, depthWrite: false, fog: false });
 const ring = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.38, 40), ringMat); ring.rotation.x = -Math.PI / 2; ring.renderOrder = 2; scene.add(ring);
@@ -549,10 +652,11 @@ const arrow = new THREE.Mesh(arrowGeo, new THREE.MeshBasicMaterial({ color: '#ff
 // ===== ゲームの状態 =====
 const DUR = 15;
 const X_MAX = 2.4, Z_FRONT = 1.25, Z_BACK = BACK_Z + 0.05;
-let state = 'idle', elapsed = 0, me = null, nextClick = 0, called = false, ticks = 0, shutterT = 0, scoreData = null;
+let state = 'intro', elapsed = 0, me = null, nextClick = 0, called = false, ticks = 0, shutterT = 0, scoreData = null;
+let introT = 0, introVoiced = false, introSaid = false, lineAt = 0, lastFallLine = -9, lastLeft = -1;
 const BACK_SPOTS = [-2.0, -1.0, 0, 1.0, 2.0], FRONT_SPOTS = [-1.5, -0.5, 0.5, 1.5];
-function reset() {
-  state = 'idle'; elapsed = 0; called = false; ticks = 0; scoreData = null;
+function reset(first) {
+  state = first ? 'intro' : 'idle'; elapsed = 0; called = false; ticks = 0; scoreData = null; lineAt = 2.2;
   const order = people.slice().sort(() => Math.random() - 0.5);
   me = order[0];
   // 自分は後ろの段の端の方から
@@ -570,21 +674,29 @@ function reset() {
     p.h.lookAt(null);
   });
   input.charge = -1; input.cool = 0;
-  $('timer').style.opacity = 1;
-  $('bar').firstElementChild.style.transform = 'scaleX(1)';
-  document.querySelectorAll('.dots b').forEach(b => b.classList.remove('on'));
   ring.visible = arrow.visible = true;
-  lastBar = -1; document.body.classList.remove('done');
+  lastLeft = -1; updLeft(); document.body.classList.remove('done');
+  document.body.classList.toggle('intro', !!first);
+  if (!first) { applyCam(); setTimeout(() => state === 'idle' && say('again'), 400); }
 }
 
 // ===== 入力 =====
 const keys = new Set();
 const input = { jx: 0, jz: 0, joyId: null, ox: 0, oy: 0, charge: -1, cool: 0 };
-function begin() { if (state === 'idle') { state = 'play'; elapsed = 0; sCall(['o', 'e', 'a', 'i', 'i', 'a', 'u']); } }
+function begin() { if (state === 'idle') { state = 'play'; elapsed = 0; } }
+// カットシーン: 音が出せる前に始まった分は、最初のタップで声つきで最初からやり直す（飛ばせるのは2回目から）
+function tapIntro() {
+  if (!introVoiced && soundOn && ac) { introVoiced = true; introT = 0; introSaid = false; sayEl.style.display = 'none'; return; }
+  introVoiced = true; endIntro();
+}
+function endIntro() {
+  state = 'idle'; document.body.classList.remove('intro'); applyCam();
+  if (introVoiced) begin(); // 一度でも触っていれば、そのまま撮影開始
+}
 addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('select')) return;
   const k = e.key.toLowerCase();
-  if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', ' '].includes(k)) { e.preventDefault(); if (state === 'idle') begin(); }
+  if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd', ' ', 'enter'].includes(k)) { e.preventDefault(); if (state === 'intro') { if (!e.repeat) tapIntro(); return; } if (state === 'idle') begin(); }
   if (k === ' ' && !e.repeat) startCharge();
   keys.add(k);
 });
@@ -594,6 +706,7 @@ const joy = $('joy'), knob = joy.firstElementChild;
 // ドラッグで歩き、タップでその場所へ体当たり（2本目の指のタップも体当たり）
 const taps = new Map();
 cv.addEventListener('pointerdown', e => {
+  if (state === 'intro') { tapIntro(); return; }
   if (state !== 'idle' && state !== 'play') return;
   begin();
   taps.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now(), moved: false });
@@ -697,6 +810,7 @@ function hit(p, dv, nx, nz) {
   p.hurt = 0.45;
   if (dv > 2.5 && p.fall <= 0) {
     p.fall = 1.1; p.stun = 1.25; p.fallX = nx; p.fallZ = nz; p.charge = -1;
+    if (state === 'play' && elapsed - lastFallLine > 4 && DUR - elapsed > 4 && sayT < 0.6) { lastFallLine = elapsed; setTimeout(() => state === 'play' && say('ok'), 450); }
     if (p.player) input.charge = -1;
     sGrunt(p, true);
     setTimeout(() => { sThud(); puff(p.x + nx * 0.9, p.y, p.z + nz * 0.9, 6, 0.5); }, 380);
@@ -706,6 +820,7 @@ const STEP = 1 / 60;
 function step(dt) {
   const playing = state === 'play';
   if (playing) elapsed += dt;
+  if (state === 'intro') { /* 始まる前と同じくそわそわ */ }
   const tl = DUR - elapsed, rush = playing && tl < 3.3;
   for (const p of people) {
     p.px = p.x; p.pz = p.z; p.py = p.y;
@@ -768,7 +883,8 @@ function step(dt) {
     if (input.charge >= 0) input.charge += dt;
     if (input.cool > 0) input.cool -= dt;
     // カメラマンの声と合図
-    if (!called && tl < 3.3) { called = true; sCall(['a', 'i', 'o', 'i', 'a', 'a', 'u']); }
+    if (!called && tl < 3.3) { called = true; say('go'); }
+    else if (!called && elapsed > lineAt && sayT <= 0) { say(lineAt < 3 ? 'squeeze' : pick(['nopush', 'eyes', 'forward', 'center', 'squeeze'])); lineAt = elapsed + rnd(3.2, 4.2); }
     if (ticks < 2 && tl < 2 - ticks) { ticks++; sTick(); }
     // 報道陣のシャッター（遠くでカシャ）
     nextClick -= dt;
@@ -795,7 +911,7 @@ function animate(dt, alpha, time) {
     if (facing && p.fall <= 0) ty = 0;
     else if (p.charge >= 0 || p.dashT > 0) ty = Math.atan2(p.aimX, p.aimZ);
     else if (sp > 0.35) ty = Math.atan2(p.vx, p.vz);
-    else if (state === 'idle') ty = Math.sin(time * 0.3 + p.id) * 0.25;
+    else if (state === 'idle' || state === 'intro') ty = Math.sin(time * 0.3 + p.id) * 0.25;
     ty = clamp(ty, -1.45, 1.45);
     p.yaw = lerp(p.yaw, ty, 1 - Math.exp(-dt * 8));
     p.h.root.rotation.y = p.yaw;
@@ -808,7 +924,7 @@ function animate(dt, alpha, time) {
     else if (p.hurt > 0) { f.open = q10(0.3 + p.hurt); f.brow = -0.8; f.smile = -0.3; }
     else if (p.charge >= 0 || (p.player && input.charge >= 0)) { f.open = 0; f.brow = -1; f.smile = -0.2; }
     else if (facing) { f.open = 0.1; f.brow = 0.2; f.smile = 0.8; }
-    else { f.open = 0; f.brow = 0; f.smile = state === 'idle' ? 0.35 : 0.1; }
+    else { f.open = 0; f.brow = 0; f.smile = state === 'play' ? 0.1 : 0.35; }
     if (facing) p.h.lookAt(camLook);
     else if (state === 'play' && !p.player) p.h.lookAt(tmpV.set(SPOT.x, 1.4, SPOT.z + 0.5));
     else p.h.lookAt(null);
@@ -843,7 +959,6 @@ function pose(p, dt, time) {
 function shutter() {
   state = 'photo'; shutterT = 0; document.body.classList.add('done');
   sClick(1); for (let i = 1; i < 7; i++) sClick(rnd(0.3, 0.6), i * rnd(0.06, 0.11));
-  $('timer').style.opacity = 0;
   joy.style.display = 'none'; input.joyId = null; input.charge = -1; taps.clear();
   // 写った瞬間の表情（倒れていない人は笑顔）
   for (const p of people) {
@@ -853,7 +968,7 @@ function shutter() {
     else { f.open = q10(rnd(0, 0.3)); f.brow = 0.2; f.smile = q10(rnd(0.6, 1)); }
     for (let i = 0; i < 3; i++) { p.h.update(0.05); pose(p, 0.05, 0); }
   }
-  ring.visible = arrow.visible = false;
+  ring.visible = arrow.visible = false; sayEl.style.display = 'none'; sayT = 0;
   takePhoto();
   scoreData = judge();
   setTimeout(finish, 650);
@@ -974,6 +1089,29 @@ const shareFile = () => shareCache?.key === lang + scoreData.total ? shareCache.
 
 // ===== 画面サイズ =====
 const CENTER = new THREE.Vector3(0, 0.8, 0.05);
+const PLAY_POS = new THREE.Vector3(), PLAY_Q = new THREE.Quaternion();
+// カットシーン: カメラマンを正面から写し、回り込みながらプレイ中の位置へ
+const INTRO_POS = new THREE.Vector3(0.35, 1.45, 5.0), INTRO_LOOK = new THREE.Vector3(0, 1.25, PH_POS.z);
+const INTRO_HOLD = 2.3, INTRO_ORBIT = 1.7, INTRO_DOLLY = 1.3, INTRO_MOVE = INTRO_ORBIT + INTRO_DOLLY;
+const ease = k => k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+const PLAY_LOOK = new THREE.Vector3(), camPos = new THREE.Vector3(), camLookAt = new THREE.Vector3(), STAGE_LOOK = new THREE.Vector3(0, 1.0, 0);
+function applyCam() {
+  if (state !== 'intro') { camera.position.copy(PLAY_POS); camera.quaternion.copy(PLAY_Q); return; }
+  const t = introT - INTRO_HOLD;
+  if (t <= 0) { camera.position.copy(INTRO_POS); camera.lookAt(INTRO_LOOK); return; }
+  if (t < INTRO_ORBIT) {
+    // カメラマンのまわりを回って背中側へ（見る先は顔から舞台へ）
+    const k = ease(t / INTRO_ORBIT), th = Math.PI * k, R = lerp(PH_POS.z - INTRO_POS.z, 2.2, k);
+    camPos.set(PH_POS.x + Math.sin(th) * R + INTRO_POS.x * (1 - k), lerp(INTRO_POS.y, 2.3, k), PH_POS.z - Math.cos(th) * R);
+    camLookAt.lerpVectors(INTRO_LOOK, STAGE_LOOK, smooth(0.15, 0.85, k));
+  } else {
+    // 後ろへ引いて、プレイ中の位置へ
+    const k = ease((t - INTRO_ORBIT) / INTRO_DOLLY);
+    camPos.set(PH_POS.x, 2.3, PH_POS.z + 2.2).lerp(PLAY_POS, k);
+    camLookAt.lerpVectors(STAGE_LOOK, PLAY_LOOK, k);
+  }
+  camera.position.copy(camPos); camera.lookAt(camLookAt);
+}
 function resize() {
   const w = innerWidth, H = innerHeight;
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -986,41 +1124,53 @@ function resize() {
   const vf = THREE.MathUtils.degToRad(camera.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
   // 縦長ほど上から見下ろして、舞台の奥行きを縦に広げる（余った高さを地面だけにしない）
   const tall = clamp((1.1 - camera.aspect) / 0.55);
-  const d = Math.min(Math.max(2.75 / Math.tan(hf / 2), (1.55 - 0.1 * tall) / Math.tan(vf / 2)) + 1.6, 30);
+  const d = Math.min(Math.max(2.75 / Math.tan(hf / 2), (1.8 - 0.35 * tall) / Math.tan(vf / 2)) + 1.6, 30);
   const dir = new THREE.Vector3(0, lerp(0.5, 0.85, tall), 1).normalize();
   const c = CENTER.clone(); c.y += 0.5 * tall; // 縦長では舞台を少し下げ、上の空を広く
-  camera.position.copy(c).addScaledVector(dir, d);
-  camera.lookAt(c);
+  PLAY_POS.copy(c).addScaledVector(dir, d);
+  camera.position.copy(PLAY_POS); camera.lookAt(c); PLAY_Q.copy(camera.quaternion); PLAY_LOOK.copy(c);
   camera.updateProjectionMatrix();
+  applyCam();
   scene.fog.near = d + 3; scene.fog.far = d + 34;
 }
 addEventListener('resize', resize);
 
 // ===== ループ（固定刻み＋補間） =====
 const FAST = location.hash === '#test' ? 6 : 1; // 確認用（遅い環境で早回し）
-let last = performance.now(), acc = 0, time = 0, lastBar = -1;
+let last = performance.now(), acc = 0, time = 0;
+// 残り時間（秒の表示。値が変わった時だけ書き換える）
+function updLeft() {
+  const n = Math.ceil(Math.max(0, DUR - elapsed) - 1e-6);
+  if (n === lastLeft) return; lastLeft = n;
+  $('left').textContent = L[lang].left(n);
+  $('left').classList.toggle('hurry', n <= 3 && state === 'play');
+}
 function loop(now) {
   const dt = Math.min(0.05 * FAST, (now - last) / 1000); last = now;
   time += dt;
-  if (state === 'idle' || state === 'play') {
+  if (state === 'intro') {
+    introT += dt;
+    if (!introSaid && introT > 0.5) { introSaid = true; say('intro'); }
+    applyCam();
+    if (introT >= INTRO_HOLD + INTRO_MOVE) endIntro();
+  }
+  if (state === 'idle' || state === 'play' || state === 'intro') {
     acc += dt; let n = 0;
     while (acc >= STEP && n < 5 * FAST) { step(STEP); acc -= STEP; n++; }
     if (n === 5 * FAST) acc = 0;
   }
   if (state === 'photo' || state === 'result') shutterT += dt;
-  animate(dt, state === 'idle' || state === 'play' ? acc / STEP : 1, time);
+  animate(dt, state === 'idle' || state === 'play' || state === 'intro' ? acc / STEP : 1, time);
+  posePh(dt, time);
+  if (sayT > 0) { sayT -= dt; if (sayT <= 0) sayEl.style.display = 'none'; }
+  placeSay();
   waveFlags(time);
   updDust(dt);
-  // 残り時間のゲージ
-  if (state === 'play') {
-    const tl = Math.max(0, DUR - elapsed), v = Math.round(tl / DUR * 200) / 200;
-    if (v !== lastBar) { lastBar = v; $('bar').firstElementChild.style.transform = `scaleX(${v})`; }
-    document.querySelectorAll('.dots b').forEach((b, i) => { const onNow = tl < 3 - i; if (b.classList.contains('on') !== onNow) b.classList.toggle('on', onNow); });
-  }
+  if (state === 'play') updLeft();
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
-reset(); applyLang(); resize();
+reset(true); applyLang(); resize();
 // 最初の1回が重くならないよう、先に全部を一度描いておく
 renderer.compile(scene, camera);
 step(STEP); animate(STEP, 1, 0); renderer.render(scene, camera);
