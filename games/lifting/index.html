@@ -474,7 +474,7 @@
       upper: J.elbowL.position.length(), fore: J.wristL.position.length(),
       thigh: J.kneeL.position.length(), shin: J.ankleL.position.length(),
     };
-    const ANKLE_H = 0.045 * h.height / 1.0 * 0.58; // 足首から靴底までの高さ（おおよそ）
+    const ANKLE_H = 0.068; // 足首から靴底までの高さ（靴の形から測った値）
     // 構え: 少し腰を落として前かがみ
     function setPosture(drop, lean, twist = 0) {
       J.pelvis.position.y = PELVIS_Y - drop;
@@ -482,7 +482,7 @@
       J.spine.rotation.set(lean, twist, 0);
       h.root.updateMatrixWorld(true);
     }
-    setPosture(0.09, 0.14);
+    setPosture(0.03, 0.12);
 
     // ---------- IK（2関節の解析解） ----------
     const _a = V(), _b = V(), _cv = V(), _d = V(), _n = V(), _m = V(), _u = V(), _E = V(), _f = V(), _X = V(), _Y = V(), _Z = V();
@@ -521,12 +521,33 @@
       footL: { home: V(0.13, 0.09, 0.2), lo: V(-0.06, 0.09, 0.2), hi: V(0.45, 0.72, 0.2), hip: HIP_L, s: 1 },
       footR: { home: V(-0.13, 0.09, 0.2), lo: V(-0.45, 0.09, 0.2), hi: V(0.06, 0.72, 0.2), hip: HIP_R, s: -1 },
     };
-    for (const k in LIMB) { const L = LIMB[k]; L.target = L.home.clone(); L.pos = L.home.clone(); L.prev = L.home.clone(); L.vel = V(); L.ptr = null; L.touchT = 0; }
+    for (const k in LIMB) { const L = LIMB[k]; L.target = L.home.clone(); L.pos = L.home.clone(); L.prev = L.home.clone(); L.vel = V(); L.ptr = null; L.touchT = 0; L.q = new THREE.Quaternion(); L.A = V(); L.K = V(); L.H = V(); L.T0 = V(); L.T1 = V(); }
     const liftOf = p => clamp((p.y - 0.09) / 0.6, 0, 1);
+    // 足の甲の点 p から、足の向き q と足首の位置 ankle を求める（見た目と当たり判定で同じものを使う）
+    const FOOT_OFS = V(0, 0.01, 0.13); // 足首から見た甲の点
+    const _fe = new THREE.Euler();
+    function footFrame(p, q, ankle, s) {
+      const li = liftOf(p);
+      q.setFromEuler(_fe.set(-0.15 * li, s * 0.15, 0));
+      ankle.copy(FOOT_OFS).applyQuaternion(q).negate().add(p);
+      ankle.y = Math.max(ankle.y, ANKLE_H);
+      return ankle;
+    }
+    // 2関節の中間（ひざ）の位置
+    const _kd = V(), _kn = V(), _km = V();
+    function kneeOf(hip, ankle, pole, out) {
+      const a = LEN.thigh, b = LEN.shin;
+      _kd.subVectors(ankle, hip);
+      const dist = clamp(_kd.length(), Math.abs(a - b) + 1e-3, a + b - 1e-3);
+      _kn.copy(_kd).normalize();
+      _km.copy(pole).addScaledVector(_kn, -pole.dot(_kn)).normalize();
+      const cosA = clamp((a * a + dist * dist - b * b) / (2 * a * dist), -1, 1);
+      return out.copy(hip).addScaledVector(_kn, a * cosA).addScaledVector(_km, a * Math.sqrt(1 - cosA * cosA));
+    }
     function reach(k, p) {
       const L = LIMB[k];
       p.clamp(L.lo, L.hi);
-      p.z = 0.2 + (p.y - 0.09) * 0.3;
+      p.z = 0.22 + (p.y - 0.09) * 0.65;
       _b.copy(p).add(_cv.set(0, -0.02, -0.08)); _d.subVectors(_b, L.hip);
       const m = LEG * 0.985; if (_d.length() > m) { _d.setLength(m); p.add(_d.add(L.hip).sub(_b)); }
       return p;
@@ -548,7 +569,7 @@
       const lL = liftOf(P.footL), lR = liftOf(P.footR), lift = Math.max(lL, lR);
       // 上げた足の方へ体重を移す
       const tw = (lR - lL) * 0.12;
-      setPosture(lerp(0.07, 0.03, relaxed.k) + lift * 0.03, lerp(0.12, 0.28, relaxed.k), tw);
+      setPosture(0.03 + lift * 0.02, lerp(0.12, 0.28, relaxed.k), tw);
       J.pelvis.position.x = (lR - lL) * 0.035; J.pelvis.rotation.z = (lL - lR) * 0.05;
       h.root.updateMatrixWorld(true);
       for (const s of [1, -1]) {
@@ -559,9 +580,7 @@
       }
       for (const k of ['footL', 'footR']) {
         const L = LIMB[k], p = P[k], li = liftOf(p), K = L.s > 0 ? 'L' : 'R';
-        Q_FOOT.setFromEuler(_eul.set(-0.15 * li, L.s * 0.15, 0));
-        _ft.set(0, -0.035, -0.085).applyQuaternion(Q_FOOT).add(p);
-        _ft.y = Math.max(_ft.y, ANKLE_H);
+        footFrame(p, Q_FOOT, _ft, L.s);
         ik2(J['hip' + K], J['knee' + K], J['ankle' + K], _ft, _pole.set(L.s * 0.15, 0, 1), true, Q_FOOT);
       }
       // 首: ボールを見る。失敗したら下を向く
@@ -634,10 +653,11 @@
     const STEP = 1 / 120;
     let state = 'ready', playT = 0, failT = 0, score = 0, best = store.get('best', 0), lastKickT = -1;
     let G = 6.2; // 少しゆっくり落ちる重力
+    const BALL_Z = 0.42; // ボールが落ちてくる前後の位置（ひざより前。足を上げるとここに届く）
     const ZERO = V(), _rel = V(), _vr = V(), _vt = V(), _tmp = V(), _C = V();
     function placeReady() { // スタート前: ボールは右足の甲の上
       const b = balls.soccer;
-      b.p.copy(LIMB.footR.pos).add(_tmp.set(0, b.r + 0.012, 0));
+      b.p.copy(LIMB.footR.pos).add(_tmp.set(0, b.r + 0.008, 0));
       b.v.set(0, 0, 0); b.w.set(0, 0, 0); b.prevP.copy(b.p); b.rp.copy(b.p);
     }
     // 球と、動く球（足・頭など）の衝突
@@ -665,7 +685,7 @@
       const assist = Math.max(0.3, 0.85 - score * 0.012), spread = Math.min(0.2, 0.03 + score * 0.004);
       b.v.x = clamp(b.v.x, -0.9, 0.9); b.v.z = clamp(b.v.z, -0.9, 0.9);
       b.v.x = lerp(b.v.x, (rnd(-spread, spread) - b.p.x) / T, assist);
-      b.v.z = (0.3 + rnd(-0.02, 0.02) - b.p.z) / T; // 前後は足で直せないので、毎回足の前へ戻す
+      b.v.z = (BALL_Z + rnd(-0.02, 0.02) - b.p.z) / T; // 前後は足で直せないので、毎回足の前へ戻す
       countEl.textContent = score; countEl.classList.remove('pop'); void countEl.offsetWidth; countEl.classList.add('pop');
     }
     function stepLimbs(dt) {
@@ -681,7 +701,22 @@
         if (_tmp.length() > maxStep) _tmp.setLength(maxStep);
         L.pos.add(_tmp);
         L.vel.subVectors(L.pos, L.prev).divideScalar(dt);
+        // 当たり判定の形: 靴の甲・すね・もも
+        footFrame(L.pos, L.q, L.A, L.s);
+        L.T0.set(0, -0.02, 0.0).applyQuaternion(L.q).add(L.A);
+        L.T1.set(0, -0.05, 0.17).applyQuaternion(L.q).add(L.A);
+        L.H.copy(L.hip);
+        kneeOf(L.H, L.A, _tmp.set(L.s * 0.15, 0, 1), L.K);
+        L.S1 = (L.S1 || V()).lerpVectors(L.K, L.A, 0.6); // すねの下の方は靴の当たり判定に任せる
       }
+    }
+    // 線分（カプセル）と球の衝突
+    const _sa = V(), _sp = V(), _sv = V();
+    function hitSeg(b, A, B, r, vel, e, fr) {
+      _sa.subVectors(B, A);
+      const t = clamp(_sp.subVectors(b.p, A).dot(_sa) / Math.max(1e-6, _sa.lengthSq()), 0, 1);
+      _sp.copy(A).addScaledVector(_sa, t);
+      return hitSphere(b, _sp, r, vel, e, fr);
     }
     function stepBalls(dt) {
       const b = balls.soccer;
@@ -710,8 +745,11 @@
       // 足の甲 × ボール
       for (const key in LIMB) {
         const L = LIMB[key];
-        _C.copy(L.pos).add(_tmp.set(0, -0.045, 0));
-        const im = hitSphere(b, _C, 0.055, L.vel, 0.55, 0.7);
+        // もも・すね（当たると跳ね返る。上へ上がればももトラップとして1回）
+        const it = hitSeg(b, L.H, L.K, 0.075, _sv.copy(L.vel).multiplyScalar(0.35), 0.45, 0.7);
+        const is = hitSeg(b, L.K, L.S1, 0.045, _sv.copy(L.vel).multiplyScalar(0.75), 0.45, 0.7);
+        if (it + is > 0.3) { sKick((it + is) / 6, b.p.x); countTouch(b); }
+        const im = hitSeg(b, L.T0, L.T1, 0.05, L.vel, 0.55, 0.7);
         if (im > 0.2) {
           sKick(im / 5, b.p.x);
           b.v.y = Math.min(b.v.y, 4.9);
@@ -722,7 +760,7 @@
     }
     function checkFail() {
       const b = balls.soccer;
-      return b.p.y < b.r + 0.01 || Math.hypot(b.p.x, b.p.z - 0.3) > 1.6;
+      return b.p.y < b.r + 0.01 || Math.hypot(b.p.x, b.p.z - BALL_Z) > 1.6;
     }
     function step(dt) {
       if (state === 'play') { playT += dt; G = 6.2 + Math.min(1.6, score * 0.02); }
@@ -744,7 +782,7 @@
     // ---------- 進行 ----------
     function start() {
       state = 'play'; playT = 0; score = 0; lastKickT = -1; G = 6.2;
-      balls.soccer.v.set(0, 3.4, (0.3 - balls.soccer.p.z) / (2 * 3.4 / G));
+      balls.soccer.v.set(0, 3.4, (BALL_Z - balls.soccer.p.z) / (2 * 3.4 / G));
       sKick(0.4, 0);
       hideHints(); countEl.textContent = '0'; countEl.style.display = 'block';
     }
@@ -831,7 +869,7 @@
       const k = s.p.x < 0 ? 'footR' : 'footL', F = LIMB[k], o = LIMB[k === 'footR' ? 'footL' : 'footR'];
       F.ptr = 'bot'; o.ptr = null;
       const gap = s.p.y - s.r - F.pos.y;
-      F.target.set(s.p.x, s.v.y < 0 && gap < 0.22 ? 0.4 : 0.1, 0.2); F.touchT = performance.now(); reach(k, F.target);
+      F.target.set(s.p.x, s.v.y < 0 && gap < 0.22 ? 0.38 : 0.1, 0.2); F.touchT = performance.now(); reach(k, F.target);
     }
 
     // ---------- カメラ（正面やや横から / 失敗したら寄る） ----------
@@ -988,7 +1026,7 @@
     // テスト用の入口
     window.__game = {
       get state() { return state; }, get t() { return playT; }, get score() { return score; },
-      set timeScale(v) { timeScale = v; }, balls, LIMB, camera, hideHints, fail: () => fail(), start, sim(n) { for (let i = 0; i < n && state === 'play'; i++) step(STEP); return { state, t: playT, score }; }, reset: () => reset(),
+      set timeScale(v) { timeScale = v; }, balls, LIMB, camera, hideHints, human: h, fail: () => fail(), start, sim(n) { for (let i = 0; i < n && state === 'play'; i++) step(STEP); return { state, t: playT, score }; }, reset: () => reset(),
     };
     // 最初の1回が重くならないように、一度描いておく
     renderer.compile(scene, camera); render(0.016);
