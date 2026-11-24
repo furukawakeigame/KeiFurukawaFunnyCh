@@ -28,12 +28,14 @@
 //   ・通信が切れて送り直した go / cp / submit は、2回目もはじかずに同じ答えを返す。
 //
 // 回数で競うゲーム（リフティング: lifting）のズル対策（数字だけでなく、プレイそのものを確かめる）:
-//   ・乱数の種（seed）は start でサーバーが決めて渡す。最初の操作で go を送る。
-//   ・登録（submit）では「指の動きの記録」（刻み・足・押しているか・位置 mm）を送ってもらい、
+//   ・遊ぶ前（ページを開いた時・もう一度の時）に整理券（start）をもらう。届くのを待たずに遊び始めてよい。
+//   ・登録（submit）では、乱数の種と「指の動きの記録」（刻み・足・押しているか・位置 mm）を送ってもらい、
 //     このファイルの下にある LiftCore（games/lifting/core.js の写し）で最初から再生する。
 //     再生した回数と、落とした刻みが、送られてきたものとぴったり同じでなければ受け付けない。
-//   ・再生にかかるゲーム内の時間が、go からの本当の時間より長くないこと（早送りした記録ははじく）。
-//   ・回数を書き換える・別の回の記録を使い回す・作った記録を送る、のどれも通らない。
+//   ・ゲーム内の時間が、整理券を出してからの本当の時間より長くないこと（早送りした記録ははじく）。
+//   ・同じ記録（種と指の動きが同じもの）は1回しか登録できない（記録の指紋を scores の9列目に残す）。
+//   ・回数を書き換える・記録を使い回す・早送りする、のどれも通らない。
+//   ・check は登録せずに再生だけする（ゲームとサーバーの計算が合っているかを確かめる用）。
 //     本当に遊ぶプログラム（ボット）までは防げない（見つけたら行を消す・ban に書く）。
 //   ・core.js を書き換えたら、このファイルの写しも同じに直して、デプロイし直す。
 //
@@ -49,9 +51,10 @@
 // POST {act:'cp', tok, n, sec}                     → { ok }        （n×100m に着いた。sec は go からの秒数）
 // POST {act:'submit', tok, name, name2?, dev2?, dist, sec, dev} → 上と同じ
 // 回数のゲーム（再生で確かめる）:
-// POST {act:'start', game, dev}                    → { ok, tok, seed }
-// POST {act:'go', tok}                             → { ok }
-// POST {act:'submit', tok, name, dev, score, steps, log} → 上と同じ（wave に回数が入る）
+// POST {act:'start', game, dev}                    → { ok, tok }
+// POST {act:'submit', tok, name, dev, seed, score, steps, log} → 上と同じ（wave に回数が入る）
+//      うまくいかない時の error: 'replay'（再生した結果が合わない） / 'time'（早すぎる） / 'dup'（同じ記録） / 'bad'
+// POST {act:'check', game:'lifting', seed, steps, log} → { ok, score, steps, failed }（登録しない。再生の確認用）
 
 const SHEET = 'scores', BAN = 'ban';
 const TOP_N = 10, MAX_WAVE = 150, DAY_CAP = 3000;
@@ -164,15 +167,21 @@ function doPost(e) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    if (act === 'check') { // 登録せずに再生だけする（確認用）
+      if (!REPLAY[String(b.game)] || limited('chk:' + Math.floor(now / 60000), 30, 70)) return json({ ok: false, error: 'wait' });
+      const log = b.log, steps = Math.floor(Number(b.steps));
+      if (!Array.isArray(log) || !(steps > 0 && steps <= REPLAY[String(b.game)].maxSteps)) return json({ ok: false, error: 'bad' });
+      const r = liftReplay(Math.floor(Number(b.seed)) | 0, log, steps);
+      return json({ ok: true, score: r.score, steps: r.steps, failed: r.failed });
+    }
     if (act === 'start') {
       const game = String(b.game || ''), dev = String(b.dev || '').slice(0, 40);
       if (!GAMES.includes(game)) return json({ ok: false, error: 'bad' });
       if (limited('st:' + dev, DIST[game] || REPLAY[game] ? 40 : 10, 60) || limited('stmin:' + Math.floor(now / 60000), 400, 70)) return json({ ok: false, error: 'wait' });
       const tok = Utilities.getUuid();
       if (REPLAY[game]) {
-        const seed = Math.floor(Math.random() * 2147483647);
-        putSess(tok, { game, dev, seed, issued: now, go: 0, used: false });
-        return json({ ok: true, tok, seed });
+        putSess(tok, { game, dev, issued: now, used: false });
+        return json({ ok: true, tok });
       }
       if (DIST[game]) {
         const seed = Math.floor(Math.random() * 1e9);
@@ -273,37 +282,35 @@ function distAct(act, b, s, tok, now) {
 // ---- 回数で競うゲーム（プレイを再生して確かめる） ----
 function replayAct(act, b, s, tok, now) {
   const P = REPLAY[s.game];
-  const fail = () => { s.used = true; putSess(tok, s); return json({ ok: false, error: 'bad' }); };
-  if (act === 'go') {
-    if (s.go && now - s.go < 60000) return json({ ok: true });   // 送り直し（2回目）
-    if (s.go || now - s.issued > 3600 * 1000) return fail();
-    s.go = now; putSess(tok, s);
-    return json({ ok: true });
-  }
-  if (act !== 'submit' || !s.go) return fail();
+  const fail = err => { s.used = true; putSess(tok, s); return json({ ok: false, error: err || 'bad' }); };
+  if (act === 'go') return json({ ok: true }); // 古いゲームからの知らせ（今は使わない）
+  if (act !== 'submit') return json({ ok: false, error: 'bad' });
   const dev = String(b.dev || '').slice(0, 40);
   if (dev !== s.dev) return json({ ok: false, error: 'bad' });
-  const score = Math.floor(Number(b.score)), steps = Math.floor(Number(b.steps)), log = b.log;
-  if (!(score >= 1 && steps > 0 && steps <= P.maxSteps)) return fail();
+  const seed = Math.floor(Number(b.seed)), score = Math.floor(Number(b.score)), steps = Math.floor(Number(b.steps)), log = b.log;
+  if (!(seed === (seed | 0) && score >= 1 && steps > 0 && steps <= P.maxSteps)) return fail();
   if (!Array.isArray(log) || log.length % 4 !== 0 || log.length > steps * 8 + 64) return fail();
   for (let i = 0; i < log.length; i++) if (typeof log[i] !== 'number' || log[i] !== Math.floor(log[i]) || Math.abs(log[i]) > 1e7) return fail();
   for (let i = 4; i < log.length; i += 4) if (log[i] < log[i - 4]) return fail(); // 刻みは順番どおり
-  // ゲーム内の時間は、go からの本当の時間より長くならない（通信の遅れのぶん3秒は甘くする）
-  const real = (now - s.go) / 1000;
-  if (steps / 120 > real + 3) return fail();
+  // ゲーム内の時間は、整理券を出してからの本当の時間より長くならない（整理券が届くのが遅れたぶん、10秒は甘くする）
+  if (steps / 120 > (now - s.issued) / 1000 + 10) return fail('time');
   const n1 = cleanName(b.name);
   if (!n1) return json({ ok: false, error: 'name' });
   if (badName(n1)) return json({ ok: false, error: 'ng' });
   const ban = banned();
   if (ban.has(n1) || ban.has(dev)) return json({ ok: false, error: 'bad' });
   // プレイを最初から再生して、回数と落とした刻みがぴったり同じか確かめる
-  const r = liftReplay(s.seed, log, steps);
-  if (!(r.failed && r.steps === steps && r.score === score)) return fail();
+  const r = liftReplay(seed, log, steps);
+  if (!(r.failed && r.steps === steps && r.score === score)) return fail('replay');
+  // 同じ記録は1回だけ（記録の指紋）
+  const hash = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, seed + ':' + JSON.stringify(log))).slice(0, 24);
+  if (cache().get('lh:' + hash) || sheet().createTextFinder(hash).matchEntireCell(true).findNext()) return fail('dup');
   if (limited('dev:' + dev, 1, 20)) return json({ ok: false, error: 'wait' });
   if (limited('min:' + Math.floor(now / 60000), 60, 70) || limited('day:' + today(), DAY_CAP, 90000)) return json({ ok: false, error: 'wait' });
   s.used = true; putSess(tok, s);
+  cache().put('lh:' + hash, '1', 21600);
   const game = s.game, t = new Date(now), sec = Math.floor(steps / 120);
-  sheet().appendRow([t, "'" + today(), game, "'" + n1, score, 0, sec, "'" + dev]);
+  sheet().appendRow([t, "'" + today(), game, "'" + n1, score, 0, sec, "'" + dev, hash]);
   const rankIn = rows => bestPerDev(rows).filter(x => x.dev !== dev && better(x, { wave: score, kills: 0, t: now }) < 0).length + 1;
   const todayRows = readRows(game, true), allRows = readRows(game, false);
   const o = { today: pub(bestPerDev(todayRows)), all: pub(bestPerDev(allRows)) };
