@@ -520,8 +520,8 @@
     const READY_Y = 0.24; // スタート前の構え: 右足を少し上げて、甲にボールを乗せる
     // 足: 甲の点（ボールが当たる所）を動かす。左右と上下（上げると少し前に出る）
     const LIMB = {
-      footL: { home: V(0.13, 0.09, 0.26), lo: V(-0.06, 0.09, 0.26), hi: V(0.45, 0.72, 0.26), hip: HIP_L, s: 1 },
-      footR: { home: V(-0.13, 0.09, 0.26), lo: V(-0.45, 0.09, 0.26), hi: V(0.06, 0.72, 0.26), hip: HIP_R, s: -1 },
+      footL: { home: V(0.13, 0.09, 0.26), lo: V(-0.06, 0.09, 0.26), hi: V(0.45, 0.52, 0.26), hip: HIP_L, s: 1 },
+      footR: { home: V(-0.13, 0.09, 0.26), lo: V(-0.45, 0.09, 0.26), hi: V(0.06, 0.52, 0.26), hip: HIP_R, s: -1 },
     };
     for (const k in LIMB) { const L = LIMB[k]; L.target = L.home.clone(); L.pos = L.home.clone(); L.prev = L.home.clone(); L.vel = V(); L.ptr = null; L.touchT = 0; L.q = new THREE.Quaternion(); L.A = V(); L.K = V(); L.H = V(); L.T0 = V(); L.T1 = V(); }
     const liftOf = p => clamp((p.y - 0.09) / 0.6, 0, 1);
@@ -535,6 +535,8 @@
       ankle.y = Math.max(ankle.y, ANKLE_H);
       return ankle;
     }
+    // ひざを向ける方向: 足を上げるほど外へ開く（ひざがボールの前に出ないように）
+    const kneePole = (L, out, p = L.pos) => out.set(L.s * (0.15 + 1.6 * liftOf(p)), 0, 1);
     // 2関節の中間（ひざ）の位置
     const _kd = V(), _kn = V(), _km = V();
     function kneeOf(hip, ankle, pole, out) {
@@ -583,7 +585,7 @@
       for (const k of ['footL', 'footR']) {
         const L = LIMB[k], p = P[k], li = liftOf(p), K = L.s > 0 ? 'L' : 'R';
         footFrame(p, Q_FOOT, _ft, L.s);
-        ik2(J['hip' + K], J['knee' + K], J['ankle' + K], _ft, _pole.set(L.s * 0.15, 0, 1), true, Q_FOOT);
+        ik2(J['hip' + K], J['knee' + K], J['ankle' + K], _ft, kneePole(L, _pole, p), true, Q_FOOT);
       }
       // 首: ボールを見る。失敗したら下を向く
       const b = balls.soccer.rp;
@@ -711,8 +713,8 @@
         L.T0.set(0, -0.02, 0.0).applyQuaternion(L.q).add(L.A);
         L.T1.set(0, -0.05, 0.17).applyQuaternion(L.q).add(L.A);
         L.H.copy(L.hip);
-        kneeOf(L.H, L.A, _tmp.set(L.s * 0.15, 0, 1), L.K);
-        L.S1 = (L.S1 || V()).lerpVectors(L.K, L.A, 0.55); // すねの下の方（甲のすぐ後ろ）は当てない
+        kneeOf(L.H, L.A, kneePole(L, _tmp), L.K);
+        L.S0 = (L.S0 || V()).lerpVectors(L.K, L.A, 0.3); L.S1 = (L.S1 || V()).lerpVectors(L.K, L.A, 0.55); // すねの真ん中だけ
       }
     }
     // 線分（カプセル）と球の衝突
@@ -752,10 +754,9 @@
       // 足の甲 × ボール
       for (const key in LIMB) {
         const L = LIMB[key];
-        // もも・すね（当たると跳ね返る。上へ上がればももトラップとして1回）
-        const it = hitSeg(b, L.H, L.K, 0.075, _sv.copy(L.vel).multiplyScalar(0.35), 0.45, 0.7);
-        const is = hitSeg(b, L.K, L.S1, 0.04, _sv.copy(L.vel).multiplyScalar(0.75), 0.45, 0.7);
-        if (it + is > 0.3) { sKick((it + is) / 6, b.p.x); countTouch(b); }
+        // すね（ひざとももには当てない。上がるボールの邪魔をしないように）
+        const is = hitSeg(b, L.S0, L.S1, 0.04, _sv.copy(L.vel).multiplyScalar(0.75), 0.45, 0.7);
+        if (is > 0.3) { sKick(is / 6, b.p.x); countTouch(b); }
         const im = hitSeg(b, L.T0, L.T1, 0.05, L.vel, 0.55, 0.7);
         if (im > 0.2) {
           sKick(im / 5, b.p.x);
