@@ -77,6 +77,32 @@
     }
     #again { background: #ffcf3f; color: #3a2a00; box-shadow: 0 4px 0 #a07a10; }
     #share { background: #111; color: #fff; box-shadow: 0 4px 0 #000; flex: 0 0 36% !important; font-size: clamp(16px, 2.6vmin, 20px) !important; }
+    #rankBtn { background: #3a2a6a; color: #fff; box-shadow: 0 4px 0 #1d1440; flex: 0 0 28% !important; font-size: clamp(15px, 2.4vmin, 19px) !important; }
+    #rankBtn[hidden] { display: none !important; }
+    /* ランキング: 夜のスタジアムの電光掲示板ふう */
+    #rank { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; padding: 56px 12px calc(84px + env(safe-area-inset-bottom)); background: rgba(8,6,20,.55); }
+    #rank[hidden] { display: none; }
+    #rank .sheet { position: relative; width: min(100%, 380px); max-height: 100%; overflow: auto; background: #15122b; color: #fff; border: 2px solid #ffd75a; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.5); padding: 14px 16px 16px; }
+    #rank h2 { margin: 0 40px 6px 0; font-size: clamp(20px, 3.2vmin, 26px); color: #ffd75a; }
+    #rkClose { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; border: none; border-radius: 50%; background: rgba(255,255,255,.12); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    #rank .tabs { display: flex; gap: 6px; margin: 4px 0; }
+    #rank .tab { flex: 1; font: inherit; font-size: 16px; font-weight: 800; padding: 6px 0; border: none; border-radius: 10px; background: rgba(255,255,255,.1); color: #fff; cursor: pointer; opacity: .65; }
+    #rank .tab.on { background: #ffd75a; color: #2a1f00; opacity: 1; }
+    #rkNote { margin: 2px 0 6px; font-size: 12px; opacity: .65; min-height: 1.2em; }
+    #rkList { list-style: none; margin: 0; padding: 0; }
+    #rkList li { display: flex; align-items: baseline; gap: 8px; padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,.12); font-size: clamp(15px, 2.3vmin, 19px); font-variant-numeric: tabular-nums; }
+    #rkList li.me { background: rgba(255,215,90,.2); border-radius: 8px; }
+    #rkList .n { width: 1.8em; text-align: right; font-weight: 900; }
+    #rkList li:nth-child(1) .n { color: #ffd75a; } #rkList li:nth-child(2) .n { color: #d6dbe6; } #rkList li:nth-child(3) .n { color: #e0a060; }
+    #rkList .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #rkList .w { white-space: nowrap; font-weight: 800; }
+    #rkList .empty { justify-content: center; opacity: .7; border: none; }
+    #rkMsg { min-height: 1.3em; margin: 8px 0 6px; text-align: center; font-size: 15px; }
+    #rkForm { display: flex; gap: 8px; }
+    #rkForm[hidden] { display: none; }
+    #rkName { flex: 1; min-width: 0; font: inherit; font-size: 17px; padding: 8px 10px; border: 2px solid rgba(255,255,255,.3); border-radius: 10px; background: #0d0b1d; color: #fff; -webkit-user-select: text; user-select: text; }
+    #rkSend { font: inherit; font-size: 17px; font-weight: 800; padding: 8px 18px; border: none; border-radius: 10px; background: #ffcf3f; color: #3a2a00; cursor: pointer; }
+    #rkSend:disabled { opacity: .5; }
     #controls button:active, #controls a:active { transform: translateY(3px); box-shadow: none; }
     @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
       /* 背の低い横長画面: 結果とボタンは右側に寄せ、左側に選手を見せる */
@@ -113,8 +139,22 @@
     </div>
     <div id="msg"></div>
   </div>
-  <div id="controls"><button id="again"></button><a id="share"></a></div>
+  <div id="controls"><button id="again"></button><button id="rankBtn" hidden></button><a id="share"></a></div>
+  <!-- ランキング（今日・全期間。RANK_URL が空なら出さない） -->
+  <div id="rank" hidden>
+    <div class="sheet">
+      <button id="rkClose" aria-label="close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+      <h2 id="rkTitle"></h2>
+      <div class="tabs"><button id="tabToday" class="tab"></button><button id="tabAll" class="tab"></button></div>
+      <p id="rkNote"></p>
+      <ol id="rkList"></ol>
+      <p id="rkMsg"></p>
+      <form id="rkForm"><input id="rkName" maxlength="8" autocomplete="nickname" enterkeyhint="send"><button id="rkSend"></button></form>
+    </div>
+  </div>
   </main>
+  <!-- 物理（ランキングのサーバーも同じものを使う） -->
+  <script src="core.js"></script>
   <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
   <script>
     // CDN が読めないときの一言
@@ -161,15 +201,19 @@
     ];
     const DICT = {
       ja: { title: 'リフティング', back: '← トップへ戻る', again: 'もう一度', post: 'Xに投稿', count: n => `${n}回`, best: n => `ベスト ${n}回`,
+        rank: 'ランキング', tabToday: '今日', tabAll: '全期間', rkNote: '毎日 0:00（日本時間）にリセット', rkName: '名前（8文字まで）', rkSend: '登録', rkYou: (d, a) => `今日 ${d}位 ／ 全期間 ${a}位`, rkLoad: '読み込み中…', rkFail: 'つながりませんでした', rkEmpty: 'まだ記録がありません。1位になろう', rkNg: 'その名前は使えません', rkWait: '少し待ってからもう一度', rkOff: 'この回は登録できません（通信が途切れていました）', rkBad: '登録できませんでした', rkCheck: '記録を確かめています…',
         chap: ['', 'スカウトの目にとまった', 'ユースチームに入った', 'プロデビュー', 'スタジアムが満員になった', '海外のクラブへ移籍', '代表に選ばれた', 'ワールドカップ出場', 'ワールドカップ優勝', 'バロンドール獲得', '銅像が建った', '伝説になった', '宇宙一のリフティング'],
         share: (n, c) => c ? `リフティング${n}回で「${c}」 #リフティングゲーム` : `リフティング${n}回 #リフティングゲーム` },
       ko: { title: '리프팅', back: '← 처음으로', again: '다시 하기', post: 'X에 게시', count: n => `${n}회`, best: n => `최고 ${n}회`,
+        rank: '랭킹', tabToday: '오늘', tabAll: '역대', rkNote: '매일 0:00(일본 시간)에 초기화', rkName: '이름 (8자까지)', rkSend: '등록', rkYou: (d, a) => `오늘 ${d}위 / 역대 ${a}위`, rkLoad: '불러오는 중…', rkFail: '연결하지 못했어요', rkEmpty: '아직 기록이 없어요. 1위에 도전!', rkNg: '사용할 수 없는 이름이에요', rkWait: '잠시 후 다시 시도해 주세요', rkOff: '이번 판은 등록할 수 없어요 (연결이 끊겼어요)', rkBad: '등록하지 못했어요', rkCheck: '기록을 확인하는 중…',
         chap: ['', '스카우트의 눈에 띄었다', '유스팀에 들어갔다', '프로 데뷔', '경기장이 만원이 됐다', '해외 클럽으로 이적', '국가대표로 뽑혔다', '월드컵 출전', '월드컵 우승', '발롱도르 수상', '동상이 세워졌다', '전설이 됐다', '우주 최고의 리프팅'],
         share: (n, c) => c ? `리프팅 ${n}회로 「${c}」 #リフティングゲーム` : `리프팅 ${n}회 성공 #リフティングゲーム` },
       en: { title: 'Keepy Uppy', back: '← Back to top', again: 'Play again', post: 'Post on X', count: n => `${n} ${n === 1 ? 'touch' : 'touches'}`, best: n => `Best ${n}`,
+        rank: 'Ranking', tabToday: 'Today', tabAll: 'All time', rkNote: 'Resets daily at 0:00 (Japan time)', rkName: 'Name (up to 8)', rkSend: 'Submit', rkYou: (d, a) => `Today #${d} / All time #${a}`, rkLoad: 'Loading…', rkFail: 'Could not connect', rkEmpty: 'No scores yet. Be the first!', rkNg: "That name can't be used", rkWait: 'Please wait a moment and try again', rkOff: "This run can't be submitted (connection was lost)", rkBad: 'Could not submit', rkCheck: 'Checking your run…',
         chap: ['', 'A scout noticed you', 'Joined the youth team', 'Pro debut', 'Sold-out stadium', 'Transferred abroad', 'Called up to the national team', 'World Cup debut', 'World Cup champion', 'Ballon d\'Or winner', 'They built your statue', 'A living legend', 'Best keepy uppy in the universe'],
         share: (n, c) => c ? `${n} touches: ${c} #リフティングゲーム` : `I kept the ball up for ${n} ${n === 1 ? 'touch' : 'touches'} #リフティングゲーム` },
       th: { title: 'เดาะบอล', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', post: 'โพสต์ลง X', count: n => `${n} ครั้ง`, best: n => `สถิติ ${n} ครั้ง`,
+        rank: 'อันดับ', tabToday: 'วันนี้', tabAll: 'ตลอดกาล', rkNote: 'รีเซ็ตทุกวันเวลา 0:00 (เวลาญี่ปุ่น)', rkName: 'ชื่อ (ไม่เกิน 8 ตัว)', rkSend: 'ส่ง', rkYou: (d, a) => `วันนี้อันดับ ${d} / ตลอดกาลอันดับ ${a}`, rkLoad: 'กำลังโหลด…', rkFail: 'เชื่อมต่อไม่ได้', rkEmpty: 'ยังไม่มีสถิติ มาเป็นที่ 1 กัน', rkNg: 'ใช้ชื่อนี้ไม่ได้', rkWait: 'รอสักครู่แล้วลองใหม่', rkOff: 'รอบนี้ส่งไม่ได้ (การเชื่อมต่อขาด)', rkBad: 'ส่งไม่สำเร็จ', rkCheck: 'กำลังตรวจสอบสถิติ…',
         chap: ['', 'แมวมองเริ่มสนใจ', 'เข้าทีมเยาวชน', 'เดบิวต์ทีมอาชีพ', 'สนามเต็มความจุ', 'ย้ายไปเล่นต่างประเทศ', 'ติดทีมชาติ', 'ได้ลงเล่นฟุตบอลโลก', 'แชมป์ฟุตบอลโลก', 'คว้าบัลลงดอร์', 'มีคนสร้างรูปปั้นให้', 'กลายเป็นตำนาน', 'เดาะบอลเก่งที่สุดในจักรวาล'],
         share: (n, c) => c ? `เดาะบอล ${n} ครั้ง: ${c} #リフティングゲーム` : `เดาะบอลได้ ${n} ครั้ง #リフティングゲーム` },
     };
@@ -184,6 +228,10 @@
       document.title = t('title');
       document.getElementById('back').textContent = t('back');
       document.getElementById('again').textContent = t('again');
+      document.getElementById('rankBtn').textContent = t('rank'); document.getElementById('rkTitle').textContent = t('rank');
+      document.getElementById('tabToday').textContent = t('tabToday'); document.getElementById('tabAll').textContent = t('tabAll');
+      document.getElementById('rkName').placeholder = t('rkName'); document.getElementById('rkSend').textContent = t('rkSend');
+      if (typeof renderRank === 'function' && !document.getElementById('rank').hidden) renderRank();
       shareEl.textContent = t('post');
       if (state === 'result') { showResult(); prepareShare(); }
       if (storyEl.classList.contains('on')) storyEl.textContent = t('chap')[chap];
@@ -703,16 +751,12 @@
     // 選手は原点で +Z（壁）を向く。カメラは後ろから見るので、画面の右 = 世界の -X
     const SHOULDER_L = rootPos(J.shoulderL, V()), SHOULDER_R = rootPos(J.shoulderR, V()), HIP_R = rootPos(J.hipR, V()), HIP_L = rootPos(J.hipL, V());
     const ARM = LEN.upper + LEN.fore, LEG = LEN.thigh + LEN.shin;
-    const BALL_Z = 0.5; // ボールの前後の位置（固定）。足を上げると甲がここまで前に伸び、ひざより前で蹴る
-    const READY_Y = 0.24; // スタート前の構え: 右足を少し上げて、甲にボールを乗せる
     // 足: 甲の点（ボールが当たる所）を動かす。左右と上下（上げると少し前に出る）
-    const LIMB = {
-      footL: { home: V(0.13, 0.09, 0.26), lo: V(-0.06, 0.09, 0.26), hi: V(0.45, 0.85, 0.26), hip: HIP_L, s: 1 },
-      footR: { home: V(-0.13, 0.09, 0.26), lo: V(-0.45, 0.09, 0.26), hi: V(0.06, 0.85, 0.26), hip: HIP_R, s: -1 },
-    };
-    for (const k in LIMB) { const L = LIMB[k]; L.target = L.home.clone(); L.pos = L.home.clone(); L.prev = L.home.clone(); L.vel = V(); L.ptr = null; L.touchT = 0; L.q = new THREE.Quaternion(); L.A = V(); L.K = V(); L.H = V(); L.T0 = V(); L.T1 = V(); }
+    // 足: 見た目用の位置（甲の点）。動きは core.js の LiftCore が決める
+    const LIMB = { footL: { s: 1 }, footR: { s: -1 } };
+    for (const k in LIMB) { const L = LIMB[k]; L.pos = V(); L.prev = V(); }
     const liftOf = p => clamp((p.y - 0.09) / 0.6, 0, 1);
-    // 足の甲の点 p から、足の向き q と足首の位置 ankle を求める（見た目と当たり判定で同じものを使う）
+    // 足の甲の点 p から、足の向き q と足首の位置 ankle を求める（見た目用。core.js と同じ形）
     const FOOT_OFS = V(0, 0.0, 0.15); // 足首から見た甲の点
     const _fe = new THREE.Euler();
     function footFrame(p, q, ankle, s) {
@@ -724,26 +768,6 @@
     }
     // ひざを向ける方向: 足を上げるほど外へ開く（ひざがボールの前に出ないように）
     const kneePole = (L, out, p = L.pos) => out.set(L.s * (0.15 + 1.6 * liftOf(p)), 0, 1);
-    // 2関節の中間（ひざ）の位置
-    const _kd = V(), _kn = V(), _km = V();
-    function kneeOf(hip, ankle, pole, out) {
-      const a = LEN.thigh, b = LEN.shin;
-      _kd.subVectors(ankle, hip);
-      const dist = clamp(_kd.length(), Math.abs(a - b) + 1e-3, a + b - 1e-3);
-      _kn.copy(_kd).normalize();
-      _km.copy(pole).addScaledVector(_kn, -pole.dot(_kn)).normalize();
-      const cosA = clamp((a * a + dist * dist - b * b) / (2 * a * dist), -1, 1);
-      return out.copy(hip).addScaledVector(_kn, a * cosA).addScaledVector(_km, a * Math.sqrt(1 - cosA * cosA));
-    }
-    function reach(k, p) {
-      const L = LIMB[k];
-      p.clamp(L.lo, L.hi);
-      { const k = clamp((p.y - 0.09) / 0.13, 0, 1); p.z = lerp(0.26, BALL_Z, k * k * (3 - 2 * k)); } // 上げると前へ
-      _b.copy(p).add(_cv.set(0, -0.02, -0.08)); _d.subVectors(_b, L.hip);
-      const m = LEG * 0.985; if (_d.length() > m) { _d.setLength(m); p.add(_d.add(L.hip).sub(_b)); }
-      return p;
-    }
-    for (const k in LIMB) { const L = LIMB[k]; reach(k, L.home); L.target.copy(L.home); L.pos.copy(L.home); L.prev.copy(L.home); }
 
     // 腕: バランスを取るように横へ少し広げる（上げた足と反対の腕が上がる）
     const Q_HAND = { L: new THREE.Quaternion(), R: new THREE.Quaternion() }, Q_FOOT = new THREE.Quaternion();
@@ -846,50 +870,45 @@
       }
     }
 
-    // ---------- 物理 ----------
+    // ---------- 物理（core.js の LiftCore。ランキングのサーバーも同じ計算で確かめる） ----------
     const STEP = 1 / 120;
-    let state = 'ready', playT = 0, failT = 0, score = 0, best = store.get('best', 0), lastKickT = -1;
-    let chap = 0, storyT = 0, winT = 0;
-    let G = 6.2; // 少しゆっくり落ちる重力
-    const ZERO = V(), _rel = V(), _vr = V(), _vt = V(), _tmp = V(), _C = V();
-    function readyPose() { const R = LIMB.footR; R.target.set(R.home.x, READY_Y, 0); reach('footR', R.target); R.pos.copy(R.target); R.prev.copy(R.target); R.touchT = 1; }
-    function placeReady() { // スタート前: ボールは右足の甲の上
-      const b = balls.soccer;
-      b.p.copy(LIMB.footR.pos).add(_tmp.set(0, b.r + 0.008, 0)); b.p.z = BALL_Z;
-      b.v.set(0, 0, 0); b.w.set(0, 0, 0); b.prevP.copy(b.p); b.rp.copy(b.p);
+    let state = 'ready', failT = 0, score = 0, best = store.get('best', 0);
+    let chap = 0, storyT = 0;
+    const core = LiftCore();
+    const FOOT_KEYS = ['footL', 'footR']; // core の 0 = 左足, 1 = 右足
+    const _tmp = V();
+    // 指の入力（甲の点を動かしたい位置。1mm 単位の整数）。刻みごとに core へ渡し、変わった時だけ記録する
+    const want = { footL: { held: false, x: 0, y: 0 }, footR: { held: false, x: 0, y: 0 } };
+    const applied = { footL: '0', footR: '0' };
+    let runLog = [], runSeed = 0, runLive = false;
+    function applyInputs() {
+      FOOT_KEYS.forEach((k, i) => {
+        const w = want[k], key = w.held ? `1,${w.x},${w.y}` : '0';
+        if (key === applied[k]) return;
+        applied[k] = key;
+        if (state === 'play') runLog.push(core.steps, i + (w.held ? 2 : 0), w.x, w.y);
+        core.setFoot(i, w.held, w.x, w.y);
+      });
     }
-    // 球と、動く球（足・頭など）の衝突
-    // ボールは前後に動かないので、押し返す向きは左右と上下だけにする
-    function hitSphere(b, c, cr, cv, e, fr) {
-      _rel.subVectors(b.p, c); const dist = _rel.length(), R = b.r + cr;
-      if (dist >= R || dist < 1e-6) return 0;
-      const dz = _rel.z; _rel.z = 0;
-      const d2 = _rel.length(), need = Math.sqrt(Math.max(0, R * R - dz * dz));
-      if (d2 < 1e-4 || Math.abs(dz) > R * 0.75) return 0; // 前後にずれて触れただけ（すねの前を通る時など）
-      _rel.divideScalar(d2);
-      b.p.x = c.x + _rel.x * need; b.p.y = c.y + _rel.y * need;
-      _vr.subVectors(b.v, cv); const vn = _vr.dot(_rel);
-      if (vn >= 0) return 0;
-      _vt.copy(_vr).addScaledVector(_rel, -vn).multiplyScalar(fr);
-      b.v.copy(cv).add(_vt).addScaledVector(_rel, -vn * e);
-      return -vn;
+    function syncFromCore() {
+      FOOT_KEYS.forEach((k, i) => { const f = core.feet[i]; LIMB[k].prev.fromArray(f.pp); LIMB[k].pos.fromArray(f.p); });
+      const b = balls.soccer; b.prevP.fromArray(core.ball.pp); b.p.fromArray(core.ball.p);
     }
-    function hitCapsule(b, x, z, y0, y1, cr) {
-      if (b.p.y < y0 - b.r || b.p.y > y1 + b.r) return 0;
-      _tmp.set(x, clamp(b.p.y, y0, y1), z);
-      return hitSphere(b, _tmp, cr, ZERO, 0.4, 0.8);
-    }
-    // 上へ当てたら1回。続けるほど、戻ってくる位置の補正が弱く、ばらつきが大きくなる
-    function countTouch(b) {
-      if (state !== 'play' || b.v.y < 0.8 || playT - lastKickT < 0.18) return;
-      lastKickT = playT; score++;
-      if (CH[chap].stadium) sCheer(Math.min(0.6, 0.2 + chap * 0.03));
-      const T = 2 * b.v.y / G;
-      const assist = Math.max(0.45, 0.85 - score * 0.008), spread = Math.min(0.15, 0.03 + score * 0.0025);
-      b.v.x = clamp(b.v.x, -0.9, 0.9); b.v.z = clamp(b.v.z, -0.9, 0.9);
-      b.v.x = lerp(b.v.x, (rnd(-spread, spread) - b.p.x) / T, assist);
-      countEl.textContent = score; countEl.classList.remove('pop'); void countEl.offsetWidth; countEl.classList.add('pop');
-      if (chap + 1 < CH.length && score >= CH[chap + 1].at) nextChapter();
+    // core からの出来事: 音・回数・土ぼこり・ボールの回転（見た目）
+    function onEvent(ev) {
+      const b = balls.soccer, x = core.ball.p[0];
+      if (ev[0] === 'touch') {
+        score = ev[1];
+        countEl.textContent = score; countEl.classList.remove('pop'); void countEl.offsetWidth; countEl.classList.add('pop');
+        if (CH[chap].stadium) sCheer(Math.min(0.6, 0.2 + chap * 0.03));
+        if (chap + 1 < CH.length && score >= CH[chap + 1].at) nextChapter();
+      } else if (ev[0] === 'kick') { sKick(ev[1] / 5, x); b.w.set(rnd(-8, 8), rnd(-3, 3), rnd(-8, 8)); }
+      else if (ev[0] === 'shin') sKick(ev[1] / 6, x);
+      else if (ev[0] === 'head') sKick(ev[1] / 5, x);
+      else if (ev[0] === 'ground') {
+        sTick(ev[1] / 4, x); if (ev[1] > 1.5) puff(b.p, ev[1] / 5);
+        b.w.set(core.ball.v[2] / b.r, 0, -core.ball.v[0] / b.r);
+      }
     }
     // ---------- ストーリー ----------
     const storyEl = document.getElementById('story'), fadeEl = document.getElementById('fade');
@@ -918,96 +937,20 @@
       if (C.confetti) startConfetti();
       sCheer(chap === 1 ? 0.25 : C.gold ? 1.2 : 0.8);
     }
-    function stepLimbs(dt) {
-      const k = 1 - Math.exp(-dt * 38), maxStep = 9 * dt;
-      // 片足を上げたら、指を離している方の足は地面へ
-      const [a, c] = LIMB.footL.touchT >= LIMB.footR.touchT ? [LIMB.footL, LIMB.footR] : [LIMB.footR, LIMB.footL];
-      if (liftOf(a.target) > 0.1 && c.ptr == null) c.target.lerp(c.home, 1 - Math.exp(-dt * 12)); // 指で押さえている足は下ろさない
-      for (const key in LIMB) {
-        const L = LIMB[key];
-        if ((L.ptr == null && state === 'play') || relaxed.k > 0) L.target.lerp(L.home, 1 - Math.exp(-dt * 7)); // 指を離した足は地面へ戻る
-        L.prev.copy(L.pos);
-        _tmp.subVectors(L.target, L.pos).multiplyScalar(k);
-        if (_tmp.length() > maxStep) _tmp.setLength(maxStep);
-        L.pos.add(_tmp);
-        L.vel.subVectors(L.pos, L.prev).divideScalar(dt);
-        // 当たり判定の形: 靴の甲・すね・もも
-        footFrame(L.pos, L.q, L.A, L.s);
-        L.T0.set(0, -0.02, 0.0).applyQuaternion(L.q).add(L.A);
-        L.T1.set(0, -0.05, 0.17).applyQuaternion(L.q).add(L.A);
-        L.H.copy(L.hip);
-        kneeOf(L.H, L.A, kneePole(L, _tmp), L.K);
-        L.S0 = (L.S0 || V()).lerpVectors(L.K, L.A, 0.3); L.S1 = (L.S1 || V()).lerpVectors(L.K, L.A, 0.55); // すねの真ん中だけ
-      }
-    }
-    // 線分（カプセル）と球の衝突
-    const _sa = V(), _sp = V(), _sv = V();
-    function hitSeg(b, A, B, r, vel, e, fr) {
-      _sa.subVectors(B, A);
-      const t = clamp(_sp.subVectors(b.p, A).dot(_sa) / Math.max(1e-6, _sa.lengthSq()), 0, 1);
-      _sp.copy(A).addScaledVector(_sa, t);
-      return hitSphere(b, _sp, r, vel, e, fr);
-    }
-    function stepBalls(dt) {
-      const b = balls.soccer;
-      b.prevP.copy(b.p);
-      if (state === 'ready') { placeReady(); return; }
-      b.v.y -= G * dt;
-      b.v.multiplyScalar(1 - 0.02 * dt);
-      b.p.addScaledVector(b.v, dt);
-      lockZ(b);
-      if (b.p.y < b.r) { // 地面
-        b.p.y = b.r;
-        if (b.v.y < 0) {
-          const imp = -b.v.y;
-          b.v.y = imp * b.e; b.v.x *= 0.86; b.v.z *= 0.86;
-          if (b.v.y < 0.25) b.v.y = 0;
-          if (imp > 0.4) { sTick(imp / 4, b.p.x); if (imp > 1.5) puff(b.p, imp / 5); }
-        } else { b.v.x *= 1 - 1.5 * dt; b.v.z *= 1 - 1.5 * dt; }
-        b.w.set(b.v.z / b.r, 0, -b.v.x / b.r);
-      }
-      if (b.p.z < BACK_Z + b.r && b.p.y < WALL_H && Math.abs(b.p.x) < WALL_W / 2) { b.p.z = BACK_Z + b.r; if (b.v.z < 0) { sTick(-b.v.z / 6, b.p.x); b.v.z *= -0.6; } }
-      // 胴（当たると跳ね返るだけ）と頭（ヘディングも1回に数える）
-      hitCapsule(b, 0, 0.02, 0.95, 1.4, 0.13);
-      _tmp.set(0, 1.6, 0.06);
-      const ih = hitSphere(b, _tmp, 0.11, ZERO, 0.6, 0.8);
-      if (ih > 0.5) { sKick(ih / 5, b.p.x); countTouch(b); }
-      lockZ(b);
-      if (state !== 'play' && state !== 'fail') return;
-      // 足の甲 × ボール
-      for (const key in LIMB) {
-        const L = LIMB[key];
-        // すね（ひざとももには当てない。上がるボールの邪魔をしないように）
-        const is = hitSeg(b, L.S0, L.S1, 0.04, _sv.copy(L.vel).multiplyScalar(0.75), 0.45, 0.7);
-        if (is > 0.3) { sKick(is / 6, b.p.x); countTouch(b); }
-        const im = hitSeg(b, L.T0, L.T1, 0.05, L.vel, 0.55, 0.7);
-        if (im > 0.2) {
-          sKick(im / 5, b.p.x);
-          b.v.y = Math.min(b.v.y, 4.9);
-          b.w.set(rnd(-8, 8), rnd(-3, 3), rnd(-8, 8));
-          countTouch(b);
-        }
-      }
-      lockZ(b);
-    }
-    // ボールは前後に動かない（左右と上下だけ）
-    function lockZ(b) { b.p.z = BALL_Z; b.v.z = 0; b.w.x = 0; }
-    function checkFail() {
-      const b = balls.soccer;
-      return b.p.y < b.r + 0.01 || Math.abs(b.p.x) > 1.6;
-    }
     function step(dt) {
       if (storyT > 0) { storyT -= dt; if (storyT <= 0 && state === 'play') showStory(false); }
-      if (state === 'play') { playT += dt; G = 6.2 + Math.min(1.2, score * 0.02); }
-      stepLimbs(dt);
-      stepBalls(dt);
-      const b = balls.soccer, wl = b.w.length(); // 回転（見た目だけ）
+      if (state === 'ready') { syncFromCore(); return; }
+      if (state === 'play' && window.__bot) bot();
+      applyInputs();
+      core.step();
+      for (const ev of core.events) onEvent(ev);
+      syncFromCore();
+      const b = balls.soccer; b.w.x = 0; // 回転（見た目だけ）
+      const wl = b.w.length();
       if (wl > 1e-3) { _q.setFromAxisAngle(_tmp.copy(b.w).divideScalar(wl), wl * dt); b.q.premultiply(_q); }
       b.w.multiplyScalar(1 - 0.4 * dt);
-      if (state === 'play') {
-        if (window.__bot) bot();
-        if (checkFail()) fail();
-      } else if (state === 'fail') {
+      if (state === 'play') { if (core.failed) fail(); }
+      else if (state === 'fail') {
         failT += dt;
         relaxed.k = Math.min(1, relaxed.k + dt * 2);
         if (failT > 2.0) finish();
@@ -1016,13 +959,21 @@
 
     // ---------- 進行 ----------
     function start() {
-      state = 'play'; playT = 0; score = 0; lastKickT = -1; G = 6.2; chap = 0; storyT = 0;
-      balls.soccer.v.set(0, 3.4, 0);
+      state = 'play'; score = 0; chap = 0; storyT = 0; runLog = [];
+      // ランキング: サーバーの乱数の種が届いていれば、それで始める（届いていなければ、この回は登録できない）
+      const me = sess;
+      runLive = !!(me && me.ok && me.tok && me.seed != null);
+      runSeed = runLive ? me.seed : (Math.random() * 2 ** 31) | 0;
+      if (runLive) goSession(me);
+      core.start(runSeed);
       sKick(0.4, 0);
       hideHints(); countEl.textContent = '0'; countEl.style.display = 'block';
     }
+    let runSteps = 0;
     function fail() {
-      state = 'fail'; failT = 0;
+      state = 'fail'; failT = 0; runSteps = core.steps; score = core.score;
+      for (const k of FOOT_KEYS) want[k] = { held: false, x: 0, y: 0 };
+      pointers.clear();
       h.face.open = 0.65; h.face.brow = 0.7; h.face.smile = -0.2;
       setTimeout(sOops, 60);
       camT0 = performance.now();
@@ -1039,15 +990,17 @@
       layoutCam();
     }
     function reset() {
-      state = 'ready'; relaxed.k = 0; cheer.k = 0; score = 0; playT = 0; chap = 0; storyT = 0; winT = 0;
+      state = 'ready'; relaxed.k = 0; cheer.k = 0; score = 0; chap = 0; storyT = 0;
+      core.ready(); runLog = [];
+      for (const k of FOOT_KEYS) { want[k].held = false; applied[k] = '0'; }
+      pointers.clear(); for (const k in rings) rings[k].style.display = 'none';
+      resetRank(); startSession();
       confetti.visible = false;
-      fadeEl.classList.remove('on'); showStory(false); applyScene(0);
+      showStory(false); applyScene(0);
       h.face.open = 0; h.face.brow = 0; h.face.smile = 0;
-      for (const k in LIMB) { const L = LIMB[k]; L.target.copy(L.home); L.pos.copy(L.home); L.prev.copy(L.home); L.vel.set(0, 0, 0); L.ptr = null; }
-      readyPose();
-      balls.soccer.q.identity();
-      placeReady();
-      resultEl.style.display = 'none'; controlsEl.style.display = 'none';
+      balls.soccer.q.identity(); balls.soccer.w.set(0, 0, 0);
+      syncFromCore();
+      resultEl.style.display = 'none'; controlsEl.style.display = 'none'; $('rank').hidden = true;
       setDusk(0); camBlend = 0;
       layoutCam(); showHints();
     }
@@ -1067,27 +1020,25 @@
       return Math.max(40, Math.hypot((_b.x - _a.x) * layout.w / 2, (_b.y - _a.y) * layout.H / 2));
     }
     renderer.domElement.addEventListener('pointerdown', e => {
-      if (state === 'result' || state === 'fail' || state === 'win') return;
+      if (state === 'result' || state === 'fail') return;
       e.preventDefault();
       try { renderer.domElement.setPointerCapture(e.pointerId); } catch {}
-      const k = zoneOf(e.clientX), L = LIMB[k];
+      const k = zoneOf(e.clientX), t0 = core.feet[FOOT_KEYS.indexOf(k)].t;
       for (const [id, p] of pointers) if (p.k === k) pointers.delete(id);
-      pointers.set(e.pointerId, { k, x: e.clientX, y: e.clientY, base: L.target.clone(), ppm: pxPerMeter() });
-      L.ptr = e.pointerId; L.touchT = performance.now();
+      pointers.set(e.pointerId, { k, x: e.clientX, y: e.clientY, bx: t0[0], by: t0[1], ppm: pxPerMeter() });
+      want[k] = { held: true, x: Math.round(t0[0] * 1000), y: Math.round(t0[1] * 1000) };
       const r = rings[k]; r.style.left = e.clientX + 'px'; r.style.top = e.clientY + 'px'; r.firstChild.style.transform = ''; r.style.display = 'block';
       if (state === 'ready') start();
     });
     renderer.domElement.addEventListener('pointermove', e => {
       const p = pointers.get(e.pointerId); if (!p) return;
-      const L = LIMB[p.k], dx = (e.clientX - p.x) / p.ppm, dy = (e.clientY - p.y) / p.ppm;
-      L.target.set(p.base.x + dx * 1.3, p.base.y - dy * 1.6, p.base.z);
+      const dx = (e.clientX - p.x) / p.ppm, dy = (e.clientY - p.y) / p.ppm;
+      want[p.k] = { held: true, x: Math.round((p.bx + dx * 1.3) * 1000), y: Math.round((p.by - dy * 1.6) * 1000) };
       const r = rings[p.k], ox = clamp(e.clientX - p.x, -24, 24), oy = clamp(e.clientY - p.y, -24, 24);
       r.firstChild.style.transform = `translate(${ox}px, ${oy}px)`;
-      reach(p.k, L.target);
-      if (dy < -0.02) L.touchT = performance.now();
     });
     const rings = { footR: document.getElementById('ringL'), footL: document.getElementById('ringR') }; // 画面の左 = 右足
-    const up = e => { const p = pointers.get(e.pointerId); if (!p) return; pointers.delete(e.pointerId); if (LIMB[p.k].ptr === e.pointerId) LIMB[p.k].ptr = null; rings[p.k].style.display = 'none'; };
+    const up = e => { const p = pointers.get(e.pointerId); if (!p) return; pointers.delete(e.pointerId); want[p.k] = { held: false, x: 0, y: 0 }; rings[p.k].style.display = 'none'; };
     renderer.domElement.addEventListener('pointerup', up);
     renderer.domElement.addEventListener('pointercancel', up);
 
@@ -1110,11 +1061,10 @@
 
     // ---------- 自動プレイ（調整・確認用。window.__bot = true で動く） ----------
     function bot() {
-      const s = balls.soccer;
-      const k = s.p.x < 0 ? 'footR' : 'footL', F = LIMB[k], o = LIMB[k === 'footR' ? 'footL' : 'footR'];
-      F.ptr = 'bot'; o.ptr = null;
-      const gap = s.p.y - s.r - F.pos.y;
-      F.target.set(s.p.x, s.v.y < 0 && gap < 0.22 ? 0.38 : 0.1, BALL_Z); F.touchT = performance.now(); reach(k, F.target);
+      const s = core.ball, i = s.p[0] < 0 ? 1 : 0, f = core.feet[i];
+      const gap = s.p[1] - core.R - f.p[1];
+      want[FOOT_KEYS[i]] = { held: true, x: Math.round(s.p[0] * 1000), y: s.v[1] < 0 && gap < 0.22 ? 380 : 100 };
+      want[FOOT_KEYS[1 - i]] = { held: false, x: 0, y: 0 };
     }
 
     // ---------- カメラ（正面やや横から / 失敗したら寄る） ----------
@@ -1170,6 +1120,81 @@
       camera.setViewOffset(ww, hh, Math.round(lerp(fa.ox, fb.ox, s)), Math.round(lerp(fa.oy, fb.oy, s)), layout.w, layout.H);
       camera.updateProjectionMatrix();
     }
+
+    // ---------- ランキング（今日・全期間。.claude/ranking.gs を Google Apps Script で公開した URL） ----------
+    // ズル対策: 始める前にサーバーから整理券と乱数の種をもらい、最初の操作で go を送る。登録の時は
+    // 「指の動きの記録」を送り、サーバーが core.js と同じ計算で最初から再生して、回数と時間を確かめる。
+    const RANK_URL = 'https://script.google.com/macros/s/AKfycbyAE0TZe6QHNZHmRVlMaf2yG6FnfKSyhSrBR57AyhpkJjVmhWfHSz9mL2Tar__EUihGwA/exec';
+    const GAME_ID = 'lifting';
+    const $ = id => document.getElementById(id);
+    let dev = store.get('dev', '');
+    if (!dev) { dev = Math.random().toString(36).slice(2) + Date.now().toString(36); store.set('dev', dev); }
+    $('rankBtn').hidden = !RANK_URL;
+    let rank = { data: null, tab: 'today', err: '', msg: '', sent: false, me: null, busy: false };
+    let sess = null;
+    async function rpost(body, tries = 3) {
+      for (let i = 0; ; i++) {
+        try { const r = await fetch(RANK_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }); return await r.json(); }
+        catch (e) { if (i + 1 >= tries) throw e; await new Promise(r => setTimeout(r, 800 * (i + 1))); }
+      }
+    }
+    // 次の回の整理券を先にもらっておく（最初の操作までに届いていれば、その回は登録できる）
+    function startSession() {
+      if (!RANK_URL) return;
+      const me = sess = { tok: null, seed: null, ok: true, chain: null };
+      me.chain = rpost({ act: 'start', game: GAME_ID, dev }).then(j => { if (j.ok && j.tok) { me.tok = j.tok; me.seed = j.seed; } else me.ok = false; }).catch(() => { me.ok = false; });
+    }
+    function goSession(me) {
+      me.chain = me.chain.then(() => me.ok && me.tok ? rpost({ act: 'go', tok: me.tok }).then(j => { if (!j.ok) me.ok = false; }) : null).catch(() => { me.ok = false; });
+    }
+    function resetRank() { rank.sent = false; rank.me = null; rank.msg = ''; rank.busy = false; }
+    function renderRank() {
+      const ol = $('rkList'); ol.innerHTML = '';
+      $('tabToday').classList.toggle('on', rank.tab === 'today'); $('tabAll').classList.toggle('on', rank.tab === 'all');
+      $('rkNote').textContent = rank.tab === 'today' ? t('rkNote') : '';
+      const list = rank.data && (rank.data[rank.tab] || []);
+      const empty = txt => { const li = document.createElement('li'); li.className = 'empty'; li.textContent = txt; ol.append(li); };
+      if (!list) empty(rank.err || t('rkLoad'));
+      else if (!list.length) empty(t('rkEmpty'));
+      else list.forEach((r, i) => {
+        const li = document.createElement('li');
+        if (rank.me && r.name === rank.me.name && r.wave === rank.me.score) li.className = 'me';
+        for (const [c, v] of [['n', i + 1], ['nm', r.name], ['w', t('count')(r.wave)]]) { const sp = document.createElement('span'); sp.className = c; sp.textContent = v; li.append(sp); }
+        ol.append(li);
+      });
+      $('rkMsg').textContent = rank.msg ? (typeof rank.msg === 'object' ? t('rkYou')(rank.msg.today, rank.msg.all) : t(rank.msg)) : '';
+      $('rkForm').hidden = rank.sent || !score;
+      $('rkSend').disabled = rank.busy;
+    }
+    async function loadRank() {
+      rank.data = null; rank.err = ''; renderRank();
+      try { const r = await fetch(`${RANK_URL}?game=${GAME_ID}`); const j = await r.json(); rank.data = { today: j.today || [], all: j.all || [] }; }
+      catch { rank.err = t('rkFail'); }
+      renderRank();
+    }
+    // ランキングを開いている間は結果を隠す（広告もいったん消える）
+    $('rankBtn').onclick = () => { resultEl.style.display = 'none'; controlsEl.style.display = 'none'; $('rank').hidden = false; $('rkName').value = store.get('name', ''); loadRank(); };
+    $('tabToday').onclick = () => { rank.tab = 'today'; renderRank(); };
+    $('tabAll').onclick = () => { rank.tab = 'all'; renderRank(); };
+    $('rkClose').onclick = () => { $('rank').hidden = true; if (state === 'result') { resultEl.style.display = 'flex'; controlsEl.style.display = 'flex'; } };
+    $('rkForm').onsubmit = async e => {
+      e.preventDefault();
+      if (rank.busy || rank.sent) return;
+      const name = $('rkName').value.replace(/\s+/g, ' ').trim().slice(0, 8);
+      if (!name) { $('rkName').focus(); return; }
+      store.set('name', name);
+      rank.busy = true; rank.msg = 'rkCheck'; renderRank();
+      try {
+        const me = sess;
+        if (me) await me.chain;
+        if (!runLive || !me || !me.ok || !me.tok) { rank.msg = 'rkOff'; rank.busy = false; renderRank(); return; }
+        const j = await rpost({ act: 'submit', tok: me.tok, name, dev, score, steps: runSteps, log: runLog }, 1);
+        if (j.ok) { rank.sent = true; rank.me = { name, score }; rank.data = { today: j.today || [], all: j.all || [] }; rank.msg = j.rank; }
+        else rank.msg = j.error === 'ng' ? 'rkNg' : j.error === 'wait' ? 'rkWait' : 'rkBad';
+      } catch { rank.msg = 'rkFail'; }
+      rank.busy = false; renderRank();
+    };
+    $('rkName').addEventListener('keydown', e => e.stopPropagation());
 
     // ---------- 結果画像（X投稿用） ----------
     let snap = null, shareCache = null, needSnap = 0;
@@ -1248,7 +1273,7 @@
       updateDust(dt);
       updateConfetti(dt);
       // 空: プレイの時間とともに夕方から夜へ（ゆっくり）
-      if (state === 'play' && !CH[chap].stadium) setDusk(playT / 80);
+      if (state === 'play' && !CH[chap].stadium) setDusk(core.t / 80);
       // カメラ: 失敗したら正面へ回り込む
       if (state === 'fail' || state === 'result') {
         const nb = clamp((performance.now() - camT0) / 1600, 0, 1);
@@ -1268,14 +1293,14 @@
 
     addEventListener('resize', layoutCam);
     setDusk(0);
-    readyPose();
-    placeReady();
+    syncFromCore();
     layoutCam();
     applyLang();
+    startSession();
     // テスト用の入口
     window.__game = {
-      get state() { return state; }, get t() { return playT; }, get score() { return score; },
-      set timeScale(v) { timeScale = v; }, get chap() { return chap; }, setScore(n) { score = n - 1; lastKickT = -1; countTouch({ v: V(0, 3, 0), p: V(0, 1, 0.5) }); score = n; }, balls, LIMB, camera, hideHints, human: h, fail: () => fail(), start, sim(n) { for (let i = 0; i < n && state === 'play'; i++) step(STEP); return { state, t: playT, score }; }, reset: () => reset(),
+      get state() { return state; }, get t() { return core.t; }, get score() { return score; }, core, want, get log() { return runLog; }, get seed() { return runSeed; }, get live() { return runLive; },
+      set timeScale(v) { timeScale = v; }, get chap() { return chap; }, setScore(n) { core.score = n; onEvent(['touch', n]); }, balls, LIMB, camera, hideHints, human: h, fail: () => fail(), start, sim(n) { for (let i = 0; i < n && state === 'play'; i++) step(STEP); return { state, t: core.t, score }; }, reset: () => reset(),
     };
     // 最初の1回が重くならないように、一度描いておく
     renderer.compile(scene, camera); render(0.016);
