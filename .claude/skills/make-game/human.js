@@ -19,7 +19,8 @@
 // オプション（省略するとランダム。seed を同じにすると同じ人になる）:
 //   sex: 'male'|'female', age: 'child'|'adult'|'elder', height: m, build: 0.85〜1.3（細い〜がっしり）,
 //   skin, hair: 'short'|'buzz'|'bob'|'long'|'bangs'|'ponytail'|'bun'|'bald', hairColor, eyeColor,
-//   top: 色, sleeve: 'short'|'long', bottom: 'pants'|'shorts'|'skirt', bottomColor, shoes: 色, glasses: true/false
+//   top: 色, sleeve: 'short'|'long', bottom: 'pants'|'shorts'|'skirt', bottomColor, shoes: 色, glasses: true/false,
+//   tie: 色（白いシャツの胸元とネクタイを付ける。スーツにするなら top と bottomColor を同じ濃い色、sleeve: 'long'）
 import * as THREE from 'three';
 
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
@@ -323,6 +324,32 @@ export function makeHuman(opt = {}) {
   // えり
   const collar = new THREE.TorusGeometry(0.047 * u * limb, 0.006 * u, 8, 28); collar.rotateX(Math.PI / 2); collar.scale(1, 1, 0.95);
   add(j.spine, collar, topMat, 0, S(0.976), -0.004 * u);
+
+  // ネクタイ（opt.tie）: 胴の前面に沿わせた白いシャツの V とネクタイ
+  if (opt.tie) {
+    const frontZ = y => { // 胴の前面の z（輪切りの間は直線でつなぎ、少し浮かせる）
+      for (let i = 1; i < torsoSecs.length; i++) {
+        const s0 = torsoSecs[i - 1], s1 = torsoSecs[i];
+        if (y <= s1[0]) { const t = clamp((y - s0[0]) / (s1[0] - s0[0])); return lerp(s0[4] + s0[2], s1[4] + s1[2], t) + 0.007 * u; }
+      }
+      const e = torsoSecs[torsoSecs.length - 1]; return e[4] + e[2] + 0.007 * u;
+    };
+    const strip = (y0, y1, wFn, dz, n = 16) => {
+      const pos = [], idx = [];
+      for (let i = 0; i <= n; i++) {
+        const t = i / n, y = lerp(y0, y1, t), w = wFn(t), z = frontZ(y) + dz;
+        pos.push(-w, y, z - w * 0.25, 0, y, z, w, y, z - w * 0.25);
+        if (i) { const a = (i - 1) * 3, b = i * 3; idx.push(a, b, a + 1, a + 1, b, b + 1, a + 1, b + 1, a + 2, a + 2, b + 1, b + 2); }
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals(); return g;
+    };
+    const shirtMat = new THREE.MeshStandardMaterial({ color: '#f4f2ec', map: FABRIC, roughness: 0.8, side: THREE.DoubleSide });
+    const tieMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(opt.tie), roughness: 0.42, metalness: 0.05, side: THREE.DoubleSide });
+    mats.push(shirtMat, tieMat);
+    add(j.spine, strip(S(0.972), S(0.835), t => (0.04 * (1 - t) + 0.001) * u * limb, 0), shirtMat);
+    add(j.spine, strip(S(0.962), S(0.935), t => (0.013 - 0.004 * t) * u, 0.004 * u, 4), tieMat); // 結び目
+    add(j.spine, strip(S(0.94), S(0.735), t => (t < 0.9 ? 0.008 + 0.015 * t / 0.9 : 0.023 * (1 - t) / 0.1 + 0.001) * u, 0.003 * u), tieMat);
+  }
 
   // 首
   add(j.neck, loft([[-0.03 * u, 0.042 * u * limb, 0.042 * u, 0, 0], [0.04 * u, 0.039 * u * limb, 0.04 * u, 0, 0.004 * u], [0.085 * u, 0.04 * u * limb, 0.042 * u, 0, 0.008 * u]], { radial: 20 }), skinMat);
