@@ -46,17 +46,13 @@
     .dots b { width: 12px; height: 12px; border-radius: 50%; background: rgba(20,32,56,.25); transition: background .35s, transform .35s; }
     .dots b.on { background: #d29d2c; transform: scale(1.15); }
     /* 体当たりボタン */
-    #dash { transition: opacity .3s; position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 3; width: clamp(68px, 18vmin, 92px); height: clamp(68px, 18vmin, 92px); border-radius: 50%; border: 3px solid rgba(255,255,255,.9); background: radial-gradient(circle at 40% 35%, #f3cf6a, #c88d22); box-shadow: 0 4px 0 #8a5c12, 0 6px 14px rgba(0,0,0,.3); cursor: pointer; padding: 0; touch-action: none; }
-    #dash:active, #dash.hold { transform: translateY(3px); box-shadow: 0 1px 0 #8a5c12, 0 3px 8px rgba(0,0,0,.3); }
-    #dash svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-    #dash.cool { filter: grayscale(.8) brightness(.85); }
     #joy { position: fixed; z-index: 3; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%; border: 3px solid rgba(255,255,255,.7); background: rgba(20,32,56,.15); pointer-events: none; display: none; }
     #joy i { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(255,255,255,.85); box-shadow: 0 2px 6px rgba(0,0,0,.25); }
     /* 結果 */
     #result { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 10px; padding: 54px 16px calc(96px + env(safe-area-inset-bottom)); background: rgba(14,22,40,.55); opacity: 0; transition: opacity .5s; }
     #result.show { opacity: 1; }
     #result[hidden] { display: none; }
-    body.done #dash, body.done #timer { opacity: 0 !important; pointer-events: none; }
+    body.done #timer { opacity: 0 !important; pointer-events: none; }
     #adSlot { width: min(100%, 352px); flex: none; }
     #result-ad.inline { background: var(--cream); border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
     @media (max-height: 599px) { #adSlot { display: none; } }
@@ -102,10 +98,6 @@
       <div class="dots"><b></b><b></b><b></b></div>
     </div>
     <div id="joy"><i></i></div>
-    <button id="dash" aria-label="push">
-      <svg viewBox="0 0 100 100"><circle id="ring" cx="50" cy="50" r="44" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-dasharray="276.5" stroke-dashoffset="276.5" transform="rotate(-90 50 50)"/>
-        <g fill="#142038"><circle cx="38" cy="30" r="8"/><path d="M30 41c4-3 11-3 14 1l8 12 13-4c3-1 5 4 2 6l-16 7c-2 1-4 0-5-1l-4-6-3 11 8 10c2 2 0 6-3 5-1 0-2-1-3-2l-9-10-6 12c-1 3-6 2-6-1l7-21z"/><path d="M68 34l10-4M70 44l11 0M68 54l10 4" stroke="#142038" stroke-width="4" stroke-linecap="round"/></g></svg>
-    </button>
     <div id="result" hidden>
       <!-- 結果画面の広告の枠（ad.js が中に広告を入れる。後から出てもボタンがずれないよう高さを空けておく） -->
       <div id="adSlot"></div>
@@ -581,7 +573,6 @@ function reset() {
   $('timer').style.opacity = 1;
   $('bar').firstElementChild.style.transform = 'scaleX(1)';
   document.querySelectorAll('.dots b').forEach(b => b.classList.remove('on'));
-  $('dash').classList.remove('cool', 'hold'); setRing(0);
   ring.visible = arrow.visible = true;
   lastBar = -1; document.body.classList.remove('done');
 }
@@ -600,27 +591,46 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { const k = e.key.toLowerCase(); keys.delete(k); if (k === ' ') releaseCharge(); });
 addEventListener('blur', () => keys.clear());
 const joy = $('joy'), knob = joy.firstElementChild;
+// ドラッグで歩き、タップでその場所へ体当たり（2本目の指のタップも体当たり）
+const taps = new Map();
 cv.addEventListener('pointerdown', e => {
   if (state !== 'idle' && state !== 'play') return;
   begin();
+  taps.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now(), moved: false });
+  try { cv.setPointerCapture(e.pointerId); } catch {}
   if (input.joyId !== null) return;
   input.joyId = e.pointerId; input.ox = e.clientX; input.oy = e.clientY; input.jx = input.jz = 0;
-  joy.style.left = e.clientX + 'px'; joy.style.top = e.clientY + 'px'; joy.style.display = 'block'; knob.style.transform = '';
-  try { cv.setPointerCapture(e.pointerId); } catch {}
+  knob.style.transform = '';
 });
 cv.addEventListener('pointermove', e => {
-  if (e.pointerId !== input.joyId) return;
+  const tp = taps.get(e.pointerId);
+  if (tp && !tp.moved && Math.hypot(e.clientX - tp.x, e.clientY - tp.y) > 12) tp.moved = true;
+  if (e.pointerId !== input.joyId || !tp?.moved) return;
+  // 動かし始めてから操作の輪を出す（タップでは出さない）
+  if (joy.style.display !== 'block') { joy.style.left = input.ox + 'px'; joy.style.top = input.oy + 'px'; joy.style.display = 'block'; }
   let dx = e.clientX - input.ox, dy = e.clientY - input.oy; const l = Math.hypot(dx, dy), R = 42;
   if (l > R) { dx *= R / l; dy *= R / l; }
   knob.style.transform = `translate(${dx}px,${dy}px)`;
   input.jx = dx / R; input.jz = dy / R;
 });
-const endJoy = e => { if (e.pointerId !== input.joyId) return; input.joyId = null; input.jx = input.jz = 0; joy.style.display = 'none'; };
-cv.addEventListener('pointerup', endJoy); cv.addEventListener('pointercancel', endJoy);
-const dashBtn = $('dash');
-dashBtn.addEventListener('pointerdown', e => { e.preventDefault(); begin(); startCharge(); dashBtn.classList.add('hold'); try { dashBtn.setPointerCapture(e.pointerId); } catch {} });
-const relBtn = () => { dashBtn.classList.remove('hold'); releaseCharge(); };
-dashBtn.addEventListener('pointerup', relBtn); dashBtn.addEventListener('pointercancel', relBtn);
+const endPtr = (e, cancel) => {
+  const tp = taps.get(e.pointerId); taps.delete(e.pointerId);
+  if (tp && !cancel && !tp.moved && performance.now() - tp.t < 350) tapDash(e.clientX, e.clientY);
+  if (e.pointerId !== input.joyId) return;
+  input.joyId = null; input.jx = input.jz = 0; joy.style.display = 'none';
+};
+cv.addEventListener('pointerup', e => endPtr(e, false)); cv.addEventListener('pointercancel', e => endPtr(e, true));
+const tapRay = new THREE.Raycaster(), tapNdc = new THREE.Vector2(), tapPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), tapHit = new THREE.Vector3();
+function tapDash(cx, cy) {
+  if (state !== 'play' || input.cool > 0 || me.stun > 0) return;
+  tapNdc.set(cx / innerWidth * 2 - 1, -(cy / innerHeight) * 2 + 1);
+  tapRay.setFromCamera(tapNdc, camera);
+  tapPlane.constant = -(me.y + 0.9); // 胸の高さで当てる（人の上をタップしてもその人の方へ）
+  let ax = Math.sin(me.yaw), az = Math.cos(me.yaw);
+  if (tapRay.ray.intersectPlane(tapPlane, tapHit)) { const dx = tapHit.x - me.x, dz = tapHit.z - me.z, l = Math.hypot(dx, dz); if (l > 0.15) { ax = dx / l; az = dz / l; } }
+  dash(me, ax, az, 0.65);
+  input.cool = 0.75;
+}
 function startCharge() { if (state === 'play' && input.cool <= 0 && input.charge < 0 && me.stun <= 0) input.charge = 0; }
 function releaseCharge() {
   if (input.charge < 0) return;
@@ -641,9 +651,6 @@ function moveVec() {
   const l = Math.hypot(x, z); if (l > 1) { x /= l; z /= l; }
   return { x, z };
 }
-const ringEl = $('ring');
-let lastRing = -1;
-function setRing(k) { const v = Math.round(k * 50) / 50; if (v === lastRing) return; lastRing = v; ringEl.setAttribute('stroke-dashoffset', (276.5 * (1 - v)).toFixed(1)); }
 
 // ===== 物理 =====
 function dash(p, dx, dz, k) {
@@ -811,7 +818,7 @@ function animate(dt, alpha, time) {
   // 自分の目印
   const mx = lerp(me.px, me.x, alpha), mz = lerp(me.pz, me.z, alpha), my = lerp(me.py, me.y, alpha);
   ring.position.set(mx, my + 0.012, mz);
-  ringMat.opacity = 0.65 + 0.2 * Math.sin(time * 5);
+  ringMat.opacity = input.cool > 0 || me.stun > 0 ? 0.3 : 0.65 + 0.2 * Math.sin(time * 5); // 体当たりできない間は薄く
   arrow.position.set(mx, my + me.h.height + 0.4 + Math.sin(time * 4) * 0.04, mz);
   if (me.fall > 0) arrow.position.y -= 0.6;
 }
@@ -837,7 +844,7 @@ function shutter() {
   state = 'photo'; shutterT = 0; document.body.classList.add('done');
   sClick(1); for (let i = 1; i < 7; i++) sClick(rnd(0.3, 0.6), i * rnd(0.06, 0.11));
   $('timer').style.opacity = 0;
-  joy.style.display = 'none'; input.joyId = null; input.charge = -1; dashBtn.classList.remove('hold');
+  joy.style.display = 'none'; input.joyId = null; input.charge = -1; taps.clear();
   // 写った瞬間の表情（倒れていない人は笑顔）
   for (const p of people) {
     const f = p.h.face;
@@ -972,9 +979,7 @@ function resize() {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(w, H, false);
   const top = 70;
-  const db = dashBtn.getBoundingClientRect();
-  // ボタンが舞台にかかる縦長では、ボタンの上までに収める。横長ではボタンは横の余白に置く
-  const bottom = w / H > 1.25 ? (H - db.bottom) + 12 : (H - db.top) + 12;
+  const bottom = 92; // 下の 80px（X のアプリ内ブラウザの投稿文が重なる所）には大事な物を置かない
   const h = Math.max(160, H - top - bottom);
   camera.aspect = w / h;
   camera.setViewOffset(w, h, 0, -top, w, H);
@@ -982,7 +987,7 @@ function resize() {
   // 縦長ほど上から見下ろして、舞台の奥行きを縦に広げる（余った高さを地面だけにしない）
   const tall = clamp((1.1 - camera.aspect) / 0.55);
   const d = Math.min(Math.max(2.75 / Math.tan(hf / 2), (1.55 - 0.1 * tall) / Math.tan(vf / 2)) + 1.6, 30);
-  const dir = new THREE.Vector3(0, lerp(0.5, 1.3, tall), 1).normalize();
+  const dir = new THREE.Vector3(0, lerp(0.5, 0.85, tall), 1).normalize();
   const c = CENTER.clone(); c.y += 0.5 * tall; // 縦長では舞台を少し下げ、上の空を広く
   camera.position.copy(c).addScaledVector(dir, d);
   camera.lookAt(c);
@@ -1011,9 +1016,6 @@ function loop(now) {
     const tl = Math.max(0, DUR - elapsed), v = Math.round(tl / DUR * 200) / 200;
     if (v !== lastBar) { lastBar = v; $('bar').firstElementChild.style.transform = `scaleX(${v})`; }
     document.querySelectorAll('.dots b').forEach((b, i) => { const onNow = tl < 3 - i; if (b.classList.contains('on') !== onNow) b.classList.toggle('on', onNow); });
-    const cool = input.cool > 0;
-    if (dashBtn.classList.contains('cool') !== cool) dashBtn.classList.toggle('cool', cool);
-    setRing(input.charge >= 0 ? clamp(input.charge / 0.7) : 0);
   }
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
