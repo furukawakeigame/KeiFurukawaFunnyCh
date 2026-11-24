@@ -33,7 +33,7 @@ People in games use the realistic human model `.claude/skills/make-game/human.js
 
 ## Ads (AdSense)
 
-- Non-game pages (`index.html`, `about.html`, `privacy.html`, `404.html`) load the AdSense script (`ca-pub-6939356439579496`); ads there come from AdSense Auto ads (switched on in the dashboard). Because `ad.js` also loads the AdSense script on game pages, `/games/` must be excluded from Auto ads in the AdSense dashboard (otherwise Auto ads would also appear inside games).
+- Non-game pages (`index.html`, `about.html`, `privacy.html`, `terms.html`, `404.html`) load the AdSense script (`ca-pub-6939356439579496`); ads there come from AdSense Auto ads (switched on in the dashboard). Because `ad.js` also loads the AdSense script on game pages, `/games/` must be excluded from Auto ads in the AdSense dashboard (otherwise Auto ads would also appear inside games).
 - **Result-screen banner** (owner's decision, knowing AdSense discourages display ads near games): every game with a result screen loads the shared `ad.js` at the end of `<body>` — the one exception to "games are self-contained", so the ad unit ID lives in one place (`SLOT` in `ad.js`; empty = no ads anywhere). See the comment at the top of `ad.js`:
   - `data-result="<selector>"`: the ad shows while that element is visible.
   - No result element: call `window.resultAd?.(isResult)` from the game loop instead.
