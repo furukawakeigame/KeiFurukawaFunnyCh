@@ -815,7 +815,7 @@
     // ---------- 物理 ----------
     const STEP = 1 / 120;
     let state = 'ready', playT = 0, failT = 0, score = 0, best = store.get('best', 0), lastKickT = -1;
-    let chap = 0, pauseT = 0, storyT = 0, storySwapped = true, winT = 0;
+    let chap = 0, storyT = 0, winT = 0;
     let G = 6.2; // 少しゆっくり落ちる重力
     const ZERO = V(), _rel = V(), _vr = V(), _vt = V(), _tmp = V(), _C = V();
     function readyPose() { const R = LIMB.footR; R.target.set(R.home.x, READY_Y, 0); reach('footR', R.target); R.pos.copy(R.target); R.prev.copy(R.target); R.touchT = 1; }
@@ -874,22 +874,16 @@
       } else { scene.fog.near = 14; scene.fog.far = 60; }
       setCrowd(inStadium ? (c >= 3 ? 0.16 : 0.09) : 0);
     }
-    // 次の章へ: ボールを空中で止め、暗転して舞台を変え、章の名前を出す
+    // 次の章へ: 遊びを止めずに舞台を変え、章の名前を少しのあいだ出す
     function nextChapter() {
       chap++;
       if (chap === STORY.length - 1) { startWin(); return; }
-      pauseT = chap >= 2 && chap === 2 ? 2.6 : 1.8; storyT = 0; storySwapped = false;
-      if (chap === 2) fadeEl.classList.add('on'); else { applyScene(chap); storySwapped = true; showStory(true); }
-      if (chap === 1) sCheer(0.25); else sCheer(0.8);
-    }
-    function stepStory(dt) {
-      storyT += dt; pauseT -= dt;
-      if (!storySwapped && storyT > 0.55) { applyScene(chap); storySwapped = true; fadeEl.classList.remove('on'); showStory(true); }
-      if (pauseT <= 0.4) showStory(false);
+      applyScene(chap); showStory(true); storyT = 2.0;
+      sCheer(chap === 1 ? 0.25 : 0.8);
     }
     // バロンドール: 紙吹雪の中でトロフィーを掲げる
     function startWin() {
-      state = 'win'; winT = 0; pauseT = 0;
+      state = 'win'; winT = 0; storyT = 0;
       fadeEl.classList.add('on');
       countEl.style.display = 'none';
       for (const k in rings) rings[k].style.display = 'none';
@@ -988,7 +982,7 @@
       return b.p.y < b.r + 0.01 || Math.abs(b.p.x) > 1.6;
     }
     function step(dt) {
-      if (state === 'play' && pauseT > 0) { stepStory(dt); return; } // 章が変わる間は時間を止める
+      if (storyT > 0) { storyT -= dt; if (storyT <= 0 && state === 'play') showStory(false); }
       if (state === 'win') { stepWin(dt); stepLimbs(dt); return; }
       if (state === 'play') { playT += dt; G = 6.2 + Math.min(1.2, score * 0.02); }
       stepLimbs(dt);
@@ -1008,7 +1002,7 @@
 
     // ---------- 進行 ----------
     function start() {
-      state = 'play'; playT = 0; score = 0; lastKickT = -1; G = 6.2; chap = 0; pauseT = 0;
+      state = 'play'; playT = 0; score = 0; lastKickT = -1; G = 6.2; chap = 0; storyT = 0;
       balls.soccer.v.set(0, 3.4, 0);
       sKick(0.4, 0);
       hideHints(); countEl.textContent = '0'; countEl.style.display = 'block';
@@ -1031,7 +1025,7 @@
       layoutCam();
     }
     function reset() {
-      state = 'ready'; relaxed.k = 0; cheer.k = 0; score = 0; playT = 0; chap = 0; pauseT = 0; winT = 0;
+      state = 'ready'; relaxed.k = 0; cheer.k = 0; score = 0; playT = 0; chap = 0; storyT = 0; winT = 0;
       trophy.visible = false; confetti.visible = false; balls.soccer.mesh.visible = true; balls.soccer.blob.visible = true;
       fadeEl.classList.remove('on'); showStory(false); applyScene(0);
       h.face.open = 0; h.face.brow = 0; h.face.smile = 0;
