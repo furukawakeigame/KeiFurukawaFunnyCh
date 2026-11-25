@@ -681,6 +681,10 @@ scene.add(table);
   const wall = new THREE.Mesh(new THREE.PlaneGeometry(4, 1.6), new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.95 }));
   wall.position.set(0, 0.8, -0.9);
   scene.add(wall);
+  // 縦長の画面（横から見る時）用の、左の壁
+  const wall2 = new THREE.Mesh(new THREE.PlaneGeometry(4, 1.6), wall.material);
+  wall2.rotation.y = Math.PI / 2; wall2.position.set(-0.9, 0.8, 0);
+  scene.add(wall2);
   const img = new Image();
   const picTex = new THREE.Texture(); picTex.colorSpace = THREE.SRGBColorSpace;
   img.onload = () => {
@@ -928,7 +932,7 @@ function stepRope(R, dt, banCol) {
   let moving = 0;
   for (let i = 1; i < n; i++) {
     const k = i * 3;
-    if (p[k + 1] <= floorY(p[k], p[k + 2]) + 0.0019) { q[k] = lerp(q[k], p[k], 0.5); q[k + 2] = lerp(q[k + 2], p[k + 2], 0.5); }
+    if (p[k + 1] <= floorY(p[k], p[k + 2]) + 0.0019) { q[k] = lerp(q[k], p[k], 0.85); q[k + 2] = lerp(q[k + 2], p[k + 2], 0.85); }
     moving = Math.max(moving, Math.abs(p[k] - q[k]) + Math.abs(p[k + 1] - q[k + 1]) + Math.abs(p[k + 2] - q[k + 2]));
   }
   return moving;
@@ -1272,11 +1276,12 @@ function doBite(h) {
 
 // ===== 毎刻みの処理 =====
 const DT = 1 / 60;
-let ripLevel = 0;
+let ripLevel = 0, lastRoll = 0;
 function stepGame(dt) {
   // 転がす
   if (rollTo != null) { rollV = 0; roll += (rollTo - roll) * (1 - Math.exp(-dt * 5)); if (Math.abs(rollTo - roll) < 0.002) rollTo = null; }
   else { roll += rollV * dt; rollV *= Math.exp(-dt * 6); }
+  const rolled = Math.abs(roll - lastRoll) > 1e-5; lastRoll = roll;
   placeBanana();
   // つかんでいる帯
   let adv = 0;
@@ -1323,16 +1328,17 @@ function stepGame(dt) {
     if (st.dp - st.d0 < 0.002) continue;
     R.seg = (st.dp - st.d0) * LEN / (NN - 1);
     hingeLocal(st, R.hinge).applyMatrix4(banana.matrixWorld);
-    const was = R.sleep;
+    // 落ち着いた皮は止めておく（バナナを転がしたら、また動かす）
+    if (rolled || R.pin >= 0 || st.autoFin) R.sleep = 0;
+    if (R.sleep > 40) continue;
     const m = stepRope(R, dt, true);
     if (m < 0.00004 && R.pin < 0) R.sleep++; else R.sleep = 0;
-    if (was < 30 && R.sleep === 30 && st.done) {} // 落ち着いた
   }
   for (const l of loose) {
     if (l.sleep > 90) continue;
     const m = stepRope(l.rope, dt, true);
     if (m < 0.00003) l.sleep++; else l.sleep = 0;
-    if (!l.landed && l.rope.p[NN * 3 / 2 | 0] < 0.04) { l.landed = true; flop(0.6); }
+    if (!l.landed && l.rope.p[(NN >> 1) * 3 + 1] < 0.04) { l.landed = true; flop(0.6); }
   }
   // かじる
   if (bite > 0) {
@@ -1575,7 +1581,7 @@ function loop(now) {
     if (!vis) continue;
     radialDir(sOf(st.dp), st.a + st.w / 2, st.n0).transformDirection(banana.matrixWorld);
     acrossDir(sOf(st.dp), st.a + st.w / 2, _A).transformDirection(banana.matrixWorld);
-    if (st.rope.sleep < 40 || st.rope.pin >= 0) buildFlap(st.mesh, st.rope, st.a, st.w, st.d0, st.dp, alpha, st.n0);
+    if (st.rope.sleep <= 41 || st.rope.pin >= 0) buildFlap(st.mesh, st.rope, st.a, st.w, st.d0, st.dp, alpha, st.n0);
   }
   for (const l of loose) if (l.sleep < 95) { _A.copy(l.n0).cross(_w.set(0, 1, 0)); buildFlap(l.mesh, l.rope, l.a, l.w, l.d0, l.d1, alpha, l.n0); }
   // 軸・お尻の先は、くっついている皮の先に付いていく
