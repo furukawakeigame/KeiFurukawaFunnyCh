@@ -952,7 +952,7 @@ for (const w of washables) {
   const m = new THREE.Matrix4().multiplyMatrices(invPig0, w.mesh.matrixWorld);
   w.restMat = m.clone();
   for (let i = 0; i < n; i++) { _v.fromBufferAttribute(p, i).applyMatrix4(m); w.rest[i * 3] = _v.x; w.rest[i * 3 + 1] = _v.y; w.rest[i * 3 + 2] = _v.z; }
-  // 面積の重み（下向きの面・ひづめ近くは届きにくいので軽く）
+  // 面積の重み（カメラを一周できるので、お腹の下や足先も同じ重さで数える）
   const idx = w.geo.index, nrm = w.geo.attributes.normal;
   const A = (a, b, c) => { const ax = p.getX(b) - p.getX(a), ay = p.getY(b) - p.getY(a), az = p.getZ(b) - p.getZ(a), bx = p.getX(c) - p.getX(a), by = p.getY(c) - p.getY(a), bz = p.getZ(c) - p.getZ(a); return Math.hypot(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx) / 6; };
   const cnt = idx ? idx.count : n;
@@ -961,23 +961,25 @@ for (const w of washables) {
     const ar = A(a, b, c); w.area[a] += ar; w.area[b] += ar; w.area[c] += ar;
   }
   for (let i = 0; i < n; i++) {
-    const ny = w === washables[0] ? nrm.getY(i) : 0;
-    const y = w.rest[i * 3 + 1];
-    if (ny < -0.55) w.area[i] *= 0.3;
-    if (y < 0.12) w.area[i] *= 0.4;
     totalArea += w.area[i];
   }
 }
 // 頂点を 4cm の箱に分けておく
 const CELL = 0.04, hashMap = new Map();
 const hkey = (i, j, k) => (i + 512) + (j + 512) * 1024 + (k + 512) * 1048576;
+// 箱ごとの番号（泥の塊が残っていないか調べるのに使う）
+const cellOf = new Map(); let nCells = 0;
 washables.forEach((w, wi) => {
+  w.cell = new Uint32Array(w.n);
   for (let i = 0; i < w.n; i++) {
     const key = hkey(Math.floor(w.rest[i * 3] / CELL), Math.floor(w.rest[i * 3 + 1] / CELL), Math.floor(w.rest[i * 3 + 2] / CELL));
     let a = hashMap.get(key); if (!a) hashMap.set(key, a = []);
     a.push(wi, i);
+    if (!cellOf.has(key)) cellOf.set(key, nCells++);
+    w.cell[i] = cellOf.get(key);
   }
 });
+const cellDirt = new Float32Array(nCells);
 
 // 泥を塗る（脚とお腹は厚く、背中はところどころピンクがのぞく。厚い所は落ちにくい）
 function muddy() {
@@ -1023,11 +1025,20 @@ function wash(x, y, z, r, amt, wetR = r * 1.7) {
   lastWashHadMud = mudSeen;
   return mudSeen;
 }
+// きれいさ: 全体の割合と、一番汚れている 4cm の箱の泥の面積
+let maxCellDirt = 0;
 function cleanRatio() {
   let s = 0;
-  for (const w of washables) for (let i = 0; i < w.n; i++) s += w.area[i] * sstep(0.08, 0.3, w.mud[i]);
+  cellDirt.fill(0);
+  for (const w of washables) for (let i = 0; i < w.n; i++) {
+    const d = w.area[i] * sstep(0.08, 0.3, w.mud[i]);
+    s += d; cellDirt[w.cell[i]] += d;
+  }
+  maxCellDirt = 0; for (let c = 0; c < nCells; c++) if (cellDirt[c] > maxCellDirt) maxCellDirt = cellDirt[c];
   return 1 - s / totalArea;
 }
+// クリア: 全体の97%がきれいで、目に見える泥の塊（約2cm角より大きい）がどこにも残っていない
+const isClean = c => c >= 0.97 && maxCellDirt < 0.0005;
 
 // ===== まわり: 単色の背景と地面 =====
 const BG = new THREE.Color('#9aa3a9');
@@ -1994,7 +2005,7 @@ function step(dt) {
     playT += dt;
     if (frameN % 6 === 0) {
       clean = cleanRatio();
-      if (clean >= 0.97) finish();
+      if (isClean(clean)) finish();
     }
     // カメラを回せることを、一度だけ絵で知らせる
     // 回したことがなければ、4秒後から 4.5秒見せて、14秒ごとにくり返す
@@ -2072,7 +2083,7 @@ renderer.render(scene, camera);
 window.__pigReady = true;
 $('err').hidden = true; // 準備の前に出た、ほかのスクリプト（広告・解析）のエラー表示は消す
 window.__pig = {
-  buildMs, cleanRatio, wash, ST, orbit, hint: () => { placeHint2(); hint2El.classList.add('on'); },
+  buildMs, cleanRatio, wash, ST, orbit, dirt: () => maxCellDirt, washables, hint: () => { placeHint2(); hint2El.classList.add('on'); },
   view: o => { Object.assign(viewTo, o); Object.assign(view, o); },
   aim: (x, y, z) => { aim.set(x, y, z); aimSm.set(x, y, z); if (!spraying) { spraying = true; chainId++; } pointerDown = false; },
   finish: () => { for (const w of washables) { w.mud.fill(0); w.dirty = true; } },
