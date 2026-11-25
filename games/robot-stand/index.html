@@ -524,30 +524,44 @@ function placeCamera() {
 }
 placeCamera();
 
-// ===== 操作: タップで投げる・ドラッグでまわりこむ =====
+// ===== 操作: 1本指タップで投げる・2本指（マウスはドラッグ／トラックパッドはスクロール）でまわりこむ =====
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-let drag = null, lastThrow = 0, thrown = 0;
+let lastThrow = 0, thrown = 0;
+const ptrs = new Map(); // 押している指
+let tap = null, orbit = null;
+const center = () => { let x = 0, y = 0; for (const p of ptrs.values()) { x += p.x; y += p.y; } return { x: x / ptrs.size, y: y / ptrs.size }; };
+function startOrbit() { const c = center(); orbit = { x: c.x, y: c.y, yaw: camYaw, pitch: camPitch }; }
+function rotateBy(dx, dy) { camYaw -= dx * 0.008; camPitch = Math.max(-0.05, Math.min(0.9, camPitch + dy * 0.005)); }
 canvas.addEventListener('pointerdown', e => {
   canvas.setPointerCapture(e.pointerId);
-  drag = { id: e.pointerId, x: e.clientX, y: e.clientY, yaw: camYaw, pitch: camPitch, moved: false, t: performance.now() };
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 1) tap = { id: e.pointerId, x: e.clientX, y: e.clientY, mouse: e.pointerType === 'mouse', moved: false };
+  else { tap = null; startOrbit(); } // 2本目の指が来たら投げずに回す
 });
 canvas.addEventListener('pointermove', e => {
-  if (!drag || drag.id !== e.pointerId) return;
-  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-  if (!drag.moved && Math.hypot(dx, dy) > 10) drag.moved = true;
-  if (drag.moved) {
-    camYaw = drag.yaw - dx * 0.008;
-    camPitch = Math.max(-0.05, Math.min(0.9, drag.pitch + dy * 0.005));
+  const p = ptrs.get(e.pointerId); if (!p) return;
+  p.x = e.clientX; p.y = e.clientY;
+  if (tap && tap.id === e.pointerId && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 10) {
+    tap.moved = true;
+    if (tap.mouse && !orbit) startOrbit(); // マウスはドラッグで回す
+  }
+  if (orbit && (ptrs.size >= 2 || (tap && tap.mouse))) {
+    const c = center();
+    camYaw = orbit.yaw; camPitch = orbit.pitch; rotateBy(c.x - orbit.x, c.y - orbit.y);
   }
 });
-const endDrag = e => {
-  if (!drag || drag.id !== e.pointerId) return;
-  if (!drag.moved && e.type === 'pointerup') throwAt(e.clientX, e.clientY);
-  drag = null;
+const endPtr = e => {
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.delete(e.pointerId);
+  if (tap && tap.id === e.pointerId && !tap.moved && e.type === 'pointerup') throwAt(e.clientX, e.clientY);
+  if (tap && tap.id === e.pointerId) tap = null;
+  if (ptrs.size >= 2) startOrbit(); else orbit = null;
 };
-canvas.addEventListener('pointerup', endDrag);
-canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('pointerup', endPtr);
+canvas.addEventListener('pointercancel', endPtr);
+// トラックパッドの2本指スクロール
+canvas.addEventListener('wheel', e => { e.preventDefault(); rotateBy(e.deltaX * 0.6, e.deltaY * 0.6); }, { passive: false });
 
 const aimRing = new THREE.Mesh(new THREE.RingGeometry(0.05, 0.065, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthTest: false, toneMapped: false, fog: false }));
 aimRing.renderOrder = 10; scene.add(aimRing);
