@@ -524,12 +524,14 @@ const BITE_GLSL = `
 function peelShader(mat, main) {
   mat.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, main ? peelU : { uN: { value: 0 }, uE: peelU.uE, uBite: { value: -1 }, uStrips: peelU.uStrips, uInner: peelU.uInner });
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vSU;')
-      .replace('#include <uv_vertex>', '#include <uv_vertex>\nvSU = uv;');
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>\nvarying vec2 vSU; varying float vIn; ${main ? '' : 'attribute float aIn;'}`)
+      .replace('#include <uv_vertex>', `#include <uv_vertex>\nvSU = uv; vIn = ${main ? '0.0' : 'aIn'};`);
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      varying float vIn;
       uniform vec4 uStrips[${MAXS}]; uniform int uN; uniform float uE; uniform float uBite; uniform sampler2D uInner;
       ${NOISE_GLSL}`)
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+      float bRim = 0.0;
       {
         float th = vSU.y * 6.2831853, d = mix(vSU.x, 1.0 - vSU.x, uE);
         for (int i = 0; i < ${MAXS}; i++) {
@@ -540,13 +542,17 @@ function peelShader(mat, main) {
           float x = mod(th - st.x - ja, 6.2831853), w = st.y + jb - ja;
           float dd = st.z + (bvn(th * 26.0 + st.x * 11.0) - 0.5) * 0.014;
           if (x < w && d < dd) discard;
+          // 切り口のふち（皮の厚み）
+          if (mod(th - st.x - ja + 0.09, 6.2831853) < w + 0.18 && d < dd + 0.011) bRim = 1.0;
         }
       }
       ${BITE_GLSL}`)
       .replace('#include <map_fragment>', `#include <map_fragment>
-      if (!gl_FrontFacing) diffuseColor.rgb = texture2D(uInner, vSU).rgb;`)
+      float inner = ${main ? '(gl_FrontFacing ? 0.0 : 1.0)' : 'vIn'};
+      if (inner > 0.75) diffuseColor.rgb = texture2D(uInner, vSU).rgb;
+      else if (inner > 0.25 || (bRim > 0.5 && gl_FrontFacing)) diffuseColor.rgb = mix(vec3(0.9, 0.87, 0.7), diffuseColor.rgb, 0.25);`)
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
-      if (!gl_FrontFacing) { material.roughness = 0.85; material.clearcoat = 0.0; }`);
+      if (inner > 0.25 || bRim > 0.5) { material.roughness = 0.85; material.clearcoat = 0.0; }`);
   };
 }
 function fleshShader(mat) {
@@ -830,19 +836,38 @@ ao.rotation.x = -Math.PI / 2; ao.position.y = 0.0104; ao.renderOrder = 1;
 scene.add(ao);
 
 // ===== 皮の帯（むいた皮はひも状の粒子で動かす） =====
-const NN = 18, NM = 9;
+const NN = 26, NM = 9;
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _u = new THREE.Vector3(), _q = new THREE.Vector3(), _r = new THREE.Vector3();
 const invB = new THREE.Matrix4();
 function makeRope() {
   return { p: new Float32Array(NN * 3), q: new Float32Array(NN * 3), o: new Float32Array(NN * 3), seg: 0.01, pin: -1, pinPos: new THREE.Vector3(), anchor: true, hinge: new THREE.Vector3(), sleep: 0 };
 }
+// 皮には厚みがある: 外側・内側の面と、ふちの側面で1枚の板にする
+const NNM = NN * NM;
+const WALL = [];
+for (let i = 0; i < NN; i++) WALL.push(i * NM);
+for (let j = 1; j < NM; j++) WALL.push((NN - 1) * NM + j);
+for (let i = NN - 2; i >= 0; i--) WALL.push(i * NM + NM - 1);
+const NV = NNM * 2 + WALL.length * 2, TH = 0.0022;
 function flapMesh() {
   const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(NN * NM * 3), 3));
-  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(NN * NM * 3), 3));
-  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(NN * NM * 2), 2));
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(NV * 3), 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(NV * 3), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(NV * 2), 2));
+  const aIn = new Float32Array(NV);
+  for (let k = NNM; k < NNM * 2; k++) aIn[k] = 1;
+  for (let k = NNM * 2; k < NV; k++) aIn[k] = 0.5;
+  g.setAttribute('aIn', new THREE.BufferAttribute(aIn, 1));
   const idx = [];
-  for (let i = 0; i < NN - 1; i++) for (let j = 0; j < NM - 1; j++) { const a = i * NM + j, b = a + 1, c = a + NM, d = c + 1; idx.push(a, c, b, b, c, d); }
+  for (let i = 0; i < NN - 1; i++) for (let j = 0; j < NM - 1; j++) {
+    const a = i * NM + j, b = a + 1, c = a + NM, d = c + 1;
+    idx.push(a, c, b, b, c, d);
+    idx.push(a + NNM, b + NNM, c + NNM, b + NNM, d + NNM, c + NNM);
+  }
+  for (let k = 0; k < WALL.length - 1; k++) {
+    const o0 = NNM * 2 + k * 2, i0 = o0 + 1, o1 = o0 + 2, i1 = o0 + 3;
+    idx.push(o0, i0, o1, o1, i0, i1);
+  }
   g.setIndex(idx);
   const m = new THREE.Mesh(g, flapMat);
   m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false;
@@ -946,8 +971,19 @@ function buildFlap(mesh, R, a, w, d0, d1, alpha, n0) {
       const orad = (r * Math.cos(dt) - rc) * flat, otan = r * Math.sin(dt) * sgn;
       const k = (i * NM + j) * 3;
       pos[k] = _P.x + _N.x * orad + _B.x * otan; pos[k + 1] = _P.y + _N.y * orad + _B.y * otan; pos[k + 2] = _P.z + _N.z * orad + _B.z * otan;
-      const ku = (i * NM + j) * 2; uv[ku] = s; uv[ku + 1] = th / TAU;
+      // 内側の面: 外側から、その場所の外向き（断面の丸み）に厚み分だけ下げる
+      const cd = Math.cos(dt), sd = Math.sin(dt) * sgn, th2 = TH * (j === 0 || j === NM - 1 ? 0.8 : 1);
+      const k2 = k + NNM * 3;
+      pos[k2] = pos[k] - (_N.x * cd + _B.x * sd) * th2; pos[k2 + 1] = pos[k + 1] - (_N.y * cd + _B.y * sd) * th2; pos[k2 + 2] = pos[k + 2] - (_N.z * cd + _B.z * sd) * th2;
+      const ku = (i * NM + j) * 2; uv[ku] = s; uv[ku + 1] = th / TAU; uv[ku + NNM * 2] = s; uv[ku + NNM * 2 + 1] = th / TAU;
     }
+  }
+  // ふちの側面（外側と内側の点を、別の点として写す）
+  for (let w = 0; w < WALL.length; w++) {
+    const v = WALL[w], o = (NNM * 2 + w * 2) * 3;
+    for (let c = 0; c < 3; c++) { pos[o + c] = pos[v * 3 + c]; pos[o + 3 + c] = pos[(v + NNM) * 3 + c]; }
+    const u = (NNM * 2 + w * 2) * 2;
+    uv[u] = uv[u + 2] = uv[v * 2]; uv[u + 1] = uv[u + 3] = uv[v * 2 + 1];
   }
   mesh.geometry.attributes.position.needsUpdate = true;
   mesh.geometry.attributes.uv.needsUpdate = true;
@@ -1067,7 +1103,7 @@ function pick(x, y) {
       return { kind: 'peel', s: h.object === stem ? 0.01 : 0.99, th: faceTheta(), point: h.point };
     }
     const st = strips.find(s => s.mesh === h.object);
-    if (st) return { kind: 'flap', st, node: clamp(Math.floor(h.face.a / NM), 1, NN - 1), point: h.point };
+    if (st) return { kind: 'flap', st, node: h.face.a < NNM * 2 ? clamp(Math.floor((h.face.a % NNM) / NM), 1, NN - 1) : NN - 1, point: h.point };
   }
   // 指は太いので、帯の近く（画面で28px以内）ならつかめる
   const r = cv.getBoundingClientRect();
