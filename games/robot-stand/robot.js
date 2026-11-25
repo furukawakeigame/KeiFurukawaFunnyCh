@@ -98,7 +98,7 @@ export function createSim(R) {
     world, parts, partList, joints, colliderPart, totalMass, DT,
     state: 'stand', stateT: 0, tilt: 0, stagger: 0, time: 0,
     com: { x: 0, y: 0, z: 0 }, comV: { x: 0, y: 0, z: 0 },
-    swing: null, stepCool: 0, settleLeft: 4, flap: 0, postSettle: 0, stun: 0, stunK: 0, stunDur: 1, hits: [], balls: [], onStep: null, onFall: null, onGetup: null, onLand: null,
+    swing: null, stepCool: 0, settleLeft: 4, flap: 0, postSettle: 0, gu: {}, stun: 0, stunK: 0, stunDur: 1, hits: [], balls: [], onStep: null, onFall: null, onGetup: null, onPhase: null, onLand: null,
   };
   const feet = [{ s: -1, k: 'R' }, { s: 1, k: 'L' }];
 
@@ -166,6 +166,20 @@ export function createSim(R) {
     if (tl > max) { tx *= max / tl; tz *= max / tl; }
     b.applyTorqueImpulse({ x: tx * DT, y: ty * DT, z: tz * DT }, true);
   }
+
+  // 体の「上」を target の向きへ回す補助（起き上がり用。上限つき）
+  function orientAssist(name, target, kp, kd, max) {
+    const b = parts[name].body, up = rotV(b.rotation(), { x: 0, y: 1, z: 0 }), w = b.angvel();
+    let ax = up.y * target.z - up.z * target.y, ay = up.z * target.x - up.x * target.z, az = up.x * target.y - up.y * target.x;
+    const sl = Math.hypot(ax, ay, az), ang = Math.atan2(sl, up.x * target.x + up.y * target.y + up.z * target.z);
+    if (sl > 1e-6) { ax /= sl; ay /= sl; az /= sl; } else { ax = ay = az = 0; }
+    let tx = kp * ang * ax - kd * w.x, ty = kp * ang * ay - kd * w.y, tz = kp * ang * az - kd * w.z;
+    const tl = Math.hypot(tx, ty, tz);
+    if (tl > max) { tx *= max / tl; ty *= max / tl; tz *= max / tl; }
+    b.applyTorqueImpulse({ x: tx * DT, y: ty * DT, z: tz * DT }, true);
+  }
+  function liftUp(name, fy) { parts[name].body.applyImpulse({ x: 0, y: fy * DT, z: 0 }, true); }
+  function setPose(o) { for (const k in o) { if (joints[k]) joints[k].target = o[k]; else for (const sd of ['L', 'R']) if (joints[k + sd]) joints[k + sd].target = (/^(shR|hipR|ankR)/.test(k) && sd === 'R' ? -1 : 1) * o[k]; } }
 
   const ARM_IDLE = { shP: 0.05, shR: 0.12, elb: -0.25 };
   function armPose(shP, shR, elb) {
@@ -318,34 +332,88 @@ export function createSim(R) {
       const sp = Math.hypot(pv.x, pv.y, pv.z);
       if (t > 2.6 && sp < 0.4) { setState('getup'); if (sim.onGetup) sim.onGetup(); }
     } else if (st === 'getup') {
-      // 1) しゃがんだ姿勢まで上体を起こす → 2) 立ち上がる
-      const T1 = 1.1, T2 = 2.1;
-      const g = smooth(t / 0.5);
-      setGains(0.03 + 0.97 * g);
-      let h;
-      if (t < T1) h = 0.5; else h = 0.5 + (STAND_H - 0.5) * smooth((t - T1) / (T2 - T1));
-      const P = { x: pt.x, y: h, z: pt.z };
-      const targets = {};
-      for (const f of feet) {
-        // 足は骨盤の真下へ
-        const hx = P.x + c * f.s * HIP_X, hz = P.z - sn * f.s * HIP_X;
-        targets[f.k] = { x: hx + fwd.x * 0.03, y: ANKLE_Y, z: hz + fwd.z * 0.03 };
+      // 倒れ方で段取りを変える: 仰向け・横向き → 寝返り → うつ伏せで腕立て → 四つんばい → しゃがむ → 立つ
+      // 動きは関節のモーターが中心。補助の力は小さく、うまくいかない時だけ少しずつ強くする
+      const tq = parts.torso.body.rotation(), chest = rotV(tq, { x: 0, y: 0, z: 1 }), tup = rotV(tq, { x: 0, y: 1, z: 0 });
+      const M = sim.totalMass, gu = sim.gu;
+      if (!gu.phase) { gu.phase = chest.y < -0.45 ? 'push' : 'roll'; gu.t = 0; gu.boost = gu.boost || 1; if (sim.onPhase) sim.onPhase(gu.phase); }
+      gu.t += DT;
+      const go = (ph) => { if (ph !== gu.phase && sim.onPhase) sim.onPhase(ph); gu.phase = ph; gu.t = 0; };
+      const B = gu.boost;
+      // 頭の向き（水平）: うつ伏せから立った時に向く方向
+      let hx = tup.x, hz = tup.z; const hl = Math.hypot(hx, hz) || 1; hx /= hl; hz /= hl;
+      setGains(clamp(sim.stateT / 0.4, 0.03, 1));
+      if (gu.phase === 'roll') {
+        // 寝返り: 片腕を体の前に回し、同じ側の脚を曲げ、体の軸まわりに少し回す
+        if (gu.dir === undefined) {
+          // 胸が向いている横の向き（ロボットの左右どちらに回ると早く下を向くか）
+          const lat = rotV(tq, { x: 1, y: 0, z: 0 });
+          gu.dir = lat.y > 0 ? 1 : -1; // +1: 左側(+x)が上 → 右へ回る
+        }
+        const d = gu.dir, up = d > 0 ? 'L' : 'R', dn = d > 0 ? 'R' : 'L';
+        setPose({ waistP: 0.3, waistR: 0, neck: 0.3 });
+        joints['shP' + up].target = -1.8; joints['shR' + up].target = (up === 'L' ? 1 : -1) * -0.1; joints['elb' + up].target = -0.6;
+        joints['shP' + dn].target = -0.3; joints['shR' + dn].target = (dn === 'L' ? 1 : -1) * 0.6; joints['elb' + dn].target = -0.3;
+        joints['hipP' + up].target = -1.3; joints['knee' + up].target = 1.6; joints['hipR' + up].target = 0;
+        joints['hipP' + dn].target = -0.2; joints['knee' + dn].target = 0.3;
+        // 体の軸（頭の向き）まわりに回す
+        const w = parts.torso.body.angvel(), spin = w.x * tup.x + w.y * tup.y + w.z * tup.z;
+        const T = clamp((70 * B) * (-d) - 12 * spin, -110 * B, 110 * B);
+        for (const n of ['torso', 'pelvis']) parts[n].body.applyTorqueImpulse({ x: tup.x * T * DT * (n === 'torso' ? 1 : 0.6), y: tup.y * T * DT * (n === 'torso' ? 1 : 0.6), z: tup.z * T * DT * (n === 'torso' ? 1 : 0.6) }, true);
+        if (chest.y < -0.6) go('push');
+        if (gu.t > 2.5) { gu.boost = Math.min(3, B + 0.4); gu.dir = -gu.dir; gu.t = 0; }
+      } else if (gu.phase === 'push') {
+        // 腕立て: 腕を胸の下につき、肘を伸ばして上体を押し上げる
+        const u = smooth(gu.t / 0.9);
+        setPose({ shP: -1.45, shR: 0.25, elb: -1.7 + 1.55 * smooth((gu.t - 0.3) / 0.6), hipP: -0.1, hipR: 0.05, knee: 0.3, ankP: -0.3, ankR: 0, waistP: 0, waistR: 0, neck: -0.4 });
+        // 上体をななめ（25°）まで起こす手伝い
+        const a = 0.45 * u, tgt = { x: hx * Math.cos(a), y: Math.sin(a), z: hz * Math.cos(a) };
+        orientAssist('torso', tgt, 260 * B, 30, 90 * B);
+        liftUp('torso', M * G * 0.12 * B * u);
+        if (gu.t > 0.95 && tup.y > 0.25) go('knees');
+        if (gu.t > 2.5) { gu.boost = Math.min(3, B + 0.4); go('push'); }
+      } else if (gu.phase === 'knees') {
+        // 四つんばい: 膝を胸の下へ引き寄せる
+        const u = smooth(gu.t / 0.7);
+        setPose({ shP: -1.35 + 0.3 * u, shR: 0.25, elb: -0.15, hipP: -1.65 * u - 0.1, hipR: 0.08, knee: 0.3 + 1.9 * u, ankP: -0.5, ankR: 0, waistP: 0.25 * u, waistR: 0, neck: -0.3 });
+        const a = 0.45 + 0.35 * u, tgt = { x: hx * Math.cos(a), y: Math.sin(a), z: hz * Math.cos(a) };
+        orientAssist('torso', tgt, 300 * B, 35, 110 * B);
+        liftUp('pelvis', M * G * 0.15 * B * u); liftUp('torso', M * G * 0.15 * B);
+        if (gu.t > 0.8) go('squat');
+      } else if (gu.phase === 'squat') {
+        // 手で押し離して、かかとに腰を落としたしゃがみ姿勢へ（足は骨盤の真下）
+        const u = smooth(gu.t / 0.9);
+        const P = { x: pt.x, y: 0.5, z: pt.z }, targets = {};
+        for (const f of feet) { const hx2 = P.x + c * f.s * HIP_X, hz2 = P.z - sn * f.s * HIP_X; targets[f.k] = { x: hx2 + fwd.x * 0.04, y: ANKLE_Y, z: hz2 + fwd.z * 0.04 }; }
+        legsToward(P, yaw, targets);
+        joints.waistP.target = 0.45 - 0.2 * u; joints.waistR.target = 0; joints.neck.target = 0;
+        armPose(-1.3 + 0.4 * u, 0.3, -0.2 - 0.3 * u);
+        orientAssist('torso', { x: 0, y: 1, z: 0 }, 420 * B, 45, 150 * B * (0.4 + 0.6 * u));
+        orientAssist('pelvis', { x: 0, y: 1, z: 0 }, 250 * B, 25, 90 * B * u);
+        const fy = M * (G * 0.3 * B * u + 12 * (0.5 - pt.y) * u - 4 * pv.y);
+        pel.applyImpulse({ x: -M * 2 * pv.x * DT, y: clamp(fy, -150, M * G * 0.6 * B) * DT, z: -M * 2 * pv.z * DT }, true);
+        if (gu.t > 1.0 && sim.tilt < 0.6) go('rise');
+        if (gu.t > 3) { gu.boost = Math.min(3, B + 0.4); gu.t = 0; }
+      } else if (gu.phase === 'rise') {
+        // 立ち上がる: 腰を上げながら膝を伸ばす。補助はだんだん抜く
+        const u = smooth(gu.t / 1.0), h = 0.5 + (STAND_H - 0.5) * u;
+        const P = { x: pt.x, y: h, z: pt.z }, targets = {};
+        for (const f of feet) { const hx2 = P.x + c * f.s * HIP_X, hz2 = P.z - sn * f.s * HIP_X; targets[f.k] = { x: hx2 + fwd.x * 0.03, y: ANKLE_Y, z: hz2 + fwd.z * 0.03 }; }
+        legsToward(P, yaw, targets);
+        joints.waistP.target = 0.45 * (1 - u); joints.waistR.target = 0; joints.neck.target = 0;
+        armPose(-0.9 * (1 - u) + 0.05, 0.3, -0.3);
+        const k = 1 - smooth((gu.t - 0.9) / 0.6);
+        orientAssist('torso', { x: 0, y: 1, z: 0 }, 400 * B * k, 45 * k, 150 * B * k);
+        orientAssist('pelvis', { x: 0, y: 1, z: 0 }, 200 * B * k, 20 * k, 80 * B * k);
+        const fy = M * (G * 0.35 * B + 15 * (h - pt.y) - 5 * pv.y) * k;
+        pel.applyImpulse({ x: -M * 2 * pv.x * k * DT, y: clamp(fy, -150, M * G * 0.7 * B) * DT, z: -M * 2 * pv.z * k * DT }, true);
+        if (gu.t > 1.5 && sim.tilt < 0.25) { setState('stand'); sim.stepCool = 0.2; sim.settleLeft = 4; sim.gu = {}; }
+        if (gu.t > 3.5) { gu.boost = Math.min(3, B + 0.4); go('squat'); }
       }
-      legsToward(P, yaw, targets);
-      joints.waistP.target = t < T1 ? 0.5 : 0.5 * (1 - smooth((t - T1) / (T2 - T1)));
-      joints.waistR.target = 0; joints.neck.target = 0;
-      if (t < T1) armPose(-0.9, 0.3, -0.3); else armPose(-0.9 * (1 - smooth((t - T1) / 0.6)) + 0.05, 0.4, -0.3);
-      // 補助: 上体を起こし、腰を持ち上げる（だんだん弱める）
-      const ramp = smooth(t / 0.7), fade = 1 - smooth((t - T2) / 0.6);
-      const k = ramp * fade;
-      uprightAssist('pelvis', 900 * k, 90 * k, 400 * k);
-      uprightAssist('torso', 900 * k, 90 * k, 400 * k);
-      const M = sim.totalMass;
-      let fy = M * (G * 0.85 + 30 * (h - pt.y) - 9 * pv.y) * k;
-      fy = clamp(fy, -200, M * G * 1.6);
-      pel.applyImpulse({ x: -M * 4 * pv.x * k * DT, y: fy * DT, z: -M * 4 * pv.z * k * DT }, true);
-      if (t > T2 + 0.6 && sim.tilt < 0.25) { setState('stand'); sim.stepCool = 0.2; sim.settleLeft = 4; }
-      if (t > 6 || (t > 0.9 && sim.tilt > 1.1)) { setState('fallen'); if (sim.onFall) sim.onFall(); }
+      // 途中で大きく崩れたら、倒れた状態に戻ってやり直す（次は少し強めに手伝う）
+      const pup = rotV(pel.rotation(), { x: 0, y: 1, z: 0 }).y;
+      const broke = (gu.phase === 'squat' && gu.t > 1.2 && (sim.tilt > 1.35 || pup < 0.35)) || (gu.phase === 'rise' && gu.t > 0.3 && (sim.tilt > 1.0 || pup < 0.5));
+      if (broke || sim.stateT > 12) { const bo = Math.min(3, B + 0.3); setState('fallen'); sim.gu = { boost: bo }; if (sim.onFall) sim.onFall(); }
     }
 
     for (const j of jointList) j.j.configureMotorPosition(j.target, j.kp * j.gain, j.kd * Math.max(j.gain, 0.08));
