@@ -683,7 +683,8 @@ function beginGrab(h) {
   dragTo(act.x, act.y);
 }
 function dragTo(x, y) {
-  const p = pointerWorld(x, y); if (!p) return;
+  // 広告の枠より上へは持ち上げない（猫が広告に隠れないように）
+  const p = pointerWorld(x, Math.max(y, topPad + 70)); if (!p) return;
   const now = performance.now();
   p.y = Math.max(0.08, Math.min(1.5, p.y));
   const lim = ROOM - 0.2; p.x = Math.max(-lim, Math.min(lim, p.x)); p.z = Math.max(-lim, Math.min(lim, p.z));
@@ -822,10 +823,11 @@ function frame(now) {
   if (faceDirty) { faceDirty = false; drawFace(); }
   updateAI(dt);
   // カメラは猫にゆっくりついていく（つまんでいる間は止める）
-  if (!(act && act.grab)) {
+  {
     const c = sim.com, kf = 1 - Math.exp(-dt * 1.6);
-    camT.x += (c.x - camT.x) * kf; camT.z += (c.z - camT.z) * kf;
-    camT.y += (0.2 + Math.max(0, Math.min(0.5, c.y - 0.3)) * 0.6 - camT.y) * kf;
+    if (!(act && act.grab)) { camT.x += (c.x - camT.x) * kf; camT.z += (c.z - camT.z) * kf; }
+    // 持ち上げた時は、カメラもゆっくり上を向いて高く持ち上げられるようにする
+    camT.y += (0.2 + Math.max(0, Math.min(0.6, c.y - 0.25)) * 0.6 - camT.y) * (act && act.grab ? 1 - Math.exp(-dt * 0.9) : kf);
   }
   placeCamera();
   updateParticles(dt);

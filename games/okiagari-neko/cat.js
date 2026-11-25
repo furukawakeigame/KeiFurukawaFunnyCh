@@ -262,39 +262,35 @@ export function createCat(R, opt = {}) {
     const fwd = { x: Math.sin(yaw), z: Math.cos(yaw) };
     const upright = sim.upC > 0.75 && sim.upH > 0.7;
 
-    // 持ち上げ中: つまんだ所をばねで指へ引く
+    // 持ち上げ中: 指の位置にある見えない「つまむ点」（動かす体）を関節でつなぎ、指へなめらかに動かす
     if (sim.grab) {
-      const g = sim.grab, b = g.part.body, q = b.rotation(), t0 = b.translation();
-      const lp = rotV(q, g.local), P = { x: t0.x + lp.x, y: t0.y + lp.y, z: t0.z + lp.z };
-      const v = b.linvel(), w = b.angvel();
-      const pv = { x: v.x + w.y * lp.z - w.z * lp.y, y: v.y + w.z * lp.x - w.x * lp.z, z: v.z + w.x * lp.y - w.y * lp.x };
-      const M = totalMass, K = 260, C = 26;
-      let fx = M * (K * (g.target.x - P.x) - C * (pv.x - g.tv.x));
-      let fy = M * (K * (g.target.y - P.y) - C * (pv.y - g.tv.y) + G);
-      let fz = M * (K * (g.target.z - P.z) - C * (pv.z - g.tv.z));
-      const fl = Math.hypot(fx, fy, fz), FM = 260;
-      if (fl > FM) { fx *= FM / fl; fy *= FM / fl; fz *= FM / fl; }
-      b.applyImpulseAtPoint({ x: fx * DT, y: fy * DT, z: fz * DT }, P, true);
-      // ぶらぶら揺れすぎないよう全身を少しだけ落ち着かせる
-      for (const p of partList) { if (p.ghost) continue; const av = p.body.angvel(); p.body.setAngvel({ x: av.x * 0.985, y: av.y * 0.985, z: av.z * 0.985 }, true); }
+      const g = sim.grab, h = g.hand.translation();
+      // 指が飛んでも急に引っぱらないよう、速さ（秒速9m）と加速の上限をつけて追いかける（急な動きで体が回りすぎない）
+      const hv = g.hv || (g.hv = { x: 0, y: 0, z: 0 });
+      let wx = (g.target.x - h.x) * 18, wy = (g.target.y - h.y) * 18, wz = (g.target.z - h.z) * 18;
+      const ws = Math.hypot(wx, wy, wz); if (ws > 9) { wx *= 9 / ws; wy *= 9 / ws; wz *= 9 / ws; }
+      let ax = wx - hv.x, ay = wy - hv.y, az = wz - hv.z;
+      const as = Math.hypot(ax, ay, az), am = 70 * DT; if (as > am) { ax *= am / as; ay *= am / as; az *= am / as; }
+      hv.x += ax; hv.y += ay; hv.z += az;
+      const dx = hv.x * DT, dy = hv.y * DT, dz = hv.z * DT;
+      g.hand.setNextKinematicTranslation({ x: h.x + dx, y: h.y + dy, z: h.z + dz });
     }
 
     if (st === 'held') {
-      setGains(0.55, 0.6, 1);
-      const tt = sim.time;
-      // 体をつままれた時: 脚はだらんと下げ、ときどきゆっくり宙をかく（嫌がらない）
+      // つままれた時: 全身の力を抜いて、だらんとぶら下がる（脚もしっぽも重さのまま）
+      const k = smooth(t / 0.25);
+      setGains(0.6 - 0.592 * k, 0.6 - 0.45 * k, 0.7);
       for (const L of LEGS) {
-        const ph = tt * 3.2 + (L.front ? 0 : Math.PI) + (L.s > 0 ? 0 : Math.PI / 2);
-        const pad = sim.paddle * Math.sin(ph);
-        if (L.front) legPose(L, 0.05, -0.35 + 0.35 * pad, -0.35 - 0.25 * Math.max(0, pad), 0.5);
-        else legPose(L, 0.05, -0.15 + 0.3 * pad, 0.35 + 0.25 * Math.max(0, -pad), -0.3);
+        if (L.front) legPose(L, 0.03, -0.15, -0.25, 0.3);
+        else legPose(L, 0.03, -0.2, 0.35, -0.2);
       }
       joints.spP.target = 0; joints.spY.target = 0; joints.spR.target = 0;
-      // 胴は水平に近づける（ぶら下がっても気持ちよさそうに）
-      orientAssist('chest', { x: 0, y: 1, z: 0 }, 1.2, 0.06, 0.8);
-      orientAssist('hips', { x: 0, y: 1, z: 0 }, 1.0, 0.05, 0.7);
-      aimHead(1);
-      sim.paddle = Math.max(0, (sim.paddle || 0) - DT * 0.3);
+      aimHead(0.5);
+      // 揺れはすぐおさまる（ばたばたさせない）
+      for (const p of partList) {
+        if (p.ghost) continue;
+        const w = p.body.angvel(); p.body.setAngvel({ x: w.x * 0.97, y: w.y * 0.97, z: w.z * 0.97 }, true);
+      }
       if (!sim.grab) { setState('air'); sim.airT = 0; }
     }
     else if (st === 'air') {
@@ -483,15 +479,21 @@ export function createCat(R, opt = {}) {
   // つまむ・動かす・放す
   sim.grab = null;
   sim.startGrab = (part, worldPoint) => {
+    // 頭や脚の軽い所を引っぱると暴れるので、頭・前脚は胸（首の後ろ）、後ろ脚は腰を持ったことにする
+    if (part.name === 'head' || part.name === 'nk' || /FL|FR/.test(part.name)) part = parts.chest;
+    else if (/HL|HR/.test(part.name) || part.name.startsWith('sp')) part = parts.hips;
     const b = part.body, t = b.translation(), q = b.rotation(), iq = { x: -q.x, y: -q.y, z: -q.z, w: q.w };
     const local = rotV(iq, { x: worldPoint.x - t.x, y: worldPoint.y - t.y, z: worldPoint.z - t.z });
-    sim.grab = { part, local, target: { ...worldPoint }, tv: { x: 0, y: 0, z: 0 } };
-    sim.paddle = 1;
+    const hand = world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(worldPoint.x, worldPoint.y, worldPoint.z));
+    const joint = world.createImpulseJoint(R.JointData.spherical(local, { x: 0, y: 0, z: 0 }), b, hand, true);
+    sim.grab = { part, local, target: { ...worldPoint }, hand, joint };
     setState('held');
   };
-  sim.moveGrab = (p, v) => { if (!sim.grab) return; sim.grab.target = { ...p }; sim.grab.tv = v ? { ...v } : { x: 0, y: 0, z: 0 }; };
+  sim.moveGrab = p => { if (sim.grab) sim.grab.target = { ...p }; };
   sim.release = (maxV = 6.5) => {
     if (!sim.grab) return;
+    world.removeImpulseJoint(sim.grab.joint, true);
+    world.removeRigidBody(sim.grab.hand);
     sim.grab = null;
     // 投げる速さに上限
     for (const p of partList) {
