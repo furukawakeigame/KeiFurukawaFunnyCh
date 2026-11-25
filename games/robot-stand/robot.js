@@ -96,7 +96,7 @@ export function createSim(R) {
     world, parts, partList, joints, colliderPart, totalMass, DT,
     state: 'stand', stateT: 0, tilt: 0, stagger: 0, time: 0,
     com: { x: 0, y: 0, z: 0 }, comV: { x: 0, y: 0, z: 0 },
-    swing: null, stepCool: 0, settleLeft: 4, flap: 0, hits: [], balls: [], onStep: null, onFall: null, onGetup: null, onLand: null,
+    swing: null, stepCool: 0, settleLeft: 4, flap: 0, stun: 0, stunK: 0, stunDur: 1, hits: [], balls: [], onStep: null, onFall: null, onGetup: null, onLand: null,
   };
   const feet = [{ s: -1, k: 'R' }, { s: 1, k: 'L' }];
 
@@ -286,9 +286,11 @@ export function createSim(R) {
           joints['elb' + k].target += -0.4 * sim.flap * (1 + Math.sin(sim.time * 11 + ph));
         }
       }
-      setGains(1);
-      uprightAssist('torso', 250, 30, 45);
-      uprightAssist('pelvis', 120, 10, 25);
+      // 当たった直後（stun）は、上体・腕・脚の力と立て直しの補助を一時的に弱める
+      const sn = sim.stun > 0 ? sim.stunK * Math.pow(sim.stun / sim.stunDur, 0.7) : 0;
+      setGains(1 - 0.75 * sn, 1 - 0.5 * sn, 1 - 0.85 * sn);
+      uprightAssist('torso', 250 * (1 - sn), 30 * (1 - sn), 45 * (1 - sn));
+      uprightAssist('pelvis', 120 * (1 - sn), 10 * (1 - sn), 25 * (1 - sn));
       if (sim.tilt > 0.7 || pt.y < 0.62) { setState('fallen'); sim.swing = null; if (sim.onFall) sim.onFall(); }
     } else if (st === 'fallen') {
       setGains(0.03, 0.03, 0.03);
@@ -333,14 +335,25 @@ export function createSim(R) {
 
   sim.step = () => {
     control();
+    for (const b of sim.balls) b.pv = b.body.linvel();
     world.step(events);
+    if (sim.stun > 0) sim.stun = Math.max(0, sim.stun - DT);
     sim.stateT += DT; sim.time += DT;
     sim.hits.length = 0;
     events.drainCollisionEvents((h1, h2, started) => {
       if (!started) return;
       const b1 = sim.balls.find(b => b.collider.handle === h1 || b.collider.handle === h2);
       const p = colliderPart.get(h1) || colliderPart.get(h2);
-      if (b1 && p) sim.hits.push({ ball: b1, part: p });
+      if (b1 && p) {
+        sim.hits.push({ ball: b1, part: p });
+        // 当たった瞬間は力を抜いて、ボールの勢いに体が持っていかれるようにする
+        const v = p.body.linvel(), pv = b1.pv || v;
+        const k = clamp(Math.hypot(pv.x - v.x, pv.y - v.y, pv.z - v.z) * b1.mass / 24, 0, 1);
+        if (k > 0.15 && sim.state === 'stand') {
+          const s = sim.stun > 0 ? sim.stunK * sim.stun / sim.stunDur : 0;
+          sim.stunK = Math.max(s, k); sim.stunDur = 0.3 + 0.3 * k; sim.stun = sim.stunDur;
+        }
+      }
       else if (b1) sim.hits.push({ ball: b1, part: null });
       else if (p) sim.hits.push({ ball: null, part: p }); // ロボットと地面（自分どうしは当たらない）
     });
@@ -350,7 +363,7 @@ export function createSim(R) {
     const b = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z).setLinvel(vel.x, vel.y, vel.z).setCcdEnabled(true).setAngularDamping(0.5));
     const c = world.createCollider(R.ColliderDesc.ball(r).setMass(mass).setRestitution(0.45).setFriction(0.5)
       .setCollisionGroups(BALL).setActiveEvents(R.ActiveEvents.COLLISION_EVENTS), b);
-    const ball = { body: b, collider: c, r, age: 0 };
+    const ball = { body: b, collider: c, r, age: 0, mass };
     sim.balls.push(ball);
     return ball;
   };
