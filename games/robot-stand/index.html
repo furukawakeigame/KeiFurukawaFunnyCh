@@ -602,11 +602,12 @@ function throwAt(cx, cy, power = 0) {
   const vel = d.divideScalar(T); vel.y += 0.5 * 9.81 * T;
   // 古いボールから片付ける
   if (sim.balls.length >= MAX_BALLS) removeBall(ballPool.find(b => b.ball === sim.balls[0]));
-  const ball = sim.throwBall(from, vel, BALL_R, 1.6);
+  // 長押しで重く・大きく（2.5〜9kg、半径11〜16cm。重さは押し始めはゆっくり増える）
+  const r = BALL_R * (1 + 0.45 * power), ball = sim.throwBall(from, vel, r, 2.5 + 6.5 * power * power);
   ball.prevVel = { x: vel.x, y: vel.y, z: vel.z };
   const slotB = ballPool.find(b => !b.ball);
   slotB.ball = ball; ball.view = slotB;
-  slotB.cp.copy(from); slotB.pp.copy(from); slotB.cq.identity(); slotB.pq.identity(); slotB.mesh.scale.setScalar(1);
+  slotB.cp.copy(from); slotB.pp.copy(from); slotB.cq.identity(); slotB.pq.identity(); slotB.mesh.scale.setScalar(r / BALL_R); slotB.base = r / BALL_R;
   whoosh(power);
   aimRing.position.copy(target); if (normal) aimRing.lookAt(target.clone().add(normal)); else aimRing.lookAt(camera.position);
   aimT = 0;
@@ -638,7 +639,8 @@ function handleHits() {
         const pp = h.part.body.translation();
         tmpV.set(bp.x, bp.y, bp.z).lerp(new THREE.Vector3(pp.x, pp.y, pp.z), 0.35);
         spawnSpark(tmpV, Math.round(4 + 10 * k), 0.4 + k);
-        clank(0.25 + 0.75 * k, h.part.name === 'head' ? 1.25 : h.part.name.startsWith('fore') || h.part.name.startsWith('upper') ? 1.4 : 1);
+        // 重いボールほど低く重い音
+        clank(0.25 + 0.75 * k, (h.part.name === 'head' ? 1.25 : h.part.name.startsWith('fore') || h.part.name.startsWith('upper') ? 1.4 : 1) * Math.pow(2.5 / b.mass, 0.25));
         if (sim.state === 'stand' && k > 0.45) {
           if (voiceCool <= 0) { ouch(k); voiceCool = 0.5; }
           setFace('hit'); faceT = 0.55;
@@ -685,7 +687,7 @@ function frame(now) {
     b.mesh.position.lerpVectors(b.pp, b.cp, a); b.mesh.quaternion.slerpQuaternions(b.pq, b.cq, a);
     // 古いボールは小さくなって消える
     const age = b.ball.age;
-    if (age > 7) b.mesh.scale.setScalar(Math.max(0.01, 1 - (age - 7) / 0.5));
+    if (age > 7) b.mesh.scale.setScalar(b.base * Math.max(0.01, 1 - (age - 7) / 0.5));
     if (age > 7.5 || b.cp.y < -3) removeBall(b);
   }
   // 顔

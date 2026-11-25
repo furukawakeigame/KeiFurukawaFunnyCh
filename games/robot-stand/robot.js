@@ -12,6 +12,7 @@ export function createSim(R) {
 
   // ---- 寸法（メートル）----
   const HIP_X = 0.1, HIP_Y = 0.87, KNEE_Y = 0.47, ANKLE_Y = 0.09, L1 = HIP_Y - KNEE_Y, L2 = KNEE_Y - ANKLE_Y;
+  const KNOCKOUT = 150; // これより強い一撃（kg·m/s）は一発で吹っ飛ぶ
   const SETTLE_PRE = 0.3, SETTLE_DUR = 0.75; // そろえる時: 先に体重を移す時間・足を運ぶ時間
   const SETTLE_TOL = 0.03, STEP_H = 0.21, SETTLE_H = 0.08; // 直し始めるずれ・足を上げる高さ
   const PELVIS_Y = 0.92, STAND_H = 0.905, SH_X = 0.25, SH_Y = 1.38, ELB_Y = 1.09, NECK_Y = 1.46;
@@ -97,7 +98,7 @@ export function createSim(R) {
     world, parts, partList, joints, colliderPart, totalMass, DT,
     state: 'stand', stateT: 0, tilt: 0, stagger: 0, time: 0,
     com: { x: 0, y: 0, z: 0 }, comV: { x: 0, y: 0, z: 0 },
-    swing: null, stepCool: 0, settleLeft: 4, flap: 0, postSettle: 0, stun: 0, stunK: 0, stunDur: 1, hits: [], balls: [], onStep: null, onFall: null, onGetup: null, onLand: null,
+    swing: null, stepCool: 0, settleLeft: 4, flap: 0, koT: 0, postSettle: 0, stun: 0, stunK: 0, stunDur: 1, hits: [], balls: [], onStep: null, onFall: null, onGetup: null, onLand: null,
   };
   const feet = [{ s: -1, k: 'R' }, { s: 1, k: 'L' }];
 
@@ -310,7 +311,10 @@ export function createSim(R) {
       uprightAssist('pelvis', 120 * (1 - sn), 10 * (1 - sn), 25 * (1 - sn));
       if (sim.tilt > 0.7 || pt.y < 0.62) { setState('fallen'); sim.swing = null; if (sim.onFall) sim.onFall(); }
     } else if (st === 'fallen') {
-      setGains(0.03, 0.03, 0.03);
+      // 吹っ飛んだ直後は少しだけ体を固めておき、全身ごと飛ばす（すぐぐにゃっとさせると上体だけ折れる）
+      sim.koT -= DT;
+      const kg = sim.koT > 0 ? 0.5 : 0.03;
+      setGains(kg, kg, kg);
       // 力が抜けた姿勢（少しだけ縮こまる）
       for (const j of jointList) j.target = 0;
       for (const k of ['R', 'L']) { joints['knee' + k].target = 0.4; joints['hipP' + k].target = -0.3; joints['elb' + k].target = -0.5; }
@@ -365,7 +369,10 @@ export function createSim(R) {
         sim.hits.push({ ball: b1, part: p });
         // 当たった瞬間は力を抜いて、ボールの勢いに体が持っていかれるようにする
         const v = p.body.linvel(), pv = b1.pv || v;
-        const k = clamp(Math.hypot(pv.x - v.x, pv.y - v.y, pv.z - v.z) * b1.mass / 24, 0, 1);
+        const J = Math.hypot(pv.x - v.x, pv.y - v.y, pv.z - v.z) * b1.mass; // ぶつかった勢い（運動量）
+        const k = clamp(J / 40, 0, 1);
+        // とても強い一撃は、踏ん張らずにそのまま吹っ飛ぶ
+        if (J > KNOCKOUT && sim.state !== 'fallen') { setState('fallen'); sim.swing = null; sim.koT = 0.3; if (sim.onFall) sim.onFall(); }
         if (k > 0.15 && sim.state === 'stand') {
           const s = sim.stun > 0 ? sim.stunK * sim.stun / sim.stunDur : 0;
           sim.stunK = Math.max(s, k); sim.stunDur = 0.3 + 0.3 * k; sim.stun = sim.stunDur;
