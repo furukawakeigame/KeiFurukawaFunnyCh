@@ -5,7 +5,7 @@ export function createCat(R, opt = {}) {
   const DT = 1 / 120, G = 9.81;
   const world = new R.World({ x: 0, y: -G, z: 0 });
   world.timestep = DT;
-  world.integrationParameters.numSolverIterations = 10;
+  world.integrationParameters.numSolverIterations = 25;
 
   const GROUND = (0x1 << 16) | 0xffff, CAT = (0x2 << 16) | 0x1, NONE = 0;
   const ROOM = 6; // 投げても遠くへ行きすぎない見えない壁（半分の広さ）
@@ -21,7 +21,7 @@ export function createCat(R, opt = {}) {
   const QX90 = { x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 };
   function part(name, shape, pos, mass, o = {}) {
     const b = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos[0], pos[1], pos[2])
-      .setLinearDamping(0.05).setAngularDamping(0.4).setCanSleep(false).setCcdEnabled(!o.ghost));
+      .setLinearDamping(0.01).setAngularDamping(0.02).setCanSleep(false).setCcdEnabled(!o.ghost));
     let cd;
     if (shape[0] === 'capz') cd = R.ColliderDesc.capsule(shape[2], shape[1]).setRotation(QX90);
     else if (shape[0] === 'cap') cd = R.ColliderDesc.capsule(shape[2], shape[1]);
@@ -44,10 +44,10 @@ export function createCat(R, opt = {}) {
 
   // 脚: 付け根（abd ＝ 横に開く）→ 上 → 下 → 足先（肉球の玉）
   const LEGS = [
-    { k: 'FL', s: 1, front: true, x: 0.042, z: 0.105, y0: 0.205, y1: 0.12, y2: 0.045, paw: [0.02, 0.012], body: 'chest' },
-    { k: 'FR', s: -1, front: true, x: 0.042, z: 0.105, y0: 0.205, y1: 0.12, y2: 0.045, paw: [0.02, 0.012], body: 'chest' },
-    { k: 'HL', s: 1, front: false, x: 0.048, z: -0.125, y0: 0.245, y1: 0.16, y2: 0.075, paw: [0.02, 0.018], body: 'hips' },
-    { k: 'HR', s: -1, front: false, x: 0.048, z: -0.125, y0: 0.245, y1: 0.16, y2: 0.075, paw: [0.02, 0.018], body: 'hips' },
+    { k: 'FL', s: 1, front: true, x: 0.054, z: 0.105, y0: 0.205, y1: 0.12, y2: 0.045, paw: [0.02, 0.012], body: 'chest' },
+    { k: 'FR', s: -1, front: true, x: 0.054, z: 0.105, y0: 0.205, y1: 0.12, y2: 0.045, paw: [0.02, 0.012], body: 'chest' },
+    { k: 'HL', s: 1, front: false, x: 0.058, z: -0.125, y0: 0.245, y1: 0.16, y2: 0.075, paw: [0.02, 0.018], body: 'hips' },
+    { k: 'HR', s: -1, front: false, x: 0.058, z: -0.125, y0: 0.245, y1: 0.16, y2: 0.075, paw: [0.02, 0.018], body: 'hips' },
   ];
   for (const L of LEGS) {
     const x = L.s * L.x;
@@ -57,7 +57,7 @@ export function createCat(R, opt = {}) {
     part('up' + L.k, ['cap', L.front ? 0.02 : 0.024, L.l1 / 2 - 0.015], [x, (L.y0 + L.y1) / 2, L.z], L.front ? 0.11 : 0.15);
     part('lo' + L.k, ['cap', L.front ? 0.015 : 0.016, L.l2 / 2 - 0.012], [x, (L.y1 + L.y2) / 2, L.z], L.front ? 0.07 : 0.08);
     // 足先の体の中心 = 足首。肉球の玉はそこから下にずらす
-    part('paw' + L.k, ['ball', 0.019], [x, L.y2, L.z], 0.045, { offset: [0, L.paw[0] - L.y2, L.paw[1]], friction: 1.4 });
+    part('paw' + L.k, ['ball', 0.019], [x, L.y2, L.z], 0.045, { offset: [0, L.paw[0] - L.y2, L.paw[1]], friction: 3.0 });
   }
 
   // ---- 関節 ----
@@ -70,21 +70,21 @@ export function createCat(R, opt = {}) {
     const j = world.createImpulseJoint(R.JointData.revolute(la, lb, AX[axis]), A.body, B.body, true);
     j.setLimits(lo, hi);
     j.configureMotorModel(R.MotorModel.ForceBased);
-    const jj = { name, j, kp, kd, target: 0, lo, hi, gain: 1 };
+    const jj = { name, j, kp, kd, target: 0, lo, hi, gain: 1, a, b, axis };
     joints[name] = jj;
     return jj;
   }
   rev('spP', 'chest', 'sp1', SPINE, 'x', -0.7, 0.7, 30, 0.6);
   rev('spY', 'sp1', 'sp2', SPINE, 'y', -0.7, 0.7, 25, 0.5);
-  rev('spR', 'sp2', 'hips', SPINE, 'z', -0.9, 0.9, 25, 0.5);
+  rev('spR', 'sp2', 'hips', SPINE, 'z', -3.0, 3.0, 25, 0.5); // 背骨のひねり（空中で体を回すのに使う）
   rev('nkP', 'chest', 'nk', NECK, 'x', -0.9, 0.9, 6, 0.12);
   rev('nkY', 'nk', 'head', NECK, 'y', -1.1, 1.1, 4, 0.08);
   for (const L of LEGS) {
     const x = L.s * L.x;
-    rev('ab' + L.k, L.body, 'abd' + L.k, [x, L.y0, L.z], 'z', -0.7, 0.7, 14, 0.25);
-    rev('hp' + L.k, 'abd' + L.k, 'up' + L.k, [x, L.y0, L.z], 'x', L.front ? -2.0 : -2.3, L.front ? 2.0 : 1.3, 22, 0.4);
-    rev('kn' + L.k, 'up' + L.k, 'lo' + L.k, [x, L.y1, L.z], 'x', L.front ? -2.7 : -0.05, L.front ? 0.05 : 2.7, 20, 0.35);
-    rev('an' + L.k, 'lo' + L.k, 'paw' + L.k, [x, L.y2, L.z], 'x', -2.3, 2.3, 6, 0.1);
+    rev('ab' + L.k, L.body, 'abd' + L.k, [x, L.y0, L.z], 'z', -1.9, 1.9, 50, 0.6);
+    rev('hp' + L.k, 'abd' + L.k, 'up' + L.k, [x, L.y0, L.z], 'x', L.front ? -2.0 : -2.3, L.front ? 2.0 : 1.3, 30, 0.45);
+    rev('kn' + L.k, 'up' + L.k, 'lo' + L.k, [x, L.y1, L.z], 'x', L.front ? -2.7 : -0.05, L.front ? 0.05 : 2.7, 28, 0.4);
+    rev('an' + L.k, 'lo' + L.k, 'paw' + L.k, [x, L.y2, L.z], 'x', -2.3, 2.3, L.front ? 14 : 30, L.front ? 0.2 : 0.4);
   }
   const jointList = Object.values(joints);
 
@@ -108,7 +108,8 @@ export function createCat(R, opt = {}) {
     grab: null, look: null, walkTo: null, airT: 0, onLand: null, onStep: null, onState: null, purr: 0,
   };
   const legBy = {}; for (const L of LEGS) legBy[L.k] = L;
-  const PAIRS = [['FL', 'HR'], ['FR', 'HL']];
+  const STRIDE = 0.04; // 歩く時、1歩で足を前へ出す量（m）
+  const ORDER = ['HL', 'FL', 'HR', 'FR']; // 歩く時に足を出す順（後ろ左 → 前左 → 後ろ右 → 前右）
 
   function measure() {
     let m = 0, cx = 0, cy = 0, cz = 0, vx = 0, vy = 0, vz = 0;
@@ -175,38 +176,34 @@ export function createCat(R, opt = {}) {
     legIK(L, frameLocal(F, anchor, A), ankAdd);
   }
 
-  // 体の「上」を target の向きへ回す補助（上限つき）
-  function orientAssist(name, target, kp, kd, max, fwdT = null, kpY = 0) {
-    const b = parts[name].body, q = b.rotation(), up = rotV(q, { x: 0, y: 1, z: 0 }), w = b.angvel();
-    let ax = up.y * target.z - up.z * target.y, ay = up.z * target.x - up.x * target.z, az = up.x * target.y - up.y * target.x;
-    const sl = Math.hypot(ax, ay, az), ang = Math.atan2(sl, up.x * target.x + up.y * target.y + up.z * target.z);
-    if (sl > 1e-6) { ax /= sl; ay /= sl; az /= sl; } else if (ang > 3) { const f = rotV(q, { x: 0, y: 0, z: 1 }); ax = f.x; ay = f.y; az = f.z; } else { ax = ay = az = 0; }
-    let tx = kp * ang * ax - kd * w.x, ty = kp * ang * ay - kd * w.y, tz = kp * ang * az - kd * w.z;
-    if (fwdT !== null) { // 向き（ヨー）もそろえる
-      const f = rotV(q, { x: 0, y: 0, z: 1 }), yw = Math.atan2(f.x, f.z);
-      ty += kpY * angDiff(fwdT, yw);
-    }
-    const tl = Math.hypot(tx, ty, tz);
-    if (tl > max) { tx *= max / tl; ty *= max / tl; tz *= max / tl; }
-    b.applyTorqueImpulse({ x: tx * DT, y: ty * DT, z: tz * DT }, true);
+  // 関節の今の角度（2つの体の向きの差から）
+  const qmul = (a, b) => ({ w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z, x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x, z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w });
+  function jAngle(jj) {
+    const qa = parts[jj.a].body.rotation(), qb = parts[jj.b].body.rotation();
+    let r = qmul({ w: qa.w, x: -qa.x, y: -qa.y, z: -qa.z }, qb);
+    if (r.w < 0) r = { w: -r.w, x: -r.x, y: -r.y, z: -r.z };
+    return 2 * Math.atan2(r[jj.axis], r.w);
   }
-  const pitchUp = (yaw, a) => ({ x: -Math.sin(yaw) * Math.sin(a), y: Math.cos(a), z: -Math.cos(yaw) * Math.sin(a) }); // a>0 で鼻が上
+  // 体（胸・腰）を、前後の軸のまわりにどれだけ回せば背中が上になるか
+  function rollErr(name) {
+    const q = parts[name].body.rotation(), r = rotV(q, { x: 1, y: 0, z: 0 }), u = rotV(q, { x: 0, y: 1, z: 0 });
+    return Math.atan2(-r.y, u.y);
+  }
   function setGains(legs, spine = legs, neck = 1) {
     for (const j of jointList) j.gain = /^(ab|hp|kn|an)/.test(j.name) ? legs : /^sp/.test(j.name) ? spine : neck;
   }
   function setState(s) {
     const prev = sim.state;
     sim.state = s; sim.stateT = 0;
-    if (s === 'stand') { sim.mode = 'idle'; sim.modeT = 0; sim.holdYaw = null; sim.home = null; resetPlants(); }
+    if (s === 'stand') { sim.mode = 'idle'; sim.modeT = 0; sim.holdYaw = null; sim.crouch = null; resetPlants(); }
     if (sim.onState) sim.onState(s, prev);
   }
   function resetPlants() {
     for (const L of LEGS) { L.plant = { x: L.pawPos.x, z: L.pawPos.z }; L.swing = null; }
-    sim.nextPair = 0; sim.stepCool = 0.1;
+    sim.gait = null;
   }
   measure();
   resetPlants();
-  const COFF = parts.chest.home[2] - sim.com.z, HOFF = parts.hips.home[2] - sim.com.z;
 
   // 体の中心（胸と腰）を、その体の「なりたい姿勢」に
   // 足の位置から「体がいるべき所」を出し、今の位置からそちらへ少しずらす（足の真上に体を戻す踏ん張り）
@@ -221,25 +218,44 @@ export function createCat(R, opt = {}) {
     const X = t.x + clamp(dx, -lim, lim), Z = t.z + clamp(dz, -lim, lim);
     return { x: X, y: y + Math.max(floorAt(X, Z), floorAt(ax, az)), z: Z, yaw, pitch };
   }
+  // 体全体の「いるべき所」: 4本の足の真ん中から重心の位置を決め、胸と腰はそこから背骨まっすぐの位置に置く（前脚と後ろ脚が押し合わない）
+  const COM0 = (() => { let m = 0, z = 0; for (const p of partList) { m += p.mass; z += p.home[2] * p.mass; } return z / m; })();
+  const FEET0 = LEGS.reduce((a, L) => a + L.z + L.paw[1], 0) / 4;
+  function bodyFrames(Hc, Hh, yaw, pc, ph, ref, shift, lim = 0.06) {
+    const c = Math.sin(yaw), k = Math.cos(yaw);
+    let dx, dz, vx = 0, vz = 0;
+    if (ref) { dx = ref.x - sim.com.x; dz = ref.z - sim.com.z; vx = ref.vx; vz = ref.vz; }
+    else {
+      let fx = 0, fz = 0; for (const L of LEGS) { fx += L.plant.x / 4; fz += L.plant.z / 4; }
+      dx = fx + (COM0 - FEET0) * c - sim.com.x; dz = fz + (COM0 - FEET0) * k - sim.com.z;
+    }
+    // 速さのずれのぶんだけ逆へ（行きすぎて揺れないように）
+    const X = sim.com.x + clamp(dx - (sim.comV.x - vx) * 0.2, -lim, lim) + (shift ? shift.x : 0);
+    const Z = sim.com.z + clamp(dz - (sim.comV.z - vz) * 0.2, -lim, lim) + (shift ? shift.z : 0);
+    const at = (name, y, pitch) => { const o = parts[name].home[2] - COM0, x = X + o * c, z = Z + o * k; return { x, y: y + floorAt(x, z), z, yaw, pitch }; };
+    return [at('chest', Hc, -pc), at('hips', Hh, -ph)];
+  }
   // 立つ時の肉球の決まった位置（体の座標）
   function nominal(L, F, lead = { x: 0, z: 0 }) {
     const home = parts[L.body].home, c = Math.cos(F.yaw), s = Math.sin(F.yaw);
-    const lx = L.s * (L.front ? 0.045 : 0.05), lz = L.z - home[2] + L.paw[1] + (L.front ? 0.0 : 0.005);
+    const lx = L.s * (L.x + 0.004), lz = L.z - home[2] + L.paw[1] + (L.front ? 0.0 : 0.005);
     return { x: F.x + lx * c + lz * s + lead.x, z: F.z - lx * s + lz * c + lead.z };
   }
 
-  // 体を持ち上げる・まっすぐにする補助
-  function support(name, F, upT, k = 1) {
-    const b = parts[name].body, t = b.translation(), v = b.linvel(), m = name === 'chest' ? 1.6 : 1.5;
-    const fy = m * (G * 0.35 + 90 * (F.y - t.y) - 9 * v.y) * k;
-    b.applyImpulse({ x: 0, y: clamp(fy, -m * G, m * G * 1.2) * DT, z: 0 }, true);
-    orientAssist(name, upT, 3.5 * k, 0.18 * k, 2.5 * k, F.yaw, 1.5 * k);
+  // 足が遠くて脚が伸びきってしまう時は、体を低くして脚に余裕を残す（伸びきった脚はつっかえ棒になって体を押してしまう）
+  function fitHeight(F, list) {
+    let y = F.y;
+    for (const [L, P] of list) {
+      const home = parts[L.body].home, c = Math.cos(F.yaw), s = Math.sin(F.yaw);
+      const ax = L.s * L.x - home[0], az = L.z - home[2];
+      const Wx = F.x + ax * c + az * s, Wz = F.z - ax * s + az * c;
+      const Ax = P.x + L.pawOff.z * s, Az = P.z + L.pawOff.z * c, Ay = P.y + L.pawOff.y;
+      const dh2 = (Ax - Wx) ** 2 + (Az - Wz) ** 2, reach = 0.93 * (L.l1 + L.l2);
+      const v = Math.sqrt(Math.max(reach * reach - dh2, 0.0025));
+      y = Math.min(y, Ay + v - (L.y0 - home[1]));
+    }
+    return { ...F, y };
   }
-  function pushToward(name, vx, vz, k) {
-    const b = parts[name].body, v = b.linvel(), m = name === 'chest' ? 1.6 : 1.5;
-    b.applyImpulse({ x: clamp(m * k * (vx - v.x), -8, 8) * DT, y: 0, z: clamp(m * k * (vz - v.z), -8, 8) * DT }, true);
-  }
-
   // 頭の向き（見る先）
   function aimHead(gain = 1) {
     let p = 0, y = 0;
@@ -268,7 +284,8 @@ export function createCat(R, opt = {}) {
       // 指が飛んでも急に引っぱらないよう、速さ（秒速9m）と加速の上限をつけて追いかける（急な動きで体が回りすぎない）
       const hv = g.hv || (g.hv = { x: 0, y: 0, z: 0 });
       let wx = (g.target.x - h.x) * 18, wy = (g.target.y - h.y) * 18, wz = (g.target.z - h.z) * 18;
-      const ws = Math.hypot(wx, wy, wz); if (ws > 9) { wx *= 9 / ws; wy *= 9 / ws; wz *= 9 / ws; }
+      const VM = 6.5; // 投げる速さの上限（つまむ点が動ける速さ）
+      const ws = Math.hypot(wx, wy, wz); if (ws > VM) { wx *= VM / ws; wy *= VM / ws; wz *= VM / ws; }
       let ax = wx - hv.x, ay = wy - hv.y, az = wz - hv.z;
       const as = Math.hypot(ax, ay, az), am = 70 * DT; if (as > am) { ax *= am / as; ay *= am / as; az *= am / as; }
       hv.x += ax; hv.y += ay; hv.z += az;
@@ -286,188 +303,236 @@ export function createCat(R, opt = {}) {
       }
       joints.spP.target = 0; joints.spY.target = 0; joints.spR.target = 0;
       aimHead(0.5);
-      // 揺れはすぐおさまる（ばたばたさせない）
-      for (const p of partList) {
-        if (p.ghost) continue;
-        const w = p.body.angvel(); p.body.setAngvel({ x: w.x * 0.97, y: w.y * 0.97, z: w.z * 0.97 }, true);
-      }
-      if (!sim.grab) { setState('air'); sim.airT = 0; }
+      if (!sim.grab) { setState('air'); sim.air = { phase: 'twist' }; }
     }
-    else if (st === 'air') {
-      sim.airT += DT;
-      // 立ち直り反射: まず前半身（胸）が回り、少し遅れて後ろ半身（腰）が回る
-      const k = Math.min(1, t / 0.04);
-      const kh = smooth((t - 0.05) / 0.08);
-      setGains(0.9, 0.35 + 0.65 * kh, 1);
-      orientAssist('chest', { x: 0, y: 1, z: 0 }, 9 * k, 0.5 * k, 5);
-      if (kh > 0) orientAssist('hips', { x: 0, y: 1, z: 0 }, 8 * kh, 0.45 * kh, 4.5 * kh);
-      const done = upright;
-      for (const L of LEGS) {
-        if (!done) {
-          // 回っている間は前脚をたたみ、後ろ脚は伸ばす
-          if (L.front) legPose(L, 0.1, -0.6, -1.2, 0.9);
-          else legPose(L, 0.15, -0.2, 0.3, -0.2);
-        } else {
-          // 回り終わったら4本とも下へ伸ばして着地の準備
-          if (L.front) legPose(L, 0.12, -0.25, -0.15, 0.4);
-          else legPose(L, 0.12, -0.45, 0.75, -0.3);
-        }
-      }
-      joints.spP.target = done ? -0.05 : 0.15; joints.spY.target = 0; joints.spR.target = 0;
-      sim.look = null; joints.nkP.target = 0.35; joints.nkY.target = 0;
-      // 回り終わったら回転を止める
-      if (done) for (const n of ['chest', 'hips']) { const b = parts[n].body, w = b.angvel(); b.applyTorqueImpulse({ x: -0.02 * w.x * DT * 60, y: -0.02 * w.y * DT * 60, z: -0.02 * w.z * DT * 60 }, true); }
-      if ((sim.grounded > 0 || sim.bodyLow) && t > 0.03) {
-        const v = sim.comV;
-        sim.landV = Math.hypot(v.x, v.y, v.z);
-        setState('land');
-        for (const L of LEGS) L.plant = { x: L.pawPos.x, z: L.pawPos.z };
-        if (sim.onLand) sim.onLand(sim.landV, upright);
-      }
-    }
-    else if (st === 'land' || st === 'getup') {
-      // 着地: 脚をやわらかくして沈み込み、すぐに4本で立つ。横向きに落ちたら、くるっと起き上がる
-      const getup = st === 'getup';
-      const u = smooth(t / (getup ? 0.6 : 0.35));
-      const boost = getup ? 1 + Math.min(2, t * 0.8) : 1;
-      setGains(getup ? 0.7 : 0.45 + 0.55 * u, 0.8, 1);
-      orientAssist('chest', { x: 0, y: 1, z: 0 }, 7 * boost, 0.4, 4 * boost, yaw, 0);
-      orientAssist('hips', { x: 0, y: 1, z: 0 }, 6.5 * boost, 0.38, 3.5 * boost, yaw, 0);
-      const H = 0.17 + 0.045 * u;
-      const Fc = frameOf('chest', H, yaw, 0), Fh = frameOf('hips', H, yaw, 0);
-      for (const L of LEGS) {
-        const F = L.front ? Fc : Fh;
-        if (!upright) {
-          const n = nominal(L, F);
-          legToward(L, F, { x: n.x, y: floorAt(n.x, n.z) + 0.02, z: n.z });
-        } else {
-          // 足を滑らせないで、決まった位置へじわっと戻す
-          const n = nominal(L, F);
-          L.plant.x += (n.x - L.plant.x) * Math.min(1, DT * 5); L.plant.z += (n.z - L.plant.z) * Math.min(1, DT * 5);
-          legToward(L, F, { x: L.plant.x, y: floorAt(L.plant.x, L.plant.z) + 0.02, z: L.plant.z });
-        }
-      }
-      if (upright) { support('chest', Fc, { x: 0, y: 1, z: 0 }, 0.8 * u + 0.2); support('hips', Fh, { x: 0, y: 1, z: 0 }, 0.8 * u + 0.2); }
-      else if (getup) { // 床から少し浮かせて転がりやすく
-        for (const n of ['chest', 'hips']) parts[n].body.applyImpulse({ x: 0, y: 1.4 * G * 0.4 * DT, z: 0 }, true);
-      }
-      pushToward('chest', 0, 0, upright ? 3 : 1); pushToward('hips', 0, 0, upright ? 3 : 1);
+    else if (st === 'air') airControl(t, upright);
+    else if (st === 'land') {
+      // 着地: 脚をやわらかくして沈み込み、4本で立つ（関節の力だけ）
+      const u = smooth(t / 0.35);
+      setGains(0.5 + 0.5 * u, 0.8, 1);
+      const H = 0.16 + 0.04 * u;
+      let Fc = frameOf('chest', H, yaw, 0, 0.06), Fh = frameOf('hips', H, yaw, 0, 0.06);
+      const pp = L => ({ x: L.plant.x, y: floorAt(L.plant.x, L.plant.z) + 0.02, z: L.plant.z });
+      Fc = fitHeight(Fc, LEGS.filter(L => L.front).map(L => [L, pp(L)])); Fh = fitHeight(Fh, LEGS.filter(L => !L.front).map(L => [L, pp(L)]));
+      for (const L of LEGS) legToward(L, L.front ? Fc : Fh, pp(L)); // 足は着いた所から動かさない（体のほうを足の上へ戻す）
       joints.spP.target = 0; joints.spY.target = 0; joints.spR.target = 0;
       aimHead(0.6);
-      if (!getup && t > 0.12 && !upright) setState('getup');
-      else if (t > (getup ? 0.5 : 0.35) && upright && sim.grounded >= 3) setState('stand');
-      else if (sim.grounded === 0 && !sim.bodyLow && t > 0.1 && sim.height > 0.3) { setState('air'); sim.airT = 0; }
+      if (t > 0.1 && !upright) { setState('getup'); sim.gu = { phase: 'front', t: 0 }; }
+      else if (t > 0.35 && upright && sim.grounded >= 3) setState('stand');
+      else if (sim.grounded === 0 && !sim.bodyLow && t > 0.1 && sim.height > 0.3) { setState('air'); sim.air = { phase: 'twist' }; }
     }
+    else if (st === 'getup') getupControl(t, upright);
     else if (st === 'stand') standControl(fwd, upright);
 
     for (const j of jointList) j.j.configureMotorPosition(j.target, j.kp * j.gain, j.kd * Math.max(j.gain, 0.15));
   }
 
-  // ===== 立っている時: 4本の脚で支え、ずれたら対角の2本ずつ踏み直す。歩く・座る・伸びをする =====
+  // ===== 立っている時: 4本の脚で支え、ずれたら1本ずつ踏み直す。歩く・座る・伸びをする（関節の力だけ） =====
   function standControl(fwd, upright) {
     setGains(1, 1, 1);
     sim.modeT += DT;
-    const yaw = sim.yaw, mode = sim.mode, mt = sim.modeT;
-    // 歩く速さと向き
-    let vx = 0, vz = 0, turn = null;
-    if (mode === 'walk' && sim.walkTo) {
-      const dx = sim.walkTo.x - sim.com.x, dz = sim.walkTo.z - sim.com.z, d = Math.hypot(dx, dz);
-      const want = Math.atan2(dx, dz), err = angDiff(want, yaw);
-      turn = want;
-      const sp = Math.min(0.32, d * 0.8) * Math.max(0, Math.cos(err));
-      vx = fwd.x * sp; vz = fwd.z * sp;
-      if (d < 0.08 || mt > 12) { sim.mode = 'idle'; sim.modeT = 0; sim.walkTo = null; }
-    }
+    const yaw = sim.yaw, mode = sim.mode, mt = sim.modeT, com = sim.com;
     // 座る・伸びの量（なめらかに出入り）
-    sim.sitK = clamp((sim.sitK || 0) + (mode === 'sit' ? DT / 0.7 : -DT / 0.45), 0, 1);
-    sim.strK = clamp((sim.strK || 0) + (mode === 'stretch' && mt < 2.2 ? DT / 0.6 : -DT / 0.6), 0, 1);
-    if (mode === 'stretch' && mt > 3.0) { sim.mode = 'idle'; sim.modeT = 0; }
+    sim.sitK = clamp((sim.sitK || 0) + (mode === 'sit' ? DT / 0.8 : -DT / 0.5), 0, 1);
+    sim.strK = clamp((sim.strK || 0) + (mode === 'stretch' && mt < 2.2 ? DT / 0.7 : -DT / 0.6), 0, 1);
+    if (mode === 'stretch' && mt > 3.2) { sim.mode = 'idle'; sim.modeT = 0; }
     const sit = smooth(sim.sitK), str = smooth(sim.strK);
-
-    const Hc = 0.212 + 0.035 * sit - 0.07 * str, Hh = 0.212 - 0.12 * sit + 0.01 * str;
+    // しゃがみ直し: 足の並びが大きく崩れた時は、いったんお腹を床につけて（体は床が支える）足を全部置き直してから立つ
+    const CR = sim.crouch;
+    if (CR) CR.t += DT;
+    const crK = CR ? (CR.phase === 'down' ? smooth(CR.t / 0.35) : CR.phase === 'up' ? 1 - smooth(CR.t / 0.5) : 1) : 0;
+    const Hc = 0.2 + 0.045 * sit - 0.06 * str - 0.06 * crK, Hh = 0.205 - 0.115 * sit + 0.015 * str - 0.06 * crK;
     const pc = 0.45 * sit - 0.35 * str, ph = 0.95 * sit + 0.15 * str; // 鼻上げ
-    if (turn !== null || sim.holdYaw == null) sim.holdYaw = yaw;
-    const turnYaw = turn !== null ? yaw + clamp(angDiff(turn, yaw), -0.5, 0.5) : yaw + clamp(angDiff(sim.holdYaw, yaw), -0.3, 0.3);
-    const moving = Math.hypot(vx, vz) > 0.02 || (turn !== null && Math.abs(angDiff(turn, yaw)) > 0.2);
-    // 止まっている時は「いるべき所」(home) に体を戻す。押されて大きくずれたら、その分だけ home もずらす
-    const com = sim.com;
-    if (!sim.home || moving) sim.home = { x: com.x, z: com.z };
-    { const hx = com.x - sim.home.x, hz = com.z - sim.home.z, d = Math.hypot(hx, hz); if (d > 0.05) { sim.home.x += hx * (1 - 0.05 / d); sim.home.z += hz * (1 - 0.05 / d); } }
-    const homeF = (name, y, pitch, off) => {
-      const t = parts[name].body.translation(), Y = sim.holdYaw ?? yaw;
-      const dx = sim.home.x + off * Math.sin(Y) - t.x, dz = sim.home.z + off * Math.cos(Y) - t.z;
-      const X = t.x + clamp(dx, -0.04, 0.04), Z = t.z + clamp(dz, -0.04, 0.04);
-      return { x: X, y: y + floorAt(X, Z), z: Z, yaw, pitch };
-    };
-    const wl = { x: vx * 0.25, z: vz * 0.25 };
-    const Fc = moving ? frameOf('chest', Hc, yaw, -pc, 0.04, wl) : homeF('chest', Hc, -pc, COFF);
-    const Fh = moving ? frameOf('hips', Hh, yaw, -ph, 0.04, wl) : homeF('hips', Hh, -ph, HOFF);
 
-    // 踏み直し（座っている時は前脚だけ）
-    sim.stepCool -= DT;
-    const swinging = LEGS.some(L => L.swing);
-    // 着地点: 今の体の位置から、歩く速さぶん先（速すぎる時はさらに先へ出して止まる）
-    const cv = sim.comV, kl = moving ? 0.06 : 0.015, lead = { x: vx * 0.1 + kl * (cv.x - vx), z: vz * 0.1 + kl * (cv.z - vz) };
-    const Ac = moving ? frameOf('chest', Hc, yaw, 0, 0) : { ...Fc, pitch: 0 }, Ah = moving ? frameOf('hips', Hh, yaw, 0, 0) : { ...Fh, pitch: 0 };
-    let worst = 0, worstPair = 0;
-    PAIRS.forEach((pr, i) => {
-      for (const k of pr) {
-        const L = legBy[k], F = L.front ? Ac : Ah, n = nominal(L, F, lead);
-        const e = Math.hypot(L.plant.x - n.x, L.plant.z - n.z);
-        if (e > worst) { worst = e; worstPair = i; }
-      }
-    });
-    const thresh = moving ? 0.0 : 0.03;
-    if (!sim.noStep && !swinging && sim.stepCool <= 0 && worst > thresh && sit < 0.3 && str < 0.3) {
-      const pi = moving ? sim.nextPair : worstPair;
-      for (const k of PAIRS[pi]) {
-        const L = legBy[k];
-        L.swing = { u: 0, start: { ...L.plant }, dur: moving ? 0.2 : 0.18 };
-      }
-      sim.nextPair = 1 - pi;
-      if (sim.onStep) sim.onStep();
+    // 歩く: 足を1本ずつ少し前（行きたい向き）へ置き直す。体は4本の足の真ん中についていく。曲がる時は1歩ごとに向きを少し変える
+    const walking = mode === 'walk' && sim.walkTo && sit < 0.2 && str < 0.2;
+    if (sim.holdYaw == null) sim.holdYaw = yaw;
+    let stride = 0;
+    if (walking) {
+      const dx = sim.walkTo.x - com.x, dz = sim.walkTo.z - com.z, d = Math.hypot(dx, dz);
+      const err = angDiff(Math.atan2(dx, dz), sim.holdYaw);
+      sim.walkErr = err;
+      stride = Math.abs(err) > 0.35 ? 0 : Math.min(STRIDE, d * 0.5);
+      if ((d < 0.05) || mt > 20) { sim.mode = 'idle'; sim.modeT = 0; sim.walkTo = null; }
     }
+    const Y = sim.holdYaw;
+    const lead = { x: Math.sin(Y) * stride, z: Math.cos(Y) * stride };
+
+    // 踏み直し: 1本ずつ（いつも3本で支える）。上げる前に、体を残りの3本の側へ少し寄せる
+    // 足の置き場所: 歩く時は足の真ん中から、止まっている時は体の今の位置から（足の並びが崩れていても体の下へ戻す）
+    const [Ac, Ah] = bodyFrames(Hc, Hh, Y, 0, 0, null, null, walking ? 0.06 : 0);
+    const errOf = L => { const n = nominal(L, L.front ? Ac : Ah); return Math.hypot(L.plant.x - n.x, L.plant.z - n.z); };
+    let worst = 0, worstL = null;
+    for (const L of LEGS) { const e = errOf(L); if (e > worst) { worst = e; worstL = L; } }
+    const G = sim.gait || (sim.gait = { leg: null, phase: 'none', t: 0, next: 0 });
+    G.t += DT;
+    // 足の並びが大きく崩れていたら、しゃがみ直す
+    if (!CR && !walking && G.phase === 'none' && sit < 0.1 && str < 0.1 && (worst > 0.06 || (sim.grounded < 4 && sim.stateT > 0.6 && worst > 0.035))) sim.crouch = { phase: 'down', t: 0, i: 0 };
+    if (CR) {
+      if (CR.phase === 'down' && CR.t > 0.4) { CR.phase = 'shuffle'; CR.t = 0; CR.i = 0; }
+      if (CR.phase === 'shuffle' && !LEGS.some(L => L.swing)) {
+        if (CR.i < 4) { const L = legBy[ORDER[CR.i++]]; L.swing = { u: 0, start: { ...L.plant }, dur: 0.18 }; }
+        else { CR.phase = 'up'; CR.t = 0; }
+      }
+      if (CR.phase === 'up' && CR.t > 0.5) sim.crouch = null;
+    }
+    // 4本とも着いていて体が落ち着いている時だけ足を上げる（揺れている時に上げると倒れる）
+    const calm = sim.grounded === 4 && sim.upC > 0.93 && sim.upH > 0.93 && Math.hypot(sim.comV.x, sim.comV.z) < 0.15;
+    if (G.phase === 'none' && !CR && calm && !sim.noStep && sit < 0.3 && str < 0.3 && (walking || worst > (sim.forceStep ? 0 : 0.03))) {
+      // 歩く時は決まった順（後ろ左 → 前左 → 後ろ右 → 前右）
+      G.leg = walking ? legBy[ORDER[G.next % 4]] : worstL;
+      G.next = (ORDER.indexOf(G.leg.k) + 1) % 4; G.phase = 'shift'; G.t = 0;
+      // 曲がる: 1歩ごとに向きを少し変える
+      if (walking) sim.holdYaw += clamp(sim.walkErr || 0, -0.1, 0.1);
+    }
+    if (G.phase === 'shift' && G.t > (walking ? 0.11 : 0.18)) { G.phase = 'swing'; G.t = 0; G.leg.swing = { u: 0, start: { ...G.leg.plant }, dur: walking ? 0.23 : 0.26 }; if (sim.onStep) sim.onStep(); }
+    // 体を寄せる量: 上げる足のとなり2本を結ぶ対角線から、反対の足の側へ少しだけ（重心が支える三角形の中に入る）
+    let sx = 0, sz = 0;
+    if (G.phase !== 'none' && !CR) {
+      const X = G.leg, adj = LEGS.filter(L => L !== X && (L.front === X.front) !== (L.s === X.s)), opp = LEGS.find(L => L.front !== X.front && L.s !== X.s);
+      const a = adj[0].plant, b = adj[1].plant, ex = b.x - a.x, ez = b.z - a.z, el = Math.hypot(ex, ez) || 1;
+      let nx = -ez / el, nz = ex / el;
+      if ((opp.plant.x - a.x) * nx + (opp.plant.z - a.z) * nz < 0) { nx = -nx; nz = -nz; }
+      const k = G.phase === 'shift' ? smooth(G.t / (walking ? 0.1 : 0.15)) : 1;
+      sx = nx * 0.025 * k; sz = nz * 0.025 * k;
+    }
+    sim.shiftV = sim.shiftV || { x: 0, z: 0 };
+    sim.shiftV.x += (sx - sim.shiftV.x) * Math.min(1, DT * 25); sim.shiftV.z += (sz - sim.shiftV.z) * Math.min(1, DT * 25);
+    const R = null;
+    // 歩く時は、体を足の真ん中より少し前へ（後ろの脚で押して体を前へ運び、足が体より先へ行きすぎない）
+    const bodyLead = walking ? { x: lead.x * 0.8, z: lead.z * 0.8 } : { x: 0, z: 0 };
+    const [Fc, Fh] = bodyFrames(Hc, Hh, Y, pc, ph, R, { x: sim.shiftV.x + bodyLead.x, z: sim.shiftV.z + bodyLead.z });
+
+
+    const goals = [];
     for (const L of LEGS) {
-      const F = L.front ? Fc : Fh;
       let P;
       if (L.swing) {
         const sw = L.swing;
         sw.u += DT / sw.dur;
-        const n = nominal(L, L.front ? Ac : Ah, lead);
-        if (sw.u < 0.7) sw.target = n;
-        const u = smooth(sw.u), h = 0.035 * Math.sin(Math.PI * clamp(sw.u, 0, 1));
-        P = { x: sw.start.x + (sw.target.x - sw.start.x) * u, y: floorAt(sw.start.x, sw.start.z) * (1 - u) + floorAt(sw.target.x, sw.target.z) * u + 0.02 + h, z: sw.start.z + (sw.target.z - sw.start.z) * u };
-        if (sw.u >= 1) { L.plant = { x: sw.target.x, z: sw.target.z }; L.swing = null; sim.stepCool = moving ? 0.0 : 0.12; }
+        if (sw.u < 0.7) sw.target = nominal(L, L.front ? Ac : Ah, lead);
+        // まず真上に上げ、上がってから前へ運び、最後に下ろす（床を引きずると、その反動で体が滑る）
+        const u = smooth((sw.u - 0.25) / 0.55);
+        const h = 0.035 * (sw.u < 0.25 ? smooth(sw.u / 0.25) : sw.u < 0.8 ? 1 : 1 - smooth((sw.u - 0.8) / 0.2)) - 0.006 * Math.max(0, sw.u - 1);
+        // 体が沈んでいるぶん、足も高めに上げる
+        const sag = clamp((L.front ? Fc : Fh).y - parts[L.body].body.translation().y, 0, 0.04);
+        P = { x: sw.start.x + (sw.target.x - sw.start.x) * u, y: floorAt(sw.start.x, sw.start.z) * (1 - u) + floorAt(sw.target.x, sw.target.z) * u + 0.02 + h + (sw.u < 1 ? sag : 0), z: sw.start.z + (sw.target.z - sw.start.z) * u };
+        if (sw.u >= 1 && (L.ground || sw.u > 1.4)) { L.plant = { x: L.pawPos.x, z: L.pawPos.z }; L.swing = null; if (!CR) { G.phase = 'none'; G.t = 0; } }
       } else P = { x: L.plant.x, y: floorAt(L.plant.x, L.plant.z) + 0.02, z: L.plant.z };
-      // 座る時: 後ろ脚は腰の横にたたむ・前脚はまっすぐ
+      // 座る時: 後ろ脚は腰の横にたたむ
       if (!L.front && sit > 0) {
         const n = nominal(L, Fh);
         const fx = n.x + fwd.x * 0.06 * sit, fz = n.z + fwd.z * 0.06 * sit;
-        if (sit > 0.5) { L.plant.x += (fx - L.plant.x) * DT * 4; L.plant.z += (fz - L.plant.z) * DT * 4; }
+        if (sit > 0.5) { L.plant.x += (fx - L.plant.x) * DT * 3; L.plant.z += (fz - L.plant.z) * DT * 3; }
         P = { x: L.plant.x, y: floorAt(L.plant.x, L.plant.z) + 0.02, z: L.plant.z };
       }
       // 伸び: 前脚を前へ出す
       if (L.front && str > 0) {
         const n = nominal(L, Fc);
         const fx = n.x + fwd.x * 0.1 * str, fz = n.z + fwd.z * 0.1 * str;
-        L.plant.x += (fx - L.plant.x) * DT * 4; L.plant.z += (fz - L.plant.z) * DT * 4;
+        L.plant.x += (fx - L.plant.x) * DT * 3; L.plant.z += (fz - L.plant.z) * DT * 3;
         P = { x: L.plant.x, y: floorAt(L.plant.x, L.plant.z) + 0.02, z: L.plant.z };
       }
-      legToward(L, F, P, !L.front && sit > 0 ? 0.6 * sit : 0);
+      goals.push([L, P]);
     }
-    if (!upright && sim.grounded < 2) { setState('getup'); return; }
-    // 支える力・まっすぐにする力（座っている時は胸を持ち上げる）
-    support('chest', { ...Fc, yaw: turnYaw }, pitchUp(yaw, pc), 1);
-    support('hips', { ...Fh, yaw: turnYaw }, pitchUp(yaw, ph), 1);
-    // 胴の上下・左右の曲がり
-    joints.spP.target = clamp(ph - pc, -0.6, 0.6); joints.spR.target = 0;
-    joints.spY.target = turn !== null ? clamp(angDiff(turn, yaw) * 0.3, -0.25, 0.25) : 0;
-    // 歩く・止まる
-    pushToward('chest', vx, vz, moving ? 4 : 5); pushToward('hips', vx, vz, moving ? 4 : 5);
+    // 着いている足だけで高さを決める（上げている足は届かなくてよい）
+    const FcF = fitHeight(Fc, goals.filter(([L]) => L.front && !L.swing)), FhF = fitHeight(Fh, goals.filter(([L]) => !L.front && !L.swing));
+    for (const [L, P] of goals) legToward(L, L.front ? FcF : FhF, P, !L.front && sit > 0 ? 0.6 * sit : 0);
+    if (!upright && sim.grounded < 2) { setState('getup'); sim.gu = { phase: 'front', t: 0 }; return; }
+    joints.spP.target = clamp(ph - pc, -0.6, 0.6); joints.spR.target = 0; joints.spY.target = 0;
     sim.headTilt = 0.15 * str;
     aimHead(1);
     // 足が全部浮いたら空中へ
-    if (sim.grounded === 0 && sim.height > 0.27) { setState('air'); sim.airT = 0; }
+    if (sim.grounded === 0 && sim.height > 0.27) { setState('air'); sim.air = { phase: 'twist' }; }
+  }
+
+  // ===== 空中: 外から回さず、体の中の動きだけで背中を上にする（本物の猫と同じやり方） =====
+  // 1) 前脚をたたみ（回りやすい）、後ろ脚を広げて（回りにくい）背骨をひねる → 前半身が大きく回る
+  // 2) 前脚を広げ、後ろ脚をたたんでひねりを戻す → 後ろ半身が前半身に追いつく。足りなければくり返す
+  const TUCK = L => L.front ? legPose(L, 0.1, 0.5, -2.5, 1.2) : legPose(L, 0.1, -1.7, 2.5, -0.8);
+  const SPREAD = L => L.front ? legPose(L, 1.2, -0.3, -0.1, 0.2) : legPose(L, 1.2, -0.3, 0.2, -0.1);
+  function airControl(t, upright) {
+    const A = sim.air || (sim.air = { phase: 'twist' });
+    A.t = (A.t || 0) + DT;
+    setGains(1, 1, 1);
+    const ec = rollErr('chest'), eh = rollErr('hips'), tw = jAngle(joints.spR);
+    sim.dbg = { ec, eh, tw };
+    if (A.phase === 'twist') {
+      for (const L of LEGS) (L.front ? TUCK : SPREAD)(L);
+      // 胸を回したい分だけ、腰に対してひねる（胸が +ec 回る = 腰から見て -ec）
+      joints.spR.target = clamp(tw - 1.6 * ec, -2.9, 2.9);
+      if (Math.abs(ec) < 0.3 || Math.abs(tw) > 2.75 || A.t > 0.35) { A.phase = 'untwist'; A.t = 0; }
+    } else if (A.phase === 'untwist') {
+      for (const L of LEGS) (L.front ? SPREAD : TUCK)(L);
+      joints.spR.target = 0;
+      if (Math.abs(tw) < 0.25 || A.t > 0.3) { A.phase = Math.abs(ec) < 0.45 && Math.abs(eh) < 0.5 ? 'ready' : 'twist'; A.t = 0; }
+    } else {
+      // 着地の準備: 4本とも下へ伸ばす
+      for (const L of LEGS) L.front ? legPose(L, 0.1, -0.2, -0.15, 0.35) : legPose(L, 0.1, -0.45, 0.75, -0.3);
+      joints.spR.target = 0;
+      if (Math.abs(ec) > 0.8 || Math.abs(eh) > 0.8) { A.phase = 'twist'; A.t = 0; }
+    }
+    joints.spP.target = A.phase === 'ready' ? 0 : 0.2; joints.spY.target = 0;
+    sim.look = null; joints.nkP.target = 0.35; joints.nkY.target = 0;
+    if ((sim.grounded > 0 || sim.bodyLow) && sim.stateT > 0.03) {
+      const v = sim.comV;
+      sim.landV = Math.hypot(v.x, v.y, v.z);
+      // 背中が上なら着地、横向き・あお向けなら起き上がりへ
+      if (sim.upC > 0.6 && sim.upH > 0.6) setState('land'); else { setState('getup'); sim.gu = { phase: 'front', t: 0 }; }
+      for (const L of LEGS) L.plant = { x: L.pawPos.x, z: L.pawPos.z };
+      if (sim.onLand) sim.onLand(sim.landV, upright);
+    }
+  }
+
+  // ===== 起き上がり: 背骨のひねりで、まず前半身を起こして前脚で床をつかみ、次に後ろ半身を起こす（関節の力だけ） =====
+  function getupControl(t, upright) {
+    const g = sim.gu || (sim.gu = { phase: 'front', t: 0 });
+    g.t += DT;
+    setGains(1, 1, 1);
+    const ec = rollErr('chest'), eh = rollErr('hips'), tw = jAngle(joints.spR), yaw = sim.yaw;
+    sim.dbg = { ec, eh, tw };
+    const H = 0.14, Fc = frameOf('chest', H, yaw, 0, 0), Fh = frameOf('hips', H, yaw, 0, 0);
+    // 起き上がる時は脚を広めに置いて、転がる勢いを受け止める
+    const standLeg = L => { const F = L.front ? Fc : Fh, n = nominal(L, F), c = Math.cos(yaw), s = Math.sin(yaw), w = (g.phase === 'hind' ? 0.06 : 0.03) * L.s; legToward(L, F, { x: n.x + w * c, y: floorAt(n.x, n.z) + 0.02, z: n.z - w * s }); };
+    // 体が前後の軸のまわりに回る速さ
+    const rollRate = n => { const q = parts[n].body.rotation(), f = rotV(q, { x: 0, y: 0, z: 1 }), w = parts[n].body.angvel(); return w.x * f.x + w.y * f.y + w.z * f.z; };
+    const K = L0 => 1.6 * clamp(Math.abs(L0) / 0.8, 0.45, 1); // 起きる直前はひねりをゆるめる（勢いで反対へ転がらないように）
+    if (g.phase === 'front') {
+      // 前脚をたたんで回りやすく、後ろ脚は広げて床につっぱる。先に起きた方の半身の脚で床をつかむ
+      for (const L of LEGS) (L.front ? TUCK : SPREAD)(L);
+      joints.spR.target = clamp(tw - K(ec) * ec, -2.9, 2.9);
+      if (Math.abs(ec) < 0.4) { g.phase = 'plant'; g.first = 'front'; g.t = 0; }
+      else if (Math.abs(eh) < 0.4) { g.phase = 'plant'; g.first = 'hind'; g.t = 0; }
+      else if (g.t > 1.0) { g.phase = 'kick'; g.t = 0; }
+    } else if (g.phase === 'plant') {
+      const F = g.first === 'front';
+      for (const L of LEGS) (L.front === F) ? standLeg(L) : TUCK(L);
+      joints.spR.target = tw;
+      if (g.t > 0.3) { g.phase = 'hind'; g.t = 0; g.twT = null; }
+    } else if (g.phase === 'hind') {
+      // 起きた方の脚でふんばり、もう片方の脚をたたんで、ひねりを戻してもう半身を起こす
+      const F = g.first === 'front', e = F ? eh : ec, e0 = F ? ec : eh;
+      for (const L of LEGS) (L.front === F) ? standLeg(L) : TUCK(L);
+      // ひねりを戻すと、起きている半身にそろう（少しずつ戻す）
+      if (g.twT == null) g.twT = tw;
+      g.twT += clamp(-g.twT, -2 * DT, 2 * DT);
+      joints.spR.target = clamp(g.twT, tw - 0.7, tw + 0.7);
+      if (Math.abs(tw) < 0.3 && Math.abs(e) < 1.0 && Math.abs(e0) < 1.0 && Math.abs(rollRate('chest')) < 2.5 && Math.abs(rollRate('hips')) < 2.5) { g.phase = 'stand'; g.t = 0; }
+      else if (g.t > 1.5 || Math.abs(e0) > 1.2) { g.phase = Math.abs(e0) > 0.8 ? 'front' : 'kick'; g.t = 0; }
+    } else if (g.phase === 'kick') {
+      for (const L of LEGS) { const ph = g.t * 6 + (L.front ? 0 : 1.6); legPose(L, 0.5 * Math.sin(ph), -0.5 * Math.cos(ph), L.front ? -1.0 : 1.0, 0); }
+      setGains(0.5, 0.5, 1);
+      joints.spR.target = 0;
+      if (g.t > 0.5) { g.phase = 'front'; g.t = 0; }
+    } else {
+      for (const L of LEGS) standLeg(L);
+      joints.spR.target = 0;
+      if (upright && sim.grounded >= 3 && g.t > 0.3) { setState('land'); for (const L of LEGS) L.plant = { x: L.pawPos.x, z: L.pawPos.z }; }
+      if ((!upright && g.t > 1.2) || sim.upC < 0.2 || sim.upH < 0.2) { g.phase = 'front'; g.t = 0; }
+    }
+    joints.spP.target = 0; joints.spY.target = 0;
+    aimHead(0.5);
+    if (sim.grounded === 0 && !sim.bodyLow && sim.height > 0.3) { setState('air'); sim.air = { phase: 'twist' }; }
   }
 
   sim.step = () => {
@@ -495,11 +560,6 @@ export function createCat(R, opt = {}) {
     world.removeImpulseJoint(sim.grab.joint, true);
     world.removeRigidBody(sim.grab.hand);
     sim.grab = null;
-    // 投げる速さに上限
-    for (const p of partList) {
-      const v = p.body.linvel(), s = Math.hypot(v.x, v.y, v.z);
-      if (s > maxV) p.body.setLinvel({ x: v.x * maxV / s, y: v.y * maxV / s, z: v.z * maxV / s }, true);
-    }
   };
   // 置き物（クッションなど）の当たり判定
   sim.addCylinder = (x, z, r, h, friction = 0.9) => (props.push({ x, z, r, h }), world.createCollider(R.ColliderDesc.cylinder(h / 2, r).setTranslation(x, h / 2, z).setFriction(friction).setRestitution(0.05).setCollisionGroups(GROUND)));
