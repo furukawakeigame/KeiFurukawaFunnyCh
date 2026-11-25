@@ -284,8 +284,17 @@ const rim = new THREE.DirectionalLight(0x8fb4ff, 1.2);
 rim.position.set(-3, 3, -4);
 scene.add(rim, rim.target);
 
-// 地面: 暗い単色（霧で背景にとけこむ）
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0x2c3039, roughness: 0.95 }));
+// 地面: 暗い色に薄い市松模様（50cmのマス。遠近感がわかるように）。遠くは霧で背景にとけこむ
+const checkTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+  x.fillStyle = '#2c3039'; x.fillRect(0, 0, 128, 128);
+  x.fillStyle = '#343944'; x.fillRect(0, 0, 64, 64); x.fillRect(64, 64, 64, 64);
+  const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace;
+  tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.repeat.set(80, 80);
+  tx.magFilter = THREE.NearestFilter; tx.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return tx;
+})();
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ map: checkTex, roughness: 0.95 }));
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
@@ -293,12 +302,8 @@ scene.add(ground);
 // ===== ロボットの見た目 =====
 const M = {
   white: new THREE.MeshStandardMaterial({ color: 0xeef0f2, roughness: 0.32, metalness: 0.05 }),
-  dark: new THREE.MeshStandardMaterial({ color: 0x3b4049, roughness: 0.35, metalness: 0.7 }),
-  steel: new THREE.MeshStandardMaterial({ color: 0x9aa3ad, roughness: 0.25, metalness: 0.9 }),
-  orange: new THREE.MeshStandardMaterial({ color: 0xff7a2f, roughness: 0.45, metalness: 0.1 }),
-  rubber: new THREE.MeshStandardMaterial({ color: 0x1d2025, roughness: 0.9 }),
+  dark: new THREE.MeshStandardMaterial({ color: 0x5a606b, roughness: 0.4, metalness: 0.5 }),
   glass: new THREE.MeshStandardMaterial({ color: 0x0b0e12, roughness: 0.15, metalness: 0.3 }),
-  lamp: new THREE.MeshStandardMaterial({ color: 0x55d6ff, emissive: 0x2fbfff, emissiveIntensity: 1.6, roughness: 0.4 }),
 };
 const geoCache = new Map();
 const geo = (key, make) => { if (!geoCache.has(key)) geoCache.set(key, make()); return geoCache.get(key); };
@@ -374,54 +379,25 @@ function addVisual(name, build) {
   g.traverse(o => { o.userData.part = p; });
   visuals.push({ part: p, group: g, pp: new THREE.Vector3(), pq: new THREE.Quaternion(), cp: new THREE.Vector3(), cq: new THREE.Quaternion() });
 }
-addVisual('pelvis', g => {
-  mesh(rbox(0.3, 0.14, 0.2, 0.045), M.dark, g);
-  mesh(rbox(0.32, 0.05, 0.215, 0.02), M.orange, g, 0, 0.045, 0);
-  for (const s of [-1, 1]) mesh(sph(0.065), M.steel, g, s * 0.1, -0.05, 0);
-});
+// シンプルな見た目: 白い外装＋グレーの関節＋顔のモニター
+addVisual('pelvis', g => { mesh(rbox(0.3, 0.14, 0.2, 0.06), M.dark, g); });
 addVisual('torso', g => {
-  mesh(rbox(0.38, 0.42, 0.24, 0.07), M.white, g, 0, 0.01, 0);
-  mesh(cyl(0.12, 0.15, 0.08), M.dark, g, 0, -0.22, 0); // 腰のじゃばら
-  mesh(rbox(0.22, 0.16, 0.03, 0.012), M.glass, g, 0, 0.06, 0.12);
-  mesh(cyl(0.022, 0.022, 0.012), M.lamp, g, -0.06, 0.06, 0.137, { rx: Math.PI / 2 });
-  for (let i = 0; i < 3; i++) mesh(rbox(0.05, 0.016, 0.01, 0.005), M.orange, g, 0.035 + i * 0.0, 0.1 - i * 0.03, 0.137);
-  mesh(rbox(0.26, 0.28, 0.1, 0.03), M.dark, g, 0, 0.02, -0.15); // 背中のバッテリー
-  mesh(cyl(0.045, 0.055, 0.06), M.dark, g, 0, 0.24, 0); // 首
-  for (const s of [-1, 1]) mesh(rbox(0.06, 0.05, 0.16, 0.02), M.orange, g, s * 0.19, 0.17, 0);
+  mesh(rbox(0.38, 0.42, 0.24, 0.1), M.white, g, 0, 0.01, 0);
+  mesh(cyl(0.12, 0.13, 0.08), M.dark, g, 0, -0.22, 0); // 腰
+  mesh(cyl(0.045, 0.05, 0.06), M.dark, g, 0, 0.24, 0); // 首
 });
 addVisual('head', g => {
-  mesh(rbox(0.3, 0.24, 0.26, 0.07), M.white, g);
-  mesh(rbox(0.25, 0.18, 0.02, 0.02), M.glass, g, 0, -0.005, 0.125);
+  mesh(rbox(0.3, 0.24, 0.26, 0.09), M.white, g);
+  mesh(rbox(0.25, 0.18, 0.02, 0.03), M.glass, g, 0, -0.005, 0.125);
   const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.225, 0.162), new THREE.MeshBasicMaterial({ map: faceTex, toneMapped: false }));
   scr.position.set(0, -0.005, 0.1365); g.add(scr); pickables.push(scr);
-  for (const s of [-1, 1]) {
-    mesh(cyl(0.05, 0.05, 0.03), M.orange, g, s * 0.155, 0, 0, { rz: Math.PI / 2 });
-    mesh(cyl(0.025, 0.025, 0.035), M.dark, g, s * 0.172, 0, 0, { rz: Math.PI / 2 });
-  }
-  mesh(cyl(0.008, 0.008, 0.12), M.steel, g, 0.07, 0.17, -0.03);
-  mesh(sph(0.022), M.orange, g, 0.07, 0.235, -0.03);
 });
 for (const k of ['L', 'R']) {
-  const s = k === 'L' ? 1 : -1;
-  addVisual('thigh' + k, g => { mesh(cap(0.068, 0.25), M.white, g); mesh(rbox(0.15, 0.1, 0.15, 0.04), M.dark, g, 0, 0.11, 0); });
-  addVisual('shin' + k, g => {
-    mesh(cap(0.062, 0.24), M.white, g);
-    mesh(sph(0.075), M.dark, g, 0, 0.19, 0);
-    mesh(rbox(0.09, 0.12, 0.03, 0.012), M.orange, g, 0, 0.06, 0.06);
-    mesh(cyl(0.05, 0.06, 0.06), M.dark, g, 0, -0.17, 0);
-  });
-  addVisual('foot' + k, g => {
-    mesh(rbox(0.14, 0.07, 0.25, 0.03), M.dark, g, 0, 0.01, 0);
-    mesh(rbox(0.145, 0.025, 0.255, 0.01), M.rubber, g, 0, -0.033, 0);
-    mesh(rbox(0.12, 0.03, 0.08, 0.012), M.orange, g, 0, 0.04, 0.07);
-  });
-  addVisual('upper' + k, g => { mesh(cap(0.052, 0.2), M.white, g); mesh(sph(0.075), M.orange, g, 0, 0.14, 0); });
-  addVisual('fore' + k, g => {
-    mesh(cap(0.047, 0.19), M.white, g);
-    mesh(sph(0.058), M.dark, g, 0, 0.15, 0);
-    mesh(rbox(0.09, 0.1, 0.07, 0.03), M.dark, g, 0, -0.17, 0.005); // 手
-    for (const dz of [-1, 1]) mesh(rbox(0.025, 0.05, 0.02, 0.008), M.steel, g, s * -0.04 * 0, -0.235, dz * 0.022);
-  });
+  addVisual('thigh' + k, g => { mesh(cap(0.068, 0.25), M.white, g); mesh(sph(0.072), M.dark, g, 0, 0.17, 0); });
+  addVisual('shin' + k, g => { mesh(cap(0.062, 0.24), M.white, g); mesh(sph(0.07), M.dark, g, 0, 0.19, 0); });
+  addVisual('foot' + k, g => { mesh(rbox(0.14, 0.08, 0.25, 0.035), M.dark, g, 0, 0, 0); });
+  addVisual('upper' + k, g => { mesh(cap(0.052, 0.2), M.white, g); mesh(sph(0.068), M.dark, g, 0, 0.14, 0); });
+  addVisual('fore' + k, g => { mesh(cap(0.047, 0.19), M.white, g); mesh(sph(0.055), M.dark, g, 0, 0.15, 0); mesh(sph(0.06), M.dark, g, 0, -0.18, 0); });
 }
 function readPose(v, to) { const t = v.part.body.translation(), q = v.part.body.rotation(); to.p.set(t.x, t.y, t.z); to.q.set(q.x, q.y, q.z, q.w); }
 for (const v of visuals) { readPose(v, { p: v.cp, q: v.cq }); v.pp.copy(v.cp); v.pq.copy(v.cq); }
