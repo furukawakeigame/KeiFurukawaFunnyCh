@@ -489,7 +489,7 @@ const innerTex = canvasTex(512, 256, (g, W, H) => {
 // 中身: クリーム色、面の溝と細かい繊維
 const fleshTex = canvasTex(1024, 256, (g, W, H) => {
   const gr = g.createLinearGradient(0, 0, W, 0);
-  gr.addColorStop(0, '#d4b878'); gr.addColorStop(0.08, '#efdb9e'); gr.addColorStop(0.5, '#f3e2a6'); gr.addColorStop(0.93, '#ecd694'); gr.addColorStop(0.985, '#a07a3a'); gr.addColorStop(1, '#5c4020');
+  gr.addColorStop(0, '#c9a862'); gr.addColorStop(0.08, '#e8cf86'); gr.addColorStop(0.5, '#eed58e'); gr.addColorStop(0.93, '#e6cb7e'); gr.addColorStop(0.985, '#a07a3a'); gr.addColorStop(1, '#5c4020');
   g.fillStyle = gr; g.fillRect(0, 0, W, H);
   for (let k = 0; k <= 5; k++) { const y = (k + 0.5) * H / 5; g.strokeStyle = 'rgba(210,180,110,.35)'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
   for (let i = 0; i < 1200; i++) {
@@ -591,9 +591,9 @@ const peelMat = new THREE.MeshPhysicalMaterial(peelMatOpts);
 peelShader(peelMat, true);
 const flapMat = new THREE.MeshPhysicalMaterial(peelMatOpts);
 peelShader(flapMat, false);
-const fleshMat = new THREE.MeshPhysicalMaterial({ map: fleshTex, bumpMap: fleshBump, bumpScale: 0.35, roughness: 0.52, clearcoat: 0.25, clearcoatRoughness: 0.35, sheen: 0.6, sheenColor: new THREE.Color('#fff3cf'), sheenRoughness: 0.5, emissive: new THREE.Color('#5a4410'), emissiveIntensity: 0.12, side: THREE.DoubleSide });
+const fleshMat = new THREE.MeshPhysicalMaterial({ map: fleshTex, bumpMap: fleshBump, bumpScale: 0.35, roughness: 0.52, clearcoat: 0.25, clearcoatRoughness: 0.35, sheen: 0.2, sheenColor: new THREE.Color('#fff0c0'), sheenRoughness: 0.5, emissive: new THREE.Color('#5a3c00'), emissiveIntensity: 0.08, side: THREE.DoubleSide });
 fleshShader(fleshMat);
-const stringMat = new THREE.MeshPhysicalMaterial({ map: innerTex, roughness: 0.6, sheen: 0.4, sheenColor: new THREE.Color('#ffffff') });
+const stringMat = new THREE.MeshPhysicalMaterial({ map: innerTex, color: '#f3e3b0', roughness: 0.6 });
 fleshShader(stringMat);
 
 // ===== 部屋（反射用の環境） =====
@@ -786,7 +786,7 @@ banana.add(fleshMesh);
     const th0 = (k + 0.5) / 5 * TAU + rand(-0.2, 0.2), s0 = rand(0.1, 0.18), s1 = rand(0.82, 0.92);
     const pts = [];
     for (let i = 0; i <= 24; i++) { const s = lerp(s0, s1, i / 24), th = th0 + Math.sin(i * 0.7 + k) * 0.05; pts.push(surf(s, th, 0.0003, new THREE.Vector3(), rFlesh(s, th)).clone()); }
-    const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 48, 0.00055, 4, false);
+    const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 48, 0.00042, 4, false);
     const uv = geo.attributes.uv;
     for (let i = 0; i < uv.count; i++) { const along = uv.getX(i); uv.setXY(i, lerp(s0, s1, along), th0 / TAU); }
     const m = new THREE.Mesh(geo, stringMat); m.castShadow = false;
@@ -928,6 +928,15 @@ function buildFlap(mesh, R, a, w, d0, d1, alpha, n0) {
     _N.addScaledVector(_T, -_N.dot(_T));
     if (_N.lengthSq() < 1e-10) _N.set(0, 1, 0).addScaledVector(_T, -_T.y);
     _N.normalize();
+    // はがれた皮は重さで平らに寝る: 根元から離れるほど、面を水平（上か下の近い方）に向ける
+    if (i > 0) {
+      const up = _q.set(0, 1, 0).addScaledVector(_T, -_T.y);
+      if (up.lengthSq() > 1e-6) {
+        up.normalize(); if (up.dot(_N) < 0) up.negate();
+        const low = _P.y < floorY(_P.x, _P.z) + 0.006 ? 1 : 0.4;
+        _N.lerp(up, Math.min(1, i / 5) * low * 0.35).normalize();
+      }
+    }
     _B.crossVectors(_T, _N);
     if (i === 0) { sgn = _B.dot(_A) >= 0 ? 1 : -1; }
     const d = lerp(d1, d0, i / (NN - 1)), s = sOf(d);
