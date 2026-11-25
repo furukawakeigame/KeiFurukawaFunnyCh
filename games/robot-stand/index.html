@@ -50,6 +50,9 @@
     /* 長押しのため: 指のまわりの輪が満ちていき、色が白→オレンジ→赤に変わる */
     #charge { position: fixed; width: 96px; height: 96px; margin: -48px 0 0 -48px; pointer-events: none; z-index: 2; opacity: 0; transition: opacity .12s; }
     #charge.on { opacity: 1; }
+    /* Xに投稿: 右下（下の80pxはXの投稿文がかぶるので空ける） */
+    #share { position: fixed; right: 12px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 3; display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px; border-radius: 999px; background: #000; color: #fff; border: 1px solid rgba(255,255,255,.35); text-decoration: none; font-size: 15px; font-weight: 600; }
+    #share:active { transform: translateY(1px); }
     #hint circle.r { transform-origin: 38px 38px; animation: ring 1.4s ease-out infinite; }
     #hint circle.r2 { animation-delay: .7s; }
     @keyframes ring { from { transform: scale(.3); opacity: .9; } to { transform: scale(1); opacity: 0; } }
@@ -70,6 +73,7 @@
     <canvas id="cv"></canvas>
     <svg id="hint" viewBox="0 0 76 76"><circle class="r" cx="38" cy="38" r="34" fill="none" stroke="#fff" stroke-width="3"/><circle class="r r2" cx="38" cy="38" r="34" fill="none" stroke="#fff" stroke-width="3"/><circle cx="38" cy="38" r="7" fill="#fff"/></svg>
     <svg id="charge" viewBox="0 0 96 96"><circle cx="48" cy="48" r="40" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="6"/><circle id="chargeArc" cx="48" cy="48" r="40" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-dasharray="251.3" stroke-dashoffset="251.3" transform="rotate(-90 48 48)"/><circle id="chargeDot" cx="48" cy="48" r="9" fill="#fff"/></svg>
+    <a id="share" href="#"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M18.2 2.3h3.4l-7.4 8.4 8.7 11.5h-6.8l-5.3-7-6.1 7H1.3l7.9-9L.9 2.3h7l4.8 6.4 5.5-6.4zm-1.2 17.9h1.9L7.1 4.2H5.1l11.9 16z"/></svg><span id="shareLabel"></span></a>
     <div id="msg"></div>
   </main>
 <script type="module">
@@ -81,10 +85,10 @@ const store = {
 
 // ===== 言語 =====
 const L = {
-  ja: { title: '起き上がりロボ', back: '← トップへ戻る', loadErr: '読み込みに失敗しました。通信状況を確かめて再読み込みしてください。' },
-  ko: { title: '오뚝이 로봇', back: '← 처음으로', loadErr: '불러오지 못했습니다. 연결을 확인하고 새로고침해 주세요.' },
-  en: { title: 'Get-Up Robot', back: '← Top', loadErr: 'Failed to load. Check your connection and reload.' },
-  th: { title: 'หุ่นยนต์ลุกขึ้น', back: '← กลับหน้าแรก', loadErr: 'โหลดไม่สำเร็จ ตรวจสอบการเชื่อมต่อแล้วโหลดใหม่' },
+  ja: { title: '起き上がりロボ', back: '← トップへ戻る', share: 'ポスト', count: n => `${n}回ダウン`, post: n => n ? `起き上がりロボを${n}回ダウンさせた！` : '起き上がりロボにボールを投げた！', loadErr: '読み込みに失敗しました。通信状況を確かめて再読み込みしてください。' },
+  ko: { title: '오뚝이 로봇', back: '← 처음으로', share: '게시', count: n => `${n}번 다운`, post: n => n ? `오뚝이 로봇을 ${n}번 쓰러뜨렸다!` : '오뚝이 로봇에게 공을 던졌다!', loadErr: '불러오지 못했습니다. 연결을 확인하고 새로고침해 주세요.' },
+  en: { title: 'Get-Up Robot', back: '← Top', share: 'Post', count: n => `${n}\u2002${n === 1 ? 'knockdown' : 'knockdowns'}`, post: n => n ? `I knocked down the Get-Up Robot ${n} ${n === 1 ? 'time' : 'times'}!` : 'I threw balls at the Get-Up Robot!', loadErr: 'Failed to load. Check your connection and reload.' },
+  th: { title: 'หุ่นยนต์ลุกขึ้น', back: '← กลับหน้าแรก', share: 'โพสต์', count: n => `ล้ม ${n} ครั้ง`, post: n => n ? `ทำให้หุ่นยนต์ลุกขึ้นล้มไป ${n} ครั้ง!` : 'ปาลูกบอลใส่หุ่นยนต์ลุกขึ้น!', loadErr: 'โหลดไม่สำเร็จ ตรวจสอบการเชื่อมต่อแล้วโหลดใหม่' },
 };
 const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
 let lang = store.get('lang', null) || autoLang();
@@ -96,6 +100,8 @@ function applyLang() {
   $('lang').value = lang;
   $('back').textContent = t('back');
   if ($('msg').dataset.err) $('msg').textContent = t('loadErr');
+  $('shareLabel').textContent = t('share');
+  if (window.updateShare) window.updateShare();
 }
 $('lang').onchange = () => { lang = $('lang').value; store.set('lang', lang); applyLang(); };
 applyLang();
@@ -623,7 +629,7 @@ function removeBall(v) {
 let faceT = 0, voiceCool = 0, crashCool = 0, lastState = sim.state;
 sim.onStep = () => { if (every('step', 120)) servo(0.16, 260, 330, 0.025); };
 sim.onLand = () => { if (every('land', 90)) clank(0.18, 0.55); };
-sim.onFall = () => { wail(); setFace('dizzy'); faceT = 99; };
+sim.onFall = () => { wail(); setFace('dizzy'); faceT = 99; downs++; snapAt = performance.now() + 550; };
 sim.onGetup = () => {};
 // 起き上がりの段取りごとにモーター音
 sim.onPhase = ph => {
@@ -721,10 +727,65 @@ function frame(now) {
   }
   updateCharge();
   renderer.render(scene, camera);
+  if (snapAt && now >= snapAt) { snapAt = 0; snapShot(); }
   requestAnimationFrame(frame);
 }
+// ===== Xに投稿（倒れた瞬間の画面を画像にして付ける）=====
+const SHARE_URL = 'https://keifurukawafunnych.com/games/robot-stand/', TAG = '#起き上がりロボゲーム';
+let downs = 0, snapAt = 0, shareFile = null;
+const snapCv = document.createElement('canvas'); snapCv.width = snapCv.height = 1080;
+const rawCv = document.createElement('canvas'); rawCv.width = rawCv.height = 1080; // 文字なしの切り抜き
+let shotDowns = 0;
+function snapShot() {
+  // ロボットを中心に正方形で切り抜く（描画した直後なので canvas から読める）
+  const src = renderer.domElement, W = src.width, H = src.height;
+  const tp = sim.parts.pelvis.body.translation(), v = new THREE.Vector3(tp.x, tp.y + 0.2, tp.z).project(camera);
+  const side = Math.min(W, H) * 0.92;
+  let sx = (v.x + 1) / 2 * W - side / 2, sy = (1 - v.y) / 2 * H - side / 2;
+  sx = Math.max(0, Math.min(W - side, sx)); sy = Math.max(0, Math.min(H - side, sy));
+  const r = rawCv.getContext('2d'); r.fillStyle = '#23262d'; r.fillRect(0, 0, 1080, 1080);
+  r.drawImage(src, sx, sy, side, side, 0, 0, 1080, 1080);
+  shotDowns = downs;
+  updateShare();
+}
+window.updateShare = function updateShare() {
+  const n = downs, text = `${t('post')(n)}\n${TAG}`;
+  const a = $('share');
+  a.href = 'https://x.com/intent/post?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(SHARE_URL);
+  if (matchMedia('(pointer: coarse)').matches) a.removeAttribute('target'); else { a.target = '_blank'; a.rel = 'noopener'; }
+  a.dataset.text = text;
+  // 画像: 切り抜き＋回数（大きく）＋タイトル（小さく）
+  const x = snapCv.getContext('2d');
+  x.drawImage(rawCv, 0, 0);
+  const g = x.createLinearGradient(0, 760, 0, 1080); g.addColorStop(0, 'rgba(20,22,27,0)'); g.addColorStop(1, 'rgba(20,22,27,0.85)');
+  x.fillStyle = g; x.fillRect(0, 760, 1080, 320);
+  x.fillStyle = '#fff'; x.textBaseline = 'alphabetic';
+  x.font = '800 120px system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif';
+  if (shotDowns) x.fillText(t('count')(shotDowns), 60, 990);
+  x.font = '600 44px system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif'; x.globalAlpha = 0.85;
+  x.fillText(t('title'), 64, shotDowns ? 1050 : 1030); x.globalAlpha = 1;
+  // 共有用ファイルは先に作っておく（押した時に作ると Safari で共有が止まる）
+  snapCv.toBlob(b => { if (b) shareFile = new File([b], 'robot-stand.png', { type: 'image/png' }); }, 'image/png');
+};
+$('share').addEventListener('click', e => {
+  const text = $('share').dataset.text;
+  if (matchMedia('(pointer: coarse)').matches) {
+    // スマホ: 画像つきで共有シートを開く（使えなければそのまま X の投稿画面へ）
+    if (navigator.share && shareFile && navigator.canShare?.({ files: [shareFile] })) {
+      e.preventDefault();
+      navigator.share({ files: [shareFile], text: `${text}\n${SHARE_URL}` }).catch(() => {});
+    }
+  } else if (shareFile) {
+    // PC: 画像を保存してから投稿画面を開く（画像は自分で添付する）
+    const u = URL.createObjectURL(shareFile), d = document.createElement('a');
+    d.href = u; d.download = 'robot-stand.png'; document.body.appendChild(d); d.click(); d.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 4000);
+  }
+});
+
 renderer.compile(scene, camera);
 renderer.render(scene, camera);
+snapShot(); // 倒す前でも投稿できるよう、立っている姿を用意しておく
 requestAnimationFrame(t0 => { last = t0; frame(t0); });
 </script>
 </body>
