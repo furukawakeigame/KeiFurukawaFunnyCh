@@ -85,10 +85,10 @@ const store = {
 
 // ===== 言語 =====
 const L = {
-  ja: { title: '起き上がりロボ', back: '← トップへ戻る', share: 'ポスト', count: n => `${n}回ダウン`, post: n => n ? `起き上がりロボを${n}回ダウンさせた！` : '起き上がりロボにボールを投げた！', loadErr: '読み込みに失敗しました。通信状況を確かめて再読み込みしてください。' },
-  ko: { title: '오뚝이 로봇', back: '← 처음으로', share: '게시', count: n => `${n}번 다운`, post: n => n ? `오뚝이 로봇을 ${n}번 쓰러뜨렸다!` : '오뚝이 로봇에게 공을 던졌다!', loadErr: '불러오지 못했습니다. 연결을 확인하고 새로고침해 주세요.' },
-  en: { title: 'Get-Up Robot', back: '← Top', share: 'Post', count: n => `${n}\u2002${n === 1 ? 'knockdown' : 'knockdowns'}`, post: n => n ? `I knocked down the Get-Up Robot ${n} ${n === 1 ? 'time' : 'times'}!` : 'I threw balls at the Get-Up Robot!', loadErr: 'Failed to load. Check your connection and reload.' },
-  th: { title: 'หุ่นยนต์ลุกขึ้น', back: '← กลับหน้าแรก', share: 'โพสต์', count: n => `ล้ม ${n} ครั้ง`, post: n => n ? `ทำให้หุ่นยนต์ลุกขึ้นล้มไป ${n} ครั้ง!` : 'ปาลูกบอลใส่หุ่นยนต์ลุกขึ้น!', loadErr: 'โหลดไม่สำเร็จ ตรวจสอบการเชื่อมต่อแล้วโหลดใหม่' },
+  ja: { title: '起き上がりロボ', back: '← トップへ戻る', share: 'ポスト', loadErr: '読み込みに失敗しました。通信状況を確かめて再読み込みしてください。' },
+  ko: { title: '오뚝이 로봇', back: '← 처음으로', share: '게시', loadErr: '불러오지 못했습니다. 연결을 확인하고 새로고침해 주세요.' },
+  en: { title: 'Get-Up Robot', back: '← Top', share: 'Post', loadErr: 'Failed to load. Check your connection and reload.' },
+  th: { title: 'หุ่นยนต์ลุกขึ้น', back: '← กลับหน้าแรก', share: 'โพสต์', loadErr: 'โหลดไม่สำเร็จ ตรวจสอบการเชื่อมต่อแล้วโหลดใหม่' },
 };
 const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
 let lang = store.get('lang', null) || autoLang();
@@ -629,7 +629,7 @@ function removeBall(v) {
 let faceT = 0, voiceCool = 0, crashCool = 0, lastState = sim.state;
 sim.onStep = () => { if (every('step', 120)) servo(0.16, 260, 330, 0.025); };
 sim.onLand = () => { if (every('land', 90)) clank(0.18, 0.55); };
-sim.onFall = () => { wail(); setFace('dizzy'); faceT = 99; downs++; snapAt = performance.now() + 550; };
+sim.onFall = () => { wail(); setFace('dizzy'); faceT = 99; snapAt = performance.now() + 550; };
 sim.onGetup = () => {};
 // 起き上がりの段取りごとにモーター音
 sim.onPhase = ph => {
@@ -732,10 +732,9 @@ function frame(now) {
 }
 // ===== Xに投稿（倒れた瞬間の画面を画像にして付ける）=====
 const SHARE_URL = 'https://keifurukawafunnych.com/games/robot-stand/', TAG = '#起き上がりロボゲーム';
-let downs = 0, snapAt = 0, shareFile = null;
+let snapAt = 0, shareFile = null;
 const snapCv = document.createElement('canvas'); snapCv.width = snapCv.height = 1080;
 const rawCv = document.createElement('canvas'); rawCv.width = rawCv.height = 1080; // 文字なしの切り抜き
-let shotDowns = 0;
 function snapShot() {
   // ロボットを中心に正方形で切り抜く（描画した直後なので canvas から読める）
   const src = renderer.domElement, W = src.width, H = src.height;
@@ -745,25 +744,23 @@ function snapShot() {
   sx = Math.max(0, Math.min(W - side, sx)); sy = Math.max(0, Math.min(H - side, sy));
   const r = rawCv.getContext('2d'); r.fillStyle = '#23262d'; r.fillRect(0, 0, 1080, 1080);
   r.drawImage(src, sx, sy, side, side, 0, 0, 1080, 1080);
-  shotDowns = downs;
   updateShare();
 }
 window.updateShare = function updateShare() {
-  const n = downs, text = `${t('post')(n)}\n${TAG}`;
+  const text = `${t('title')}\n${TAG}`;
   const a = $('share');
   a.href = 'https://x.com/intent/post?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(SHARE_URL);
   if (matchMedia('(pointer: coarse)').matches) a.removeAttribute('target'); else { a.target = '_blank'; a.rel = 'noopener'; }
   a.dataset.text = text;
-  // 画像: 切り抜き＋回数（大きく）＋タイトル（小さく）
+  // 画像: 切り抜き＋タイトル
   const x = snapCv.getContext('2d');
   x.drawImage(rawCv, 0, 0);
-  const g = x.createLinearGradient(0, 760, 0, 1080); g.addColorStop(0, 'rgba(20,22,27,0)'); g.addColorStop(1, 'rgba(20,22,27,0.85)');
-  x.fillStyle = g; x.fillRect(0, 760, 1080, 320);
+  const g = x.createLinearGradient(0, 860, 0, 1080); g.addColorStop(0, 'rgba(20,22,27,0)'); g.addColorStop(1, 'rgba(20,22,27,0.85)');
+  x.fillStyle = g; x.fillRect(0, 860, 1080, 220);
   x.fillStyle = '#fff'; x.textBaseline = 'alphabetic';
   x.font = '800 120px system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif';
-  if (shotDowns) x.fillText(t('count')(shotDowns), 60, 990);
-  x.font = '600 44px system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif'; x.globalAlpha = 0.85;
-  x.fillText(t('title'), 64, shotDowns ? 1050 : 1030); x.globalAlpha = 1;
+  x.font = '700 56px system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif'; x.globalAlpha = 0.85;
+  x.fillText(t('title'), 64, 1030); x.globalAlpha = 1;
   // 共有用ファイルは先に作っておく（押した時に作ると Safari で共有が止まる）
   snapCv.toBlob(b => { if (b) shareFile = new File([b], 'robot-stand.png', { type: 'image/png' }); }, 'image/png');
 };
