@@ -32,7 +32,7 @@
 //   ・登録（submit）では、乱数の種と「指の動きの記録」（刻み・足・押しているか・位置 mm）を送ってもらい、
 //     このファイルの下にある LiftCore（games/lifting/core.js の写し）で最初から再生する。
 //     再生した回数と、落とした刻みが、送られてきたものとぴったり同じでなければ受け付けない。
-//   ・ゲーム内の時間が、整理券を出してからの本当の時間より長くないこと（早送りした記録ははじく）。
+//   ・ゲーム内の時間が、整理券を出してからの本当の時間（+60秒）より長くないこと（早送りした記録ははじく）。
 //   ・同じ記録（種と指の動きが同じもの）は1回しか登録できない（記録の指紋を scores の9列目に残す）。
 //   ・回数を書き換える・記録を使い回す・早送りする、のどれも通らない。
 //   ・check は登録せずに再生だけする（ゲームとサーバーの計算が合っているかを確かめる用）。
@@ -164,9 +164,28 @@ function doPost(e) {
   let b;
   try { b = JSON.parse(e.postData.contents); } catch (err) { return json({ ok: false, error: 'bad' }); }
   const act = String(b.act || ''), now = Date.now();
+  // 整理券（start）と再生の確認（check）は、キャッシュに書くだけなので順番待ち（ロック）をしない。
+  // ロックで並ばせると、遊ぶたびに来る start が登録の後ろで待たされ、
+  // 「同時に動くスクリプトが多すぎる」「ロックの待ち時間切れ」で失敗していた。
+  if (act === 'check' || act === 'start') return startOrCheck(act, b, now);
+  // 回数のゲームの登録: 重い再生は、ロックの外で先に済ませる
+  let pre = null;
+  if (act === 'submit') { const s0 = getSess(String(b.tok || '')); if (s0 && REPLAY[s0.game] && !s0.used) pre = preReplay(b); }
   const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  if (!lock.tryLock(15000)) return json({ ok: false, error: 'wait' }); // 待ちきれない時は、エラー画面ではなく「もう一度」
   try {
+    const tok = String(b.tok || ''), s = getSess(tok);
+    // 距離のゲーム: 通信が切れて同じ登録が2回届いたら、1回目の結果を返す
+    if (s && s.used && s.res && act === 'submit') return json(s.res);
+    if (!s || s.used) return json({ ok: false, error: 'bad' });
+    if (DIST[s.game]) return distAct(act, b, s, tok, now);
+    if (REPLAY[s.game]) return replayAct(act, b, s, tok, now, pre, lock);
+    return waveAct(act, b, s, tok, now);
+  } finally { lock.releaseLock(); }
+}
+
+function startOrCheck(act, b, now) {
+  {
     if (act === 'check') { // 登録せずに再生だけする（確認用）
       if (!REPLAY[String(b.game)] || limited('chk:' + Math.floor(now / 60000), 30, 70)) return json({ ok: false, error: 'wait' });
       const log = b.log, steps = Math.floor(Number(b.steps));
@@ -191,12 +210,12 @@ function doPost(e) {
       putSess(tok, { game, dev, t0: now, last: now, wave: 0, kills: 0, used: false });
       return json({ ok: true, tok });
     }
-    const tok = String(b.tok || ''), s = getSess(tok);
-    // 距離のゲーム: 通信が切れて同じ登録が2回届いたら、1回目の結果を返す
-    if (s && s.used && s.res && act === 'submit') return json(s.res);
-    if (!s || s.used) return json({ ok: false, error: 'bad' });
-    if (DIST[s.game]) return distAct(act, b, s, tok, now);
-    if (REPLAY[s.game]) return replayAct(act, b, s, tok, now);
+  }
+}
+
+// ウェーブのゲーム（最強パチンコなど）
+function waveAct(act, b, s, tok, now) {
+  {
     const R = RULES[s.game];
     const wave = Math.floor(Number(b.wave)), kills = Math.floor(Number(b.kills));
     if (act === 'wave') {
@@ -229,7 +248,7 @@ function doPost(e) {
     const o = { today: pub(bestPerDev(todayRows)), all: pub(bestPerDev(allRows)) };
     cache().put('tops:' + game + ':' + today(), JSON.stringify(o), 60);
     return json({ ok: true, rank: { today: rankIn(todayRows), all: rankIn(allRows) }, today: o.today, all: o.all });
-  } finally { lock.releaseLock(); }
+  }
 }
 
 // ---- 距離で競うゲーム ----
@@ -280,7 +299,17 @@ function distAct(act, b, s, tok, now) {
 }
 
 // ---- 回数で競うゲーム（プレイを再生して確かめる） ----
-function replayAct(act, b, s, tok, now) {
+// 送られてきた記録を確かめて再生する（ロックの外で呼ぶ）。形がおかしければ null
+function preReplay(b) {
+  const P = REPLAY.lifting;
+  const seed = Math.floor(Number(b.seed)), steps = Math.floor(Number(b.steps)), log = b.log;
+  if (!(seed === (seed | 0) && steps > 0 && steps <= P.maxSteps)) return null;
+  if (!Array.isArray(log) || log.length % 4 !== 0 || log.length > steps * 8 + 64) return null;
+  for (let i = 0; i < log.length; i++) if (typeof log[i] !== 'number' || log[i] !== Math.floor(log[i]) || Math.abs(log[i]) > 1e7) return null;
+  for (let i = 4; i < log.length; i += 4) if (log[i] < log[i - 4]) return null;
+  return liftReplay(seed, log, steps);
+}
+function replayAct(act, b, s, tok, now, pre, lock) {
   const P = REPLAY[s.game];
   const fail = err => { s.used = true; putSess(tok, s); return json({ ok: false, error: err || 'bad' }); };
   if (act === 'go') return json({ ok: true }); // 古いゲームからの知らせ（今は使わない）
@@ -292,15 +321,16 @@ function replayAct(act, b, s, tok, now) {
   if (!Array.isArray(log) || log.length % 4 !== 0 || log.length > steps * 8 + 64) return fail();
   for (let i = 0; i < log.length; i++) if (typeof log[i] !== 'number' || log[i] !== Math.floor(log[i]) || Math.abs(log[i]) > 1e7) return fail();
   for (let i = 4; i < log.length; i += 4) if (log[i] < log[i - 4]) return fail(); // 刻みは順番どおり
-  // ゲーム内の時間は、整理券を出してからの本当の時間より長くならない（整理券が届くのが遅れたぶん、10秒は甘くする）
-  if (steps / 120 > (now - s.issued) / 1000 + 10) return fail('time');
+  // ゲーム内の時間は、整理券を出してからの本当の時間より長くならない
+  // （サーバーが混んで整理券が遊び始めより遅れて届くことがあるので、60秒は甘くする）
+  if (steps / 120 > (now - s.issued) / 1000 + 60) return fail('time');
   const n1 = cleanName(b.name);
   if (!n1) return json({ ok: false, error: 'name' });
   if (badName(n1)) return json({ ok: false, error: 'ng' });
   const ban = banned();
   if (ban.has(n1) || ban.has(dev)) return json({ ok: false, error: 'bad' });
   // プレイを最初から再生して、回数と落とした刻みがぴったり同じか確かめる
-  const r = liftReplay(seed, log, steps);
+  const r = pre || liftReplay(seed, log, steps);
   if (!(r.failed && r.steps === steps && r.score === score)) return fail('replay');
   // 同じ記録は1回だけ（記録の指紋）
   const hash = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, seed + ':' + JSON.stringify(log))).slice(0, 24);
@@ -311,6 +341,8 @@ function replayAct(act, b, s, tok, now) {
   cache().put('lh:' + hash, '1', 21600);
   const game = s.game, t = new Date(now), sec = Math.floor(steps / 120);
   sheet().appendRow([t, "'" + today(), game, "'" + n1, score, 0, sec, "'" + dev, hash]);
+  SpreadsheetApp.flush();
+  lock.releaseLock(); // ここから下（順位の計算）は読むだけなので、ほかの人を待たせない
   const rankIn = rows => bestPerDev(rows).filter(x => x.dev !== dev && better(x, { wave: score, kills: 0, t: now }) < 0).length + 1;
   const todayRows = readRows(game, true), allRows = readRows(game, false);
   const o = { today: pub(bestPerDev(todayRows)), all: pub(bestPerDev(allRows)) };
