@@ -8,7 +8,7 @@ export function createCat(R, opt = {}) {
   world.integrationParameters.numSolverIterations = 10;
 
   const GROUND = (0x1 << 16) | 0xffff, CAT = (0x2 << 16) | 0x1, NONE = 0;
-  const ROOM = 2.2; // 部屋の半分の広さ
+  const ROOM = 6; // 投げても遠くへ行きすぎない見えない壁（半分の広さ）
   world.createCollider(R.ColliderDesc.cuboid(30, 0.5, 30).setTranslation(0, -0.5, 0).setFriction(1).setRestitution(0.05).setCollisionGroups(GROUND));
   for (const [x, z, hx, hz] of [[ROOM + 0.2, 0, 0.2, ROOM + 0.4], [-ROOM - 0.2, 0, 0.2, ROOM + 0.4], [0, ROOM + 0.2, ROOM + 0.4, 0.2], [0, -ROOM - 0.2, ROOM + 0.4, 0.2]])
     world.createCollider(R.ColliderDesc.cuboid(hx, 1.5, hz).setTranslation(x, 1.5, z).setFriction(0.6).setRestitution(0.1).setCollisionGroups(GROUND));
