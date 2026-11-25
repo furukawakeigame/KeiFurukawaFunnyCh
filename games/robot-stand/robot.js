@@ -98,7 +98,7 @@ export function createSim(R) {
     world, parts, partList, joints, colliderPart, totalMass, DT,
     state: 'stand', stateT: 0, tilt: 0, stagger: 0, time: 0,
     com: { x: 0, y: 0, z: 0 }, comV: { x: 0, y: 0, z: 0 },
-    swing: null, stepCool: 0, settleLeft: 4, flap: 0, koT: 0, postSettle: 0, stun: 0, stunK: 0, stunDur: 1, hits: [], balls: [], onStep: null, onFall: null, onGetup: null, onLand: null,
+    swing: null, stepCool: 0, settleLeft: 4, flap: 0, postSettle: 0, stun: 0, stunK: 0, stunDur: 1, hits: [], balls: [], onStep: null, onFall: null, onGetup: null, onLand: null,
   };
   const feet = [{ s: -1, k: 'R' }, { s: 1, k: 'L' }];
 
@@ -311,10 +311,7 @@ export function createSim(R) {
       uprightAssist('pelvis', 120 * (1 - sn), 10 * (1 - sn), 25 * (1 - sn));
       if (sim.tilt > 0.7 || pt.y < 0.62) { setState('fallen'); sim.swing = null; if (sim.onFall) sim.onFall(); }
     } else if (st === 'fallen') {
-      // 吹っ飛んだ直後は少しだけ体を固めておき、全身ごと飛ばす（すぐぐにゃっとさせると上体だけ折れる）
-      sim.koT -= DT;
-      const kg = sim.koT > 0 ? 0.5 : 0.03;
-      setGains(kg, kg, kg);
+      setGains(0.03, 0.03, 0.03);
       // 力が抜けた姿勢（少しだけ縮こまる）
       for (const j of jointList) j.target = 0;
       for (const k of ['R', 'L']) { joints['knee' + k].target = 0.4; joints['hipP' + k].target = -0.3; joints['elb' + k].target = -0.5; }
@@ -372,7 +369,7 @@ export function createSim(R) {
         const J = Math.hypot(pv.x - v.x, pv.y - v.y, pv.z - v.z) * b1.mass; // ぶつかった勢い（運動量）
         const k = clamp(J / 40, 0, 1);
         // とても強い一撃は、踏ん張らずにそのまま吹っ飛ぶ
-        if (J > KNOCKOUT && sim.state !== 'fallen') { setState('fallen'); sim.swing = null; sim.koT = 0.3; if (sim.onFall) sim.onFall(); }
+        if (J > KNOCKOUT && sim.state !== 'fallen') { setState('fallen'); sim.swing = null; if (sim.onFall) sim.onFall(); }
         if (k > 0.15 && sim.state === 'stand') {
           const s = sim.stun > 0 ? sim.stunK * sim.stun / sim.stunDur : 0;
           sim.stunK = Math.max(s, k); sim.stunDur = 0.3 + 0.3 * k; sim.stun = sim.stunDur;
