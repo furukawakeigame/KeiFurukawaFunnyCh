@@ -489,7 +489,7 @@ const innerTex = canvasTex(512, 256, (g, W, H) => {
 // 中身: クリーム色、面の溝と細かい繊維
 const fleshTex = canvasTex(1024, 256, (g, W, H) => {
   const gr = g.createLinearGradient(0, 0, W, 0);
-  gr.addColorStop(0, '#d9c48c'); gr.addColorStop(0.08, '#f2e4b4'); gr.addColorStop(0.5, '#f5e8bb'); gr.addColorStop(0.93, '#efdfa9'); gr.addColorStop(0.985, '#a07a3a'); gr.addColorStop(1, '#5c4020');
+  gr.addColorStop(0, '#d4b878'); gr.addColorStop(0.08, '#efdb9e'); gr.addColorStop(0.5, '#f3e2a6'); gr.addColorStop(0.93, '#ecd694'); gr.addColorStop(0.985, '#a07a3a'); gr.addColorStop(1, '#5c4020');
   g.fillStyle = gr; g.fillRect(0, 0, W, H);
   for (let k = 0; k <= 5; k++) { const y = (k + 0.5) * H / 5; g.strokeStyle = 'rgba(210,180,110,.35)'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
   for (let i = 0; i < 1200; i++) {
@@ -931,7 +931,7 @@ function buildFlap(mesh, R, a, w, d0, d1, alpha, n0) {
     _B.crossVectors(_T, _N);
     if (i === 0) { sgn = _B.dot(_A) >= 0 ? 1 : -1; }
     const d = lerp(d1, d0, i / (NN - 1)), s = sOf(d);
-    const rc = rad(s, thc), flat = i === 0 ? 1 : 0.85;
+    const rc = rad(s, thc), flat = lerp(1, 0.3, Math.min(1, i / 6));
     for (let j = 0; j < NM; j++) {
       const th = a + w * j / (NM - 1), r = rad(s, th), dt = th - thc;
       const orad = (r * Math.cos(dt) - rc) * flat, otan = r * Math.sin(dt) * sgn;
@@ -1174,6 +1174,8 @@ function onUp(e) {
 function release() {
   if (!grab) return;
   grab.st.rope.pin = -1;
+  // 終わり近くまでむけていたら、残りは自然にはがれる
+  if (!grab.st.done && grab.st.dp > 0.78) grab.st.autoFin = true;
   grab = null;
   cv.classList.remove('grabbing');
   setRip(0);
@@ -1268,6 +1270,11 @@ function stepGame(dt) {
   // 帯を動かす
   for (const st of strips) {
     const R = st.rope;
+    if (st.autoFin && !st.done) {
+      const dd = dt * 0.35; st.dp = Math.min(0.97, st.dp + dd); crackle(dd * LEN * 0.6);
+      if (st.dp >= 0.97) { st.done = true; st.autoFin = false; flop(0.7); }
+      packStrips();
+    }
     if (st.dp - st.d0 < 0.002) continue;
     R.seg = (st.dp - st.d0) * LEN / (NN - 1);
     hingeLocal(st, R.hinge).applyMatrix4(banana.matrixWorld);
