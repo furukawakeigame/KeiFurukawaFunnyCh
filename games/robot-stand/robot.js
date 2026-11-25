@@ -12,6 +12,7 @@ export function createSim(R) {
 
   // ---- 寸法（メートル）----
   const HIP_X = 0.1, HIP_Y = 0.87, KNEE_Y = 0.47, ANKLE_Y = 0.09, L1 = HIP_Y - KNEE_Y, L2 = KNEE_Y - ANKLE_Y;
+  const IDEAL_F = 0.015, SETTLE_TOL = 0.03; // 理想の足の位置（重心より少し前）と、直し始めるずれ
   const PELVIS_Y = 0.92, STAND_H = 0.905, SH_X = 0.25, SH_Y = 1.38, ELB_Y = 1.09, NECK_Y = 1.46;
   const parts = {}, partList = [], colliderPart = new Map();
   let totalMass = 0;
@@ -93,7 +94,7 @@ export function createSim(R) {
     world, parts, partList, joints, colliderPart, totalMass, DT,
     state: 'stand', stateT: 0, tilt: 0, stagger: 0, time: 0,
     com: { x: 0, y: 0, z: 0 }, comV: { x: 0, y: 0, z: 0 },
-    swing: null, stepCool: 0, settleLeft: 2, hits: [], balls: [], onStep: null, onFall: null, onGetup: null, onLand: null,
+    swing: null, stepCool: 0, settleLeft: 4, hits: [], balls: [], onStep: null, onFall: null, onGetup: null, onLand: null,
   };
   const feet = [{ s: -1, k: 'R' }, { s: 1, k: 'L' }];
 
@@ -202,26 +203,20 @@ export function createSim(R) {
         if (sim.lastStep && sim.lastStep.k === foot.k && sim.time - sim.lastStep.t < 0.6) foot = foot === FL ? FR : FL;
         sim.swing = { foot, u: 0, start: { ...foot.ankle }, dur: 0.3 };
         sim.lastStep = { k: foot.k, t: sim.time };
-        sim.settleLeft = 2;
+        sim.settleLeft = 4;
         if (sim.onStep) sim.onStep(foot.k);
       }
-      // 落ち着いたら足をそろえる。少しのずれは気にせず、直すのは1回の乱れにつき2歩まで
-      sim.calm = cpLen < 0.06 ? (sim.calm || 0) + DT : 0;
-      if (!sim.swing && sim.calm > 0.35 && sim.settleLeft > 0) {
-        const dx = FL.ankle.x - FR.ankle.x, dz = FL.ankle.z - FR.ankle.z;
-        const w = dx * side.x + dz * side.z, fa = dx * fwd.x + dz * fwd.z;
-        if (w < 0.11 || w > 0.33 || Math.abs(fa) > 0.16) {
-          // 骨盤の真下から遠い方の足を動かす
-          const off = f => { const ex = f.ankle.x - pt.x, ez = f.ankle.z - pt.z; return Math.hypot(ex * side.x + ez * side.z - f.s * HIP_X, ex * fwd.x + ez * fwd.z); };
-          const f = off(FL) > off(FR) ? FL : FR, o = f === FL ? FR : FL;
-          // 狭いときは届かずに手前で着地しやすいので、少し外をねらう
-          const wd = 2 * HIP_X + (w < 0.11 ? 0.03 : 0);
-          const nx = o.ankle.x + side.x * f.s * wd, nz = o.ankle.z + side.z * f.s * wd;
-          sim.swing = { foot: f, u: 0, start: { ...f.ankle }, dur: 0.38, fixed: { x: nx, z: nz }, settle: true };
-          sim.settleLeft--;
-          sim.calm = 0;
-          if (sim.onStep) sim.onStep(f.k);
-        }
+      // 落ち着いたら、両足を理想の位置（重心の真下で腰幅に開き、前後をそろえた所）へ戻す
+      sim.calm = Math.hypot(sim.comV.x, sim.comV.z) < 0.1 && cpLen < 0.16 ? (sim.calm || 0) + DT : 0;
+      const ideal = f => ({ x: sim.com.x + side.x * f.s * HIP_X + fwd.x * IDEAL_F, z: sim.com.z + side.z * f.s * HIP_X + fwd.z * IDEAL_F });
+      sim.footErr = 0;
+      for (const f of feet) { const q = ideal(f); f.err = Math.hypot(f.ankle.x - q.x, f.ankle.z - q.z); sim.footErr = Math.max(sim.footErr, f.err); }
+      if (!sim.swing && sim.calm > 0.3 && sim.settleLeft > 0 && sim.footErr > SETTLE_TOL) {
+        const f = FL.err > FR.err ? FL : FR;
+        sim.swing = { foot: f, u: 0, start: { ...f.ankle }, dur: 0.36, fixed: ideal(f), settle: true, bias: { x: 0, z: 0 } };
+        sim.settleLeft--;
+        sim.calm = 0;
+        if (sim.onStep) sim.onStep(f.k);
       }
 
       // 骨盤のなりたい位置: 今の位置から、倒れる向きと逆へずらす（足首と股関節の踏ん張り）
@@ -244,8 +239,23 @@ export function createSim(R) {
         if (sl > 0.55) { tx = other.ankle.x + sdx * 0.55 / sl; tz = other.ankle.z + sdz * 0.55 / sl; }
         if (sw.fixed) sw.target = sw.fixed; else if (sw.u < 0.6) sw.target = { x: tx, z: tz };
         const u = smooth(sw.u), tg = sw.target;
-        targets[f.k] = { x: sw.start.x + (tg.x - sw.start.x) * u, y: ANKLE_Y + 0.1 * Math.sin(Math.PI * clamp(sw.u, 0, 1)), z: sw.start.z + (tg.z - sw.start.z) * u };
-        if (sw.u >= 1 && (f.ground || sw.u > 1.4)) { sim.swing = null; sim.stepCool = 0.05; if (sim.onLand) sim.onLand(f.k); }
+        if (sw.u < 1) {
+          targets[f.k] = { x: sw.start.x + (tg.x - sw.start.x) * u, y: ANKLE_Y + 0.1 * Math.sin(Math.PI * sw.u), z: sw.start.z + (tg.z - sw.start.z) * u };
+          if (sw.settle) targets[f.k].y = ANKLE_Y + 0.06 * Math.sin(Math.PI * sw.u) + 0.025 * u;
+        } else if (sw.settle) {
+          // そろえる時は、ねらった位置に届くまで少し浮かせたまま合わせてから下ろす（モーターの遅れは bias で補う）
+          const er = Math.hypot(f.ankle.x - tg.x, f.ankle.z - tg.z);
+          if (er > 0.012 && sw.u < 2.2 && !sw.lower) {
+            sw.bias.x = clamp(sw.bias.x + (tg.x - f.ankle.x) * DT * 6, -0.06, 0.06);
+            sw.bias.z = clamp(sw.bias.z + (tg.z - f.ankle.z) * DT * 6, -0.06, 0.06);
+            targets[f.k] = { x: tg.x + sw.bias.x, y: ANKLE_Y + 0.025, z: tg.z + sw.bias.z };
+          } else {
+            sw.lower = true;
+            targets[f.k] = { x: tg.x + sw.bias.x, y: ANKLE_Y - 0.01, z: tg.z + sw.bias.z };
+          }
+        } else targets[f.k] = { x: tg.x, y: ANKLE_Y, z: tg.z };
+        const done = sw.settle ? sw.lower && f.ground && (sw.landT = (sw.landT || 0) + DT) > 0.05 : sw.u >= 1 && f.ground;
+        if (done || sw.u > 2.6) { sim.swing = null; sim.stepCool = 0.05; if (sim.onLand) sim.onLand(f.k); }
       }
       legsToward(P, yaw, targets);
       // 足首でも踏ん張る
@@ -297,7 +307,7 @@ export function createSim(R) {
       let fy = M * (G * 0.85 + 30 * (h - pt.y) - 9 * pv.y) * k;
       fy = clamp(fy, -200, M * G * 1.6);
       pel.applyImpulse({ x: -M * 4 * pv.x * k * DT, y: fy * DT, z: -M * 4 * pv.z * k * DT }, true);
-      if (t > T2 + 0.6 && sim.tilt < 0.25) { setState('stand'); sim.stepCool = 0.2; sim.settleLeft = 2; }
+      if (t > T2 + 0.6 && sim.tilt < 0.25) { setState('stand'); sim.stepCool = 0.2; sim.settleLeft = 4; }
       if (t > 6 || (t > 0.9 && sim.tilt > 1.1)) { setState('fallen'); if (sim.onFall) sim.onFall(); }
     }
 
