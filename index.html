@@ -37,8 +37,17 @@
   </header>
 
   <main>
+    <!-- 最近遊んだゲーム（この端末のブラウザにだけ保存。中身はスクリプトで入れる） -->
+    <section id="recent" hidden>
+      <h2>最近遊んだ</h2>
+      <ul class="recent"></ul>
+    </section>
     <h2>ゲーム一覧 <span id="game-count"></span></h2>
     <input id="search" type="search" placeholder="ゲームをさがす" aria-label="ゲームをさがす">
+    <div id="sort" role="group" aria-label="並び順">
+      <button type="button" data-sort="new" aria-pressed="true">新着順</button>
+      <button type="button" data-sort="popular" aria-pressed="false" disabled>人気順</button>
+    </div>
     <ul class="games">
       <!-- ゲームを追加するときは、この <li> をコピーして書き換える -->
       <li>
@@ -620,8 +629,38 @@
   </main>
 
   <script>
+    // 一覧はHTMLに書いた順（上が新しい）。並び替えで戻せるように覚えておく
+    const list = document.querySelector('.games');
+    const games = [...list.children];
+    const store = {
+      get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+      set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+    };
+
     // ゲームの数を見出しに表示する
-    document.getElementById('game-count').textContent = document.querySelectorAll('.games li').length + '個';
+    document.getElementById('game-count').textContent = games.length + '個';
+
+    // 新しい順に上から3個に NEW マークを付ける
+    games.slice(0, 3).forEach(li => {
+      const b = document.createElement('span');
+      b.className = 'new';
+      b.textContent = 'NEW';
+      li.append(b);
+    });
+
+    // 並び替え（新着順／人気順）。選んだ方は次に来たときも使う
+    const sortButtons = document.querySelectorAll('#sort button');
+    function sortBy(mode) {
+      const order = mode === 'popular'
+        ? [...games].sort((a, b) => (b.dataset.views || 0) - (a.dataset.views || 0))
+        : games;
+      list.append(...order);
+      sortButtons.forEach(btn => btn.setAttribute('aria-pressed', btn.dataset.sort === mode));
+    }
+    sortButtons.forEach(btn => btn.addEventListener('click', () => {
+      sortBy(btn.dataset.sort);
+      store.set('sort', btn.dataset.sort);
+    }));
 
     // 各ゲームのビュー数（Google アナリティクスの全期間）をカードに表示する。
     // 数は .claude/ga-views.gs を Apps Script で公開したURLから取る。
@@ -638,25 +677,61 @@
         // サイトが /<repo>/ 以下で配信されていても合うように、末尾一致で数える
         const count = path => Object.keys(views)
           .filter(p => p.endsWith(path)).reduce((sum, p) => sum + views[p], 0);
-        document.querySelectorAll('.games li').forEach(li => {
+        games.forEach(li => {
           const path = '/' + li.querySelector('a').getAttribute('href');
           const n = [path, ...(OLD_PATHS[path] || [])].reduce((sum, p) => sum + count(p), 0);
+          li.dataset.views = n;
           const v = document.createElement('span');
           v.className = 'views';
           v.textContent = n.toLocaleString() + ' views';
           li.querySelector('div').append(v);
         });
+        // ビュー数が取れたら人気順を選べるようにする
+        document.querySelector('#sort [data-sort="popular"]').disabled = false;
+        if (store.get('sort') === 'popular') sortBy('popular');
       }).catch(() => {});
     }
 
-    // タイトルと説明文に入力した文字が含まれるゲームだけ表示する
+    // 最近遊んだゲーム：トップから開いたゲームを新しい順に6個まで覚えて、一覧の上に出す
+    const recentBox = document.getElementById('recent');
+    function showRecent() {
+      const ul = recentBox.querySelector('ul');
+      ul.textContent = '';
+      (store.get('recent') || []).forEach(href => {
+        const li = games.find(g => g.querySelector('a').getAttribute('href') === href);
+        if (!li) return;
+        const img = li.querySelector('img');
+        const title = li.querySelector('div a').textContent;
+        const item = document.createElement('li');
+        item.innerHTML = '<a><img width="56" height="56" alt=""><span></span></a>';
+        item.querySelector('a').href = href;
+        item.querySelector('img').src = img.getAttribute('src');
+        item.querySelector('span').textContent = title;
+        ul.append(item);
+      });
+      recentBox.hidden = !ul.children.length;
+    }
+    document.addEventListener('click', e => {
+      const a = e.target.closest('a[href^="games/"]');
+      if (!a) return;
+      const href = a.getAttribute('href');
+      store.set('recent', [href, ...(store.get('recent') || []).filter(h => h !== href)].slice(0, 6));
+    });
+    showRecent();
+    // 戻るボタンで戻ってきたときも最新にする
+    addEventListener('pageshow', e => { if (e.persisted) showRecent(); });
+
+    // タイトルと説明文に入力した文字が含まれるゲームだけ表示する。
+    // ひらがな／カタカナ、全角／半角、大文字／小文字の違いは気にしない
+    const normalize = t => t.normalize('NFKC').toLowerCase()
+      .replace(/[\u30a1-\u30f6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+    const texts = new Map(games.map(li => [li, normalize(li.querySelector('div').textContent)]));
     const search = document.getElementById('search');
-    const games = document.querySelectorAll('.games li');
     search.addEventListener('input', () => {
-      const q = search.value.trim().toLowerCase();
+      const q = normalize(search.value.trim());
       let hit = 0;
       games.forEach(li => {
-        const show = li.textContent.toLowerCase().includes(q);
+        const show = texts.get(li).includes(q);
         li.hidden = !show;
         if (show) hit++;
       });
