@@ -7,7 +7,8 @@
 //   x, z, yaw: 立つ位置と向き（yaw = 0 で +z を向く）
 //   balls: ボールの一覧（2体で同じ配列を共有する）
 // 2体で使うときは、毎きざみ sim.pre() を全員分 → world.step(events) を1回 → sim.post(イベント) を全員分、の順に呼ぶ（stepAll）
-export const GROUPS = { GROUND: (0x1 << 16) | 0xffff, BALL: (0x4 << 16) | 0xf };
+// ロボットは1体ずつ別のビット（0x2, 0x8, 0x10, 0x20）。最大4体
+export const GROUPS = { GROUND: (0x1 << 16) | 0xffff, BALL: (0x4 << 16) | 0xffff, ROBOTS: 0x2 | 0x8 | 0x10 | 0x20 };
 export function createSim(R, cfg = {}) {
   const DT = 1 / 120, G = 9.81;
   const own = !cfg.world;
@@ -17,7 +18,8 @@ export function createSim(R, cfg = {}) {
   const events = cfg.events || new R.EventQueue(true);
 
   // 相手のロボットとは、手・足・頭など全部の部位がぶつかる（自分の体どうしは当たらない）
-  const team = cfg.team || 0, me = team ? 0x8 : 0x2, other = team ? 0x2 : 0x8;
+  //   bit: このロボットのビット（なければ team から 0x2 / 0x8）。ほかのロボット全部とぶつかる
+  const team = cfg.team || 0, me = cfg.bit || (team ? 0x8 : 0x2), other = GROUPS.ROBOTS & ~me;
   const GROUND = GROUPS.GROUND, ROBOT = (me << 16) | 0x1 | 0x4 | other, BALL = GROUPS.BALL, NONE = 0;
   if (own) world.createCollider(R.ColliderDesc.cuboid(60, 0.5, 60).setTranslation(0, -0.5, 0).setFriction(1).setRestitution(0.2).setCollisionGroups(GROUND));
   const YAW = cfg.yaw || 0, OX = cfg.x || 0, OZ = cfg.z || 0, cY = Math.cos(YAW), sY = Math.sin(YAW);
