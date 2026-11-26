@@ -34,7 +34,9 @@
 //     再生した回数と、落とした刻みが、送られてきたものとぴったり同じでなければ受け付けない。
 //   ・ゲーム内の時間が、整理券を出してからの本当の時間（+60秒）より長くないこと（早送りした記録ははじく）。
 //   ・同じ記録（種と指の動きが同じもの）は1回しか登録できない（記録の指紋を scores の9列目に残す）。
-//   ・回数を書き換える・記録を使い回す・早送りする、のどれも通らない。
+//   ・ほぼ必ず登録できるように（作者の判断）: 再生が合わない・整理券がない・時間が合わない記録も、
+//     回数がありえる範囲（1回あたり0.3秒以上）なら登録して、scores の10列目に「未確認（理由）」と書く。
+//     怪しい行は10列目を見て消す。ありえない回数・壊れた記録・二重登録・NGワード・ban だけははじく。
 //   ・check は登録せずに再生だけする（ゲームとサーバーの計算が合っているかを確かめる用）。
 //     本当に遊ぶプログラム（ボット）までは防げない（見つけたら行を消す・ban に書く）。
 //   ・core.js を書き換えたら、このファイルの写しも同じに直して、デプロイし直す。
@@ -52,8 +54,8 @@
 // POST {act:'submit', tok, name, name2?, dev2?, dist, sec, dev} → 上と同じ
 // 回数のゲーム（再生で確かめる）:
 // POST {act:'start', game, dev}                    → { ok, tok }
-// POST {act:'submit', tok, name, dev, seed, score, steps, log} → 上と同じ（wave に回数が入る）
-//      うまくいかない時の error: 'replay'（再生した結果が合わない） / 'time'（早すぎる） / 'dup'（同じ記録） / 'bad'
+// POST {act:'submit', game, tok, name, dev, seed, score, steps, log} → 上と同じ（wave に回数が入る。tok はなくてもよい）
+//      うまくいかない時の error: 'replay'（ありえない回数） / 'dup'（同じ記録） / 'bad'（記録が壊れている）
 // POST {act:'check', game:'lifting', seed, steps, log} → { ok, score, steps, failed }（登録しない。再生の確認用）
 
 const SHEET = 'scores', BAN = 'ban';
@@ -170,13 +172,15 @@ function doPost(e) {
   if (act === 'check' || act === 'start') return startOrCheck(act, b, now);
   // 回数のゲームの登録: 重い再生は、ロックの外で先に済ませる
   let pre = null;
-  if (act === 'submit') { const s0 = getSess(String(b.tok || '')); if (s0 && REPLAY[s0.game] && !s0.used) pre = preReplay(b); }
+  if (act === 'submit' && (REPLAY[String(b.game)] || (getSess(String(b.tok || '')) || {}).game in REPLAY)) pre = preReplay(b);
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(15000)) return json({ ok: false, error: 'wait' }); // 待ちきれない時は、エラー画面ではなく「もう一度」
   try {
     const tok = String(b.tok || ''), s = getSess(tok);
     // 距離のゲーム: 通信が切れて同じ登録が2回届いたら、1回目の結果を返す
     if (s && s.used && s.res && act === 'submit') return json(s.res);
+    // 回数のゲーム: 整理券がない・使用済みでも、登録は受け付ける（未確認として）
+    if (act === 'submit' && REPLAY[String(b.game)] && (!s || s.used || s.game !== String(b.game))) return replayAct(act, b, null, tok, now, pre, lock);
     if (!s || s.used) return json({ ok: false, error: 'bad' });
     if (DIST[s.game]) return distAct(act, b, s, tok, now);
     if (REPLAY[s.game]) return replayAct(act, b, s, tok, now, pre, lock);
@@ -310,45 +314,51 @@ function preReplay(b) {
   return liftReplay(seed, log, steps);
 }
 function replayAct(act, b, s, tok, now, pre, lock) {
-  const P = REPLAY[s.game];
-  const fail = err => { s.used = true; putSess(tok, s); return json({ ok: false, error: err || 'bad' }); };
   if (act === 'go') return json({ ok: true }); // 古いゲームからの知らせ（今は使わない）
   if (act !== 'submit') return json({ ok: false, error: 'bad' });
+  const game = s ? s.game : String(b.game), P = REPLAY[game];
+  if (!P) return json({ ok: false, error: 'bad' });
   const dev = String(b.dev || '').slice(0, 40);
-  if (dev !== s.dev) return json({ ok: false, error: 'bad' });
   const seed = Math.floor(Number(b.seed)), score = Math.floor(Number(b.score)), steps = Math.floor(Number(b.steps)), log = b.log;
-  if (!(seed === (seed | 0) && score >= 1 && steps > 0 && steps <= P.maxSteps)) return fail();
-  if (!Array.isArray(log) || log.length % 4 !== 0 || log.length > steps * 8 + 64) return fail();
-  for (let i = 0; i < log.length; i++) if (typeof log[i] !== 'number' || log[i] !== Math.floor(log[i]) || Math.abs(log[i]) > 1e7) return fail();
-  for (let i = 4; i < log.length; i += 4) if (log[i] < log[i - 4]) return fail(); // 刻みは順番どおり
-  // ゲーム内の時間は、整理券を出してからの本当の時間より長くならない
-  // （サーバーが混んで整理券が遊び始めより遅れて届くことがあるので、60秒は甘くする）
-  if (steps / 120 > (now - s.issued) / 1000 + 60) return fail('time');
+  // 記録の形（壊れていたら受け付けない）
+  if (!(seed === (seed | 0) && score >= 1 && steps > 0 && steps <= P.maxSteps)) return json({ ok: false, error: 'bad' });
+  if (!Array.isArray(log) || log.length % 4 !== 0 || log.length > steps * 8 + 64) return json({ ok: false, error: 'bad' });
+  for (let i = 0; i < log.length; i++) if (typeof log[i] !== 'number' || log[i] !== Math.floor(log[i]) || Math.abs(log[i]) > 1e7) return json({ ok: false, error: 'bad' });
+  for (let i = 4; i < log.length; i += 4) if (log[i] < log[i - 4]) return json({ ok: false, error: 'bad' });
+  // ありえない回数（1回あたり0.3秒より速い）は受け付けない
+  if (score * 0.3 > steps / 120 + 1) return json({ ok: false, error: 'replay' });
   const n1 = cleanName(b.name);
   if (!n1) return json({ ok: false, error: 'name' });
   if (badName(n1)) return json({ ok: false, error: 'ng' });
   const ban = banned();
   if (ban.has(n1) || ban.has(dev)) return json({ ok: false, error: 'bad' });
-  // プレイを最初から再生して、回数と落とした刻みがぴったり同じか確かめる
+  // 確かめる: 整理券・端末・時間・再生。合わないものは登録して「未確認」と書く
+  const why = [];
+  if (!s) why.push('notoken');
+  else {
+    if (dev !== s.dev) why.push('dev');
+    if (steps / 120 > (now - s.issued) / 1000 + 60) why.push('time');
+  }
   const r = pre || liftReplay(seed, log, steps);
-  if (!(r.failed && r.steps === steps && r.score === score)) return fail('replay');
+  if (!(r.failed && r.steps === steps && r.score === score)) why.push('replay ' + r.score + '/' + r.steps);
   // 同じ記録は1回だけ（記録の指紋）
   const hash = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, seed + ':' + JSON.stringify(log))).slice(0, 24);
-  if (cache().get('lh:' + hash) || sheet().createTextFinder(hash).matchEntireCell(true).findNext()) return fail('dup');
+  if (cache().get('lh:' + hash) || sheet().createTextFinder(hash).matchEntireCell(true).findNext()) return json({ ok: false, error: 'dup' });
   if (limited('dev:' + dev, 1, 20)) return json({ ok: false, error: 'wait' });
   if (limited('min:' + Math.floor(now / 60000), 60, 70) || limited('day:' + today(), DAY_CAP, 90000)) return json({ ok: false, error: 'wait' });
-  s.used = true; putSess(tok, s);
+  if (s) { s.used = true; putSess(tok, s); }
   cache().put('lh:' + hash, '1', 21600);
-  const game = s.game, t = new Date(now), sec = Math.floor(steps / 120);
-  sheet().appendRow([t, "'" + today(), game, "'" + n1, score, 0, sec, "'" + dev, hash]);
+  const t = new Date(now), sec = Math.floor(steps / 120);
+  sheet().appendRow([t, "'" + today(), game, "'" + n1, score, 0, sec, "'" + dev, hash, why.length ? '未確認（' + why.join(', ') + '）' : '']);
   SpreadsheetApp.flush();
   lock.releaseLock(); // ここから下（順位の計算）は読むだけなので、ほかの人を待たせない
   const rankIn = rows => bestPerDev(rows).filter(x => x.dev !== dev && better(x, { wave: score, kills: 0, t: now }) < 0).length + 1;
   const todayRows = readRows(game, true), allRows = readRows(game, false);
   const o = { today: pub(bestPerDev(todayRows)), all: pub(bestPerDev(allRows)) };
   cache().put('tops:' + game + ':' + today(), JSON.stringify(o), 60);
-  s.res = { ok: true, rank: { today: rankIn(todayRows), all: rankIn(allRows) }, today: o.today, all: o.all }; putSess(tok, s);
-  return json(s.res);
+  const res = { ok: true, rank: { today: rankIn(todayRows), all: rankIn(allRows) }, today: o.today, all: o.all };
+  if (s) { s.res = res; putSess(tok, s); }
+  return json(res);
 }
 
 // ===== ここから下は games/lifting/core.js の写し（中身を変えずに貼る。ゲームと食い違うと正しい記録がはじかれる） =====
