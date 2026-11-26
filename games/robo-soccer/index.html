@@ -44,7 +44,7 @@
     select.pill option { color: #000; }
     canvas#cv { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
     #msg { position: fixed; left: 0; right: 0; top: 40%; text-align: center; padding: 0 16px; font-size: 16px; pointer-events: none; z-index: 5; }
-    /* 連勝中の数（上の真ん中） */
+    /* 点数・残り時間・連勝中の数（上の真ん中） */
     #hud { position: fixed; top: calc(50px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 3; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 6px; transition: opacity .4s; }
     #hud.off { opacity: 0; }
     #score { display: flex; align-items: center; gap: 8px; font: 900 clamp(28px, 6vmin, 44px)/1 system-ui, -apple-system, "Hiragino Sans", sans-serif; font-variant-numeric: tabular-nums; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
@@ -53,6 +53,13 @@
     #rLabel { margin-top: 8px; font: 900 clamp(22px, 5vmin, 30px)/1 system-ui, -apple-system, "Hiragino Sans", sans-serif; letter-spacing: .04em; }
     #rLabel.win { color: #ffd43b; } #rLabel.lose { color: #8ab8ff; } #rLabel.draw { color: #e9ecef; }
     @keyframes pop { 30% { transform: scale(1.35); } }
+    #bar { width: clamp(140px, 34vmin, 260px); height: 8px; border-radius: 99px; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.25); overflow: hidden; }
+    #bar[hidden], #gg[hidden] { display: none; }
+    #barIn { height: 100%; width: 100%; background: #6ee7a0; border-radius: 99px; transform-origin: left center; }
+    /* ゴールデンゴールの間だけ出す */
+    #gg { padding: 4px 14px; border-radius: 999px; background: #ffd43b; color: #1b2029; font: 900 16px system-ui, -apple-system, "Hiragino Sans", sans-serif; letter-spacing: .04em; animation: ggIn .4s ease-out; }
+    @keyframes ggIn { from { transform: scale(.6); opacity: 0; } }
+    #rGG { font-size: 13px; font-weight: 800; color: #ffd43b; opacity: .9; }
     #streak { display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; background: rgba(0,0,0,.35); border: 1px solid rgba(255,212,59,.5); color: #ffd43b; font: 800 16px system-ui, -apple-system, "Hiragino Sans", sans-serif; }
     #streak[hidden] { display: none; }
     @media (max-height: 519px) and (min-aspect-ratio: 1/1) { #hud { top: calc(6px + env(safe-area-inset-top)); } }
@@ -111,7 +118,11 @@
   <main style="display:contents">
     <canvas id="cv"></canvas>
     <!-- 連勝中の数（勝ち続けている間だけ出す） -->
-    <div id="hud"><div id="streak" hidden><svg width="16" height="16" viewBox="0 0 24 24"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z" fill="#ffd43b"/></svg><span id="streakN"></span></div></div>
+    <div id="hud">
+      <div id="score"><span id="scoreN" class="me">0</span><span class="dash">-</span><span id="oppN" class="op">0</span></div>
+      <div id="bar"><div id="barIn"></div></div>
+      <div id="gg" hidden></div>
+      <div id="streak" hidden><svg width="16" height="16" viewBox="0 0 24 24"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z" fill="#ffd43b"/></svg><span id="streakN"></span></div></div>
     <svg id="ballArrow" viewBox="0 0 44 44"><g id="baRot"><path d="M40 22L30 15v14z" fill="#fff"/></g><circle cx="20" cy="22" r="10" fill="#fff" stroke="#222" stroke-width="1.6"/><path d="M20 17.5l3 2.2-1.1 3.5h-3.8l-1.1-3.5z" fill="#222"/></svg>
     <svg id="joy" viewBox="0 0 120 120"><circle cx="60" cy="60" r="50" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.45)" stroke-width="3"/><circle id="knob" cx="60" cy="60" r="20" fill="rgba(255,255,255,.85)"/></svg>
     <svg id="hint" viewBox="0 0 110 110"><circle cx="55" cy="55" r="44" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.5)" stroke-width="3"/>
@@ -122,6 +133,7 @@
       <div class="res">
         <div id="rScore"></div>
         <div id="rLabel"></div>
+        <div id="rGG"></div>
         <div id="rStreak"></div>
         <div id="rBest"></div>
       </div>
@@ -141,13 +153,13 @@ const store = {
 
 // ===== 言語 =====
 const L = {
-  ja: { win: '勝ち', lose: '負け', draw: '引き分け', title: 'ロボサッカー', back: '← トップへ戻る', again: 'もう一度', share: 'ポスト', best: 'ベスト', newBest: 'ベスト更新', streak: n => `${n}連勝`, goals: n => `${n}<small>ゴール</small>`, goalsT: n => `${n}ゴール`,
+  ja: { win: '勝ち', lose: '負け', draw: '引き分け', title: 'ロボサッカー', back: '← トップへ戻る', again: 'もう一度', share: 'ポスト', best: 'ベスト', newBest: 'ベスト更新', streak: n => `${n}連勝`, gg: 'ゴールデンゴール', goals: n => `${n}<small>ゴール</small>`, goalsT: n => `${n}ゴール`,
     loadErr: '読み込みに失敗しました。通信状況を確かめて再読み込みしてください。' },
-  ko: { win: '승리', lose: '패배', draw: '무승부', title: '로봇 축구', back: '← 처음으로', again: '다시 하기', share: '게시', best: '최고', newBest: '최고 기록 갱신', streak: n => `${n}연승`, goals: n => `${n}<small>골</small>`, goalsT: n => `${n}골`,
+  ko: { win: '승리', lose: '패배', draw: '무승부', title: '로봇 축구', back: '← 처음으로', again: '다시 하기', share: '게시', best: '최고', newBest: '최고 기록 갱신', streak: n => `${n}연승`, gg: '골든골', goals: n => `${n}<small>골</small>`, goalsT: n => `${n}골`,
     loadErr: '불러오지 못했습니다. 연결을 확인하고 새로고침해 주세요.' },
-  en: { win: 'WIN', lose: 'LOSE', draw: 'DRAW', title: 'Robot Soccer', back: '← Top', again: 'Play again', share: 'Post', best: 'Best', newBest: 'New best', streak: n => n === 1 ? '1 win' : `${n} wins in a row`, goals: n => `${n}<small>${n === 1 ? 'goal' : 'goals'}</small>`, goalsT: n => `${n} ${n === 1 ? 'goal' : 'goals'}`,
+  en: { win: 'WIN', lose: 'LOSE', draw: 'DRAW', title: 'Robot Soccer', back: '← Top', again: 'Play again', share: 'Post', best: 'Best', newBest: 'New best', streak: n => n === 1 ? '1 win' : `${n} wins in a row`, gg: 'GOLDEN GOAL', goals: n => `${n}<small>${n === 1 ? 'goal' : 'goals'}</small>`, goalsT: n => `${n} ${n === 1 ? 'goal' : 'goals'}`,
     loadErr: 'Failed to load. Check your connection and reload.' },
-  th: { win: 'ชนะ', lose: 'แพ้', draw: 'เสมอ', title: 'ฟุตบอลหุ่นยนต์', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์', best: 'ดีที่สุด', newBest: 'ทำลายสถิติ', streak: n => `ชนะติดกัน ${n} ครั้ง`, goals: n => `${n}<small> ประตู</small>`, goalsT: n => `${n} ประตู`,
+  th: { win: 'ชนะ', lose: 'แพ้', draw: 'เสมอ', title: 'ฟุตบอลหุ่นยนต์', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์', best: 'ดีที่สุด', newBest: 'ทำลายสถิติ', streak: n => `ชนะติดกัน ${n} ครั้ง`, gg: 'โกลเดนโกล', goals: n => `${n}<small> ประตู</small>`, goalsT: n => `${n} ประตู`,
     loadErr: 'โหลดไม่สำเร็จ ตรวจสอบการเชื่อมต่อแล้วโหลดใหม่' },
 };
 const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
@@ -382,7 +394,7 @@ try {
 
 // ===== コートの寸法（メートル）=====
 // 自分は -z 側から +z 側のゴールを攻める。まわりは板で囲み、ボールは外に出ない
-const HX = 4.5, HZ = 7, GW = 1.5, GH = 1.5, GD = 1.0, BALL_R = 0.26;
+const HX = 4.5, HZ = 7, GW = 1.5, GH = 1.5, GD = 1.0, BALL_R = 0.26, GAME_T = 60;
 const ME_Z = -2.6, CPU_Z = 2.6;
 const CORNERS = [[1, 1], [1, -1], [-1, 1], [-1, -1]], CORNER_L = 0.75, CORNER_C = 0.45;
 const yawQuat = a => ({ x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2) });
@@ -985,8 +997,9 @@ function requestKick() {
 }
 
 // ===== ゲームの進行 =====
-// ゴールデンゴール: 先に1点取った方の勝ち（時間の制限なし）。勝ち続けた数（連勝）を数え、一番多い連勝をベストに残す
-let state = 'ready', goals = 0, opp = 0, lastScorer = 0, streak = 0, best = store.get('bestStreak', 0), newBest = false, goalT = 0, endT = 0;
+// 60秒の試合。時間切れで同点ならゴールデンゴール（次に1点取った方の勝ち・時間の制限なし）。
+// 勝ち続けた数（連勝）を数え、一番多い連勝をベストに残す
+let state = 'ready', timeLeft = GAME_T, golden = false, goals = 0, opp = 0, lastScorer = 0, streak = 0, best = store.get('bestStreak', 0), newBest = false, goalT = 0, endT = 0;
 const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
 function beginPlay() {
   state = 'play';
@@ -997,6 +1010,8 @@ function beginPlay() {
 function scoreGoal(e) {
   state = 'goal'; goalT = 0; lastScorer = e;
   if (e > 0) goals++; else opp++;
+  $('scoreN').textContent = goals; $('oppN').textContent = opp;
+  const sc = $('score'); sc.classList.remove('pop'); void sc.offsetWidth; sc.classList.add('pop');
   const bp = ball.body.translation();
   shakeNet(e, bp.x, bp.y);
   explode({ x: bp.x, y: bp.y, z: bp.z });
@@ -1061,6 +1076,23 @@ function dropBall() {
   whistle(false);
 }
 function updStreak() { $('streak').hidden = streak < 1; $('streakN').textContent = t('streak')(streak); }
+// 時間切れで同点: ゴールデンゴール（ボールと2体を最初の位置に戻して、次の1点で決着）
+function startGolden() {
+  golden = true; $('bar').hidden = true; $('gg').hidden = false; $('gg').textContent = t('gg');
+  whistle(false); setTimeout(() => whistle(false), 260); cheer();
+  restart();
+}
+// ゴールの後: ロボット2体とボールを最初の位置に戻して再開
+function restart() {
+  world.free();
+  buildWorld();
+  bindSims(); syncAll();
+  ballMesh.visible = true; ballMark.visible = true;
+  for (const r of robots) { r.lastState = 'stand'; setFace(r.face, 'normal'); }
+  ai.tx = 0; ai.tz = CPU_Z; ai.kickCool = 0.8; acc = 0; lastScorer = 0;
+  updateCamera(0, true);
+  whistle(false);
+}
 function finish() {
   state = 'over'; endT = 0;
   whistle(true); setTimeout(() => whistle(true), 50);
@@ -1079,12 +1111,13 @@ function renderResult() {
   $('rScore').innerHTML = `<span class="me">${goals}</span><span class="dash">-</span><span class="op">${opp}</span>`;
   const res = goals > opp ? 'win' : goals < opp ? 'lose' : 'draw';
   $('rLabel').className = res; $('rLabel').textContent = t(res);
+  $('rGG').textContent = golden ? t('gg') : '';
   const b = $('rBest');
   b.classList.toggle('new', newBest);
   $('rStreak').textContent = streak > 0 ? t('streak')(streak) : '';
   b.innerHTML = newBest ? `<svg width="18" height="18" viewBox="0 0 24 24"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z" fill="#ffd43b"/></svg>${t('newBest')}` : `${t('best')} ${t('streak')(best)}`;
 }
-window.onLang = () => { if (!$('result').hidden) renderResult(); updStreak(); updateShare(); };
+window.onLang = () => { if (!$('result').hidden) renderResult(); updStreak(); $('gg').textContent = t('gg'); updateShare(); };
 function reset() {
   world.free();
   buildWorld();
@@ -1092,9 +1125,9 @@ function reset() {
   syncAll();
   for (const r of robots) { r.lastState = 'stand'; setFace(r.face, 'normal'); }
   ballMesh.visible = true; ballMark.visible = true;
-  state = 'ready'; goals = 0; opp = 0; lastScorer = 0; acc = 0; ai.tx = 0; ai.tz = CPU_Z; joy = null; $('joy').classList.remove('on');
+  state = 'ready'; timeLeft = GAME_T; golden = false; goals = 0; opp = 0; lastScorer = 0; acc = 0; ai.tx = 0; ai.tz = CPU_Z; joy = null; $('joy').classList.remove('on');
   snapDone = false; snapWant = -1; scrMode = 'idle';
-  updStreak();
+  updStreak(); $('scoreN').textContent = '0'; $('oppN').textContent = '0'; shownBar = -1; $('bar').hidden = false; $('gg').hidden = true;
   $('result').hidden = true; $('hud').classList.remove('off');
   $('hint').classList.remove('off');
   updateCamera(0, true);
@@ -1211,7 +1244,7 @@ function checkKicks() {
 }
 
 // ===== ループ（物理は 1/120 秒きざみ・描画は補間）=====
-let acc = 0, last = performance.now(), faceTimer = 0, snapWant = -1, snapDone = false;
+let acc = 0, last = performance.now(), faceTimer = 0, shownBar = -1, snapWant = -1, snapDone = false;
 const hintPos = new THREE.Vector3();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -1220,6 +1253,10 @@ function frame(now) {
   me.walk = state === 'play' || state === 'goal' ? d : { x: 0, z: 0 };
   updateAI(dt);
   if (state === 'play') {
+    if (!golden) {
+      timeLeft -= dt;
+      if (timeLeft <= 0) { timeLeft = 0; if (goals !== opp) finish(); else startGolden(); }
+    }
     // ゴールに入った？（口の内側を、ボールが全部こえた）
     const b = ball.body.translation();
     if (state === 'play' && Math.abs(b.z) > HZ + BALL_R && Math.abs(b.x) < GW && b.y < GH) scoreGoal(Math.sign(b.z));
@@ -1229,7 +1266,8 @@ function frame(now) {
     if (stuckT > 5) { stuckT = 0; dropBall(); }
   } else if (state === 'goal') {
     goalT += dt; scrT += dt;
-    if (goalT > 2.8) finish(); // 吹き飛ぶところを見せてから結果へ
+    // 吹き飛ぶところを見せてから、ゴールデンゴールなら結果へ、そうでなければ最初の位置から再開
+    if (goalT > 2.8) { if (golden) finish(); else { state = 'play'; scrMode = 'idle'; restart(); } }
   }
   acc += dt;
   while (acc >= me.DT) {
@@ -1256,6 +1294,9 @@ function frame(now) {
     if (r.face.mode === 'dizzy') { r.face.t += dt; r.face.spin += dt * 5; if (r.face.t > 1 / 15) { r.face.t = 0; drawFace(r.face); } if (s.state === 'stand') setFace(r.face, 'normal'); }
   }
   if (scrMode !== 'idle') { faceTimer += dt; if (faceTimer > 1 / 15) { faceTimer = 0; drawScreen(); } } else if (faceTimer >= 0) { faceTimer = -1; drawScreen(); }
+  // 時間のゲージ（変わった時だけ書く）
+  const bw = Math.round(timeLeft / GAME_T * 200) / 200;
+  if (bw !== shownBar) { shownBar = bw; $('barIn').style.transform = `scaleX(${bw})`; $('barIn').style.background = timeLeft < 10 ? '#ffa94d' : '#6ee7a0'; }
   updateCamera(dt);
   updateBallArrow();
   updateNet(dt);
