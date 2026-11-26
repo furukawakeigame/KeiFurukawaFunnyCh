@@ -3,7 +3,7 @@
 // 立ったときの姿勢で全部の剛体を回転なしで作る → 関節の角度 0 = 直立
 // ロボサッカー用の設定（cfg）:
 //   world / events: 2体で同じ世界を使うときに渡す（渡さなければ自分で作り、地面も作る）
-//   team: 0 か 1（当たり判定のグループ。自分の体どうし・相手のロボとは当たらず、ボール・地面とは当たる）
+//   team: 0 か 1（当たり判定のグループ。自分の体どうしは当たらず、相手のロボ・ボール・地面とは当たる）
 //   x, z, yaw: 立つ位置と向き（yaw = 0 で +z を向く）
 //   balls: ボールの一覧（2体で同じ配列を共有する）
 // 2体で使うときは、毎きざみ sim.pre() を全員分 → world.step(events) を1回 → sim.post(イベント) を全員分、の順に呼ぶ（stepAll）
@@ -16,9 +16,9 @@ export function createSim(R, cfg = {}) {
   world.integrationParameters.numSolverIterations = 8;
   const events = cfg.events || new R.EventQueue(true);
 
-  // ロボットどうしは物理では当たらない（速く動くとからまって転びすぎるので、ゲームの側でやわらかく押し合わせる: pushApart）
-  const team = cfg.team || 0, me = team ? 0x8 : 0x2;
-  const GROUND = GROUPS.GROUND, ROBOT = (me << 16) | 0x1 | 0x4, BALL = GROUPS.BALL, NONE = 0;
+  // 相手のロボットとは、手・足・頭など全部の部位がぶつかる（自分の体どうしは当たらない）
+  const team = cfg.team || 0, me = team ? 0x8 : 0x2, other = team ? 0x2 : 0x8;
+  const GROUND = GROUPS.GROUND, ROBOT = (me << 16) | 0x1 | 0x4 | other, BALL = GROUPS.BALL, NONE = 0;
   if (own) world.createCollider(R.ColliderDesc.cuboid(60, 0.5, 60).setTranslation(0, -0.5, 0).setFriction(1).setRestitution(0.2).setCollisionGroups(GROUND));
   const YAW = cfg.yaw || 0, OX = cfg.x || 0, OZ = cfg.z || 0, cY = Math.cos(YAW), sY = Math.sin(YAW);
   const place = p => [OX + cY * p[0] + sY * p[2], p[1], OZ - sY * p[0] + cY * p[2]];
@@ -528,19 +528,6 @@ export function createSim(R, cfg = {}) {
     for (const j of jointList) j.j.configureMotorPosition(j.target, j.kp * j.gain, j.kd * Math.max(j.gain, 0.08));
   }
 
-  // 2体のロボットをやわらかく押し合わせる（体が重なった分だけ、骨盤と胴を水平に押し離す）。毎きざみ pre の前に呼ぶ
-  sim.pushFrom = (o) => {
-    for (const [n, R0, k] of [['pelvis', 0.42, 0.5], ['torso', 0.5, 0.5]]) {
-      const a = parts[n].body.translation(), b = o.parts[n].body.translation();
-      if (Math.abs(a.y - b.y) > 0.6) continue;
-      let dx = a.x - b.x, dz = a.z - b.z; const d = Math.hypot(dx, dz);
-      if (d > R0 || d < 1e-4) continue;
-      dx /= d; dz /= d;
-      const va = parts[n].body.linvel(), vb = o.parts[n].body.linvel(), vr = (va.x - vb.x) * dx + (va.z - vb.z) * dz;
-      const F = (900 * (R0 - d) - 60 * Math.min(0, vr)) * k; // ばね＋近づく速さのブレーキ
-      parts[n].body.applyImpulse({ x: dx * F * DT, y: 0, z: dz * F * DT }, true);
-    }
-  };
   sim.pre = () => {
     control();
     for (const b of sim.balls) b.pv = b.body.linvel();
