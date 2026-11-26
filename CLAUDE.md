@@ -12,7 +12,7 @@ Always talk with the owner in Japanese (日本語で会話する), including pro
 
 ## Structure
 
-- `index.html` — top page; the game list is hand-written `<li>` entries in `<ul class="games">`.
+- `index.html` — top page; the game list is hand-written `<li>` entries in `<ul class="games">`, newest first (keep that order: the first 3 get a NEW badge automatically, and 新着順 sorting uses it). The page script also adds 人気順 sorting (by view count), a 最近遊んだ row (localStorage), and kana-insensitive search — no per-game edits needed.
 - `style.css` — shared styling for the top page only.
 - `games/<game-name>/index.html` — each game lives in its own folder and is fully self-contained (its own inline CSS/JS or files inside that folder). Games link back to the top page with `../../`.
 - `.nojekyll` — tells GitHub Pages to serve files as-is.
