@@ -528,6 +528,14 @@ export function createSim(R, cfg = {}) {
     for (const j of jointList) j.j.configureMotorPosition(j.target, j.kp * j.gain, j.kd * Math.max(j.gain, 0.08));
   }
 
+  // 相手のロボットと当たるかどうかを切りかえる（挟まって離れなくなった時に、少しの間だけ当たりを消してほどく）
+  sim.collideOther = true;
+  sim.setCollideOther = on => {
+    if (sim.collideOther === on) return;
+    sim.collideOther = on;
+    const g = on ? ROBOT : (me << 16) | 0x1 | 0x4;
+    for (const p of partList) if (!p.ghost) p.collider.setCollisionGroups(g);
+  };
   sim.pre = () => {
     control();
     for (const b of sim.balls) b.pv = b.body.linvel();

@@ -413,6 +413,7 @@ function buildWorld() {
     col(RAPIER.ColliderDesc.cuboid(GW, 0.05, GD / 2).setTranslation(0, GH + 0.05, e * (HZ + GD / 2)).setRestitution(0.05), 'net');
   }
   balls = [];
+  touch.clear(); touchT = 0; ghostT = -1;
   me = createSim(RAPIER, { world, events, team: 0, z: ME_Z, yaw: 0, balls, settle: false });
   cpu = createSim(RAPIER, { world, events, team: 1, z: CPU_Z, yaw: Math.PI, balls, settle: false });
   // 歩く向きに体を向ける・速く歩く・蹴る前に少し速さを落とす（速いまま蹴ると転ぶ）
@@ -431,12 +432,42 @@ function makeBall(x, y, z) {
   return o;
 }
 let ballGroundHits = [];
+// ===== 挟まり対策 =====
+// 2体の体が触れたままの時間を数え、長すぎたら（関節のすき間に腕や足がはさまって離れなくなった）、
+// 少しの間だけロボットどうしの当たりを消してほどく。離れたら（または少したったら）元に戻す
+const touch = new Set();
+let touchT = 0, ghostT = -1;
+function unstick(ev) {
+  for (const [a, b, st] of ev) {
+    const m = me.colliderPart.has(a) || me.colliderPart.has(b), c = cpu.colliderPart.has(a) || cpu.colliderPart.has(b);
+    if (!m || !c) continue;
+    const k = a < b ? a + ',' + b : b + ',' + a;
+    if (st) touch.add(k); else touch.delete(k);
+  }
+  const DT = me.DT;
+  if (ghostT >= 0) {
+    ghostT += DT;
+    if ((ghostT > 0.5 && apart()) || ghostT > 2.5) { ghostT = -1; touchT = 0; touch.clear(); me.setCollideOther(true); cpu.setCollideOther(true); }
+    return;
+  }
+  touchT = touch.size ? touchT + DT : 0;
+  // どちらかが倒れている時は早めに、立って押し合っている時は長めに待つ
+  const lim = me.state !== 'stand' || cpu.state !== 'stand' ? 1.0 : 2.5;
+  if (touchT > lim) { ghostT = 0; touch.clear(); me.setCollideOther(false); cpu.setCollideOther(false); }
+}
+// 2体の部位がどれも十分はなれているか
+function apart() {
+  for (const p of me.partList) { if (p.ghost) continue; const a = p.body.translation();
+    for (const q of cpu.partList) { if (q.ghost) continue; const b = q.body.translation(); if ((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2 < 0.35 * 0.35) return false; } }
+  return true;
+}
 function stepAll() {
   for (const s of sims) s.pre();
   world.step(events);
   const ev = [];
   events.drainCollisionEvents((a, b, st) => ev.push([a, b, st]));
   for (const s of sims) s.post(ev);
+  unstick(ev);
   // ボールと板・柱・ネットの当たり（音のため）
   ballGroundHits.length = 0;
   for (const [a, b, st] of ev) {
