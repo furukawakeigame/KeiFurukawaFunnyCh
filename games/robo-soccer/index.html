@@ -65,11 +65,15 @@
     @media (max-height: 519px) and (min-aspect-ratio: 1/1) { #hud { top: calc(6px + env(safe-area-inset-top)); } }
     #rStreak { margin-top: 8px; font-size: 18px; font-weight: 800; color: #ffd43b; min-height: 1.2em; }
     /* カメラの切りかえボタン（右上、ヘッダーの下）。今のカメラの方が明るくなる */
-    #camBtn { position: fixed; top: calc(52px + env(safe-area-inset-top)); right: 12px; z-index: 4; display: flex; gap: 2px; padding: 3px; border-radius: 999px; border: 1px solid rgba(255,255,255,.22); background: rgba(0,0,0,.3); cursor: pointer; }
+    /* 右下（親指が届く所。下の80pxより上）の大きな丸ボタン。今のカメラの絵（ロボット / ボール）を出し、左上にカメラの印 */
+    #camBtn { position: fixed; right: 14px; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 4; width: 72px; height: 72px; padding: 0; border-radius: 50%; border: 2px solid rgba(255,255,255,.75); background: rgba(15,22,34,.62); box-shadow: 0 4px 14px rgba(0,0,0,.35); cursor: pointer; display: flex; align-items: center; justify-content: center; touch-action: manipulation; transition: transform .1s; }
     #camBtn:focus { outline: none; }
-    #camBtn span { width: 36px; height: 36px; border-radius: 999px; display: flex; align-items: center; justify-content: center; opacity: .45; transition: background .2s, opacity .2s; }
-    #camBtn span.on { opacity: 1; background: rgba(255,255,255,.2); }
-    @media (max-height: 519px) and (min-aspect-ratio: 1/1) { #camBtn { top: auto; bottom: calc(84px + env(safe-area-inset-bottom)); } }
+    #camBtn:active { transform: scale(.92); }
+    #camBtn span { display: none; }
+    #camBtn span.on { display: flex; animation: camIn .25s ease-out; }
+    @keyframes camIn { from { transform: scale(.5) rotate(-30deg); opacity: 0; } }
+    #camBtn .badge { position: absolute; left: -6px; top: -6px; width: 30px; height: 30px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+    @media (max-height: 519px) and (min-aspect-ratio: 1/1) { #camBtn { width: 62px; height: 62px; } }
     /* ボールが画面の外にある時、ふちに出る矢印 */
     #ballArrow { position: fixed; width: 64px; height: 64px; margin: -32px 0 0 -32px; z-index: 2; pointer-events: none; opacity: 0; transform: scale(.7); transition: opacity .2s, transform .2s; filter: drop-shadow(0 2px 5px rgba(0,0,0,.45)); }
     #ballArrow.on { opacity: 1; transform: scale(1); }
@@ -125,8 +129,9 @@
   </header>
   <!-- カメラの切りかえ（ロボット / ボール） -->
   <button id="camBtn" aria-label="camera">
-    <span id="camRobot"><svg viewBox="0 0 24 24" width="22" height="22"><rect x="6" y="3" width="12" height="9" rx="3" fill="#e9ecef"/><rect x="8" y="5.5" width="8" height="4.5" rx="1" fill="#16202e"/><rect x="7" y="13" width="10" height="7" rx="2" fill="#e9ecef"/><rect x="9" y="15" width="6" height="2" rx="1" fill="#ff7a2a"/></svg></span>
-    <span id="camBall"><img id="camBallImg" alt="" width="22" height="22"></span>
+    <i class="badge"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z" fill="#16202e"/><circle cx="12" cy="13" r="3.6" fill="#fff"/><circle cx="12" cy="13" r="2" fill="#16202e"/></svg></i>
+    <span id="camRobot"><svg viewBox="5 2 14 19" width="40" height="40"><rect x="6" y="3" width="12" height="9" rx="3" fill="#e9ecef"/><rect x="8" y="5.5" width="8" height="4.5" rx="1" fill="#16202e"/><rect x="7" y="13" width="10" height="7" rx="2" fill="#e9ecef"/><rect x="9" y="15" width="6" height="2" rx="1" fill="#ff7a2a"/></svg></span>
+    <span id="camBall"><img id="camBallImg" alt="" width="40" height="40"></span>
   </button>
   <main style="display:contents">
     <canvas id="cv"></canvas>
@@ -1101,7 +1106,6 @@ function scoreGoal(e) {
   spawnBits(tmpA.set(0, GH + 0.6, e * (HZ + 0.3)), 70, cols, 3.5, 0.07, 2.2, 2);
   snapWant = 0.55;
 }
-let stuckT = 0;
 // ===== ゴールの爆発: ボールが爆発して、近くのものを吹き飛ばす =====
 const fireTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(255,250,220,1)'); g.addColorStop(0.3, 'rgba(255,200,90,0.95)'); g.addColorStop(0.6, 'rgba(255,110,30,0.6)'); g.addColorStop(1, 'rgba(200,40,10,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
 function explode(c) {
@@ -1147,12 +1151,6 @@ function boom() {
   og.gain.setValueAtTime(0.0001, n); og.gain.linearRampToValueAtTime(1, n + 0.01); og.gain.exponentialRampToValueAtTime(0.001, n + 0.9);
   src.connect(lp).connect(g).connect(master); o.connect(og).connect(master); o.start(n); o.stop(n + 1);
   o.onended = unplug([src, lp, g, o, og]);
-}
-function dropBall() {
-  ball.body.setTranslation({ x: 0, y: 1.2, z: 0 }, true);
-  ball.body.setLinvel({ x: 0, y: 0, z: 0 }, true); ball.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-  readBody(ball.body, ballV.cp, ballV.cq); ballV.pp.copy(ballV.cp); ballV.pq.copy(ballV.cq);
-  whistle(false);
 }
 function updStreak() { $('streak').hidden = streak < 1; $('streakN').textContent = t('streak')(streak); }
 // 時間切れで同点: ゴールデンゴール（ボールと2体を最初の位置に戻して、次の1点で決着）
@@ -1347,10 +1345,6 @@ function frame(now) {
     // ゴールに入った？（口の内側を、ボールが全部こえた）
     const b = ball.body.translation();
     if (state === 'play' && Math.abs(b.z) > HZ + BALL_R && Math.abs(b.x) < GW && b.y < GH) scoreGoal(Math.sign(b.z));
-    // ボールが長く止まったまま（板ぎわで取り合いになった時など）なら、真ん中に戻す
-    const bv = ball.body.linvel();
-    stuckT = Math.hypot(bv.x, bv.z) < 0.25 && (Math.abs(b.x) > HX - 0.8 || Math.abs(b.z) > HZ - 0.8) ? stuckT + dt : 0;
-    if (stuckT > 5) { stuckT = 0; dropBall(); }
   } else if (state === 'goal') {
     goalT += sdt; scrT += sdt;
     // 吹き飛ぶところを見せてから、ゴールデンゴールなら結果へ、そうでなければ最初の位置から再開
@@ -1456,8 +1450,10 @@ $('share').addEventListener('click', e => {
 });
 
 // ===== はじめ =====
-$('camBallImg').src = ballIcon(44);
-$('camBtn').onclick = e => { toggleCam(); e.currentTarget.blur(); }; // フォーカスを外す（スペースでのキックがボタンを押さないように）
+$('camBallImg').src = ballIcon(80);
+// 押した瞬間に切りかえる（離すのを待たない）。フォーカスもしないので、スペースでのキックがボタンを押すことはない
+$('camBtn').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); toggleCam(); });
+$('camBtn').addEventListener('click', e => e.preventDefault());
 updCamBtn();
 updateCamera(0, true);
 updateShare();
