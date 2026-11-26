@@ -98,6 +98,8 @@
     #rkList .w { white-space: nowrap; font-weight: 800; }
     #rkList .empty { justify-content: center; opacity: .7; border: none; }
     #rkMsg { min-height: 1.3em; margin: 8px 0 6px; text-align: center; font-size: 15px; }
+    #rkDetail { margin: -4px 0 6px; text-align: center; font-size: 11px; opacity: .55; word-break: break-all; -webkit-user-select: text; user-select: text; }
+    #rkDetail:empty { display: none; }
     #rkForm { display: flex; gap: 8px; }
     #rkForm[hidden] { display: none; }
     #rkName { flex: 1; min-width: 0; font: inherit; font-size: 17px; padding: 8px 10px; border: 2px solid rgba(255,255,255,.3); border-radius: 10px; background: #0d0b1d; color: #fff; -webkit-user-select: text; user-select: text; }
@@ -149,6 +151,7 @@
       <p id="rkNote"></p>
       <ol id="rkList"></ol>
       <p id="rkMsg"></p>
+      <p id="rkDetail"></p>
       <form id="rkForm"><input id="rkName" maxlength="8" autocomplete="nickname" enterkeyhint="send"><button id="rkSend"></button></form>
     </div>
   </div>
@@ -1153,7 +1156,7 @@
         me.ok = false;
       })();
     }
-    function resetRank() { rank.sent = false; rank.me = null; rank.msg = ''; rank.busy = false; }
+    function resetRank() { rank.sent = false; rank.me = null; rank.msg = ''; rank.detail = ''; rank.busy = false; }
     function renderRank() {
       const ol = $('rkList'); ol.innerHTML = '';
       $('tabToday').classList.toggle('on', rank.tab === 'today'); $('tabAll').classList.toggle('on', rank.tab === 'all');
@@ -1169,6 +1172,8 @@
         ol.append(li);
       });
       $('rkMsg').textContent = rank.msg ? (typeof rank.msg === 'object' ? t('rkYou')(rank.msg.today, rank.msg.all) : t(rank.msg)) : '';
+      // うまくいかなかった時の手がかり（小さく出す。原因を調べる用）
+      $('rkDetail').textContent = rank.msg && typeof rank.msg !== 'object' && rank.msg !== 'rkCheck' ? rank.detail || '' : '';
       $('rkForm').hidden = rank.sent || !score;
       $('rkSend').disabled = rank.busy;
     }
@@ -1194,9 +1199,29 @@
         const me = sess;
         if (me) await me.chain;
         if (!runLive || !me || !me.ok || !me.tok) { rank.msg = 'rkOff'; rank.busy = false; renderRank(); return; }
-        const j = await rpost({ act: 'submit', tok: me.tok, name, dev, seed: runSeed, score, steps: runSteps, log: runLog }, 3); // 送り直しても、サーバーは1回目の結果を返す
-        if (j.ok) { rank.sent = true; rank.me = { name, score }; rank.data = { today: j.today || [], all: j.all || [] }; rank.msg = j.rank; }
-        else rank.msg = j.error === 'ng' ? 'rkNg' : j.error === 'wait' ? 'rkWait' : j.error === 'replay' ? 'rkReplay' : j.error === 'dup' ? 'rkDup' : j.error === 'time' ? 'rkTime' : 'rkBad';
+        // 送る前に、記録の形を手元で確かめる（数字以外・順番の乱れがあればサーバーにはじかれる）
+        const badLog = runLog.length % 4 || runLog.some((v, i) => !Number.isInteger(v) || Math.abs(v) > 1e7 || (i % 4 === 0 && i >= 4 && v < runLog[i - 4]));
+        if (badLog) { rank.msg = 'rkBad'; rank.detail = 'L'; rank.busy = false; renderRank(); return; }
+        // 送り直しても、サーバーは1回目の結果を返す。うまくいかなかった時のために、試した結果を残す
+        const tries = [];
+        let j = null;
+        for (let i = 0; i < 3 && !j; i++) {
+          try { j = await rpost({ act: 'submit', tok: me.tok, name, dev, seed: runSeed, score, steps: runSteps, log: runLog }, 1); }
+          catch (err) { tries.push('x:' + String(err && (err.message || err.name) || err).slice(0, 24)); await new Promise(r => setTimeout(r, 1000 * (i + 1))); }
+        }
+        if (!j) { rank.msg = 'rkFail'; rank.detail = tries.join(' '); }
+        else if (j.ok) { rank.sent = true; rank.me = { name, score }; rank.data = { today: j.today || [], all: j.all || [] }; rank.msg = j.rank; rank.detail = ''; }
+        else {
+          rank.msg = j.error === 'ng' ? 'rkNg' : j.error === 'wait' ? 'rkWait' : j.error === 'replay' ? 'rkReplay' : j.error === 'dup' ? 'rkDup' : j.error === 'time' ? 'rkTime' : 'rkBad';
+          rank.detail = [j.error, ...tries].join(' ');
+          // 原因を調べるために、同じ記録をサーバーで再生だけしてもらう（登録はしない）
+          if (j.error === 'bad' || j.error === 'replay') {
+            try {
+              const c = await rpost({ act: 'check', game: GAME_ID, seed: runSeed, steps: runSteps, log: runLog }, 1);
+              rank.detail += c.ok ? ` / server ${c.score}:${c.steps} local ${score}:${runSteps}` : ` / check ${c.error}`;
+            } catch { rank.detail += ' / check x'; }
+          }
+        }
       } catch { rank.msg = 'rkFail'; }
       rank.busy = false; renderRank();
     };
