@@ -1,9 +1,9 @@
 // ===== ロボットの物理（three.js に依存しない） =====
-// 起き上がりロボ（games/robot-stand/robot.js）に、歩く・向きを保つ・蹴る・2体で同じ世界を使う、を足したもの
+// 起き上がりロボ（games/robot-stand/robot.js）に、歩く・向きを変える（faceWalk）・蹴る・2体で同じ世界を使う、を足したもの
 // 立ったときの姿勢で全部の剛体を回転なしで作る → 関節の角度 0 = 直立
 // ロボサッカー用の設定（cfg）:
 //   world / events: 2体で同じ世界を使うときに渡す（渡さなければ自分で作り、地面も作る）
-//   team: 0 か 1（当たり判定のグループ。自分の体どうしは当たらず、相手のロボ・ボール・地面とは当たる）
+//   team: 0 か 1（当たり判定のグループ。自分の体どうし・相手のロボとは当たらず、ボール・地面とは当たる）
 //   x, z, yaw: 立つ位置と向き（yaw = 0 で +z を向く）
 //   balls: ボールの一覧（2体で同じ配列を共有する）
 // 2体で使うときは、毎きざみ sim.pre() を全員分 → world.step(events) を1回 → sim.post(イベント) を全員分、の順に呼ぶ（stepAll）
@@ -16,8 +16,9 @@ export function createSim(R, cfg = {}) {
   world.integrationParameters.numSolverIterations = 8;
   const events = cfg.events || new R.EventQueue(true);
 
-  const team = cfg.team || 0, me = team ? 0x8 : 0x2, other = team ? 0x2 : 0x8;
-  const GROUND = GROUPS.GROUND, ROBOT = (me << 16) | 0x1 | 0x4 | other, BALL = GROUPS.BALL, NONE = 0;
+  // ロボットどうしは物理では当たらない（速く動くとからまって転びすぎるので、ゲームの側でやわらかく押し合わせる: pushApart）
+  const team = cfg.team || 0, me = team ? 0x8 : 0x2;
+  const GROUND = GROUPS.GROUND, ROBOT = (me << 16) | 0x1 | 0x4, BALL = GROUPS.BALL, NONE = 0;
   if (own) world.createCollider(R.ColliderDesc.cuboid(60, 0.5, 60).setTranslation(0, -0.5, 0).setFriction(1).setRestitution(0.2).setCollisionGroups(GROUND));
   const YAW = cfg.yaw || 0, OX = cfg.x || 0, OZ = cfg.z || 0, cY = Math.cos(YAW), sY = Math.sin(YAW);
   const place = p => [OX + cY * p[0] + sY * p[2], p[1], OZ - sY * p[0] + cY * p[2]];
@@ -112,7 +113,7 @@ export function createSim(R, cfg = {}) {
     world, parts, partList, joints, colliderPart, totalMass, DT,
     state: 'stand', stateT: 0, tilt: 0, stagger: 0, time: 0,
     com: { x: 0, y: 0, z: 0 }, comV: { x: 0, y: 0, z: 0 },
-    swing: null, stepCool: 0, settleLeft: 4, flap: 0, postSettle: 0, gu: {}, stun: 0, stunK: 0, stunDur: 1, hits: [], balls: cfg.balls || [], team, holdYaw: YAW, kickReq: null, kicking: null, walk: { x: 0, z: 0 }, walkS: { x: 0, z: 0 }, walkV: 0.85, walkA: 3.5, walkMax: 2.2, walkRate: 4, sideK: 0.62, onStep: null, onFall: null, onGetup: null, onPhase: null, onLand: null,
+    swing: null, stepCool: 0, settleLeft: 4, flap: 0, postSettle: 0, gu: {}, stun: 0, stunK: 0, stunDur: 1, hits: [], balls: cfg.balls || [], team, holdYaw: YAW, faceWalk: false, turnRate: 3, kickCpF: 0.3, kickSlow: 0.5, kickV: 9, kickReq: null, kicking: null, walk: { x: 0, z: 0 }, walkS: { x: 0, z: 0 }, walkV: 0.85, walkA: 3.5, walkMax: 2.2, walkRate: 4, sideK: 0.62, onStep: null, onFall: null, onGetup: null, onPhase: null, onLand: null,
   };
   const feet = [{ s: -1, k: 'R' }, { s: 1, k: 'L' }];
 
@@ -201,8 +202,29 @@ export function createSim(R, cfg = {}) {
   }
 
   // 蹴り始めてよいか: 横に流れていない・前後に倒れかけていない（歩いて進むぶんは差し引いて見る）
-  const kickOk = (cpF, cpS) => Math.abs(cpS) < 0.07 && cpF > -0.06 && cpF < 0.3;
-  function setState(s) { sim.state = s; sim.stateT = 0; if (s !== 'stand') { sim.kicking = null; sim.striking = false; sim.kickReq = null; } }
+  const kickOk = (cpF, cpS) => Math.abs(cpS) < 0.07 && cpF > -0.06 && cpF < sim.kickCpF && Math.hypot(sim.comV.x, sim.comV.z) < sim.kickV;
+  // 体全体を骨盤のまわりに d だけ回す（位置・向き・速さ・上げている足のねらい）
+  function turnBy(d) {
+    const c = Math.cos(d), sn = Math.sin(d), o = parts.pelvis.body.translation();
+    const rot = (x, z) => [o.x + c * (x - o.x) + sn * (z - o.z), o.z - sn * (x - o.x) + c * (z - o.z)];
+    const q = { x: 0, y: Math.sin(d / 2), z: 0, w: Math.cos(d / 2) };
+    for (const p of partList) {
+      const b = p.body, t = b.translation(), r = b.rotation(), v = b.linvel(), w = b.angvel();
+      const [nx, nz] = rot(t.x, t.z);
+      b.setTranslation({ x: nx, y: t.y, z: nz }, false);
+      // q * r（世界の y 軸まわりに回す）
+      b.setRotation({ x: q.w * r.x + q.y * r.z, y: q.w * r.y + q.y * r.w, z: q.w * r.z - q.y * r.x, w: q.w * r.w - q.y * r.y }, false);
+      b.setLinvel({ x: c * v.x + sn * v.z, y: v.y, z: -sn * v.x + c * v.z }, false);
+      b.setAngvel({ x: c * w.x + sn * w.z, y: w.y, z: -sn * w.x + c * w.z }, false);
+    }
+    const sw = sim.swing;
+    if (sw) for (const k of ['start', 'target', 'fixed']) if (sw[k]) { const [nx, nz] = rot(sw[k].x, sw[k].z); sw[k] = { ...sw[k], x: nx, z: nz }; }
+    if (sw && sw.fx !== undefined) { const fx = sw.fx, fz = sw.fz; sw.fx = c * fx + sn * fz; sw.fz = -sn * fx + c * fz; }
+  }
+  function setState(s) {
+    sim.state = s; sim.stateT = 0;
+    if (s !== 'stand') { sim.kicking = null; sim.striking = false; sim.kickReq = null; }
+  }
 
   function control() {
     measure();
@@ -230,9 +252,13 @@ export function createSim(R, cfg = {}) {
       const W = sim.walkS, kr = Math.min(1, DT * sim.walkRate);
       // 蹴ろうとしている間は、歩く指示を弱めて体を落ち着かせる（横の動きは止め、前へはゆっくり）
       let wx = sim.walk.x, wz = sim.walk.z;
-      if (sim.kickReq || (sim.swing && sim.swing.kick)) { const f0 = wx * fwd.x + wz * fwd.z; const ff = Math.max(0, f0) * 0.5; wx = fwd.x * ff; wz = fwd.z * ff; }
+      if (sim.kickReq || (sim.swing && sim.swing.kick)) { const f0 = wx * fwd.x + wz * fwd.z; const ff = Math.max(0, f0) * sim.kickSlow; wx = fwd.x * ff; wz = fwd.z * ff; }
       W.x += (wx - W.x) * kr; W.z += (wz - W.z) * kr;
-      const wl = Math.min(1, Math.hypot(W.x, W.z));
+      // 歩く向きに体を向ける（faceWalk）。蹴っている間は向きを変えない
+      if (sim.faceWalk && Math.hypot(sim.walk.x, sim.walk.z) > 0.3 && !sim.kickReq && !(sim.swing && sim.swing.kick)) sim.holdYaw = Math.atan2(sim.walk.x, sim.walk.z);
+      let wl = Math.min(1, Math.hypot(W.x, W.z));
+      // 向きを変えている途中は、向きがそろうまでゆっくり歩く（横向きのまま速く歩くと足がもつれる）
+      if (sim.faceWalk && sim.holdYaw !== null) { const e = Math.atan2(Math.sin(sim.holdYaw - yaw), Math.cos(sim.holdYaw - yaw)); wl *= Math.max(0.25, Math.cos(Math.min(Math.abs(e), Math.PI / 2))); }
       const stunW = sim.stun > 0 ? sim.stunK * sim.stun / sim.stunDur : 0;
       sim.walking = wl > 0.05 ? Math.min(1, (sim.walking || 0) + DT * 4) : Math.max(0, (sim.walking || 0) - DT * 3);
       // 横歩きは足が交差しないよう小さな歩幅になるので、前後より遅くする
@@ -364,7 +390,7 @@ export function createSim(R, cfg = {}) {
         // 支える脚が体重で沈んだぶん、上げている足も下がってしまうので足し戻す
         if (!sw.lower && sw.u > 0) targets[f.k].y += clamp(P.y - pt.y, 0, 0.08) * Math.min(1, sw.u * 4);
         const done = sw.settle ? sw.lower && f.ground && (sw.landT = (sw.landT || 0) + DT) > 0.05 : sw.u >= 1 && f.ground;
-        if (done || sw.u > 2.6) { sim.swing = null; sim.stepCool = sw.settle ? 0.25 : 0.05; if (sw.settle) sim.postSettle = 0.8; if (sim.onLand) sim.onLand(f.k); }
+        if (done || sw.u > (sim.faceWalk ? 1.5 : 2.6)) { sim.swing = null; sim.stepCool = sw.settle ? 0.25 : 0.05; if (sw.settle) sim.postSettle = 0.8; if (sim.onLand) sim.onLand(f.k); }
       }
       legsToward(P, yaw, targets);
       // 足首でも踏ん張る
@@ -398,6 +424,9 @@ export function createSim(R, cfg = {}) {
       // 向きを保つ（ロボサッカーではいつも相手ゴールの方を向く）。体ごとゆっくり回す
       if (sim.holdYaw !== null) {
         let e = sim.holdYaw - yaw; e = Math.atan2(Math.sin(e), Math.cos(e));
+        // 歩く向きに向きを変える時は、体全体をそのまま回す（足は地面をすべらせる。物理の力で回すと足がもつれて転びやすい）
+        if (sim.faceWalk && sn < 0.3) { const land = sim.swing && sim.swing.u > 0.6 ? 0.35 : 1; const d = clamp(e * 8, -sim.turnRate, sim.turnRate) * DT * land; // 足を下ろす直前は回るのをゆるめる
+          if (Math.abs(d) > 1e-4) turnBy(d); e -= d; }
         for (const [n, k] of [['pelvis', 0.6], ['torso', 0.4]]) {
           const w = parts[n].body.angvel(), T = clamp(70 * clamp(e, -0.25, 0.25) - 10 * w.y, -18, 18) * k * (1 - sn);
           parts[n].body.applyTorqueImpulse({ x: 0, y: T * DT, z: 0 }, true);
@@ -499,6 +528,19 @@ export function createSim(R, cfg = {}) {
     for (const j of jointList) j.j.configureMotorPosition(j.target, j.kp * j.gain, j.kd * Math.max(j.gain, 0.08));
   }
 
+  // 2体のロボットをやわらかく押し合わせる（体が重なった分だけ、骨盤と胴を水平に押し離す）。毎きざみ pre の前に呼ぶ
+  sim.pushFrom = (o) => {
+    for (const [n, R0, k] of [['pelvis', 0.42, 0.5], ['torso', 0.5, 0.5]]) {
+      const a = parts[n].body.translation(), b = o.parts[n].body.translation();
+      if (Math.abs(a.y - b.y) > 0.6) continue;
+      let dx = a.x - b.x, dz = a.z - b.z; const d = Math.hypot(dx, dz);
+      if (d > R0 || d < 1e-4) continue;
+      dx /= d; dz /= d;
+      const va = parts[n].body.linvel(), vb = o.parts[n].body.linvel(), vr = (va.x - vb.x) * dx + (va.z - vb.z) * dz;
+      const F = (900 * (R0 - d) - 60 * Math.min(0, vr)) * k; // ばね＋近づく速さのブレーキ
+      parts[n].body.applyImpulse({ x: dx * F * DT, y: 0, z: dz * F * DT }, true);
+    }
+  };
   sim.pre = () => {
     control();
     for (const b of sim.balls) b.pv = b.body.linvel();

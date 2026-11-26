@@ -411,6 +411,8 @@ function buildWorld() {
   balls = [];
   me = createSim(RAPIER, { world, events, team: 0, z: ME_Z, yaw: 0, balls, settle: false });
   cpu = createSim(RAPIER, { world, events, team: 1, z: CPU_Z, yaw: Math.PI, balls, settle: false });
+  // 歩く向きに体を向ける・速く歩く・蹴る前に少し速さを落とす（速いまま蹴ると転ぶ）
+  for (const s of [me, cpu]) Object.assign(s, { faceWalk: true, turnRate: 5, walkV: 1.7, walkRate: 3, kickCpF: 0.2, kickSlow: 0.2, kickV: 0.4 });
   sims = [me, cpu];
   ball = makeBall(0, BALL_R, 0);
   for (let i = 0; i < 60; i++) stepAll();
@@ -426,6 +428,7 @@ function makeBall(x, y, z) {
 }
 let ballGroundHits = [];
 function stepAll() {
+  me.pushFrom(cpu); cpu.pushFrom(me);
   for (const s of sims) s.pre();
   world.step(events);
   const ev = [];
@@ -825,11 +828,11 @@ addEventListener('resize', resize);
 resize();
 function updateCamera(dt, snap = false) {
   const p = me.parts.pelvis.body.translation(), b = ball.body.translation();
-  // 見る点: ロボットとボールの間を少し前へ。ゴールが見えるように前寄り
-  const tx = (p.x * 0.6 + b.x * 0.4) * 0.7, tz = Math.min(HZ - 2, (p.z * 0.55 + b.z * 0.45) + 2.8);
+  // 見る点: ボール寄り（自分のゴール側に攻められても映るように）、少しだけ前（相手ゴール側）へ
+  const tx = (p.x * 0.4 + b.x * 0.6) * 0.7, tz = Math.max(-HZ + 2.2, Math.min(HZ - 2, p.z * 0.4 + b.z * 0.6 + 1.2));
   const k = snap ? 1 : 1 - Math.exp(-dt * 2.5);
   camT.x += (tx - camT.x) * k; camT.z += (tz - camT.z) * k;
-  const px = tx * 0.75, pz = Math.min(HZ - 4.5, p.z) - camBack;
+  const px = tx * 0.75, pz = tz - 2.2 - camBack;
   camP.x += (px - camP.x) * k; camP.z += (pz - camP.z) * k; camP.y = camUp;
   camera.position.copy(camP); camera.lookAt(camT); camera.updateMatrixWorld();
   sun.position.set(camT.x + 4, 12, camT.z - 5); sun.target.position.set(camT.x, 0, camT.z);
@@ -893,14 +896,17 @@ function inputDir() {
   return { x: 0, z: 0 };
 }
 // 蹴る足: ボールに近い方（自分のロボは +z 向きなので、左足 = +x 側）
-function footFor(sim, sign) {
-  const p = sim.parts.pelvis.body.translation(), b = ball.body.translation();
-  return (b.x - p.x) * sign > 0 ? 'L' : 'R';
+// ロボットの向き（前・左）。左 = 体の +x 側（左足の側）
+const facing = sim => ({ fx: Math.sin(sim.yaw), fz: Math.cos(sim.yaw), lx: Math.cos(sim.yaw), lz: -Math.sin(sim.yaw) });
+// 蹴る足: ボールに近い方
+function footFor(sim) {
+  const p = sim.parts.pelvis.body.translation(), b = ball.body.translation(), f = facing(sim);
+  return (b.x - p.x) * f.lx + (b.z - p.z) * f.lz > 0 ? 'L' : 'R';
 }
 function requestKick() {
   if (state === 'ready') beginPlay();
   if (state !== 'play' || me.state !== 'stand' || me.kicking) return;
-  me.kickReq = { foot: footFor(me, 1), t: me.time };
+  me.kickReq = { foot: footFor(me), t: me.time };
 }
 
 // ===== ゲームの進行 =====
@@ -985,7 +991,7 @@ $('again').onclick = reset;
 // 攻め: ボールの後ろ（自分のゴールと反対側）に回りこみ、こちらのゴールへ運んで蹴る
 // 守り: こちらのロボの方がボールに近い時は、ボールと自分のゴールの間に入る
 const ai = { tx: 0, tz: CPU_Z, kickCool: 0, mode: 'att' };
-const CPU_V = 0.66;
+const CPU_V = 1.3; // 自分（1.7）より少し遅い
 function updateAI(dt) {
   if (state === 'ready' || state === 'over' || state === 'goal') { cpu.walk = { x: 0, z: 0 }; return; }
   cpu.walkV = CPU_V;
@@ -1020,10 +1026,12 @@ function updateAI(dt) {
   cpu.walk = el < 0.08 ? { x: 0, z: 0 } : { x: ex / el * Math.min(1, el / 0.35), z: ez / el * Math.min(1, el / 0.35) };
   // 足元（前 = -z）にボールがあれば蹴る。攻めの時はゴールに近いほど蹴りやすく、守りの時はすぐ蹴り出す
   ai.kickCool -= dt;
-  const fwdDist = p.z - b.z, side = Math.abs(b.x - p.x), toGoal = b.z + HZ;
+  const fc = facing(cpu), fwdDist = (b.x - p.x) * fc.fx + (b.z - p.z) * fc.fz, side = Math.abs((b.x - p.x) * fc.lx + (b.z - p.z) * fc.lz), toGoal = b.z + HZ;
+  // ねらうゴールの方を向いている時だけ蹴る（守りの時は、こちら側を向いていればよい）
+  const aimOk = fc.fz < (ai.mode === 'def' ? 0.2 : -0.5);
   const want = ai.mode === 'def' || toGoal < 6.5 || Math.random() < dt * 0.6;
-  if (state === 'play' && want && ai.kickCool <= 0 && cpu.state === 'stand' && !cpu.kicking && fwdDist > 0.1 && fwdDist < 0.5 && side < 0.28 && b.y < 0.4) {
-    cpu.kickReq = { foot: footFor(cpu, -1), t: cpu.time }; ai.kickCool = 1.0;
+  if (state === 'play' && want && ai.kickCool <= 0 && cpu.state === 'stand' && !cpu.kicking && aimOk && fwdDist > 0.1 && fwdDist < 0.5 && side < 0.28 && b.y < 0.4) {
+    cpu.kickReq = { foot: footFor(cpu), t: cpu.time }; ai.kickCool = 1.0;
   }
 }
 
@@ -1074,21 +1082,19 @@ function checkKicks() {
     const s = r.getSim();
     if (!s.kicking || !s.striking || kickDone.has(s.kicking)) continue;
     const fp = s.parts['foot' + s.kicking.foot.k].body.translation(), bp = ball.body.translation();
-    const fwd = r === R_ME ? 1 : -1;
-    const ahead = (bp.z - fp.z) * fwd, side = bp.x - fp.x;
+    const f = facing(s), dx = bp.x - fp.x, dz = bp.z - fp.z;
+    const ahead = dx * f.fx + dz * f.fz, side = dx * f.lx + dz * f.lz;
     if (ahead < -0.12 || ahead > 0.36 || Math.abs(side) > 0.24 || bp.y > 0.5) continue;
     kickDone.add(s.kicking);
-    // 自分: 足のどこに当たったかと横歩きで少し曲がる / 相手: こちらのゴールの真ん中をねらう（少しぶれる）
-    const lat = r === R_ME ? Math.max(-0.45, Math.min(0.45, side / 0.12 * 0.18)) + walkLat()
-      : Math.max(-0.5, Math.min(0.5, (0 - bp.x) / Math.max(1, bp.z + HZ))) + (Math.random() - 0.5) * 0.35;
+    // 向いている方へ蹴る。自分: 足のどこに当たったかで少し曲がる / 相手: こちらのゴールの真ん中をねらう（向きから大きくはずれない・少しぶれる）
+    let ang = Math.atan2(f.fx, f.fz);
+    if (r === R_ME) ang += Math.max(-0.4, Math.min(0.4, side / 0.12 * 0.18));
+    else { const g = Math.atan2(0 - bp.x, -HZ - bp.z); let d = Math.atan2(Math.sin(g - ang), Math.cos(g - ang)); ang += Math.max(-0.6, Math.min(0.6, d)) + (Math.random() - 0.5) * 0.3; }
     const pw = r === R_ME ? 10.5 : 8.5;
-    const dl = Math.hypot(lat, 1);
-    ball.body.setLinvel({ x: lat / dl * pw, y: 1.0 + Math.random() * 1.2, z: fwd / dl * pw }, true);
+    ball.body.setLinvel({ x: Math.sin(ang) * pw, y: 1.0 + Math.random() * 1.2, z: Math.cos(ang) * pw }, true);
     kickSnd(1); spawnBits(tmpA.set(bp.x, 0.05, bp.z), 10, [0x3f8a3a, 0x58a84f, 0x2d6b2a], 1.5, 0.03, 0.6);
   }
 }
-// 横に歩きながら蹴ると、その向きへ少し曲がる
-function walkLat() { return Math.max(-0.25, Math.min(0.25, me.comV.x * 0.35)); }
 
 // ===== ループ（物理は 1/120 秒きざみ・描画は補間）=====
 let acc = 0, last = performance.now(), faceTimer = 0, shownBar = -1, snapWant = -1, snapDone = false;
