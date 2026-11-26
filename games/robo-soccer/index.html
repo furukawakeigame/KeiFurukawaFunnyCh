@@ -82,9 +82,11 @@
     #fmtSel button { border: none; border-radius: 999px; padding: 6px 12px; background: transparent; color: #e9ecef; font: 800 14px system-ui, -apple-system, "Hiragino Sans", sans-serif; opacity: .6; cursor: pointer; }
     #fmtSel button.on { background: #fff; color: #0f1622; opacity: 1; }
     #onRoles[hidden] { display: none; }
-    #lobby { position: fixed; left: 50%; transform: translateX(-50%); top: calc(146px + env(safe-area-inset-top)); z-index: 4; width: min(calc(100vw - 24px), 340px); padding: 10px; border-radius: 16px; background: rgba(15,22,34,.78); border: 1px solid rgba(255,255,255,.18); }
+    /* 真ん中に置くのに transform を使わない（スマホで入力のカーソルがずれて表示されるのを防ぐ） */
+    #lobby { position: fixed; left: 0; right: 0; margin: 0 auto; top: calc(146px + env(safe-area-inset-top)); z-index: 4; width: min(calc(100vw - 24px), 340px); padding: 10px; border-radius: 16px; background: rgba(15,22,34,.78); border: 1px solid rgba(255,255,255,.18); }
     #lobby[hidden] { display: none; }
-    @media (max-height: 519px) and (min-aspect-ratio: 1/1) { #lobby { top: calc(46px + env(safe-area-inset-top)); left: auto; right: 12px; transform: none; width: 300px; } }
+    @media (max-height: 519px) and (min-aspect-ratio: 1/1) { #lobby { top: calc(46px + env(safe-area-inset-top)); left: auto; right: 12px; margin: 0; width: 300px; } }
+    body.typing #hint, body.typing #joy { display: none; }
     .lname { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; margin-bottom: 8px; }
     #lbName { flex: 1; min-width: 0; font: 700 16px system-ui, sans-serif; padding: 6px 10px; border-radius: 999px; border: 2px solid rgba(255,255,255,.3); background: rgba(255,255,255,.95); color: #0f1622; -webkit-user-select: text; user-select: text; }
     .lteams { display: flex; gap: 8px; }
@@ -1688,9 +1690,16 @@ function renderLobby() {
 function commitName() {
   const v = cleanName($('lbName').value);
   if (v === myName) return;
-  myName = v; store.set('name', myName); names[mySeat] = myName;
+  // ゲストの名前の一覧はホストから届いたものだけを使う（知らせの順番が前後しても、ずれないように）
+  myName = v; store.set('name', myName);
   if (mode === 'host') sendLobby(); else if (mode === 'guest') { netSend({ t: 'name', name: myName }); renderLobby(); updLabels(); }
 }
+// 名前を打っている間: 足元の合図とスティックを消し、キーボードでページが持ち上がっても元に戻す
+// （iPhone ではページがずれたままだと、入力のカーソルが変な所に出る）
+const unshift = () => { if (scrollX || scrollY) scrollTo(0, 0); };
+$('lbName').addEventListener('focus', () => { document.body.classList.add('typing'); joy = null; $('joy').classList.remove('on'); setTimeout(unshift, 300); });
+$('lbName').addEventListener('blur', () => { document.body.classList.remove('typing'); setTimeout(unshift, 100); });
+if (window.visualViewport) visualViewport.addEventListener('resize', () => { if (document.activeElement === $('lbName')) unshift(); });
 $('lbName').addEventListener('change', commitName);
 $('lbName').addEventListener('blur', commitName);
 $('lbName').addEventListener('keydown', e => { if (e.key === 'Enter') $('lbName').blur(); });
@@ -1862,11 +1871,11 @@ function onNet(m, from) {
     if (m.t === 'bye') { onLeave(); return; }
     if (m.t === 'welcome') {
       const changed = m.seat !== mySeat || m.fmt !== fmt;
-      mySeat = m.seat; fmt = m.fmt === 2 ? 2 : 1; names[mySeat] = myName; reset(); updateCamera(0, true);
+      mySeat = m.seat; fmt = m.fmt === 2 ? 2 : 1; reset(); updateCamera(0, true); renderLobby();
       if (changed) toast(t(teamOf(mySeat) ? 'youBlue' : 'youOrange'), 2600);
     }
     else if (m.t === 'reset') reset();
-    else if (m.t === 'lobby' && Array.isArray(m.s)) { m.s.forEach((e, i) => { if (i < 4 && Array.isArray(e)) { humanSeat[i] = !!e[0]; names[i] = cleanName(e[1]); } }); names[mySeat] = myName; renderLobby(); updLabels(); }
+    else if (m.t === 'lobby' && Array.isArray(m.s)) { m.s.forEach((e, i) => { if (i < 4 && Array.isArray(e)) { humanSeat[i] = !!e[0]; names[i] = cleanName(e[1]); } }); renderLobby(); updLabels(); }
     else if (m.t === 'fx') { for (const [n, a] of m.l) if (SFX[n]) SFX[n](...a); }
     else if (m.t === 'goal') { goals = m.g; opp = m.o; goalFx(m.e, m.c, m.g, m.o); }
     else if (m.t === 'restart') restartUI();
