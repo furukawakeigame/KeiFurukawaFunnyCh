@@ -1031,12 +1031,13 @@ function explode(c) {
   ball.body.setTranslation({ x: 0, y: -30, z: 0 }, true); ball.body.setLinvel({ x: 0, y: 0, z: 0 }, true); ball.body.setGravityScale(0, true);
   ballMesh.visible = false; ballMark.visible = false;
   boom();
+  hitStop = HIT_STOP; slowT = SLOW_T;
   // 火の玉（ふくらみながら、ゆっくり消える。点滅はさせない）
   for (let i = 0; i < 14; i++) {
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, fog: false }));
     sp.position.set(c.x, c.y, c.z); sp.material.rotation = Math.random() * 6;
     const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.2, Math.random() - 0.5).normalize().multiplyScalar(2 + Math.random() * 3);
-    scene.add(sp); particles.push({ o: sp, v, life: 0.7 + Math.random() * 0.4, age: 0, kind: 'fire', sc: 0.8 + Math.random() * 0.8 });
+    scene.add(sp); particles.push({ o: sp, v, life: 0.7 + Math.random() * 0.4, age: 0.09, kind: 'fire', sc: 0.8 + Math.random() * 0.8 });
   }
   // 黒っぽい煙（雲の模様を重ねる）
   for (let i = 0; i < 16; i++) {
@@ -1125,6 +1126,7 @@ function reset() {
   syncAll();
   for (const r of robots) { r.lastState = 'stand'; setFace(r.face, 'normal'); }
   ballMesh.visible = true; ballMark.visible = true;
+  hitStop = 0; slowT = 0; shake = 0;
   state = 'ready'; timeLeft = GAME_T; golden = false; goals = 0; opp = 0; lastScorer = 0; acc = 0; ai.tx = 0; ai.tz = CPU_Z; joy = null; $('joy').classList.remove('on');
   snapDone = false; snapWant = -1; scrMode = 'idle';
   updStreak(); $('scoreN').textContent = '0'; $('oppN').textContent = '0'; shownBar = -1; $('bar').hidden = false; $('gg').hidden = true;
@@ -1246,8 +1248,15 @@ function checkKicks() {
 // ===== ループ（物理は 1/120 秒きざみ・描画は補間）=====
 let acc = 0, last = performance.now(), faceTimer = 0, shownBar = -1, snapWant = -1, snapDone = false;
 const hintPos = new THREE.Vector3();
+// ヒットストップ: 爆発の瞬間に全部を止め（hitStop 秒）、そのあとスローから通常の速さへ戻す（slowT 秒）
+let hitStop = 0, slowT = 0, shake = 0;
+const HIT_STOP = 0.15, SLOW_T = 0.6;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  // sdt: ゲームの中の時間（止まっている間は 0、スローの間は少しずつ戻す）
+  let sdt = dt;
+  if (hitStop > 0) { hitStop -= dt; sdt = 0; if (hitStop <= 0) shake = 1; }
+  else if (slowT > 0) { slowT = Math.max(0, slowT - dt); sdt = dt * (0.25 + 0.75 * (1 - slowT / SLOW_T)); }
   const d = inputDir();
   if (state === 'ready' && (d.x || d.z)) beginPlay();
   me.walk = state === 'play' || state === 'goal' ? d : { x: 0, z: 0 };
@@ -1265,11 +1274,11 @@ function frame(now) {
     stuckT = Math.hypot(bv.x, bv.z) < 0.25 && (Math.abs(b.x) > HX - 0.8 || Math.abs(b.z) > HZ - 0.8) ? stuckT + dt : 0;
     if (stuckT > 5) { stuckT = 0; dropBall(); }
   } else if (state === 'goal') {
-    goalT += dt; scrT += dt;
+    goalT += sdt; scrT += sdt;
     // 吹き飛ぶところを見せてから、ゴールデンゴールなら結果へ、そうでなければ最初の位置から再開
     if (goalT > 2.8) { if (golden) finish(); else { state = 'play'; scrMode = 'idle'; restart(); } }
   }
-  acc += dt;
+  acc += sdt;
   while (acc >= me.DT) {
     for (const r of robots) for (const v of r.visuals) { v.pp.copy(v.cp); v.pq.copy(v.cq); }
     ballV.pp.copy(ballV.cp); ballV.pq.copy(ballV.cq);
@@ -1299,8 +1308,10 @@ function frame(now) {
   if (bw !== shownBar) { shownBar = bw; $('barIn').style.transform = `scaleX(${bw})`; $('barIn').style.background = timeLeft < 10 ? '#ffa94d' : '#6ee7a0'; }
   updateCamera(dt);
   updateBallArrow();
-  updateNet(dt);
-  updateParticles(dt);
+  // 動き出す瞬間に画面を少し揺らす（だんだん小さく）
+  if (shake > 0) { shake = Math.max(0, shake - dt * 2.5); const a = shake * shake * 0.12; camera.position.x += (Math.random() - 0.5) * a; camera.position.y += (Math.random() - 0.5) * a; camera.updateMatrixWorld(); }
+  updateNet(sdt);
+  updateParticles(sdt);
   if (state === 'ready') {
     const pt = me.parts.pelvis.body.translation();
     hintPos.set(pt.x, 0, pt.z - 0.5).project(camera);
