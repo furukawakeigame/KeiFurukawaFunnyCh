@@ -2,6 +2,7 @@
 // スコアはこのスクリプトを入れたスプレッドシートの「scores」シートに1行ずつたまる。
 // 変な名前やズルの記録は、シートの行を消せば消える。
 // 同じ人がまた送ってくるときは「ban」シートの A 列に、その名前か端末（scores の dev 列）を書く。
+// 同じ端末（dev）の記録は一番良いものだけ載せ、名前はその端末で最後に登録した名前で表示する。
 //
 // 設定手順（最初の1回だけ）:
 //   1. Google ドライブで新しいスプレッドシートを作る（名前は何でもよい。例: ゲームランキング）
@@ -123,11 +124,16 @@ function readRows(game, todayOnly) {
     .filter(r => !ban.has(r.name) && !ban.has(r.dev));
 }
 const better = (a, b) => b.wave - a.wave || b.kills - a.kills || a.t - b.t;
-// 同じ端末の記録は一番良いものだけ（1人でトップ10を埋めないように）
+// 同じ端末の記録は一番良いものだけ（1人でトップ10を埋めないように）。
+// 名前は、その端末で最後に登録した名前にそろえる（名前を変えたら、前の記録の名前も変わって見える）
 function bestPerDev(rows) {
-  const best = {};
-  for (const r of rows) { const k = r.dev || ('row' + r.t); if (!best[k] || better(r, best[k]) < 0) best[k] = r; }
-  return Object.values(best).sort(better);
+  const best = {}, last = {};
+  for (const r of rows) {
+    const k = r.dev || ('row' + r.t);
+    if (!best[k] || better(r, best[k]) < 0) best[k] = r;
+    if (!last[k] || r.t > last[k].t) last[k] = r;
+  }
+  return Object.keys(best).map(k => Object.assign({}, best[k], { name: last[k].name })).sort(better);
 }
 const pub = list => list.slice(0, TOP_N).map(({ name, wave, kills }) => ({ name, wave, kills }));
 function tops(game) {
