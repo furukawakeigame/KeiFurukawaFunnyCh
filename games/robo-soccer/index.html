@@ -382,7 +382,7 @@ try {
 
 // ===== コートの寸法（メートル）=====
 // 自分は -z 側から +z 側のゴールを攻める。まわりは板で囲み、ボールは外に出ない
-const HX = 4.5, HZ = 7, GW = 1.5, GH = 1.5, GD = 1.0, BALL_R = 0.13;
+const HX = 4.5, HZ = 7, GW = 1.5, GH = 1.5, GD = 1.0, BALL_R = 0.26;
 const ME_Z = -2.6, CPU_Z = 2.6;
 const CORNERS = [[1, 1], [1, -1], [-1, 1], [-1, -1]], CORNER_L = 0.75, CORNER_C = 0.45;
 const yawQuat = a => ({ x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2) });
@@ -424,10 +424,10 @@ function buildWorld() {
   me.time = cpu.time = 0;
 }
 function makeBall(x, y, z) {
-  const b = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, z).setCcdEnabled(true).setLinearDamping(0.35).setAngularDamping(0.6));
-  const c = world.createCollider(RAPIER.ColliderDesc.ball(BALL_R).setMass(0.45).setRestitution(0.55).setFriction(0.7)
+  const b = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, z).setCcdEnabled(true).setLinearDamping(0.3).setAngularDamping(0.05)); // 回転はほとんど弱まらない
+  const c = world.createCollider(RAPIER.ColliderDesc.ball(BALL_R).setMass(0.7).setRestitution(0.55).setFriction(0.7)
     .setCollisionGroups(GROUPS.BALL).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), b);
-  const o = { body: b, collider: c, r: BALL_R, mass: 0.45, age: 0 };
+  const o = { body: b, collider: c, r: BALL_R, mass: 0.7, age: 0 };
   balls.push(o);
   return o;
 }
@@ -786,7 +786,7 @@ ballMesh.castShadow = true; scene.add(ballMesh);
 const ballV = { pp: new THREE.Vector3(), pq: new THREE.Quaternion(), cp: new THREE.Vector3(), cq: new THREE.Quaternion() };
 syncAll();
 // ボールの位置の印（地面の薄い輪。浮いた時も場所が分かるように）
-const ballMark = new THREE.Mesh(new THREE.RingGeometry(0.15, 0.2, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }));
+const ballMark = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.36, 40), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }));
 ballMark.rotation.x = -Math.PI / 2; ballMark.position.y = 0.01; scene.add(ballMark);
 
 // ===== 粒（芝のかけら・紙ふぶき・土ぼこり）=====
@@ -827,6 +827,12 @@ function updateParticles(dt) {
   for (let i = particles.length - 1; i >= 0; i--) {
     const q = particles[i]; q.age += dt; const u = q.age / q.life;
     if (u >= 1) { scene.remove(q.o); q.o.material.dispose(); particles.splice(i, 1); continue; }
+    if (q.kind === 'fire') {
+      q.v.multiplyScalar(Math.pow(0.15, dt)); q.o.position.addScaledVector(q.v, dt);
+      const k = q.sc * (0.4 + 1.6 * Math.sqrt(u)); q.o.scale.set(k, k, k);
+      q.o.material.opacity = u < 0.1 ? u / 0.1 : Math.pow(1 - u, 1.2);
+      continue;
+    }
     if (q.kind === 'bit') {
       q.v.y -= 6 * dt; q.v.multiplyScalar(Math.pow(0.4, dt)); q.o.position.addScaledVector(q.v, dt);
       if (q.o.position.y < 0.01) { q.o.position.y = 0.01; q.v.set(0, 0, 0); }
@@ -862,6 +868,14 @@ addEventListener('resize', resize);
 resize();
 function updateCamera(dt, snap = false) {
   const p = me.parts.pelvis.body.translation();
+  // ゴールが決まったら、決まったゴールの方を向く（ゴールの正面・少し上から、爆発と吹き飛ぶロボットが入るように）
+  if ((state === 'goal' || state === 'over') && lastScorer) {
+    const e = lastScorer, k = 1 - Math.exp(-dt * 4);
+    camT.x += (0 - camT.x) * k; camT.y += (0.9 - camT.y) * k; camT.z += (e * (HZ - 1) - camT.z) * k;
+    camP.x += (-2.2 - camP.x) * k; camP.y += (4.2 - camP.y) * k; camP.z += (e * (HZ - 8) - camP.z) * k;
+    camera.position.copy(camP); camera.lookAt(camT); camera.updateMatrixWorld();
+    return;
+  }
   // ロボットが歩いている間は、その向きへゆっくり回りこむ（倒れている時は回らない）
   if (snap) camYaw = me.yaw;
   else if (me.state === 'stand' && Math.hypot(me.walk.x, me.walk.z) > 0.2) { const d = Math.atan2(Math.sin(me.yaw - camYaw), Math.cos(me.yaw - camYaw)); camYaw += d * (1 - Math.exp(-dt * 1.4)); }
@@ -877,7 +891,6 @@ function updateCamera(dt, snap = false) {
   camera.position.copy(camP); camera.lookAt(camT); camera.updateMatrixWorld();
   sun.position.set(p.x + 4, 12, p.z - 5); sun.target.position.set(p.x, 0, p.z);
 }
-updateCamera(0, true);
 
 // ボールが画面の外（カメラの後ろも含む）にあれば、画面のふちにボールの向きの矢印を出す
 let baOn = false;
@@ -886,7 +899,7 @@ function updateBallArrow() {
   const behind = v.z > 1;
   let sx = (v.x + 1) / 2 * W, sy = (1 - v.y) / 2 * H;
   const m = 30, x0 = m, x1 = W - m, y0 = TOP + 10, y1 = H - BOTTOM - m;
-  const off = state !== 'over' && (behind || sx < x0 || sx > x1 || sy < y0 || sy > y1);
+  const off = state === 'play' && ballMesh.visible && (behind || sx < x0 || sx > x1 || sy < y0 || sy > y1);
   if (off) {
     const cx = W / 2, cy = (y0 + y1) / 2;
     let dx = sx - cx, dy = sy - cy; if (behind) { dx = -dx; dy = -dy; if (Math.abs(dy) < 1) dy = 1; dy = Math.abs(dy) + (y1 - cy); }
@@ -986,15 +999,61 @@ function scoreGoal(e) {
   if (e > 0) goals++; else opp++;
   const bp = ball.body.translation();
   shakeNet(e, bp.x, bp.y);
+  explode({ x: bp.x, y: bp.y, z: bp.z });
   netSnd(); cheer();
   if (e > 0) { yay(); setTimeout(grumble, 400); } else { cpuYay(); setTimeout(() => wail(true), 350); }
   scrMode = e > 0 ? 'goal' : 'lose'; scrT = 0;
   // 紙ふぶき（決めた側の色を多めに、ゴールの上から）
   const cols = e > 0 ? [0xff7a2a, 0xffd43b, 0xffffff, 0xff6b6b] : [0x2f7ff0, 0x74c0fc, 0xffffff, 0x8ce99a];
   spawnBits(tmpA.set(0, GH + 0.6, e * (HZ + 0.3)), 70, cols, 3.5, 0.07, 2.2, 2);
-  snapWant = 0.25;
+  snapWant = 0.55;
 }
 let stuckT = 0;
+// ===== ゴールの爆発: ボールが爆発して、近くのものを吹き飛ばす =====
+const fireTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(255,250,220,1)'); g.addColorStop(0.3, 'rgba(255,200,90,0.95)'); g.addColorStop(0.6, 'rgba(255,110,30,0.6)'); g.addColorStop(1, 'rgba(200,40,10,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
+function explode(c) {
+  // ボールは消す（物理からも外す）
+  ball.body.setTranslation({ x: 0, y: -30, z: 0 }, true); ball.body.setLinvel({ x: 0, y: 0, z: 0 }, true); ball.body.setGravityScale(0, true);
+  ballMesh.visible = false; ballMark.visible = false;
+  boom();
+  // 火の玉（ふくらみながら、ゆっくり消える。点滅はさせない）
+  for (let i = 0; i < 14; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, fog: false }));
+    sp.position.set(c.x, c.y, c.z); sp.material.rotation = Math.random() * 6;
+    const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.2, Math.random() - 0.5).normalize().multiplyScalar(2 + Math.random() * 3);
+    scene.add(sp); particles.push({ o: sp, v, life: 0.7 + Math.random() * 0.4, age: 0, kind: 'fire', sc: 0.8 + Math.random() * 0.8 });
+  }
+  // 黒っぽい煙（雲の模様を重ねる）
+  for (let i = 0; i < 16; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: dustTex[i % 4], color: 0x55504a, transparent: true, depthWrite: false, depthTest: false, toneMapped: false, fog: false, opacity: 0 }));
+    sp.position.set(c.x + (Math.random() - 0.5) * 0.6, c.y + Math.random() * 0.4, c.z + (Math.random() - 0.5) * 0.6); sp.material.rotation = Math.random() * 6;
+    const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.9 + 0.3, Math.random() - 0.5).normalize().multiplyScalar(1 + Math.random() * 2);
+    scene.add(sp); particles.push({ o: sp, v, life: 2 + Math.random(), age: 0, kind: 'dust', sc: 1.2 + Math.random() * 1.2, spin: (Math.random() - 0.5) * 0.6, peak: 0.55 + Math.random() * 0.3 });
+  }
+  spawnBits(new THREE.Vector3(c.x, c.y, c.z), 40, [0xffd43b, 0xff8c42, 0xff4d2e, 0x333333], 7, 0.05, 1.4, 1.5);
+  // 吹き飛ばす: 近いほど強く、少し上向きに。どちらのロボットも力が抜けた状態にする
+  for (const s of sims) {
+    s.knockDown();
+    for (const p of s.partList) {
+      const t = p.body.translation(); let dx = t.x - c.x, dy = t.y - c.y + 0.6, dz = t.z - c.z; const d = Math.hypot(dx, dy, dz) || 1;
+      const sp = Math.max(2.5, 8.5 / (1 + d * d * 0.25)); // 近いほど強く、遠くても少しは飛ぶ（画面の中で転がる程度）
+      p.body.applyImpulse({ x: dx / d * sp * p.mass, y: (dy / d * 0.5 + 0.4) * sp * p.mass, z: dz / d * sp * p.mass }, true);
+      p.body.applyTorqueImpulse({ x: (Math.random() - 0.5) * p.mass * 0.6, y: (Math.random() - 0.5) * p.mass * 0.6, z: (Math.random() - 0.5) * p.mass * 0.6 }, true);
+    }
+  }
+}
+// 爆発の音: 低いドーンと、はじけるノイズ
+function boom() {
+  if (!on() || !slot(1.5)) return;
+  const n = ac.currentTime, src = noiseSrc(n, 1.4), lp = ac.createBiquadFilter(), g = ac.createGain();
+  lp.type = 'lowpass'; lp.frequency.setValueAtTime(2400, n); lp.frequency.exponentialRampToValueAtTime(180, n + 1.2);
+  g.gain.setValueAtTime(0.0001, n); g.gain.linearRampToValueAtTime(0.9, n + 0.01); g.gain.exponentialRampToValueAtTime(0.001, n + 1.4);
+  const o = ac.createOscillator(), og = ac.createGain();
+  o.frequency.setValueAtTime(90, n); o.frequency.exponentialRampToValueAtTime(30, n + 0.8);
+  og.gain.setValueAtTime(0.0001, n); og.gain.linearRampToValueAtTime(1, n + 0.01); og.gain.exponentialRampToValueAtTime(0.001, n + 0.9);
+  src.connect(lp).connect(g).connect(master); o.connect(og).connect(master); o.start(n); o.stop(n + 1);
+  o.onended = unplug([src, lp, g, o, og]);
+}
 function dropBall() {
   ball.body.setTranslation({ x: 0, y: 1.2, z: 0 }, true);
   ball.body.setLinvel({ x: 0, y: 0, z: 0 }, true); ball.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
@@ -1032,7 +1091,8 @@ function reset() {
   bindSims();
   syncAll();
   for (const r of robots) { r.lastState = 'stand'; setFace(r.face, 'normal'); }
-  state = 'ready'; goals = 0; opp = 0; acc = 0; ai.tx = 0; ai.tz = CPU_Z; joy = null; $('joy').classList.remove('on');
+  ballMesh.visible = true; ballMark.visible = true;
+  state = 'ready'; goals = 0; opp = 0; lastScorer = 0; acc = 0; ai.tx = 0; ai.tz = CPU_Z; joy = null; $('joy').classList.remove('on');
   snapDone = false; snapWant = -1; scrMode = 'idle';
   updStreak();
   $('result').hidden = true; $('hud').classList.remove('off');
@@ -1067,7 +1127,7 @@ function updateAI(dt) {
       const sx = -uz, sz = ux, sg = ((p.x - b.x) * sx + (p.z - b.z) * sz) >= 0 ? 1 : -1;
       tx = b.x - ux * 0.5 + sx * sg * 0.6; tz = b.z - uz * 0.5 + sz * sg * 0.6;
     } else {
-      const bx = b.x - ux * 0.36, bz = b.z - uz * 0.36;
+      const bx = b.x - ux * 0.5, bz = b.z - uz * 0.5;
       // 後ろに着いたら、そのままボールを押して運ぶ（ドリブル）
       if (Math.hypot(bx - p.x, bz - p.z) < 0.25) { tx = b.x + ux * 0.6; tz = b.z + uz * 0.6; } else { tx = bx; tz = bz; }
     }
@@ -1084,7 +1144,7 @@ function updateAI(dt) {
   // ねらうゴールの方を向いている時だけ蹴る（守りの時は、こちら側を向いていればよい）
   const aimOk = fc.fz < (ai.mode === 'def' ? 0.2 : -0.5);
   const want = ai.mode === 'def' || toGoal < 6.5 || Math.random() < dt * 0.6;
-  if (state === 'play' && want && ai.kickCool <= 0 && cpu.state === 'stand' && !cpu.kicking && aimOk && fwdDist > 0.1 && fwdDist < 0.5 && side < 0.28 && b.y < 0.4) {
+  if (state === 'play' && want && ai.kickCool <= 0 && cpu.state === 'stand' && !cpu.kicking && aimOk && fwdDist > 0.2 && fwdDist < 0.65 && side < 0.38 && b.y < 0.55) {
     cpu.kickReq = { foot: footFor(cpu), t: cpu.time }; ai.kickCool = 1.0;
   }
 }
@@ -1138,7 +1198,7 @@ function checkKicks() {
     const fp = s.parts['foot' + s.kicking.foot.k].body.translation(), bp = ball.body.translation();
     const f = facing(s), dx = bp.x - fp.x, dz = bp.z - fp.z;
     const ahead = dx * f.fx + dz * f.fz, side = dx * f.lx + dz * f.lz;
-    if (ahead < -0.12 || ahead > 0.36 || Math.abs(side) > 0.24 || bp.y > 0.5) continue;
+    if (ahead < -0.1 || ahead > 0.5 || Math.abs(side) > 0.34 || bp.y > 0.65) continue;
     kickDone.add(s.kicking);
     // 向いている方へ蹴る。自分: 足のどこに当たったかで少し曲がる / 相手: こちらのゴールの真ん中をねらう（向きから大きくはずれない・少しぶれる）
     let ang = Math.atan2(f.fx, f.fz);
@@ -1169,7 +1229,7 @@ function frame(now) {
     if (stuckT > 5) { stuckT = 0; dropBall(); }
   } else if (state === 'goal') {
     goalT += dt; scrT += dt;
-    if (goalT > 1.8) finish();
+    if (goalT > 2.8) finish(); // 吹き飛ぶところを見せてから結果へ
   }
   acc += dt;
   while (acc >= me.DT) {
@@ -1266,6 +1326,7 @@ $('share').addEventListener('click', e => {
 });
 
 // ===== はじめ =====
+updateCamera(0, true);
 updateShare();
 renderer.compile(scene, camera);
 renderer.render(scene, camera);
