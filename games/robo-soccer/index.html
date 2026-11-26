@@ -64,6 +64,12 @@
     #streak[hidden] { display: none; }
     @media (max-height: 519px) and (min-aspect-ratio: 1/1) { #hud { top: calc(6px + env(safe-area-inset-top)); } }
     #rStreak { margin-top: 8px; font-size: 18px; font-weight: 800; color: #ffd43b; min-height: 1.2em; }
+    /* カメラの切りかえボタン（右上、ヘッダーの下）。今のカメラの方が明るくなる */
+    #camBtn { position: fixed; top: calc(52px + env(safe-area-inset-top)); right: 12px; z-index: 4; display: flex; gap: 2px; padding: 3px; border-radius: 999px; border: 1px solid rgba(255,255,255,.22); background: rgba(0,0,0,.3); cursor: pointer; }
+    #camBtn:focus { outline: none; }
+    #camBtn span { width: 36px; height: 36px; border-radius: 999px; display: flex; align-items: center; justify-content: center; opacity: .45; transition: background .2s, opacity .2s; }
+    #camBtn span.on { opacity: 1; background: rgba(255,255,255,.2); }
+    @media (max-height: 519px) and (min-aspect-ratio: 1/1) { #camBtn { top: auto; bottom: calc(84px + env(safe-area-inset-bottom)); } }
     /* ボールが画面の外にある時、ふちに出る矢印 */
     #ballArrow { position: fixed; width: 64px; height: 64px; margin: -32px 0 0 -32px; z-index: 2; pointer-events: none; opacity: 0; transform: scale(.7); transition: opacity .2s, transform .2s; filter: drop-shadow(0 2px 5px rgba(0,0,0,.45)); }
     #ballArrow.on { opacity: 1; transform: scale(1); }
@@ -117,6 +123,11 @@
       <select id="lang" class="pill" aria-label="Language"><option value="ja">日本語</option><option value="ko">한국어</option><option value="en">English</option><option value="th">ไทย</option></select>
     </div>
   </header>
+  <!-- カメラの切りかえ（ロボット / ボール） -->
+  <button id="camBtn" aria-label="camera">
+    <span id="camRobot"><svg viewBox="0 0 24 24" width="22" height="22"><rect x="6" y="3" width="12" height="9" rx="3" fill="#e9ecef"/><rect x="8" y="5.5" width="8" height="4.5" rx="1" fill="#16202e"/><rect x="7" y="13" width="10" height="7" rx="2" fill="#e9ecef"/><rect x="9" y="15" width="6" height="2" rx="1" fill="#ff7a2a"/></svg></span>
+    <span id="camBall"><img id="camBallImg" alt="" width="22" height="22"></span>
+  </button>
   <main style="display:contents">
     <canvas id="cv"></canvas>
     <!-- 連勝中の数（勝ち続けている間だけ出す） -->
@@ -843,6 +854,7 @@ function ballIcon(S) {
 const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 48, 32), new THREE.MeshStandardMaterial({ map: ballTex, roughness: 0.38, metalness: 0.02 }));
 ballMesh.castShadow = true; scene.add(ballMesh);
 $('baImg').src = ballIcon(64);
+
 const ballV = { pp: new THREE.Vector3(), pq: new THREE.Quaternion(), cp: new THREE.Vector3(), cq: new THREE.Quaternion() };
 syncAll();
 // ボールの位置の印（地面の薄い輪。浮いた時も場所が分かるように）
@@ -915,6 +927,10 @@ function updateParticles(dt) {
 // ===== 画面の大きさ・カメラ（自分のロボの後ろから相手ゴールを見る）=====
 const camT = new THREE.Vector3(0, 0.6, 0), camP = new THREE.Vector3(0, 2, ME_Z - 3);
 let camYaw = 0; // カメラの向き（0 = +z、相手のゴールの方）
+// カメラの種類: 'robot'（ロボットの向きに回りこむ）/ 'ball'（いつもボールの方を向く）。ボタンか C キーで切りかえ、次に開いた時も同じにする
+let camMode = store.get('cam', 'robot') === 'ball' ? 'ball' : 'robot';
+function updCamBtn() { $('camRobot').classList.toggle('on', camMode === 'robot'); $('camBall').classList.toggle('on', camMode === 'ball'); }
+function toggleCam() { camMode = camMode === 'ball' ? 'robot' : 'ball'; store.set('cam', camMode); updCamBtn(); }
 let TOP = 100; const BOTTOM = 80;
 let camBack = 3.2, camUp = 2.1;
 function resize() {
@@ -935,19 +951,27 @@ function updateCamera(dt, snap = false) {
   const p = me.parts.pelvis.body.translation();
   // ゴールが決まったら、決まったゴールの方を向く（ゴールの正面・少し上から、爆発と吹き飛ぶロボットが入るように）
   if ((state === 'goal' || state === 'over') && lastScorer) {
-    const e = lastScorer, k = 1 - Math.exp(-dt * 4);
+    const e = lastScorer, k = 1 - Math.exp(-dt * 14); // すばやく向ける（ヒットストップの間にほぼ向き終わる）
     camT.x += (0 - camT.x) * k; camT.y += (0.9 - camT.y) * k; camT.z += (e * (HZ - 1) - camT.z) * k;
     camP.x += (-2.2 - camP.x) * k; camP.y += (4.2 - camP.y) * k; camP.z += (e * (HZ - 8) - camP.z) * k;
     camera.position.copy(camP); camera.lookAt(camT); camera.updateMatrixWorld();
     return;
   }
-  // ロボットが歩いている間は、その向きへゆっくり回りこむ（倒れている時は回らない）
-  if (snap) camYaw = me.yaw;
-  else if (me.state === 'stand' && Math.hypot(me.walk.x, me.walk.z) > 0.2) { const d = Math.atan2(Math.sin(me.yaw - camYaw), Math.cos(me.yaw - camYaw)); camYaw += d * (1 - Math.exp(-dt * 1.4)); }
+  const b = ball.body.translation(), bd = Math.hypot(b.x - p.x, b.z - p.z);
+  if (camMode === 'ball') {
+    // ボールカメラ: 自分のロボットの後ろから、いつもボールの方を向く（ボールがすぐ近くの時は向きを保つ）
+    const want = bd > 0.9 ? Math.atan2(b.x - p.x, b.z - p.z) : camYaw;
+    if (snap) camYaw = want; else { const d = Math.atan2(Math.sin(want - camYaw), Math.cos(want - camYaw)); camYaw += d * (1 - Math.exp(-dt * 4)); }
+  } else {
+    // ロボカメラ: ロボットが歩いている間は、その向きへゆっくり回りこむ（倒れている時は回らない）
+    if (snap) camYaw = me.yaw;
+    else if (me.state === 'stand' && Math.hypot(me.walk.x, me.walk.z) > 0.2) { const d = Math.atan2(Math.sin(me.yaw - camYaw), Math.cos(me.yaw - camYaw)); camYaw += d * (1 - Math.exp(-dt * 1.4)); }
+  }
   const fx = Math.sin(camYaw), fz = Math.cos(camYaw);
-  // 見る点: ロボットの少し前・腰の高さ。カメラ: 後ろ・少し上（ころび方がよく見えるように近め）
+  // 見る点: ロボットの少し前・腰の高さ（ボールカメラは、ボールとの間の少しロボット寄り）。カメラ: 後ろ・少し上（ころび方がよく見えるように近め）
   const k = snap ? 1 : 1 - Math.exp(-dt * 5);
-  camT.x += (p.x + fx * 1.6 - camT.x) * k; camT.z += (p.z + fz * 1.6 - camT.z) * k; camT.y = 0.5;
+  const ahead = camMode === 'ball' ? Math.min(2.4, Math.max(1.2, bd * 0.45)) : 1.6;
+  camT.x += (p.x + fx * ahead - camT.x) * k; camT.z += (p.z + fz * ahead - camT.z) * k; camT.y = 0.5;
   // 肩ごしに少し右から見る（真後ろだと、前にあるボールがロボットの体に隠れる）
   const sh = camBack * 0.2;
   let px = p.x - fx * camBack - fz * sh, pz = p.z - fz * camBack + fx * sh;
@@ -1011,6 +1035,7 @@ canvas.addEventListener('pointercancel', endPtr);
 const KEYMAP = { ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r', ArrowUp: 'u', KeyW: 'u', ArrowDown: 'd', KeyS: 'd' };
 addEventListener('keydown', e => {
   if (e.target.closest?.('input')) return;
+  if (e.code === 'KeyC' && !e.repeat) { toggleCam(); return; }
   if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!e.repeat && state !== 'over') requestKick(); return; }
   const k = KEYMAP[e.code]; if (!k) return;
   e.preventDefault(); keys.add(k);
@@ -1431,6 +1456,9 @@ $('share').addEventListener('click', e => {
 });
 
 // ===== はじめ =====
+$('camBallImg').src = ballIcon(44);
+$('camBtn').onclick = e => { toggleCam(); e.currentTarget.blur(); }; // フォーカスを外す（スペースでのキックがボタンを押さないように）
+updCamBtn();
 updateCamera(0, true);
 updateShare();
 renderer.compile(scene, camera);
