@@ -111,6 +111,11 @@
     .status { margin: 10px 0 0; font-size: 14px; font-weight: 700; min-height: 1.2em; }
     .status.dots::after { content: ''; animation: dots 1.2s steps(4) infinite; }
     @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+    /* ゲスト: ホストからの状態が届かない間に出す */
+    #netWait { position: fixed; left: 50%; top: 32%; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-radius: 999px; background: rgba(15,22,34,.88); border: 1px solid rgba(255,255,255,.2); color: #fff; font-weight: 700; font-size: 15px; white-space: nowrap; pointer-events: none; }
+    #netWait[hidden] { display: none; }
+    #netWait i { width: 18px; height: 18px; border-radius: 50%; border: 3px solid rgba(255,255,255,.25); border-top-color: #fff; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     #toast { position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); z-index: 7; padding: 10px 18px; border-radius: 999px; background: rgba(15,22,34,.9); color: #fff; font-weight: 700; font-size: 15px; opacity: 0; pointer-events: none; transition: opacity .3s; white-space: nowrap; }
     #toast.on { opacity: 1; }
     /* ボールが画面の外にある時、ふちに出る矢印 */
@@ -223,6 +228,7 @@
         <p class="status" id="onStatus"></p>
       </div>
     </div>
+    <div id="netWait" hidden><i></i><span id="netWaitT"></span></div>
     <div id="toast"></div>
     <div id="msg"></div>
   </main>
@@ -235,13 +241,13 @@ const store = {
 
 // ===== 言語 =====
 const L = {
-  ja: { lbName: 'なまえ', lbHint: '席を押すと移れます（人がいれば入れかわり）', you: 'あなた', f1: '1対1', f2: '2対2', onYou2: '友だち<br>3人まで', onDesc2: 'このリンクを友だちに送ってください（3人まで）。足りない席はコンピューターが入ります。', youOrange: 'あなたはオレンジのチーム', youBlue: 'あなたは青のチーム', tooMany: '2人以上とつながっている時は1対1にできません', inviting: '招待中', online: 'オンライン対戦', onTitle: 'オンライン対戦', onMe: 'あなた<br>オレンジ', onYou: 'あいて<br>青', onMeG: 'あなた<br>青', onYouG: 'あいて<br>オレンジ', onDesc: 'このリンクを相手に送ってください。相手が開くとつながります。', onSend: '送る', onCopy: 'リンクをコピー', copied: 'コピーしました', invite: 'ロボサッカーで対戦しよう！', prep: '準備中', waiting: '相手を待っています', joining: 'つないでいます', joined: '相手とつながりました', left: '相手との接続が切れました', fail: 'つながりませんでした', onBadge: 'オンライン', waitHost: 'ホストの再開を待っています', win: '勝ち', lose: '負け', draw: '引き分け', title: 'ロボサッカー', back: '← トップへ戻る', again: 'もう一度', share: 'ポスト', gg: 'ゴールデンゴール', goals: n => `${n}<small>ゴール</small>`, goalsT: n => `${n}ゴール`,
+  ja: { netWait: '通信を待っています…', lost: '通信が届かないので、ひとりに戻りました', lbName: 'なまえ', lbHint: '席を押すと移れます（人がいれば入れかわり）', you: 'あなた', f1: '1対1', f2: '2対2', onYou2: '友だち<br>3人まで', onDesc2: 'このリンクを友だちに送ってください（3人まで）。足りない席はコンピューターが入ります。', youOrange: 'あなたはオレンジのチーム', youBlue: 'あなたは青のチーム', tooMany: '2人以上とつながっている時は1対1にできません', inviting: '招待中', online: 'オンライン対戦', onTitle: 'オンライン対戦', onMe: 'あなた<br>オレンジ', onYou: 'あいて<br>青', onMeG: 'あなた<br>青', onYouG: 'あいて<br>オレンジ', onDesc: 'このリンクを相手に送ってください。相手が開くとつながります。', onSend: '送る', onCopy: 'リンクをコピー', copied: 'コピーしました', invite: 'ロボサッカーで対戦しよう！', prep: '準備中', waiting: '相手を待っています', joining: 'つないでいます', joined: '相手とつながりました', left: '相手との接続が切れました', fail: 'つながりませんでした', onBadge: 'オンライン', waitHost: 'ホストの再開を待っています', win: '勝ち', lose: '負け', draw: '引き分け', title: 'ロボサッカー', back: '← トップへ戻る', again: 'もう一度', share: 'ポスト', gg: 'ゴールデンゴール', goals: n => `${n}<small>ゴール</small>`, goalsT: n => `${n}ゴール`,
     loadErr: '読み込みに失敗しました。通信状況を確かめて再読み込みしてください。' },
-  ko: { lbName: '이름', lbHint: '자리를 누르면 옮길 수 있어요 (사람이 있으면 교대)', you: '나', f1: '1대1', f2: '2대2', onYou2: '친구<br>3명까지', onDesc2: '이 링크를 친구에게 보내 주세요 (3명까지). 빈자리는 컴퓨터가 들어가요.', youOrange: '당신은 오렌지 팀', youBlue: '당신은 파랑 팀', tooMany: '2명 이상과 연결되어 있으면 1대1로 할 수 없어요', inviting: '초대 중', online: '온라인 대전', onTitle: '온라인 대전', onMe: '나<br>오렌지', onYou: '상대<br>파랑', onMeG: '나<br>파랑', onYouG: '상대<br>오렌지', onDesc: '이 링크를 상대에게 보내 주세요. 상대가 열면 연결돼요.', onSend: '보내기', onCopy: '링크 복사', copied: '복사했어요', invite: '로봇 축구로 대결하자!', prep: '준비 중', waiting: '상대를 기다리는 중', joining: '연결 중', joined: '상대와 연결됐어요', left: '상대와의 연결이 끊겼어요', fail: '연결하지 못했어요', onBadge: '온라인', waitHost: '호스트를 기다리는 중', win: '승리', lose: '패배', draw: '무승부', title: '로봇 축구', back: '← 처음으로', again: '다시 하기', share: '게시', gg: '골든골', goals: n => `${n}<small>골</small>`, goalsT: n => `${n}골`,
+  ko: { netWait: '통신을 기다리는 중…', lost: '통신이 끊겨서 혼자 하기로 돌아왔어요', lbName: '이름', lbHint: '자리를 누르면 옮길 수 있어요 (사람이 있으면 교대)', you: '나', f1: '1대1', f2: '2대2', onYou2: '친구<br>3명까지', onDesc2: '이 링크를 친구에게 보내 주세요 (3명까지). 빈자리는 컴퓨터가 들어가요.', youOrange: '당신은 오렌지 팀', youBlue: '당신은 파랑 팀', tooMany: '2명 이상과 연결되어 있으면 1대1로 할 수 없어요', inviting: '초대 중', online: '온라인 대전', onTitle: '온라인 대전', onMe: '나<br>오렌지', onYou: '상대<br>파랑', onMeG: '나<br>파랑', onYouG: '상대<br>오렌지', onDesc: '이 링크를 상대에게 보내 주세요. 상대가 열면 연결돼요.', onSend: '보내기', onCopy: '링크 복사', copied: '복사했어요', invite: '로봇 축구로 대결하자!', prep: '준비 중', waiting: '상대를 기다리는 중', joining: '연결 중', joined: '상대와 연결됐어요', left: '상대와의 연결이 끊겼어요', fail: '연결하지 못했어요', onBadge: '온라인', waitHost: '호스트를 기다리는 중', win: '승리', lose: '패배', draw: '무승부', title: '로봇 축구', back: '← 처음으로', again: '다시 하기', share: '게시', gg: '골든골', goals: n => `${n}<small>골</small>`, goalsT: n => `${n}골`,
     loadErr: '불러오지 못했습니다. 연결을 확인하고 새로고침해 주세요.' },
-  en: { lbName: 'Name', lbHint: 'Tap a spot to move there (swap if someone is in it)', you: 'You', f1: '1v1', f2: '2v2', onYou2: 'Friends<br>up to 3', onDesc2: 'Send this link to up to 3 friends. Empty spots are filled by computer players.', youOrange: 'You are on the Orange team', youBlue: 'You are on the Blue team', tooMany: 'Cannot switch to 1v1 with 2 or more friends connected', inviting: 'Inviting', online: 'Play online', onTitle: 'Play online', onMe: 'You<br>Orange', onYou: 'Friend<br>Blue', onMeG: 'You<br>Blue', onYouG: 'Friend<br>Orange', onDesc: 'Send this link to a friend. You will be connected when they open it.', onSend: 'Send', onCopy: 'Copy link', copied: 'Copied', invite: 'Play Robot Soccer with me!', prep: 'Getting ready', waiting: 'Waiting for your friend', joining: 'Connecting', joined: 'Connected', left: 'Your friend left', fail: 'Could not connect', onBadge: 'Online', waitHost: 'Waiting for the host', win: 'WIN', lose: 'LOSE', draw: 'DRAW', title: 'Robot Soccer', back: '← Top', again: 'Play again', share: 'Post', gg: 'GOLDEN GOAL', goals: n => `${n}<small>${n === 1 ? 'goal' : 'goals'}</small>`, goalsT: n => `${n} ${n === 1 ? 'goal' : 'goals'}`,
+  en: { netWait: 'Waiting for connection…', lost: 'Connection lost. Back to single player', lbName: 'Name', lbHint: 'Tap a spot to move there (swap if someone is in it)', you: 'You', f1: '1v1', f2: '2v2', onYou2: 'Friends<br>up to 3', onDesc2: 'Send this link to up to 3 friends. Empty spots are filled by computer players.', youOrange: 'You are on the Orange team', youBlue: 'You are on the Blue team', tooMany: 'Cannot switch to 1v1 with 2 or more friends connected', inviting: 'Inviting', online: 'Play online', onTitle: 'Play online', onMe: 'You<br>Orange', onYou: 'Friend<br>Blue', onMeG: 'You<br>Blue', onYouG: 'Friend<br>Orange', onDesc: 'Send this link to a friend. You will be connected when they open it.', onSend: 'Send', onCopy: 'Copy link', copied: 'Copied', invite: 'Play Robot Soccer with me!', prep: 'Getting ready', waiting: 'Waiting for your friend', joining: 'Connecting', joined: 'Connected', left: 'Your friend left', fail: 'Could not connect', onBadge: 'Online', waitHost: 'Waiting for the host', win: 'WIN', lose: 'LOSE', draw: 'DRAW', title: 'Robot Soccer', back: '← Top', again: 'Play again', share: 'Post', gg: 'GOLDEN GOAL', goals: n => `${n}<small>${n === 1 ? 'goal' : 'goals'}</small>`, goalsT: n => `${n} ${n === 1 ? 'goal' : 'goals'}`,
     loadErr: 'Failed to load. Check your connection and reload.' },
-  th: { lbName: 'ชื่อ', lbHint: 'แตะที่นั่งเพื่อย้าย (ถ้ามีคนอยู่จะสลับกัน)', you: 'คุณ', f1: '1 ต่อ 1', f2: '2 ต่อ 2', onYou2: 'เพื่อน<br>ไม่เกิน 3 คน', onDesc2: 'ส่งลิงก์นี้ให้เพื่อน (ไม่เกิน 3 คน) ที่ว่างจะมีคอมพิวเตอร์เล่นแทน', youOrange: 'คุณอยู่ทีมสีส้ม', youBlue: 'คุณอยู่ทีมสีน้ำเงิน', tooMany: 'เปลี่ยนเป็น 1 ต่อ 1 ไม่ได้เมื่อเชื่อมต่อกับเพื่อน 2 คนขึ้นไป', inviting: 'กำลังเชิญ', online: 'เล่นออนไลน์', onTitle: 'เล่นออนไลน์', onMe: 'คุณ<br>สีส้ม', onYou: 'เพื่อน<br>สีน้ำเงิน', onMeG: 'คุณ<br>สีน้ำเงิน', onYouG: 'เพื่อน<br>สีส้ม', onDesc: 'ส่งลิงก์นี้ให้เพื่อน เมื่อเพื่อนเปิดก็จะเชื่อมต่อกัน', onSend: 'ส่ง', onCopy: 'คัดลอกลิงก์', copied: 'คัดลอกแล้ว', invite: 'มาแข่งฟุตบอลหุ่นยนต์กัน!', prep: 'กำลังเตรียม', waiting: 'กำลังรอเพื่อน', joining: 'กำลังเชื่อมต่อ', joined: 'เชื่อมต่อแล้ว', left: 'เพื่อนออกไปแล้ว', fail: 'เชื่อมต่อไม่ได้', onBadge: 'ออนไลน์', waitHost: 'กำลังรอผู้เชิญ', win: 'ชนะ', lose: 'แพ้', draw: 'เสมอ', title: 'ฟุตบอลหุ่นยนต์', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์', gg: 'โกลเดนโกล', goals: n => `${n}<small> ประตู</small>`, goalsT: n => `${n} ประตู`,
+  th: { netWait: 'กำลังรอการเชื่อมต่อ…', lost: 'การเชื่อมต่อขาดหาย กลับไปเล่นคนเดียว', lbName: 'ชื่อ', lbHint: 'แตะที่นั่งเพื่อย้าย (ถ้ามีคนอยู่จะสลับกัน)', you: 'คุณ', f1: '1 ต่อ 1', f2: '2 ต่อ 2', onYou2: 'เพื่อน<br>ไม่เกิน 3 คน', onDesc2: 'ส่งลิงก์นี้ให้เพื่อน (ไม่เกิน 3 คน) ที่ว่างจะมีคอมพิวเตอร์เล่นแทน', youOrange: 'คุณอยู่ทีมสีส้ม', youBlue: 'คุณอยู่ทีมสีน้ำเงิน', tooMany: 'เปลี่ยนเป็น 1 ต่อ 1 ไม่ได้เมื่อเชื่อมต่อกับเพื่อน 2 คนขึ้นไป', inviting: 'กำลังเชิญ', online: 'เล่นออนไลน์', onTitle: 'เล่นออนไลน์', onMe: 'คุณ<br>สีส้ม', onYou: 'เพื่อน<br>สีน้ำเงิน', onMeG: 'คุณ<br>สีน้ำเงิน', onYouG: 'เพื่อน<br>สีส้ม', onDesc: 'ส่งลิงก์นี้ให้เพื่อน เมื่อเพื่อนเปิดก็จะเชื่อมต่อกัน', onSend: 'ส่ง', onCopy: 'คัดลอกลิงก์', copied: 'คัดลอกแล้ว', invite: 'มาแข่งฟุตบอลหุ่นยนต์กัน!', prep: 'กำลังเตรียม', waiting: 'กำลังรอเพื่อน', joining: 'กำลังเชื่อมต่อ', joined: 'เชื่อมต่อแล้ว', left: 'เพื่อนออกไปแล้ว', fail: 'เชื่อมต่อไม่ได้', onBadge: 'ออนไลน์', waitHost: 'กำลังรอผู้เชิญ', win: 'ชนะ', lose: 'แพ้', draw: 'เสมอ', title: 'ฟุตบอลหุ่นยนต์', back: '← กลับหน้าแรก', again: 'เล่นอีกครั้ง', share: 'โพสต์', gg: 'โกลเดนโกล', goals: n => `${n}<small> ประตู</small>`, goalsT: n => `${n} ประตู`,
     loadErr: 'โหลดไม่สำเร็จ ตรวจสอบการเชื่อมต่อแล้วโหลดใหม่' },
 };
 const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
@@ -1578,7 +1584,8 @@ let gWalk = { x: 0, z: 0 }, gKick = 0, guestSendNow = false;           // ゲス
 const remote = [];                                                     // ホストが受け取った、席ごとのゲストの入力
 const guests = [];                                                     // ホスト: つながっているゲスト { c: ctl, s: str, seat, pid }
 const pendingStr = {};
-let netBuf = [], netOffset = null, lastSnapN = -1, sendN = 0, lastSend = 0, lastInSend = 0, lastPing = 0, noFwd = 0;
+// lastSnapAt: ゲストがホストから最後に状態を受け取った時刻（届かない時間で、待っている表示・切れた判定をする）
+let lastSnapAt = 0, netBuf = [], netOffset = null, lastSnapN = -1, sendN = 0, lastSend = 0, lastInSend = 0, lastPing = 0, noFwd = 0;
 const clk = { samples: [], delay: 0.1, latM: 0.05, latD: 0.02 };
 function loadPeer() {
   if (window.Peer) return Promise.resolve();
@@ -1783,12 +1790,19 @@ $('onSend').onclick = async () => {
 };
 // 閉じても招待は続ける（相手があとからリンクを開いてもつながる）。左上の印で招待中と分かるようにする
 $('onX').onclick = () => { $('onM').hidden = true; updOnlineUI(); };
+// ゲスト: 状態が長く届かない（ホストの通信が急に切れた・画面が止まった）→ 接続を閉じてひとりに戻る
+function lostHost() {
+  if (mode !== 'guest') return;
+  try { if (conn) conn.close(); } catch {}
+  onLeave(true);
+}
 // ゲスト: ホストとの接続が切れた → ひとりに戻る
-function onLeave() {
+function onLeave(lost) {
   if (mode !== 'guest') return;
   mode = 'solo'; conn = null; sconn = null; inviteUrl = ''; statusKey = ''; mySeat = 0; names.fill('');
   if (peer) { peer.destroy(); peer = null; }
-  toast(t('left'), 3500);
+  $('netWait').hidden = true;
+  toast(t(lost === true ? 'lost' : 'left'), 3500);
   updCtrl(); reset();
 }
 addEventListener('pagehide', () => netSend({ t: 'bye' }));
@@ -1812,7 +1826,7 @@ async function joinRoom(room) {
       c.on('open', () => {
         if (done) return;
         done = true; clearTimeout(timer);
-        conn = c; mode = 'guest';
+        conn = c; mode = 'guest'; lastSnapAt = performance.now();
         c.on('close', onLeave); c.on('error', onLeave);
         $('onM').hidden = true; toast(t('joined'));
         const sc = peer.connect('kfrsoccer-' + room, { reliable: false, metadata: { ch: 'str' } });
@@ -1865,6 +1879,7 @@ function onNet(m, from) {
       const best = clk.samples.reduce((a, b) => b.rtt < a.rtt ? b : a);
       netOffset = netOffset == null ? best.off : netOffset + (best.off - netOffset) * 0.3;
     } else if (m.t === 's') {
+      lastSnapAt = performance.now(); // 届いてさえいれば、つながっている
       if (m.n <= lastSnapN || netOffset == null) return; // 古い・順番が入れかわった状態は捨てる
       lastSnapN = m.n;
       const lat = performance.now() / 1000 + netOffset - m.k;
@@ -1899,8 +1914,14 @@ function hostSend(now) {
 }
 // ゲスト: 入力を送り、届いた状態を補間して描く
 let lastInKey = '';
+const NET_WAIT = 1.5, NET_LOST = 10; // 秒: 待っている表示を出す / 切れたとみなす
 function guestFrame(dt, sdt, d, nowMs) {
   const now = nowMs / 1000;
+  // ホストの状態が届かない: 1.5秒で「通信を待っています」、10秒で切れたとみなしてひとりに戻る
+  const quiet = (nowMs - lastSnapAt) / 1000;
+  if (quiet > NET_LOST) { lostHost(); return drawView(dt, sdt); }
+  const wait = quiet > NET_WAIT;
+  if (wait !== !$('netWait').hidden) { $('netWait').hidden = !wait; $('netWaitT').textContent = t('netWait'); }
   placeMyMark();
   gWalk = state === 'play' || state === 'goal' || state === 'ready' ? d : { x: 0, z: 0 };
   const key = R3(gWalk.x) + ',' + R3(gWalk.z) + ',' + gKick;
