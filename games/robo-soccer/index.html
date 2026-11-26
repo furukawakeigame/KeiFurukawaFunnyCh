@@ -577,17 +577,17 @@ renderer.toneMappingExposure = 1.05;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
-// 夜空のグラデーション
+// 背景: 落ち着いた色のグラデーションだけ（シンプルに）
 scene.background = (() => {
   const c = document.createElement('canvas'); c.width = 4; c.height = 256; const x = c.getContext('2d');
-  const g = x.createLinearGradient(0, 0, 0, 256); g.addColorStop(0, '#070b16'); g.addColorStop(0.55, '#132038'); g.addColorStop(1, '#24395c');
+  const g = x.createLinearGradient(0, 0, 0, 256); g.addColorStop(0, '#1e2a3d'); g.addColorStop(1, '#3b4c66');
   x.fillStyle = g; x.fillRect(0, 0, 4, 256);
   const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; return tx;
 })();
-scene.fog = new THREE.Fog(0x16233a, 22, 60);
+scene.fog = new THREE.Fog(0x33435b, 16, 40);
 const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 120);
 scene.add(new THREE.HemisphereLight(0xb7cdf0, 0x223018, 0.85));
-// 照明塔の光（暖色）と、反対からの青い光
+// 上からの光（暖色）と、反対からの青い光
 const sun = new THREE.DirectionalLight(0xfff0d8, 2.4);
 sun.castShadow = true;
 sun.shadow.mapSize.set(1024, 1024);
@@ -645,18 +645,14 @@ const pitchTex = canvasTex((HX * 2 + 2) * PPM, (HZ * 2 + 2) * PPM, (x, W, H) => 
   const pitch = new THREE.Mesh(new THREE.PlaneGeometry(HX * 2 + 2, HZ * 2 + 2), new THREE.MeshStandardMaterial({ map: pitchTex, roughness: 0.95 }));
   // 画像の上（v=1）が +z（相手ゴール）になるように
   pitch.rotation.x = -Math.PI / 2; pitch.rotation.z = Math.PI; pitch.receiveShadow = true; scene.add(pitch);
-  // まわりの地面（暗い人工芝）
-  const outer = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0x2c4a2a, roughness: 1 }));
+  // まわりの地面（芝より少し暗い、模様のない緑）
+  const outer = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0x356b33, roughness: 1 }));
   outer.rotation.x = -Math.PI / 2; outer.position.y = -0.01; outer.receiveShadow = true; scene.add(outer);
 }
-// 板: 色つきのパネル（模様だけで文字は入れない）
-const boardTex = canvasTex(1024, 64, (x, W, H) => {
-  const cols = ['#1c7ed6', '#f08c00', '#2f9e44', '#e03131', '#7048e8', '#f2c230'];
-  for (let i = 0; i < 8; i++) { x.fillStyle = cols[i % cols.length]; x.fillRect(i * 128, 0, 128, H); x.fillStyle = 'rgba(255,255,255,.85)'; x.beginPath(); x.arc(i * 128 + 40, 32, 14, 0, 7); x.fill(); x.fillRect(i * 128 + 62, 24, 50, 16); x.fillStyle = 'rgba(0,0,0,.25)'; x.fillRect(i * 128 + 126, 0, 2, H); }
-}, [3, 1]);
+// 板: 模様のない白っぽい板（シンプルに）
 {
-  const bm = new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.5, emissive: 0xffffff, emissiveMap: boardTex, emissiveIntensity: 0.25 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x1d2433, roughness: 0.7 });
+  const bm = new THREE.MeshStandardMaterial({ color: 0xe9edf2, roughness: 0.6 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0xc9d0d8, roughness: 0.7 });
   const board = (w, x, z, ry) => { const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; scene.add(g); mesh(new THREE.BoxGeometry(w, 0.6, 0.12), dark, g, 0, 0.3, 0.02); mesh(new THREE.PlaneGeometry(w, 0.56), bm, g, 0, 0.3, 0.085, { shadow: false }); };
   for (const s of [-1, 1]) board(HX - GW, s * (GW + (HX - GW) / 2), -HZ - 0.15, 0);
   // 四すみの斜めの板（内側を向くように）
@@ -697,43 +693,6 @@ function updateNet(dt) {
     p.needsUpdate = true;
   }
 }
-// スタンド（観客席）: 段々と、色の粒の観客。照明塔
-const crowdTex = canvasTex(512, 512, (x, W, H) => {
-  // 段ごとの座席の帯と、座っている人（服の色＋顔）
-  const cols = ['#c92a2a', '#e9ecef', '#1971c2', '#f2c230', '#2b8a3e', '#e8590c', '#c2255c', '#5c677d'];
-  const rows = 12, rh = H / rows;
-  for (let r = 0; r < rows; r++) {
-    x.fillStyle = r % 2 ? '#222a3a' : '#283146'; x.fillRect(0, r * rh, W, rh);
-    for (let i = 0; i < 26; i++) {
-      if (rnd() < 0.12) continue; // ところどころ空席
-      const px = (i + 0.5) * W / 26 + (rnd() - 0.5) * 6, py = r * rh + rh * 0.62;
-      x.fillStyle = cols[Math.floor(rnd() * cols.length)];
-      x.beginPath(); x.ellipse(px, py, 7, 9, 0, 0, 7); x.fill();
-      x.fillStyle = ['#f1c9a5', '#d9a47c', '#8d5a3b'][Math.floor(rnd() * 3)]; x.beginPath(); x.arc(px, py - 12, 5, 0, 7); x.fill();
-    }
-  }
-}, [5, 1]);
-{
-  const standMat = new THREE.MeshStandardMaterial({ map: crowdTex, roughness: 0.9, emissive: 0xffffff, emissiveMap: crowdTex, emissiveIntensity: 0.18 });
-  const concrete = new THREE.MeshStandardMaterial({ color: 0x3a4252, roughness: 0.9 });
-  const stand = (len, x, z, ry) => {
-    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; scene.add(g);
-    // 前から後ろへ高くなる斜面
-    const slope = new THREE.Mesh(new THREE.PlaneGeometry(len, 7), standMat); slope.rotation.x = -Math.PI / 2 + 0.6; slope.position.set(0, 2.4, -3.2); g.add(slope);
-    mesh(new THREE.BoxGeometry(len, 1.2, 0.4), concrete, g, 0, 0.6, 0, { shadow: false });
-  };
-  stand(HX * 2 + 6, 0, -HZ - 2.2, 0); stand(HX * 2 + 6, 0, HZ + 3.2, Math.PI);
-  stand(HZ * 2 + 4, -HX - 2.2, 0, Math.PI / 2); stand(HZ * 2 + 4, HX + 2.2, 0, -Math.PI / 2);
-  // 照明塔（光りっぱなし。点滅させない）
-  const pole = new THREE.MeshStandardMaterial({ color: 0x59627a, roughness: 0.6, metalness: 0.5 });
-  const lampMat = new THREE.MeshBasicMaterial({ color: 0xfff6dd, toneMapped: false });
-  for (const [x, z] of [[-HX - 6, -HZ - 5], [HX + 6, -HZ - 5], [-HX - 6, HZ + 6], [HX + 6, HZ + 6]]) {
-    mesh(cyl(0.18, 0.26, 16, 12), pole, scene, x, 8, z, { shadow: false });
-    const head = mesh(new THREE.BoxGeometry(2.4, 1.2, 0.3), new THREE.MeshStandardMaterial({ color: 0x2a303d }), scene, x, 16.4, z, { shadow: false });
-    head.lookAt(0, 0, 0);
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) { const l = new THREE.Mesh(new THREE.CircleGeometry(0.28, 16), lampMat); l.position.set(-0.75 + i * 0.75, -0.28 + j * 0.56, 0.16); head.add(l); }
-  }
-}
 // 電光掲示板: ゴールの奥の高い所。いつもの猫を映す
 const catImg = new Image(); catImg.src = 'cat.png';
 const boardCv = document.createElement('canvas'); boardCv.width = 512; boardCv.height = 288;
@@ -765,7 +724,7 @@ function drawPitchCat() {
 }
 drawScreen();
 {
-  // ゴールの奥、スタンドの前に立てる（上から見下ろすカメラでも見えるように）
+  // ゴールの奥に立てる（上から見下ろすカメラでも見えるように）
   const BZ = HZ + 3.0, BY = 2.9;
   mesh(new THREE.BoxGeometry(5.4, 3.2, 0.3), new THREE.MeshStandardMaterial({ color: 0x20252f, roughness: 0.6 }), scene, 0, BY, BZ + 0.18, { shadow: false });
   const scr = new THREE.Mesh(new THREE.PlaneGeometry(5.1, 2.87), new THREE.MeshBasicMaterial({ map: scrTex, toneMapped: false, fog: false }));
