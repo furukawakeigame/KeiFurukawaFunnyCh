@@ -12,10 +12,11 @@ Always talk with the owner in Japanese (日本語で会話する), including pro
 
 ## Structure
 
-- `index.html` — top page; the game list is hand-written `<li>` entries in `<ul class="games">`, newest first (keep that order: the first 3 get a NEW badge automatically, and 新着順 sorting uses it). The page script also adds 人気順 sorting (by view count), a 最近遊んだ row (localStorage), and kana-insensitive search — no per-game edits needed.
+- `index.html` — top page; the game list is hand-written `<li>` entries in `<ul class="games">`, newest first (keep that order: the first 3 get a NEW badge automatically, and 新着順 sorting uses it). Each `<li>` may carry `data-tags` for the genre filter: `versus` (対戦), `ranking` (ランキングあり), `make` (つくる), `image` (画像で遊ぶ — uses the player's own image), space-separated; untagged games only show under すべて. The page script also adds 人気順 sorting (by view count), a ☆ favorites row and a 最近遊んだ row (localStorage keys `favorites` / `recent`), a 🎲 おまかせ button (random among the games currently shown), and kana-insensitive search.
 - `style.css` — shared styling for the top page only.
 - `games/<game-name>/index.html` — each game lives in its own folder and is fully self-contained (its own inline CSS/JS or files inside that folder). Games link back to the top page with `../../`.
 - `.nojekyll` — tells GitHub Pages to serve files as-is.
+- `more.js` — loaded automatically by `ad.js` (so every game with a result screen gets it, no per-game edits): records the game in `recent`, and at the first result adds a "next game" chip (icon + title, random game not recently played, read from `index.html`) to the game's `<header>` right after the back link. If that would squeeze or wrap other header parts it shows icon only, and if even that doesn't fit it shows nothing.
 - `404.html` — shown by GitHub Pages for any missing URL (at any depth), so its links/CSS use full `https://keifurukawafunnych.com/...` URLs. It lists the 6 newest games by reading `index.html` at runtime, so it needs no edits when games are added.
 - `sitemap.xml` / `robots.txt` — for search engines. Every public page is listed in `sitemap.xml` (hand-written; old redirect folders are left out).
 

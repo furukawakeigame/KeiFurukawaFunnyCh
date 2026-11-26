@@ -168,7 +168,7 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
 1. `index.html` の `<ul class="games">` の**先頭**に、新しいゲームを**アイコン付き**で、既存の `<li>` と同じ形で追加する。`icon.png` と `thumb.webp` がまだなければ、先に用意する（「3. 実装」を参照）。
 
    ```html
-   <li>
+   <li data-tags="ジャンル">
      <a class="icon" href="games/<フォルダ名>/"><img src="games/<フォルダ名>/thumb.webp" alt="タイトル" width="72" height="72" loading="lazy"></a>
      <div>
        <a href="games/<フォルダ名>/">タイトル</a>
@@ -176,6 +176,8 @@ argument-hint: "[作りたいゲームのアイデア、または既存ゲーム
      </div>
    </li>
    ```
+
+   `data-tags` はトップのジャンル絞り込み用。当てはまるものをスペース区切りで書く（なければ `data-tags` ごと消す）: `versus`（対戦。人やCPUと勝負）、`ranking`（ランキングあり）、`make`（つくる。作って遊ぶメーカー系）、`image`（画像で遊ぶ。自分の画像を使う）。
 
 2. `sitemap.xml` の、トップページの `<url>` の次の行に `  <url><loc>https://keifurukawafunnych.com/games/<フォルダ名>/</loc></url>` を追加する（検索エンジンに新しいページを知らせるため）。
 3. 追加・変更したファイルだけを `git add` し、`Add game: <タイトル>` というメッセージでコミットする。

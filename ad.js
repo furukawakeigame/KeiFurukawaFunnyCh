@@ -20,10 +20,19 @@
 // ・背の低い画面（横向きスマホなど）では出さない
 (() => {
   const CLIENT = 'ca-pub-6939356439579496';
-  const SLOT = '1935432497'; // AdSense の広告ユニット「結果画面」の data-ad-slot（10桁）。空なら何もしない
+  const SLOT = '1935432497'; // AdSense の広告ユニット「結果画面」の data-ad-slot（10桁）。空なら広告は出さない
+  const me = document.currentScript;
+
+  // 結果画面の「次のゲーム」リンクと「最近遊んだ」の記録（広告とは別。more.js を参照）。広告がなくても動く
+  if (me) {
+    const more = document.createElement('script');
+    more.src = new URL('more.js', me.src).href;
+    if (me.dataset.result) more.dataset.result = me.dataset.result;
+    document.head.append(more);
+  }
+
   if (!SLOT) { window.resultAd = () => {}; return; }
 
-  const me = document.currentScript;
   const selector = me && me.dataset.result;
   const inlineSel = me && me.dataset.inline; // 結果パネルの中の広告枠（あれば縮めない）
   const slotEl = () => inlineSel && document.querySelector(inlineSel);
