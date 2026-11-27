@@ -437,7 +437,7 @@ let ictx = inkCv.getContext('2d');
 // 墨の乱数は決まった順に出す（動画を作る時に、同じ書き順をなぞって同じ筆跡を描き直せるように）
 let irs = 1; const irnd = () => (irs = (irs * 16807) % 2147483647) / 2147483647;
 let replaying = false; // 動画用に描き直している最中
-const recOps = [], rec = { on: false, poses: [], opsN: [], next: 0, dt: 1 / 30, init: null }; // 書いている様子の記録（下の「X投稿用の動画」を参照）
+const recOps = [], rec = { on: false, poses: [], opsN: [], fall: [], next: 0, dt: 1 / 30, init: null }; // 書いている様子の記録（下の「X投稿用の動画」を参照）
 const tplCv = document.createElement('canvas'); tplCv.width = tplCv.height = N;
 const sealCv = document.createElement('canvas'); sealCv.width = sealCv.height = 256;
 const paperCv = document.createElement('canvas'); paperCv.width = paperCv.height = N;
@@ -1020,7 +1020,7 @@ sim.joints.shRR.j.setLimits(-2.6, 0.85); sim.joints.shRL.j.setLimits(-0.85, 2.6)
 // 遊ぶ時は半紙とロボット、結果では半紙だけが、上下のボタン・パネルを除いた範囲に収まるようにする
 const PITCH = 1.42; // ほぼ真上から（ロボの体で筆先が隠れないように） // 見下ろす角度（ラジアン）
 const camT = new THREE.Vector3(0, 0.4, 0.6), camGoal = { t: new THREE.Vector3(0, 0.4, 0.6), d: 4 };
-let camDist = 4, topPad = 52, botPad = 160;
+let camDist = 4, topPad = 52, botPad = 160, viewW = 400, viewH = 400;
 const fitCam = new THREE.PerspectiveCamera(36, 1, 0.1, 60);
 const PLAY_PTS = [[-1.05, 0, PZ0 - 0.17], [1.05, 0, PZ0 - 0.17], [-1.05, 0, PZ0 + PW + 0.17], [1.05, 0, PZ0 + PW + 0.17], [-0.32, 1.72, 0.12], [0.32, 1.72, 0.12], [-PW * 0.45 - 0.3, 1.3, 0.1], [PW * 0.45 + 0.3, 1.3, 0.1]];
 const RES_PTS = [[-0.97, 0, PZ0 - 0.08], [0.97, 0, PZ0 - 0.08], [-0.97, 0, PZ0 + PW + 0.08], [0.97, 0, PZ0 + PW + 0.08]];
@@ -1057,6 +1057,7 @@ function layout(snap) {
   camera.aspect = vw / h;
   camera.setViewOffset(vw, h, -wL, -topPad, w, H);
   camera.updateProjectionMatrix();
+  viewW = vw; viewH = h;
   const f = fitFor(res ? RES_PTS : PLAY_PTS, vw, h);
   camGoal.t.copy(f.t); camGoal.d = f.d;
   if (snap) { camT.copy(f.t); camDist = f.d; }
@@ -1153,16 +1154,16 @@ $('share').addEventListener('click', e => {
 const REC_FPS = 30, REC_MAX = REC_FPS * 180, VFPS = 30, V_MAX_S = 25, V_END_S = 3;
 function recOp(op) { if (rec.on) recOps.push(op); }
 const inkState = () => ({ irs, bInk: bInk.slice(), bDry: bDry.slice(), strokeLen, ink });
-function recStart() { rec.on = true; rec.poses = []; rec.opsN = []; rec.next = sim.time; rec.dt = 1 / REC_FPS; recOps.length = 0; rec.init = inkState(); }
+function recStart() { rec.on = true; rec.poses = []; rec.opsN = []; rec.fall = []; rec.next = sim.time; rec.dt = 1 / REC_FPS; recOps.length = 0; rec.init = inkState(); }
 function recStop() { rec.on = false; }
 function recFrame() {
   if (!rec.on || sim.time < rec.next) return;
   rec.next += rec.dt;
   const a = new Float32Array(visuals.length * 7);
   visuals.forEach((v, i) => { a[i * 7] = v.cp.x; a[i * 7 + 1] = v.cp.y; a[i * 7 + 2] = v.cp.z; a[i * 7 + 3] = v.cq.x; a[i * 7 + 4] = v.cq.y; a[i * 7 + 5] = v.cq.z; a[i * 7 + 6] = v.cq.w; });
-  rec.poses.push(a); rec.opsN.push(recOps.length);
+  rec.poses.push(a); rec.opsN.push(recOps.length); rec.fall.push(sim.state !== 'stand' ? 1 : 0);
   // 長すぎたら1コマおきに間引く（動画は早回しになる）
-  if (rec.poses.length > REC_MAX) { rec.poses = rec.poses.filter((_, i) => i % 2 === 0); rec.opsN = rec.opsN.filter((_, i) => i % 2 === 0); rec.dt *= 2; }
+  if (rec.poses.length > REC_MAX) { rec.poses = rec.poses.filter((_, i) => i % 2 === 0); rec.opsN = rec.opsN.filter((_, i) => i % 2 === 0); rec.fall = rec.fall.filter((_, i) => i % 2 === 0); rec.dt *= 2; }
 }
 // 記録した墨の操作を、動画用の紙へ同じ順に描き直す（墨の乱数や毛の墨の量も入れ替えて、同じ筆跡になる）
 function replayTo(job, n) {
@@ -1209,12 +1210,15 @@ async function makeVideo(key) {
 }
 // 動画のカメラ: ロボの斜め前から、ゆっくり回りながら追いかける。最後は紙の真上へ上がって、書いた字を正しい向きで見せる
 const vLook = new THREE.Vector3(), vTop = new THREE.Vector3();
-function videoCam(job, P, te) {
+function videoCam(job, P, te, fall) {
   const cam = job.cam;
-  vLook.set(P[0] * 0.7, 0.72, P[2] + 0.45);
+  // 倒れている間は少し引いて、倒れたロボと紙の両方を映す
+  job.fw = (job.fw || 0) + ((fall ? 1 : 0) - (job.fw || 0)) * 0.06;
+  const fw = job.fw;
+  vLook.set(P[0] * 0.7, 0.72 - 0.3 * fw, P[2] + 0.45);
   if (!job.look) job.look = vLook.clone(); else job.look.lerp(vLook, 0.05);
-  const a = 0.55 + 0.35 * Math.sin(job.i / VFPS * 0.3);
-  const fx = job.look.x + Math.sin(a) * 3.2, fy = 2.0, fz = job.look.z + Math.cos(a) * 3.2;
+  const a = 0.55 + 0.35 * Math.sin(job.i / VFPS * 0.3), r = 3.2 + 1.2 * fw;
+  const fx = job.look.x + Math.sin(a) * r, fy = 2.0 + 0.9 * fw, fz = job.look.z + Math.cos(a) * r;
   cam.up.set(0, 1, 0);
   if (te < 0) { cam.position.set(fx, fy, fz); cam.lookAt(job.look); return; }
   const k = Math.min(1, te / 1.3), e = k * k * (3 - 2 * k);
@@ -1242,7 +1246,7 @@ function videoFrames() {
     x.globalAlpha = 1; x.drawImage(washiCv, 0, 0); x.drawImage(job.icv, 0, 0);
     if (te > 1.5) { x.globalAlpha = Math.min(1, (te - 1.5) * 8) * 0.92; drawSeal(x, 1); x.globalAlpha = 1; }
     job.ptex.needsUpdate = true;
-    videoCam(job, P, te);
+    videoCam(job, P, te, end ? 0 : rec.fall[j]);
     renderer.setViewport(0, 0, job.vw / pr, job.vh / pr); renderer.setScissor(0, 0, job.vw / pr, job.vh / pr);
     renderer.render(scene, job.cam);
     job.octx.drawImage(renderer.domElement, 0, ch - job.vh, job.vw, job.vh, 0, 0, job.vw, job.vh);
@@ -1315,6 +1319,27 @@ function afterStep() {
   wasTouch = touch;
 }
 
+// 倒れたら、見下ろしの角度のままカメラを引いて、紙と倒れたロボの両方を映す。起き上がったら元に戻す
+let fallW = 0, fallFit = null;
+const fallPts = [];
+function fallCamFrame(dt) {
+  const down = sim.state !== 'stand';
+  fallW = Math.max(0, Math.min(1, fallW + (down ? dt / 0.6 : -dt / 0.9)));
+  if (fallW <= 0) { fallFit = null; return; }
+  // 紙と、ロボの体のどこか（腰から1m以内に収まる）が入る引き
+  if (down || !fallFit) {
+    const pt = sim.parts.pelvis.body.translation();
+    fallPts.length = 0; fallPts.push(...PLAY_PTS);
+    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) fallPts.push([pt.x + dx, 0, pt.z + dz]);
+    const f = fitFor(fallPts, viewW, viewH);
+    if (!fallFit) fallFit = { t: f.t.clone(), d: f.d }; else { fallFit.t.lerp(f.t, 1 - Math.exp(-dt * 3)); fallFit.d += (f.d - fallFit.d) * (1 - Math.exp(-dt * 3)); }
+  }
+  const k = fallW * fallW * (3 - 2 * fallW);
+  const t = tv.copy(camT).lerp(fallFit.t, k), d = camDist + (Math.max(camDist, fallFit.d) - camDist) * k;
+  camera.position.set(t.x, t.y + Math.sin(PITCH) * d, t.z - Math.cos(PITCH) * d);
+  camera.lookAt(t);
+  camera.updateMatrixWorld();
+}
 // カットシーンのカメラと吹き出し・口
 const hv = new THREE.Vector3(), hf = new THREE.Vector3(), cpos = new THREE.Vector3(), ctgt = new THREE.Vector3(), hq = new THREE.Quaternion();
 function introFrame(dt) {
@@ -1403,7 +1428,7 @@ function frame(now) {
   const kf = 1 - Math.exp(-dt * 3);
   camT.lerp(camGoal.t, kf); camDist += (camGoal.d - camDist) * kf;
   placeCamera();
-  if (intro.phase !== 'done') introFrame(dt);
+  if (intro.phase !== 'done') introFrame(dt); else fallCamFrame(dt);
   updateParticles(dt);
   if (!$('hint').classList.contains('off')) {
     hintPos.set(0, 0, PZC).project(camera);
