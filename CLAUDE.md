@@ -45,7 +45,7 @@ People in games use the realistic human model `.claude/skills/make-game/human.js
 
 ## View counts
 
-Each game card on the top page shows its all-time Google Analytics page views. The browser can't read GA directly, so `.claude/ga-views.gs` runs as a free Google Apps Script web app (owner's Google account, Analytics Data API advanced service) and returns `{ "/games/<name>/": views }`, cached for 1 hour. Its deploy URL goes in `VIEWS_URL` in `index.html`; if empty, no counts are shown. When a game is renamed, add the old path to `OLD_PATHS` there so its past views carry over.
+Each game card on the top page shows its all-time Google Analytics page views, labeled "plays" (owner's choice). The browser can't read GA directly, so `.claude/ga-views.gs` runs as a free Google Apps Script web app (owner's Google account, Analytics Data API advanced service) and returns `{ "/games/<name>/": views }`, cached for 1 hour. Its deploy URL goes in `VIEWS_URL` in `index.html`; if empty, no counts are shown. When a game is renamed, add the old path to `OLD_PATHS` there so its past views carry over.
 
 ## Rankings
 
