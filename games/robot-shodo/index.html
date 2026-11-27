@@ -688,7 +688,7 @@ function drawTemplate() {
   const x = tplCv.getContext('2d');
   x.clearRect(0, 0, N, N);
   x.fillStyle = '#000'; x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.font = `${Math.round(N * 0.8)}px ${fontOk ? "'Yuji Syuku'" : ''} "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif`;
+  x.font = `${Math.round(N * 0.8)}px ${fontOk ? "'Yuji Syuku', " : ''}"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif`;
   // 字の外接の箱で真ん中に置く
   const m = x.measureText(char);
   const asc = m.actualBoundingBoxAscent || N * 0.4, desc = m.actualBoundingBoxDescent || N * 0.4;
@@ -702,7 +702,14 @@ function newChar() {
   char = c; $('model').textContent = c; drawTemplate();
 }
 newChar();
-document.fonts.load(`80px 'Yuji Syuku'`, CHARS).then(fs => { if (fs.length) { fontOk = true; drawTemplate(); } }).catch(() => {});
+// 毛筆の書体が読み込めるまで待ってから、お手本を描き直す（CSS の読み込みより先に聞くと「まだない」と返るので、何度か聞き直す）
+(function waitFont(n) {
+  const retry = () => { if (n < 60) setTimeout(() => waitFont(n + 1), 250); };
+  document.fonts.load(`80px 'Yuji Syuku'`, CHARS).then(fs => {
+    if (fs.length || [...document.fonts].some(f => f.family.replace(/["']/g, '') === 'Yuji Syuku' && f.status === 'loaded')) { fontOk = true; drawTemplate(); }
+    else retry();
+  }).catch(retry);
+})(0);
 
 // ===== 乾いていない墨（踏むと足に付く）=====
 const WG = 64, wet = new Float32Array(WG * WG).fill(-99), WET_T = 15; // 墨を置いてから15秒は乾かない
@@ -743,30 +750,49 @@ function updateFeet() {
 }
 
 // ===== 墨 =====
-let ink = 1, inkUsed = 0, strokeNo = 0, wasTouch = false, prevTip = null, bth = [];
+let ink = 1, inkUsed = 0, strokeNo = 0, wasTouch = false, prevTip = null, strokeLen = 0;
+// 筆の毛: おなかの前に構えた筆の先を、斜めに少しつぶれた楕円の中の毛の集まりとして描く。
+// 毛ごとに墨の量を持ち、線が長くなると墨の少ない毛から切れていく（かすれ）
+const NB = 30, BR = [], bInk = new Float32Array(NB), bDry = new Float32Array(NB);
+{ const r = rng(21); for (let i = 0; i < NB; i++) { const rr = Math.sqrt((i + 0.5) / NB), a = i * 2.39996; BR.push({ u: rr * Math.cos(a), v: rr * Math.sin(a), s: 0.7 + 0.6 * r(), rate: 0.5 + r() * 0.9, edge: rr }); } }
+const BR_ANG = -0.6, BR_MIN = 0.62, BR_C = Math.cos(BR_ANG), BR_S = Math.sin(BR_ANG);
+// にじみ（筆が止まった所や書き始めに、墨がじわっと広がる）
+const haloCv = document.createElement('canvas'); haloCv.width = haloCv.height = 64;
+{ const x = haloCv.getContext('2d'), g = x.createRadialGradient(32, 32, 8, 32, 32, 32); g.addColorStop(0, 'rgba(30,27,34,1)'); g.addColorStop(0.6, 'rgba(30,27,34,0.5)'); g.addColorStop(1, 'rgba(30,27,34,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); }
 function newStroke() {
-  ink = 1; strokeNo++;
-  // 毛ごとの「かすれやすさ」（一画ごとに変える）
-  bth = Array.from({ length: 9 }, () => 0.15 + Math.random() * 0.75);
+  ink = 1; strokeNo++; strokeLen = 0;
+  for (let i = 0; i < NB; i++) { bInk[i] = 0.85 + 0.3 * Math.random(); bDry[i] = 0.1 + 0.25 * Math.random() + 0.15 * BR[i].edge; }
 }
 newStroke();
 function inkSeg(a, b, speed, press) {
   const ax = (a.x - PX0) * PPM, ay = (a.z - PZ0) * PPM, bx = (b.x - PX0) * PPM, by = (b.z - PZ0) * PPM;
   const len = Math.hypot(bx - ax, by - ay);
-  // 太さ: 押しつけるほど太く、速いほど細く
-  const w = PPM * 0.11 * (0.55 + 0.6 * press) * (1.1 - 0.35 * Math.min(1, speed / 1.8));
-  const nx = len > 0.01 ? -(by - ay) / len : 0, ny = len > 0.01 ? (bx - ax) / len : 0;
-  ictx.lineCap = 'round'; ictx.lineJoin = 'round';
-  if (ink > 0.3) { ictx.strokeStyle = `rgba(14,13,16,${Math.min(0.95, 0.35 + ink)})`; ictx.lineWidth = w * Math.min(0.85, 0.5 + ink * 0.4); ictx.beginPath(); ictx.moveTo(ax, ay); ictx.lineTo(bx, by); ictx.stroke(); }
-  // 毛の筋: 外側ほど細くゆらぐので、ふちがざらつく。墨が減ると、かすれやすい毛から順に線が切れる
-  for (let i = 0; i < bth.length; i++) {
-    if (bth[i] > ink * 1.25) continue;
-    const u = i / (bth.length - 1) - 0.5, o = u * w * (0.92 + 0.1 * Math.random());
-    ictx.lineWidth = w * (0.2 - 0.12 * Math.abs(u)) * (0.7 + 0.6 * Math.random());
-    ictx.strokeStyle = `rgba(14,13,16,${(0.45 + 0.45 * Math.min(1, ink * 1.5)) * (1 - 0.5 * Math.abs(u))})`;
-    ictx.beginPath(); ictx.moveTo(ax + nx * o, ay + ny * o); ictx.lineTo(bx + nx * o, by + ny * o); ictx.stroke();
+  // 筆先の大きさ: 押しつけるほど大きく、書き始めは少し太く（入り）
+  const R = PPM * 0.056 * (0.3 + 0.75 * press) * (strokeLen < 0.05 ? 1.15 - strokeLen * 3 : 1);
+  const sf = 1 / (1 + speed * 1.1); // 速いほど墨が薄く乗る
+  const steps = Math.max(1, Math.ceil(len / 2));
+  ictx.fillStyle = 'rgb(16,14,19)';
+  for (let k = 1; k <= steps; k++) {
+    const t = k / steps, px = ax + (bx - ax) * t, py = ay + (by - ay) * t;
+    // にじみ
+    if ((speed < 0.06 || strokeLen < 0.02) && press > 0.4) { ictx.globalAlpha = 0.03 * press; const h = R * 2.9; ictx.drawImage(haloCv, px - h / 2, py - h / 2, h, h); }
+    let sum = 0;
+    ictx.beginPath();
+    for (let i = 0; i < NB; i++) {
+      if (bInk[i] < bDry[i]) continue;
+      const B = BR[i], ju = (Math.random() - 0.5) * 0.08, jv = (Math.random() - 0.5) * 0.08;
+      const ox = ((B.u + ju) * BR_C - (B.v + jv) * BR_MIN * BR_S) * R, oy = ((B.u + ju) * BR_S + (B.v + jv) * BR_MIN * BR_C) * R;
+      const r = R * 0.2 * B.s * (1 - 0.35 * B.edge);
+      ictx.moveTo(px + ox + r, py + oy); ictx.arc(px + ox, py + oy, r, 0, Math.PI * 2);
+      sum += bInk[i];
+    }
+    ictx.globalAlpha = Math.min(0.55, 0.12 + 0.4 * (sum / NB)) * sf;
+    ictx.fill();
   }
+  ictx.globalAlpha = 1;
   const segM = len / PPM;
+  for (let i = 0; i < NB; i++) bInk[i] -= segM * BR[i].rate * (0.1 + 0.14 * press) * (1 + speed);
+  strokeLen += segM;
   ink = Math.max(0.12, ink - segM * 0.28);
   markWet(a, b);
   inkUsed += segM;
@@ -834,6 +860,7 @@ function tipState() {
   const lv = b.linvel(), av = b.angvel();
   wv.set(av.x, av.y, av.z).cross(tv); tipV.set(lv.x + wv.x, lv.y + wv.y, lv.z + wv.z);
 }
+let penK = 0; // 筆を下ろしている度合い（0〜1）
 let pull = 0; // 手を引っぱっている強さ（0〜1、顔と声に使う）
 // 筆は両手でおなかの前に構えて、ほとんど動かさない。書くのは体ごと歩いて動くことで
 const UA = 0.29, FA = 0.35, LB = BR_LEN - TIP_R;
@@ -855,7 +882,10 @@ function goals() {
   const down = tgt.down && !finished;
   // 筆先はいつも体の正面。書き終えたら硯の上へ
   const yaw = sim.yaw || 0, ahead = TIP_AHEAD - BELLY.z;
-  if (finished) T3.set(0.35, 0.16, 0.6); else { const a = down ? ahead * 0.9 : ahead; T3.set(belly.x + Math.sin(yaw) * a, down ? TIP_R - 0.06 : 0.22, belly.z + Math.cos(yaw) * a); }
+  if (finished) T3.set(0.35, 0.16, 0.6); else { // 筆はすっと下ろし、ゆっくり上げる（上げながら進むと、線の終わりが細く抜ける＝はらい）
+    penK = Math.max(0, Math.min(1, penK + (down ? sim.DT / 0.1 : -sim.DT / 0.3)));
+    const k = penK * penK * (3 - 2 * penK), a = ahead * (1 - 0.1 * k);
+    T3.set(belly.x + Math.sin(yaw) * a, 0.22 + (TIP_R - 0.06 - 0.22) * k, belly.z + Math.cos(yaw) * a); }
   // 手は「筆先の行きたい点から筆の長さだけ戻った所」へ。ただしおなかの前から FINE 以上は動かさない
   n3.copy(belly).sub(T3).normalize();
   handGoal.copy(T3).addScaledVector(n3, LB);
@@ -940,9 +970,9 @@ sim.preStep = () => {
   b.applyTorqueImpulse({ x: tx * sim.DT, y: ty * sim.DT, z: tz * sim.DT }, true);
   sim.parts.torso.body.applyTorqueImpulse({ x: -tx * sim.DT * 0.5, y: -ty * sim.DT * 0.5, z: -tz * sim.DT * 0.5 }, true);
   // 筆を下ろしている間は、筆先を紙に押しつける（歩く揺れで浮かないように）。反動は手へ
-  if (tgt.down && !finished) {
+  if (penK > 0.5 && !finished) {
     tipState();
-    const fy = -Math.min(45, Math.max(0, 900 * (tip.y - TIP_R + 0.004) + 30 * tipV.y) + 8);
+    const fy = -(penK - 0.5) * 2 * Math.min(45, Math.max(0, 900 * (tip.y - TIP_R + 0.004) + 30 * tipV.y) + 8);
     b.applyImpulseAtPoint({ x: 0, y: fy * sim.DT, z: 0 }, { x: tip.x, y: tip.y, z: tip.z }, true);
     sim.parts.torso.body.applyImpulse({ x: 0, y: -fy * sim.DT * 0.5, z: 0 }, true); // 胴の真ん中で受ける（片手だと体がねじれる）
   }
@@ -1141,13 +1171,14 @@ function handleHits() {
     }
   }
 }
-// 筆先の処理（物理の1きざみごと）: 紙に付いていれば墨を引く
-let touchSpeed = 0;
+// 筆先の処理（物理の1きざみごと）: 紙に付いていれば墨を引く。毛の長さぶん（TOUCH_H）浮いていても先は紙に触れる
+const TOUCH_H = 0.03;
+let touchSpeed = 0, poolT = 0;
 function afterStep() {
   updateFeet();
   tipState();
   const onPaper = tip.x > PX0 - 0.02 && tip.x < PX0 + PW + 0.02 && tip.z > PZ0 - 0.02 && tip.z < PZ0 + PW + 0.02;
-  const touch = tip.y < TIP_R + 0.012 && onPaper && !finished;
+  const touch = tip.y < TIP_R + TOUCH_H && onPaper && !finished;
   const sp = Math.hypot(tipV.x, tipV.z);
   if (touch) {
     if (!wasTouch) {
@@ -1156,9 +1187,10 @@ function afterStep() {
       if (vy > 1.6) spawnDrops(tip, tipV, Math.min(6, Math.round(vy * 2)));
       prevTip = { x: tip.x, z: tip.z };
     }
-    const press = Math.max(0, Math.min(1, (TIP_R + 0.012 - tip.y) / 0.012));
-    if (Math.hypot(tip.x - prevTip.x, tip.z - prevTip.z) > 0.0015) { inkSeg(prevTip, tip, sp, press); prevTip = { x: tip.x, z: tip.z }; }
+    const press = Math.max(0, Math.min(1, (TIP_R + TOUCH_H - tip.y) / TOUCH_H));
+    if (Math.hypot(tip.x - prevTip.x, tip.z - prevTip.z) > 0.002) { inkSeg(prevTip, tip, sp, press); prevTip = { x: tip.x, z: tip.z }; }
     else if (!wasTouch) inkSeg(prevTip, { x: tip.x + 0.0005, z: tip.z }, 0, press);
+    else if ((poolT += sim.DT) > 0.08) { poolT = 0; inkSeg(prevTip, { x: prevTip.x + 0.0003, z: prevTip.z }, 0, press); } // 止めている間も墨がにじんで広がる
     touchSpeed = sp;
   } else {
     if (wasTouch) newStroke();
@@ -1184,7 +1216,7 @@ function frame(now) {
   const a = acc / sim.DT;
   for (const v of visuals) { v.group.position.lerpVectors(v.pp, v.cp, a); v.group.quaternion.slerpQuaternions(v.pq, v.cq, a); }
   // 毛は紙に押しつけるとつぶれて広がる
-  const sq = wasTouch ? Math.min(1, (TIP_R + 0.012 - tip.y) / 0.02) : 0;
+  const sq = wasTouch ? Math.min(1, (TIP_R + TOUCH_H - tip.y) / TOUCH_H) : 0;
   bristle.scale.set(1.6 * (1 + 0.35 * sq), 1.6 * (1 - 0.3 * sq), 1.6 * (1 + 0.35 * sq));
   // 音
   if (brushSnd) {
@@ -1233,7 +1265,7 @@ compose();
 renderer.compile(scene, camera);
 renderer.render(scene, camera);
 requestAnimationFrame(t0 => { last = t0; frame(t0); });
-window.__game = { sim, tgt, move, updMove, keys, similarity, get score() { return score; }, camera, layout, tip, hand, handGoal, camGoal, get camDist() { return camDist; }, get topPad() { return topPad; }, inkCv, tplCv, setDirty() { paperDirty = true; } };
+window.__game = { get fontOk() { return fontOk; }, char: () => char, sim, tgt, move, updMove, keys, similarity, get score() { return score; }, camera, layout, tip, hand, handGoal, camGoal, get camDist() { return camDist; }, get topPad() { return topPad; }, inkCv, tplCv, setDirty() { paperDirty = true; } };
 </script>
 <script src="../../ad.js" data-result="#result" data-inline="#adSlot"></script>
 </body>
