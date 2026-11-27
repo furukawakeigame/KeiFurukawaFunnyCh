@@ -90,7 +90,7 @@
     #resBtns[hidden] { display: none; }
     .btn { height: 48px; padding: 0 22px; border-radius: 999px; font-size: 17px; font-weight: 700; font-family: inherit; cursor: pointer; display: flex; align-items: center; gap: 8px; text-decoration: none; }
     #again { background: #c8102e; color: #fff; border: 2px solid #f6c9c9; }
-    #share.wait { opacity: .5; }
+    #share.wait { opacity: .45; pointer-events: none; cursor: default; } /* 動画ができるまで押せない */
     #share { background: #000; color: #fff; border: 1px solid rgba(255,255,255,.4); }
     .btn:active { transform: translateY(1px); }
     @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
@@ -1101,7 +1101,8 @@ $('again').onclick = () => {
 
 // ===== Xに投稿（半紙の絵に数値とタイトルを重ねた画像つき）=====
 const SHARE_URL = 'https://keifurukawafunnych.com/games/robot-shodo/', TAG = '#書道ロボゲーム';
-let shareFile = null, shareKey = '', videoFile = null, resultKey = '';
+let shareFile = null, shareKey = '', videoFile = null, resultKey = '', videoFailed = false;
+function setShareWait(on) { $('share').classList.toggle('wait', on); if (on) $('share').setAttribute('aria-disabled', 'true'); else $('share').removeAttribute('aria-disabled'); }
 const snapCv = document.createElement('canvas'); snapCv.width = snapCv.height = 1080;
 window.updateShare = function updateShare() {
   const text = `${L[lang].post(char)}\n${TAG}`; // ロボの口調で
@@ -1124,14 +1125,15 @@ window.updateShare = function updateShare() {
   x.textAlign = 'center'; x.textBaseline = 'alphabetic'; x.fillStyle = '#f6efe0';
   x.font = `700 52px ${F}`; x.globalAlpha = 0.85; x.fillText(t('title'), 540, 960); x.globalAlpha = 1;
   // 画像は動画を作れない端末のための予備。共有用ファイルは先に作っておく（押した時に作ると Safari で共有が止まる）
-  if (shareKey !== resultKey) { shareKey = resultKey; shareFile = null; videoFile = null; }
+  if (shareKey !== resultKey) { shareKey = resultKey; shareFile = null; videoFile = null; videoFailed = false; }
   const key = shareKey + lang;
   snapCv.toBlob(b => { if (b && shareKey + lang === key) shareFile = new File([b], 'robot-shodo.png', { type: 'image/png' }); }, 'image/png');
-  $('share').classList.toggle('wait', !videoFile && canVideo());
+  setShareWait(!videoFile && canVideo() && !videoFailed);
 };
 // 投稿: 書いている様子の動画を付ける（動画を作れない端末では紙の画像）
 $('share').addEventListener('click', e => {
-  const text = $('share').dataset.text, file = videoFile || (canVideo() ? null : shareFile);
+  if ($('share').classList.contains('wait')) { e.preventDefault(); return; } // 動画ができるまでは押せない
+  const text = $('share').dataset.text, file = videoFile || shareFile;
   if (matchMedia('(pointer: coarse)').matches) {
     // スマホは押したら必ず共有メニュー（動画ができていれば動画つき、まだなら文とURLだけ）
     if (navigator.share) {
@@ -1185,7 +1187,7 @@ function replayTo(job, n) {
 let videoJob = null;
 const canVideo = () => 'VideoEncoder' in window && !!window.Mp4Muxer;
 async function makeVideo(key) {
-  if (!canVideo() || !rec.poses.length) { $('share').classList.remove('wait'); return; }
+  if (!canVideo() || !rec.poses.length) { videoFailed = true; setShareWait(false); return; }
   // 縦長 9:16。画面の canvas の左下に描いて写すので、canvas より大きくはしない
   const cv = renderer.domElement;
   let vh = Math.min(1280, cv.height, Math.floor(cv.width * 16 / 9)); vh -= vh % 16;
@@ -1195,7 +1197,7 @@ async function makeVideo(key) {
     const c = { codec, width: vw, height: vh, bitrate: 5e6, framerate: VFPS };
     try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; break; } } catch {}
   }
-  if (!cfg || key !== shareKey) { if (!cfg) $('share').classList.remove('wait'); return; }
+  if (!cfg || key !== shareKey) { if (!cfg) { videoFailed = true; setShareWait(false); } return; }
   const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: vw, height: vh, frameRate: VFPS }, fastStart: 'in-memory' });
   const out = document.createElement('canvas'); out.width = vw; out.height = vh;
   const icv = document.createElement('canvas'); icv.width = icv.height = N;
@@ -1230,7 +1232,7 @@ function videoCam(job, P, te, fall) {
 }
 function videoFrames() {
   const job = videoJob;
-  if (job.key !== shareKey || job.failed) { try { job.enc.close(); } catch {} job.ptex.dispose(); videoJob = null; return; }
+  if (job.key !== shareKey || job.failed) { try { job.enc.close(); } catch {} job.ptex.dispose(); videoJob = null; if (job.failed && job.key === shareKey) { videoFailed = true; setShareWait(false); } return; }
   const t0 = performance.now(), pr = renderer.getPixelRatio(), ch = renderer.domElement.height;
   // 今の画面の状態を退避
   const keep = visuals.map(v => [v.group.position.clone(), v.group.quaternion.clone()]);
@@ -1262,10 +1264,11 @@ function videoFrames() {
   videoJob = null;
   (async () => {
     await job.enc.flush(); job.enc.close(); job.muxer.finalize(); job.ptex.dispose();
-    if (shareKey !== job.key || job.failed) return;
+    if (shareKey !== job.key) return;
+    if (job.failed) { videoFailed = true; setShareWait(false); return; }
     videoFile = new File([job.muxer.target.buffer], 'robot-shodo.mp4', { type: 'video/mp4' });
-    $('share').classList.remove('wait');
-  })().catch(() => {});
+    setShareWait(false);
+  })().catch(() => { if (shareKey === job.key) { videoFailed = true; setShareWait(false); } });
 }
 
 // ===== 反応 =====
