@@ -692,13 +692,13 @@ function inkSeg(a, b, speed, press) {
   const w = PPM * 0.052 * (0.55 + 0.6 * press) * (1.1 - 0.35 * Math.min(1, speed / 1.8));
   const nx = len > 0.01 ? -(by - ay) / len : 0, ny = len > 0.01 ? (bx - ax) / len : 0;
   ictx.lineCap = 'round'; ictx.lineJoin = 'round';
-  if (ink > 0.3) { ictx.strokeStyle = `rgba(14,13,16,${Math.min(0.95, 0.35 + ink)})`; ictx.lineWidth = w * Math.min(1, 0.6 + ink * 0.5); ictx.beginPath(); ictx.moveTo(ax, ay); ictx.lineTo(bx, by); ictx.stroke(); }
-  // 毛の筋（墨が減ると、かすれやすい毛から順に線が切れる）
-  ictx.lineWidth = w * 0.17;
+  if (ink > 0.3) { ictx.strokeStyle = `rgba(14,13,16,${Math.min(0.95, 0.35 + ink)})`; ictx.lineWidth = w * Math.min(0.85, 0.5 + ink * 0.4); ictx.beginPath(); ictx.moveTo(ax, ay); ictx.lineTo(bx, by); ictx.stroke(); }
+  // 毛の筋: 外側ほど細くゆらぐので、ふちがざらつく。墨が減ると、かすれやすい毛から順に線が切れる
   for (let i = 0; i < bth.length; i++) {
     if (bth[i] > ink * 1.25) continue;
-    const o = (i / (bth.length - 1) - 0.5) * w * 0.85;
-    ictx.strokeStyle = `rgba(14,13,16,${0.55 + 0.4 * Math.min(1, ink * 1.5)})`;
+    const u = i / (bth.length - 1) - 0.5, o = u * w * (0.92 + 0.1 * Math.random());
+    ictx.lineWidth = w * (0.2 - 0.12 * Math.abs(u)) * (0.7 + 0.6 * Math.random());
+    ictx.strokeStyle = `rgba(14,13,16,${(0.45 + 0.45 * Math.min(1, ink * 1.5)) * (1 - 0.5 * Math.abs(u))})`;
     ictx.beginPath(); ictx.moveTo(ax + nx * o, ay + ny * o); ictx.lineTo(bx + nx * o, by + ny * o); ictx.stroke();
   }
   const segM = len / PPM;
@@ -817,11 +817,11 @@ for (const k of ['shPR', 'shRR', 'elbR']) sim.joints[k].kp *= 0.5;
 
 // ===== 画面の大きさとカメラ =====
 // 遊ぶ時は半紙とロボット、結果では半紙だけが、上下のボタン・パネルを除いた範囲に収まるようにする
-const PITCH = 1.1; // 見下ろす角度（ラジアン）
+const PITCH = 1.22; // 見下ろす角度（ラジアン）
 const camT = new THREE.Vector3(0, 0.4, 0.6), camGoal = { t: new THREE.Vector3(0, 0.4, 0.6), d: 4 };
 let camDist = 4, topPad = 52, botPad = 160;
 const fitCam = new THREE.PerspectiveCamera(36, 1, 0.1, 60);
-const PLAY_PTS = [[-0.55, 0, PZ0 - 0.15], [0.55, 0, PZ0 - 0.15], [-0.55, 0, PZ0 + PW + 0.14], [0.55, 0, PZ0 + PW + 0.14], [-0.4, 1.78, 0], [0.4, 1.78, 0], [-0.45, 0, -0.2], [0.45, 0, -0.2], [0.75, 0, 0.55]];
+const PLAY_PTS = [[-0.55, 0, PZ0 - 0.15], [0.55, 0, PZ0 - 0.15], [-0.55, 0, PZ0 + PW + 0.14], [0.55, 0, PZ0 + PW + 0.14], [-0.36, 1.66, 0], [0.36, 1.66, 0], [-0.45, 0, -0.2], [0.45, 0, -0.2], [0.75, 0, 0.55]];
 const RES_PTS = [[-0.47, 0, PZ0 - 0.05], [0.47, 0, PZ0 - 0.05], [-0.47, 0, PZ0 + PW + 0.06], [0.47, 0, PZ0 + PW + 0.06]];
 function fitFor(pts, w, h) {
   fitCam.aspect = w / h; fitCam.updateProjectionMatrix();
@@ -1051,7 +1051,7 @@ function frame(now) {
     sealObj.visible = true;
     const yy = phaseT < T1 ? 0.6 * Math.pow(1 - phaseT / T1, 2) : phaseT < T2 ? 0 : Math.min(0.8, (phaseT - T2) * 2);
     sealObj.position.set(sealWorld.x, 0.0065 + yy, sealWorld.z);
-    if (phaseT >= T1 && sealT < 0) { sealT = 0; stampSnd(); spawnDust({ x: sealWorld.x, z: sealWorld.z }, 4, 0.5); }
+    if (phaseT >= T1 && sealT < 0) { sealT = 0; stampSnd(); }
     if (sealT >= 0 && sealT < 1) { sealT = Math.min(1, sealT + dt * 8); paperDirty = true; }
     if (phaseT > T2) { guideA = Math.max(0, guideA - dt * 0.3); paperDirty = true; }
     if (phaseT > 1.0) { sealObj.visible = false; phase = 'result'; phaseT = 0; showResult(); judge(score); setFace(score >= 0.45 ? 'happy' : 'normal'); }
@@ -1075,7 +1075,7 @@ compose();
 renderer.compile(scene, camera);
 renderer.render(scene, camera);
 requestAnimationFrame(t0 => { last = t0; frame(t0); });
-window.__game = { sim, tgt, toPaper, similarity, get score() { return score; }, camera, layout, tip, hand, handGoal, camGoal, get camDist() { return camDist; }, get topPad() { return topPad; } };
+window.__game = { sim, tgt, toPaper, similarity, get score() { return score; }, camera, layout, tip, hand, handGoal, camGoal, get camDist() { return camDist; }, get topPad() { return topPad; }, inkCv, tplCv, setDirty() { paperDirty = true; } };
 </script>
 <script src="../../ad.js" data-result="#result" data-inline="#adSlot"></script>
 </body>
