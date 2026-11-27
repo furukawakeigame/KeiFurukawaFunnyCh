@@ -426,7 +426,7 @@
       return c;
     }
     const bagFront = texOf(bagCanvas(false));
-    catImg.onload = () => { bagFront.image = bagCanvas(true); bagFront.needsUpdate = true; };
+    catImg.onload = () => { bagFront.image = bagCanvas(true); bagFront.needsUpdate = true; needRender = 3; };
     catImg.src = 'cat.png';
     {
       const geo = new THREE.BoxGeometry(1.25, 2.1, 0.75, 10, 16, 6);
@@ -950,7 +950,7 @@
       const ct = p.phase === 'hold' || p.phase === 'down' ? Math.min(1, p.depth / DMAX) : 0;
       p.claw += (ct - p.claw) * (1 - Math.exp(-dt * (ct > p.claw ? 10 : 14)));
     }
-    const tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), UP = new THREE.Vector3(0, 1, 0);
+    const tmpV = new THREE.Vector3(), tmpD = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), UP = new THREE.Vector3(0, 1, 0);
     function placePaw(p) {
       const spread = 1 + 0.06 * Math.min(1, p.pen / DMAX);
       p.g.position.set(p.x, p.y, p.z);
@@ -965,8 +965,8 @@
       tmpV.set(0, 0.03, 0.13).applyEuler(p.g.rotation).add(p.g.position);
       p.leg.position.copy(tmpV);
       const sh = SH[p.side];
-      const dir = new THREE.Vector3(sh.x + body.x, sh.y + body.y, sh.z + body.z).sub(tmpV).normalize();
-      p.leg.quaternion.setFromUnitVectors(UP, dir);
+      tmpD.set(sh.x + body.x, sh.y + body.y, sh.z + body.z).sub(tmpV).normalize();
+      p.leg.quaternion.setFromUnitVectors(UP, tmpD);
     }
 
     // ---------- 舞う粉 ----------
@@ -1010,6 +1010,7 @@
     function updateParts(dt) {
       for (const s of parts) {
         if (!s.visible) continue;
+        needRender = 2;
         const u = s.userData; u.life += dt;
         const f = u.life / u.max;
         if (f >= 1) { s.visible = false; continue; }
@@ -1049,7 +1050,7 @@
       camera.setViewOffset(uw, uh, 0, -top, W, H);
       camera.updateProjectionMatrix();
     }
-    addEventListener('resize', resize);
+    addEventListener('resize', () => { resize(); needRender = 3; });
     resize();
 
     // ---------- 操作 ----------
@@ -1097,7 +1098,10 @@
 
     // 誰もさわっていないときは、ゆっくり自分でふみふみする
     function demo(dt) {
-      if (now - lastUser < 6) return;
+      // しばらく誰もさわらなければ、猫も休む（描画を止めて端末を冷ます）
+      const idle = now - lastUser;
+      if (idle < 6) return;
+      if (idle > 46) { if (demoHeld) { release(demoHeld); demoHeld = null; } return; }
       demoT -= dt;
       if (demoHeld && demoT < 0.42) { release(demoHeld); demoHeld = null; }
       if (demoT <= 0) {
@@ -1113,6 +1117,7 @@
 
     // ---------- ループ ----------
     const DECAY_TICK = Math.exp(-0.05 / 9);
+    let purrT = 0, purrG = 0, needRender = 3;
     let lastT = performance.now(), smoothAcc = 0, camBob = new THREE.Vector3(), camRoll = 0;
     const posArr = doughGeo.attributes.position.array;
     const nrmArr = doughGeo.attributes.normal.array;
@@ -1153,9 +1158,9 @@
     }
     function frame(t) {
       const dt = Math.min(0.05, (t - lastT) / 1000); lastT = t;
-      if (!window.__hold) update(dt);
-      renderer.render(scene, camera);
-      adapt(dt);
+      if (!window.__hold) update(dt); else needRender = 1;
+      // 何も動いていないときは描かない
+      if (needRender > 0) { needRender--; renderer.render(scene, camera); adapt(dt); }
       requestAnimationFrame(frame);
     }
     // 重い端末では、画面の細かさ → 毛の層の数 の順に自動で下げる
@@ -1187,17 +1192,18 @@
         p.lastY = p.y;
       }
       if (dirty) {
-        dirty = false;
+        dirty = false; needRender = 2;
         for (let i = 0; i < NV * 3; i++) posArr[i] = REST[i] + D[i] + AL[i] + AR[i];
         doughGeo.attributes.position.needsUpdate = true;
         gridNormals();
         renderer.shadowMap.needsUpdate = true;
       }
-      if (paws.some(p => p.phase !== 'rest')) renderer.shadowMap.needsUpdate = true;
+      if (paws[0].phase !== 'rest' || paws[1].phase !== 'rest') { renderer.shadowMap.needsUpdate = true; needRender = 2; }
       // 体重をかける方へ少し体が沈む
       const pl = paws[0].pen / DMAX, pr = paws[1].pen / DMAX;
       const tx = (pr - pl) * 0.035, ty = -(pl + pr) * 0.03, tz = -(pl + pr) * 0.03;
       const kk = 1 - Math.exp(-dt * 7);
+      if (Math.abs(tx - camBob.x) + Math.abs(ty - camBob.y) + Math.abs(tz - camBob.z) > 2e-5) needRender = 2;
       camBob.x += (tx - camBob.x) * kk; camBob.y += (ty - camBob.y) * kk; camBob.z += (tz - camBob.z) * kk;
       body.set(camBob.x * 0.8, camBob.y, camBob.z);
       body.chest.position.set(body.x, 0.95 + body.y, 2.05 + body.z);
@@ -1210,17 +1216,25 @@
       // ゴロゴロ
       activity = Math.max(0, activity - dt * 0.25);
       activity = Math.min(1.6, activity);
-      if (purr) {
+      // 音の指示は1秒に10回だけ、前の指示を消してから出す（毎コマ積み上げると指示がたまって重くなる）
+      purrT -= dt;
+      if (purr && purrT <= 0) {
+        purrT = 0.1;
         const breath = 0.7 + 0.3 * Math.sin(now * Math.PI * 2 / 2.4);
         const userish = now - lastUser < 20 ? 1 : 0.5;
-        purr.out.gain.setTargetAtTime(Math.min(1, activity) * 0.32 * breath * userish, ac.currentTime, 0.08);
-        purr.lfo.frequency.setTargetAtTime(24 + 3 * Math.sin(now * Math.PI * 2 / 2.4), ac.currentTime, 0.1);
+        const g = Math.min(1, activity) * 0.32 * breath * userish;
+        if (g > 0.002 || purrG > 0.002) {
+          const t0 = ac.currentTime;
+          purr.out.gain.cancelScheduledValues(t0); purr.out.gain.setTargetAtTime(g, t0, 0.08);
+          purr.lfo.frequency.cancelScheduledValues(t0); purr.lfo.frequency.setTargetAtTime(24 + 3 * Math.sin(now * Math.PI * 2 / 2.4), t0, 0.1);
+        }
+        purrG = g;
       }
     }
     renderer.compile(scene, camera);
     renderer.render(scene, camera);
     requestAnimationFrame(t => { lastT = t; frame(t); });
-    window.__knead = { paws, press, release, scene, camera, renderer, update, step(sec) { for (let s = 0; s < sec; s += 1 / 60) update(1 / 60); } };
+    window.__knead = { paws, press, release, scene, camera, renderer, update, nr: () => needRender, step(sec) { for (let s = 0; s < sec; s += 1 / 60) { needRender = 0; update(1 / 60); } } };
   </script>
 </body>
 </html>
