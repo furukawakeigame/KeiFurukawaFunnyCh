@@ -42,13 +42,16 @@
 //     本当に遊ぶプログラム（ボット）までは防げない（見つけたら行を消す・ban に書く）。
 //   ・core.js を書き換えたら、このファイルの写しも同じに直して、デプロイし直す。
 //
-// 飛んだ距離で競うゲーム（紙飛行機: paper-plane）のズル対策（プレイそのものを確かめる）:
+// プレイを再生して確かめるゲーム（SIM: 紙飛行機 paper-plane・三重振り子ゴルフ pendulum-golf・コーラ振り子 cola-pendulum）:
 //   ・遊ぶ前（ページを開いた時・もう一度の時）に整理券（start）をもらう。
-//   ・登録（submit）では「引っぱった量」と「押す／離すが変わった刻みの番号」（1/240秒の刻み）を送ってもらい、
-//     このファイルの下にある PlaneCore（games/paper-plane/core.js の写し）で最初から再生する。
-//     再生した距離が送られてきた距離と 0.2m 以内、着地した刻みが ±2 以内なら確認済み（端末ごとの計算の差は 1mm にもならない）。
-//   ・合わない記録・整理券がない記録・時間が合わない記録も、距離がありえる範囲（FLY の maxDist 以下、
-//     平均 vmax m/s 以下）なら登録して、scores の10列目に「未確認（理由）」と書く（リフティングと同じ考え方）。
+//   ・登録（submit）では、そのゲームの操作の記録を送ってもらい、このファイルの下にある各ゲームの core.js の写し
+//     （PlaneCore / GolfCore / ColaCore）で最初から再生して、送られてきた記録と合うかを確かめる。
+//       紙飛行機: 引っぱった量と、押す／離すが変わった刻み（1/240秒）。距離 0.2m・着地の刻み ±2 まで許す
+//                 （Math.sin などの端末ごとの差は 1mm にもならない）
+//       ゴルフ: 指の動き（刻み 1/480秒・押しているか・位置 mm）。ぴったり合うこと（計算は + − × ÷ と √ だけ）
+//       コーラ: 手を離した瞬間の振り子の形と、ずらした量。そこから5秒を再生して、高さが ±1m で合うこと
+//   ・合わない記録・整理券がない記録・時間が合わない記録も、ありえる範囲（SIM の maxScore 以下など）なら
+//     登録して、scores の10列目に「未確認（理由）」と書く（リフティングと同じ考え方）。
 //   ・同じ記録は1回しか登録できない（記録の指紋を scores の9列目に残す）。
 //   ・core.js を書き換えたら、このファイルの写しも同じに直して、デプロイし直す。
 //
@@ -70,21 +73,84 @@
 // POST {act:'check', game:'lifting', seed, steps, log} → { ok, score, steps, failed }（登録しない。再生の確認用）
 // 飛んだ距離のゲーム（再生で確かめる）:
 // POST {act:'start', game, dev}                    → { ok, tok }
-// POST {act:'submit', game, tok, name, dev, dist, ix, iy, steps, tog} → 上と同じ（wave に距離 m が入る。tok はなくてもよい）
-//      ix・iy = 引っぱった量（画面の px の10倍の整数）、tog = 押す／離すが変わった刻みの番号（小さい順）
-// POST {act:'check', game:'paper-plane', ix, iy, steps, tog} → { ok, dist, steps, landed }（登録しない）
+// 再生で確かめるゲーム（SIM）:
+// POST {act:'start', game, dev}                    → { ok, tok }
+// POST {act:'submit', game, tok, name, dev, score, ...記録} → 上と同じ（wave に距離・高さ m が入る。tok はなくてもよい）
+//      紙飛行機: dist（score の代わり）, ix, iy（引っぱった量。画面の px の10倍の整数）, steps, tog（押す／離すが変わった刻みの番号）
+//      ゴルフ:   steps, log（[刻み, 押しているか, x mm, y mm, ...]）
+//      コーラ:   p, q（手を離した瞬間の4点 [[x, y], ...] と、その1刻み前）, jit（横にずらした量 ×4）
+// POST {act:'check', game, ...記録}                → { ok, score, steps, done }（登録しない）
 
 const SHEET = 'scores', BAN = 'ban';
 const TOP_N = 10, MAX_WAVE = 150, DAY_CAP = 3000;
-const GAMES = ['slingshot-wave', 'wheel-road', 'wheel-road-2p', 'lifting', 'paper-plane']; // ランキングを受け付けるゲーム（フォルダ名）
+const GAMES = ['slingshot-wave', 'wheel-road', 'wheel-road-2p', 'lifting', 'paper-plane', 'pendulum-golf', 'cola-pendulum']; // ランキングを受け付けるゲーム（フォルダ名）
 // 回数で競うゲーム: プレイを再生して確かめる。maxSteps 1回の長さの上限（1/120秒の刻み）
 const REPLAY = {
   'lifting': { maxSteps: 120 * 3600 * 3 },
 };
-// 飛んだ距離で競うゲーム: プレイを再生して確かめる。maxSteps 1回の長さの上限（1/240秒の刻み）/ maxDist 距離の上限 m / vmax 平均速度の上限 m/s
-// （うまく飛ばしても 160m・平均 10m/s ほど。作者のシミュレーションで調べた値の倍くらいにしてある）
-const FLY = {
-  'paper-plane': { maxSteps: 240 * 600, maxDist: 400, vmax: 25 },
+// 再生で確かめるゲーム。どれも作者のシミュレーションで調べた値より、かなり余裕を持たせてある
+//   maxScore 記録の上限（これより上は未確認でも登録しない） / round 記録の丸め（10 = 0.1m 単位）
+//   read(b) 送られてきた記録の形を確かめる（おかしければ null） / run(L) 再生 → { score, steps, done }（飛ばせない記録なら null）
+//   same(r, L, score) 再生と合っているか / fast(score, L) ありえない速さ / sec(L) ゲームの中でたった秒数
+//   minSec 整理券からこれより早い登録は「time」 / key(L) 記録の指紋の元
+const isInt = v => Number.isInteger(v);
+const isNum = v => typeof v === 'number' && isFinite(v) && Math.abs(v) < 1e3;
+const SIM = {
+  // 紙飛行機（うまく飛ばしても 160m・平均 10m/s ほど）
+  'paper-plane': {
+    maxScore: 400, round: 10,
+    read: b => {
+      const ix = Number(b.ix), iy = Number(b.iy), steps = Number(b.steps), tog = b.tog;
+      if (!(isInt(ix) && isInt(iy) && isInt(steps) && steps > 0 && steps <= 240 * 600)) return null;
+      if (!Array.isArray(tog) || tog.length > steps) return null;
+      for (let i = 0; i < tog.length; i++) if (!isInt(tog[i]) || tog[i] < 0 || tog[i] >= steps || (i && tog[i] <= tog[i - 1])) return null;
+      return { ix, iy, steps, tog };
+    },
+    run: L => { const C = PlaneCore(); if (!C.pullOk(L.ix, L.iy)) return null; const r = C.replay(L.ix, L.iy, L.tog, 240 * 600); return { score: r.dist, steps: r.steps, done: r.landed }; },
+    same: (r, L, sc) => r.done && Math.abs(r.steps - L.steps) <= 2 && Math.abs(r.score - sc) <= 0.2,
+    fast: (sc, L) => sc > 25 * L.steps / 240 + 5,
+    sec: L => L.steps / 240,
+    key: L => L.ix + ':' + L.iy + ':' + JSON.stringify(L.tog),
+  },
+  // 三重振り子ゴルフ（ランダムに振って 3000 回で最高 76m ほど）
+  'pendulum-golf': {
+    maxScore: 500, round: 10,
+    read: b => {
+      const steps = Number(b.steps), log = b.log;
+      if (!(isInt(steps) && steps > 0 && steps <= 480 * 600)) return null;
+      if (!Array.isArray(log) || log.length % 4 !== 0 || log.length > steps * 8 + 64) return null;
+      for (let i = 0; i < log.length; i++) if (!isInt(log[i]) || Math.abs(log[i]) > 1e6) return null;
+      for (let i = 0; i < log.length; i += 4) if (log[i] < 0 || log[i] >= steps || (i && log[i] < log[i - 4])) return null;
+      return { steps, log };
+    },
+    run: L => { const r = GolfCore().replay(L.log, 480 * 600); return { score: r.score, steps: r.steps, done: r.done }; },
+    same: (r, L, sc) => r.done && r.steps === L.steps && Math.abs(Math.round(r.score * 10) / 10 - sc) < 1e-6,
+    fast: () => false,
+    sec: L => L.steps / 480,
+    key: L => JSON.stringify(L.log),
+  },
+  // コーラ振り子（上限なし。いろいろな形で振って 400 回で最高 10億m ほど）
+  'cola-pendulum': {
+    maxScore: 1e12, round: 1, minSec: 5,
+    read: b => {
+      const pts = v => Array.isArray(v) && v.length === 4 && v.every(x => Array.isArray(x) && x.length === 2 && isNum(x[0]) && isNum(x[1]) && x[1] >= -0.01) ? v : null;
+      const p = pts(b.p), q = pts(b.q), jit = b.jit;
+      if (!p || !q || !Array.isArray(jit) || jit.length !== 4 || !jit.every(v => isNum(v) && Math.abs(v) <= 5e-5)) return null;
+      // 棒の長さが合っていること・ほぼ止まった状態から振り始めること
+      const C = ColaCore(), L = C.LEN;
+      for (const v of [p, q]) {
+        let a = C.PIV;
+        for (let k = 0; k < 4; k++) { const dx = v[k][0] - a[0], dy = v[k][1] - a[1]; if (Math.abs(Math.sqrt(dx * dx + dy * dy) - L[k]) > 1e-6) return null; a = v[k]; }
+      }
+      for (let k = 0; k < 4; k++) if (Math.abs(p[k][0] - q[k][0]) > 1e-3 || Math.abs(p[k][1] - q[k][1]) > 1e-3) return null;
+      return { p, q, jit, steps: 4800 };
+    },
+    run: L => { const r = ColaCore().replay(L.p, L.q, L.jit); return { score: r.score, steps: r.steps, done: true }; },
+    same: (r, L, sc) => Math.abs(r.score - sc) <= 1,
+    fast: () => false,
+    sec: () => 5,
+    key: L => JSON.stringify([L.p, L.q, L.jit]),
+  },
 };
 // 距離で競うゲーム: cp 何mごとに知らせるか / vmax 平均速度の上限 / top 一瞬の最高速度 / max 距離の上限 / duo 2人用
 const DIST = {
@@ -198,7 +264,7 @@ function doPost(e) {
   if (act === 'check' || act === 'start') return startOrCheck(act, b, now);
   // 回数のゲームの登録: 重い再生は、ロックの外で先に済ませる
   let pre = null;
-  if (act === 'submit' && FLY[String(b.game)]) pre = preFly(b);
+  if (act === 'submit' && SIM[String(b.game)]) pre = preSim(b);
   if (act === 'submit' && (REPLAY[String(b.game)] || (getSess(String(b.tok || '')) || {}).game in REPLAY)) pre = preReplay(b);
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(15000)) return json({ ok: false, error: 'wait' }); // 待ちきれない時は、エラー画面ではなく「もう一度」
@@ -206,24 +272,24 @@ function doPost(e) {
     const tok = String(b.tok || ''), s = getSess(tok);
     // 距離のゲーム: 通信が切れて同じ登録が2回届いたら、1回目の結果を返す
     if (s && s.used && s.res && act === 'submit') return json(s.res);
-    // 飛んだ距離のゲーム: 整理券がない・使用済みでも、登録は受け付ける（未確認として）
-    if (act === 'submit' && FLY[String(b.game)]) return flyAct(b, s && !s.used && s.game === String(b.game) ? s : null, tok, now, pre, lock);
+    // 再生で確かめるゲーム: 整理券がない・使用済みでも、登録は受け付ける（未確認として）
+    if (act === 'submit' && SIM[String(b.game)]) return simAct(b, s && !s.used && s.game === String(b.game) ? s : null, tok, now, pre, lock);
     // 回数のゲーム: 整理券がない・使用済みでも、登録は受け付ける（未確認として）
     if (act === 'submit' && REPLAY[String(b.game)] && (!s || s.used || s.game !== String(b.game))) return replayAct(act, b, null, tok, now, pre, lock);
     if (!s || s.used) return json({ ok: false, error: 'bad' });
     if (DIST[s.game]) return distAct(act, b, s, tok, now);
     if (REPLAY[s.game]) return replayAct(act, b, s, tok, now, pre, lock);
-    if (FLY[s.game]) return json({ ok: false, error: 'bad' });
+    if (SIM[s.game]) return json({ ok: false, error: 'bad' });
     return waveAct(act, b, s, tok, now);
   } finally { lock.releaseLock(); }
 }
 
 function startOrCheck(act, b, now) {
   {
-    if (act === 'check' && FLY[String(b.game)]) { // 飛んだ距離のゲーム: 登録せずに再生だけする
+    if (act === 'check' && SIM[String(b.game)]) { // 再生で確かめるゲーム: 登録せずに再生だけする
       if (limited('chk:' + Math.floor(now / 60000), 30, 70)) return json({ ok: false, error: 'wait' });
-      const r = preFly(b);
-      return json(r ? { ok: true, dist: r.dist, steps: r.steps, landed: r.landed } : { ok: false, error: 'bad' });
+      const r = preSim(b);
+      return json(r ? { ok: true, score: r.score, steps: r.steps, done: r.done } : { ok: false, error: 'bad' });
     }
     if (act === 'check') { // 登録せずに再生だけする（確認用）
       if (!REPLAY[String(b.game)] || limited('chk:' + Math.floor(now / 60000), 30, 70)) return json({ ok: false, error: 'wait' });
@@ -235,9 +301,9 @@ function startOrCheck(act, b, now) {
     if (act === 'start') {
       const game = String(b.game || ''), dev = String(b.dev || '').slice(0, 40);
       if (!GAMES.includes(game)) return json({ ok: false, error: 'bad' });
-      if (limited('st:' + dev, DIST[game] || REPLAY[game] || FLY[game] ? 40 : 10, 60) || limited('stmin:' + Math.floor(now / 60000), 400, 70)) return json({ ok: false, error: 'wait' });
+      if (limited('st:' + dev, DIST[game] || REPLAY[game] || SIM[game] ? 40 : 10, 60) || limited('stmin:' + Math.floor(now / 60000), 400, 70)) return json({ ok: false, error: 'wait' });
       const tok = Utilities.getUuid();
-      if (REPLAY[game] || FLY[game]) {
+      if (REPLAY[game] || SIM[game]) {
         putSess(tok, { game, dev, issued: now, used: false });
         return json({ ok: true, tok });
       }
@@ -396,29 +462,17 @@ function replayAct(act, b, s, tok, now, pre, lock) {
   return json(res);
 }
 
-// ---- 飛んだ距離で競うゲーム（プレイを再生して確かめる） ----
-// 送られてきた記録の形を確かめる。おかしければ null
-function flyLog(b) {
-  const P = FLY[String(b.game)];
-  if (!P) return null;
-  const ix = Number(b.ix), iy = Number(b.iy), steps = Number(b.steps), tog = b.tog;
-  if (!(Number.isInteger(ix) && Number.isInteger(iy) && Number.isInteger(steps) && steps > 0 && steps <= P.maxSteps)) return null;
-  if (!Array.isArray(tog) || tog.length > steps) return null;
-  for (let i = 0; i < tog.length; i++) if (!Number.isInteger(tog[i]) || tog[i] < 0 || tog[i] >= steps || (i && tog[i] <= tog[i - 1])) return null;
-  return { P, ix, iy, steps, tog };
+// ---- 再生で確かめるゲーム（SIM） ----
+// 再生する（重いので、ロックの外で呼ぶ）。形がおかしい・飛ばせない記録なら null
+function preSim(b) {
+  const S = SIM[String(b.game)], L = S && S.read(b);
+  return L ? S.run(L) : null;
 }
-// 再生する（ロックの外で呼ぶ）。形がおかしい・飛ばせない引き方なら null
-function preFly(b) {
-  const L = flyLog(b), C = PlaneCore();
-  if (!L || !C.pullOk(L.ix, L.iy)) return null;
-  return C.replay(L.ix, L.iy, L.tog, L.P.maxSteps);
-}
-function flyAct(b, s, tok, now, pre, lock) {
-  const game = String(b.game), L = flyLog(b), dev = String(b.dev || '').slice(0, 40);
-  const dist = Math.round(Number(b.dist) * 10) / 10;
-  if (!L || !pre || !(dist >= 0 && dist <= L.P.maxDist)) return json({ ok: false, error: 'bad' });
-  // ありえない速さ（平均 vmax m/s より速い）は受け付けない
-  if (dist > L.P.vmax * L.steps / 240 + 5) return json({ ok: false, error: 'replay' });
+function simAct(b, s, tok, now, pre, lock) {
+  const game = String(b.game), S = SIM[game], L = S.read(b), dev = String(b.dev || '').slice(0, 40);
+  const score = Math.round(Number(b.score !== undefined ? b.score : b.dist) * S.round) / S.round;
+  if (!L || !pre || !(score >= 0 && score <= S.maxScore)) return json({ ok: false, error: 'bad' });
+  if (S.fast(score, L)) return json({ ok: false, error: 'replay' }); // ありえない速さ
   const n1 = cleanName(b.name);
   if (!n1) return json({ ok: false, error: 'name' });
   if (badName(n1)) return json({ ok: false, error: 'ng' });
@@ -428,22 +482,23 @@ function flyAct(b, s, tok, now, pre, lock) {
   const why = [];
   if (!s) why.push('notoken');
   else {
+    const real = (now - s.issued) / 1000;
     if (dev !== s.dev) why.push('dev');
-    if (L.steps / 240 > (now - s.issued) / 1000 + 60) why.push('time');
+    if (S.sec(L) > real + 60 || real < (S.minSec || 0)) why.push('time');
   }
-  if (!(pre.landed && Math.abs(pre.steps - L.steps) <= 2 && Math.abs(pre.dist - dist) <= 0.2)) why.push('replay ' + pre.dist.toFixed(1) + '/' + pre.steps);
+  if (!S.same(pre, L, score)) why.push('replay ' + (Math.round(pre.score * S.round) / S.round) + '/' + pre.steps);
   // 同じ記録は1回だけ（記録の指紋）
-  const hash = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, game + ':' + L.ix + ':' + L.iy + ':' + JSON.stringify(L.tog))).slice(0, 24);
+  const hash = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, game + ':' + S.key(L))).slice(0, 24);
   if (cache().get('lh:' + hash) || sheet().createTextFinder(hash).matchEntireCell(true).findNext()) return json({ ok: false, error: 'dup' });
   if (limited('dev:' + dev, 1, 20)) return json({ ok: false, error: 'wait' });
   if (limited('min:' + Math.floor(now / 60000), 60, 70) || limited('day:' + today(), DAY_CAP, 90000)) return json({ ok: false, error: 'wait' });
   if (s) { s.used = true; putSess(tok, s); }
   cache().put('lh:' + hash, '1', 21600);
-  const t = new Date(now), sec = Math.floor(L.steps / 240);
-  sheet().appendRow([t, "'" + today(), game, "'" + n1, dist, 0, sec, "'" + dev, hash, why.length ? '未確認（' + why.join(', ') + '）' : '']);
+  const t = new Date(now), sec = Math.floor(S.sec(L));
+  sheet().appendRow([t, "'" + today(), game, "'" + n1, score, 0, sec, "'" + dev, hash, why.length ? '未確認（' + why.join(', ') + '）' : '']);
   SpreadsheetApp.flush();
   lock.releaseLock(); // ここから下（順位の計算）は読むだけなので、ほかの人を待たせない
-  const rankIn = rows => bestPerDev(rows).filter(x => x.dev !== dev && better(x, { wave: dist, kills: 0, t: now }) < 0).length + 1;
+  const rankIn = rows => bestPerDev(rows).filter(x => x.dev !== dev && better(x, { wave: score, kills: 0, t: now }) < 0).length + 1;
   const todayRows = readRows(game, true), allRows = readRows(game, false);
   const o = { today: pub(bestPerDev(todayRows)), all: pub(bestPerDev(allRows)) };
   cache().put('tops:' + game + ':' + today(), JSON.stringify(o), 60);
@@ -719,4 +774,213 @@ function PlaneCore() {
     return { dist: Math.max(0, p.x), steps: n, landed: false };
   }
   return { G, MAXPULL, STEP, SLING, step, pullOk, launch, replay };
+}
+
+// ===== ここから下は games/pendulum-golf/core.js の写し（中身を変えずに貼る。ゲームと食い違うと正しい記録が「未確認」になる） =====
+// core.js — 三重振り子ゴルフの物理（振り子・ボール・当たり）。
+// ゲーム（index.html）と、ランキングのサーバー（.claude/ranking.gs）で同じものを使う。
+// サーバーは送られてきた「指の動き」をこれで最初から再生して、本当にその距離飛んだかを確かめる。
+//
+// 振り子はカオス（ほんの少しの差で結果がまったく変わる）なので、どの端末・どのブラウザでも1ビットも変わらないように:
+//   ・使う計算は + − × ÷ と Math.sqrt / abs / min / max だけ（Math.hypot などは端末で微妙に違うことがある）
+//   ・刻みは 1/480 秒で決まっている（画面の速さに関係なく、同じ操作なら同じ結果）
+//   ・指の位置は 1mm 単位の整数で受け取る
+// ここを書き換えたら、ranking.gs の中の写しも同じに直す（ゲームとサーバーで食い違うと、正しい記録が「未確認」になる）。
+function GolfCore() {
+  const SH = { x: 0, y: 2.3 }, LEN = [0.8, 0.75, 0.7];
+  const G = 9.8, BALL_R = 0.06, BALL_X = 0.25, TEE_H = 0.14, DT = 1 / 480;
+  const len = (x, y) => Math.sqrt(x * x + y * y);
+  const c = { SH, LEN, BALL_R, BALL_X, TEE_H, DT, pts: null, ball: null, state: 'title', grab: null, steps: 0, events: [] };
+
+  // 構え: 振り子をまっすぐ下げ、ボールをティーに乗せる
+  c.reset = () => {
+    c.pts = []; let x = SH.x, y = SH.y;
+    for (let i = 0; i < 3; i++) { y -= LEN[i]; c.pts.push({ x, y, px: x, py: y }); }
+    c.ball = { x: BALL_X, y: TEE_H + BALL_R, vx: 0, vy: 0, flying: false, stopped: false };
+    c.state = 'ready'; c.grab = null; c.steps = 0; c.events.length = 0;
+  };
+  // 指の入力（押した・動かした）: クラブの先を引っぱる位置（mm の整数）。肩より下には引けない
+  c.press = (xmm, ymm) => {
+    if (c.state !== 'ready' && c.state !== 'swing') return false;
+    c.grab = { x: xmm / 1000, y: Math.max(SH.y, ymm / 1000) };
+    return true;
+  };
+  // 指を離した: 止まった状態から振り始める
+  c.release = () => {
+    if (!c.grab) return false;
+    c.grab = null; c.state = 'swing';
+    for (const p of c.pts) { p.px = p.x; p.py = p.y; }
+    return true;
+  };
+  c.dist = () => c.ball.x - BALL_X;
+
+  // 1刻み（1/480秒）進める。events: ['hit', 速さ] / ['bounce', 落ちる速さ]
+  c.step = () => {
+    const dt = DT, pts = c.pts, ball = c.ball, grab = c.grab;
+    c.events.length = 0;
+    for (const p of pts) {
+      const vx = (p.x - p.px) * 0.9995, vy = (p.y - p.py) * 0.9995;
+      p.px = p.x; p.py = p.y; p.x += vx; p.y += vy - G * dt * dt;
+    }
+    if (grab) { const p = pts[2]; p.x += (grab.x - p.x) * 0.15; p.y += (grab.y - p.y) * 0.15; }
+    for (let it = 0; it < 12; it++) {
+      let prev = SH;
+      for (let i = 0; i < 3; i++) {
+        const p = pts[i], dx = p.x - prev.x, dy = p.y - prev.y, d = len(dx, dy) || 1e-6, diff = (d - LEN[i]) / d;
+        if (i === 0) { p.x -= dx * diff; p.y -= dy * diff; }
+        else { prev.x += dx * diff * .5; prev.y += dy * diff * .5; p.x -= dx * diff * .5; p.y -= dy * diff * .5; }
+        prev = p;
+      }
+      for (const p of pts) if (p.y < 0.03) { p.y = 0.03; p.px += (p.x - p.px) * 0.3; }
+    }
+    // 当たり
+    if (c.state === 'swing' && !ball.flying && !grab) {
+      const h = pts[2];
+      if (len(h.x - ball.x, h.y - ball.y) < BALL_R + 0.07) {
+        const hvx = (h.x - h.px) / dt, hvy = (h.y - h.py) / dt;
+        const sp = len(hvx, hvy);
+        if (sp > 0.5) {
+          ball.vx = hvx * 2.2; ball.vy = Math.max(hvy * 2.2, Math.abs(hvx) * 0.5);
+          ball.flying = true; c.state = 'fly';
+          c.events.push(['hit', sp]);
+        }
+      }
+    }
+    if (ball.flying && !ball.stopped) {
+      ball.vy -= G * dt;
+      const drag = 1 - 0.02 * dt; ball.vx *= drag; ball.vy *= drag;
+      ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+      if (ball.y < BALL_R) {
+        ball.y = BALL_R;
+        if (ball.vy < -1.5) { c.events.push(['bounce', -ball.vy]); ball.vy = -ball.vy * 0.4; ball.vx *= 0.75; }
+        else { ball.vy = 0; ball.vx *= (1 - 1.8 * dt); }
+        if (Math.abs(ball.vx) < 0.15 && ball.vy === 0) ball.stopped = true;
+      }
+      if (ball.stopped && c.state === 'fly') c.state = 'done';
+    }
+    c.steps++;
+  };
+
+  // 記録の再生（サーバーで使う）: log は [刻み, 押しているか(1/0), x mm, y mm, ...] の並び。
+  // ボールが止まるまで（最大 maxSteps 刻み）進める
+  c.replay = (log, maxSteps) => {
+    c.reset();
+    let k = 0;
+    while (c.steps < maxSteps && c.state !== 'done') {
+      while (k + 3 < log.length && log[k] === c.steps) { if (log[k + 1]) c.press(log[k + 2], log[k + 3]); else c.release(); k += 4; }
+      c.step();
+    }
+    return { score: c.dist(), steps: c.steps, done: c.state === 'done' };
+  };
+  return c;
+}
+
+// ===== ここから下は games/cola-pendulum/core.js の写し（中身を変えずに貼る。ゲームと食い違うと正しい記録が「未確認」になる） =====
+// core.js — コーラ振り子の物理（三重振り子とボトル・振られ具合・届く高さ）。
+// ゲーム（index.html）と、ランキングのサーバー（.claude/ranking.gs）で同じものを使う。
+// サーバーは送られてきた「手を離した瞬間の振り子の形」から5秒間の振り回しを再生して、本当にその高さになるかを確かめる。
+//
+// 振り子はカオス（ほんの少しの差で結果がまったく変わる）なので、どの端末・どのブラウザでも1ビットも変わらないように:
+//   ・振られ具合の計算は + − × ÷ と Math.sqrt / abs / min / max だけ（Math.hypot などは端末で微妙に違うことがある）
+//   ・刻みは 1/960 秒で決まっている
+// ここを書き換えたら、ranking.gs の中の写しも同じに直す（ゲームとサーバーで食い違うと、正しい記録が「未確認」になる）。
+function ColaCore() {
+  const G = 9.8, BS = 1.8, H = 0.24 * BS, HC = 0.08 * BS; // ボトルの高さ・重心の高さ（真ん中より下）
+  const PIV = [0, 1.8], LEN = [0.4, 0.4, 0.4, H], INV = [0, 1, 1, 1, 1]; // 支点は動かない。重さはどの点も同じ
+  const STEP = 1 / 960, SHAKE_TIME = 5, FIZZ_FULL = 130; // 振り回す時間（秒）／これだけ振れば炭酸は最大
+  const len = (x, y) => Math.sqrt(x * x + y * y);
+  const P = Array.from({ length: 5 }, () => [0, 0]), Q = P.map(v => v.slice());
+  const body = { x: 0, y: 0, a: 0, vx: 0, vy: 0, w: 0 };
+  const c = { G, H, HC, PIV, LEN, STEP, SHAKE_TIME, FIZZ_FULL, P, Q, body, energy0: null, lastSub: STEP, fizz: 0, tShake: 0, prevV: null };
+
+  c.comOf = () => { const t = HC / H; return [P[4][0] + (P[3][0] - P[4][0]) * t, P[4][1] + (P[3][1] - P[4][1]) * t]; };
+  // 振り子のエネルギー（重さはどの点も1）。手を離した時点の値を保ち続ける
+  c.chainEnergy = h => {
+    let e = 0;
+    for (let k = 1; k < 5; k++) { const vx = (P[k][0] - Q[k][0]) / h, vy = (P[k][1] - Q[k][1]) / h; e += 0.5 * (vx * vx + vy * vy) + G * P[k][1]; }
+    return e;
+  };
+  // active = 振り回している最中（つまんでいない）
+  c.keepEnergy = (h, active) => {
+    if (c.energy0 === null || !active) return;
+    let ke = 0, pe = 0;
+    for (let k = 1; k < 5; k++) { const vx = (P[k][0] - Q[k][0]) / h, vy = (P[k][1] - Q[k][1]) / h; ke += 0.5 * (vx * vx + vy * vy); pe += G * P[k][1]; }
+    const want = c.energy0 - pe;
+    if (ke < 1e-9 || want <= 0) return;
+    const sc = Math.sqrt(want / ke); // 計算で失われた分だけ速さを戻す
+    for (let k = 1; k < 5; k++) { Q[k][0] = P[k][0] - (P[k][0] - Q[k][0]) * sc; Q[k][1] = P[k][1] - (P[k][1] - Q[k][1]) * sc; }
+  };
+  c.hang = () => {
+    let y = PIV[1];
+    for (let k = 0; k < 5; k++) { if (k) y -= LEN[k - 1]; P[k] = [PIV[0], y]; Q[k] = [PIV[0], y]; }
+    c.bodyFromChain(); c.energy0 = null;
+  };
+  // n = 動かす点の数（5: ボトル付き、4: 飛び立ったあと）。posing = つまんで形を決めている（aim = ボトルの重心を持っていく位置）
+  c.chainStep = (dt, n, posing, aim) => {
+    if (!posing) for (let k = 1; k < n; k++) {
+      const vx = P[k][0] - Q[k][0], vy = P[k][1] - Q[k][1]; // 減衰なし
+      Q[k] = P[k]; P[k] = [P[k][0] + vx, P[k][1] + vy - G * dt * dt];
+    }
+    for (let it = 0; it < 8; it++) {
+      if (posing) {
+        // ボトルの重心を指の位置へ持っていく
+        const m = c.comOf(), dx = aim[0] - m[0], dy = aim[1] - m[1];
+        for (const k of [3, 4]) { P[k][0] += dx; P[k][1] += dy; }
+      }
+      for (let j = 0; j < n - 1; j++) {
+        const a = P[j], b = P[j + 1], dx = b[0] - a[0], dy = b[1] - a[1], d = len(dx, dy) || 1e-6;
+        const wa = INV[j], wb = INV[j + 1], k = (d - LEN[j]) / d / (wa + wb);
+        a[0] += dx * k * wa; a[1] += dy * k * wa; b[0] -= dx * k * wb; b[1] -= dy * k * wb;
+      }
+      for (let k = 1; k < n; k++) if (P[k][1] < 0) { P[k][1] = 0; Q[k][0] = P[k][0] * 0.5 + Q[k][0] * 0.5; }
+    }
+    // 節が伸び縮みしないよう、支点から順に長さをきっちり合わせ直す
+    for (let j = 0; j < n - 1; j++) {
+      const a = P[j], b = P[j + 1], dx = b[0] - a[0], dy = b[1] - a[1], d = len(dx, dy) || 1e-6;
+      b[0] = a[0] + dx / d * LEN[j]; b[1] = a[1] + dy / d * LEN[j];
+    }
+    if (posing) for (let k = 1; k < n; k++) Q[k] = P[k].slice(); // 離した瞬間は止まった状態から動き出す
+    if (dt > 0) c.lastSub = dt;
+  };
+  c.bodyFromChain = () => {
+    const [cx, cy] = P[3], [bx, by] = P[4], ux = (cx - bx) / H, uy = (cy - by) / H, ls = c.lastSub;
+    const v2x = (P[3][0] - Q[3][0]) / ls, v2y = (P[3][1] - Q[3][1]) / ls;
+    const v3x = (P[4][0] - Q[4][0]) / ls, v3y = (P[4][1] - Q[4][1]) / ls;
+    const t = HC / H;
+    body.x = bx + (cx - bx) * t; body.y = by + (cy - by) * t; body.a = Math.atan2(-ux, uy);
+    body.vx = v3x + (v2x - v3x) * t; body.vy = v3y + (v2y - v3y) * t;
+    body.w = ((cx - bx) * (v2y - v3y) - (cy - by) * (v2x - v3x)) / (H * H);
+  };
+  // 手を離した: jit = 真上で釣り合ったまま止まらないよう、各点を横に少しだけずらす量
+  c.startShake = jit => {
+    for (let k = 1; k < 5; k++) P[k][0] += jit[k - 1];
+    c.energy0 = c.chainEnergy(STEP); c.fizz = 0; c.tShake = 0; c.prevV = null;
+  };
+  // 振られ具合：ボトルの速さの変わり方（ゆさぶられた量）を足していく。5秒たったら true
+  c.measure = h => {
+    c.bodyFromChain();
+    const v = [body.vx, body.vy, body.w], pv = c.prevV;
+    if (pv) c.fizz += len(v[0] - pv[0], v[1] - pv[1]) + Math.abs(v[2] - pv[2]) * 0.02;
+    c.prevV = v;
+    c.tShake += h;
+    return c.tShake >= SHAKE_TIME;
+  };
+  // 届く高さ（m）。上限なし：振れば振るほど、どこまでも高く
+  c.apexOf = fizz => 40 * Math.pow(10000, fizz / FIZZ_FULL);
+  c.scoreOf = fizz => Math.max(0, Math.round(c.apexOf(fizz)));
+
+  // 再生（サーバーで使う）: p・q = 手を離した瞬間の4つの点の位置（[x, y] ×4。q は1刻み前）、jit = ずらした量 ×4
+  c.replay = (p, q, jit) => {
+    P[0] = PIV.slice(); Q[0] = PIV.slice();
+    for (let k = 1; k < 5; k++) { P[k] = p[k - 1].slice(); Q[k] = q[k - 1].slice(); }
+    c.lastSub = STEP;
+    c.startShake(jit);
+    let steps = 0;
+    for (;;) {
+      c.chainStep(STEP, 5, false, null); c.keepEnergy(STEP, true); steps++;
+      if (c.measure(STEP)) break;
+    }
+    return { fizz: c.fizz, score: c.scoreOf(c.fizz), steps };
+  };
+  return c;
 }
