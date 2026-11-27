@@ -192,13 +192,17 @@
     // ---------- 描画の準備 ----------
     const stage = document.getElementById('stage');
     const coarse = matchMedia('(pointer: coarse)').matches;
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    // 画面の細かさは上限を付ける（重い端末ではあとで自動的に下げる）
+    const DPR_MAX = Math.min(devicePixelRatio || 1, coarse ? 1.5 : 1.75);
+    renderer.setPixelRatio(DPR_MAX);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.92;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.autoUpdate = false; // 影は動きがあるときだけ描き直す
+    renderer.shadowMap.needsUpdate = true;
     stage.appendChild(renderer.domElement);
     const canvas = renderer.domElement;
 
@@ -444,7 +448,7 @@
     }
 
     // ---------- パン生地 ----------
-    const DR = 0.82, DH = 0.5, GN = coarse ? 150 : 176;
+    const DR = 0.82, DH = 0.5, GN = coarse ? 120 : 150;
     const prof = (() => {
       // 断面の形（上は丸い山、下は少し巻き込む）を弧長で引けるようにする
       const M = 800, pts = [];
@@ -521,7 +525,7 @@
       doughGeo.attributes.normal.setUsage(THREE.DynamicDrawUsage);
       doughGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.25, 0), 1.4);
     }
-    let knead = 0, presses = 0;
+    let knead = 0, presses = 0, dirty = true, lastCommit = -100;
     function updateRest() {
       const lump = 1 - 0.85 * knead;
       for (let v = 0; v < NV; v++) {
@@ -534,13 +538,13 @@
     updateRest();
 
     // 生地の色と打ち粉（押したところは粉が取れてしっとりする）
-    const TS = 1024;
-    const doughBase = mkCanvas(TS, TS), flourC = mkCanvas(TS, TS), mapC = mkCanvas(TS, TS), roughC = mkCanvas(TS, TS);
+    const TS = coarse ? 512 : 1024, TR = TS / 2;
+    const doughBase = mkCanvas(TS, TS), flourC = mkCanvas(TS, TS), mapC = mkCanvas(TS, TS), roughC = mkCanvas(TR, TR);
     {
       const g = doughBase.getContext('2d');
       g.fillStyle = '#cfb486'; g.fillRect(0, 0, TS, TS);
       for (let k = 0; k < 500; k++) {
-        const x = rnd(0, TS), y = rnd(0, TS), r = rnd(20, 120);
+        const x = rnd(0, TS), y = rnd(0, TS), r = rnd(20, 120) * TS / 1024;
         const gr = g.createRadialGradient(x, y, 0, x, y, r);
         const c = Math.random() < 0.5 ? '255,244,222' : '214,188,146';
         gr.addColorStop(0, `rgba(${c},${rnd(0.04, 0.12)})`); gr.addColorStop(1, `rgba(${c},0)`);
@@ -548,19 +552,19 @@
       }
       // 小さな気泡
       for (let k = 0; k < 1400; k++) {
-        const x = rnd(0, TS), y = rnd(0, TS), r = rnd(0.6, 2.6);
+        const x = rnd(0, TS), y = rnd(0, TS), r = rnd(0.6, 2.6) * Math.max(0.6, TS / 1024);
         g.fillStyle = `rgba(255,250,236,${rnd(0.2, 0.5)})`; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
         g.fillStyle = `rgba(170,140,100,${rnd(0.1, 0.25)})`; g.beginPath(); g.arc(x + r * 0.4, y + r * 0.4, r * 0.6, 0, Math.PI * 2); g.fill();
       }
       const f = flourC.getContext('2d');
       for (let k = 0; k < 260; k++) {
         const a = Math.random() * Math.PI * 2, rr = Math.pow(Math.random(), 0.8) * TS * 0.5;
-        const x = TS / 2 + Math.cos(a) * rr, y = TS / 2 + Math.sin(a) * rr, r = rnd(10, 70);
+        const x = TS / 2 + Math.cos(a) * rr, y = TS / 2 + Math.sin(a) * rr, r = rnd(10, 70) * TS / 1024;
         const gr = f.createRadialGradient(x, y, 0, x, y, r);
         gr.addColorStop(0, `rgba(255,254,250,${rnd(0.06, 0.28)})`); gr.addColorStop(1, 'rgba(255,254,250,0)');
         f.fillStyle = gr; f.fillRect(x - r, y - r, r * 2, r * 2);
       }
-      for (let k = 0; k < 12000; k++) {
+      for (let k = 0; k < 12000 * TS / 1024; k++) {
         const a = Math.random() * Math.PI * 2, rr = Math.pow(Math.random(), 0.7) * TS * 0.5;
         f.fillStyle = `rgba(255,254,250,${rnd(0.15, 0.6)})`;
         f.fillRect(TS / 2 + Math.cos(a) * rr, TS / 2 + Math.sin(a) * rr, rnd(0.8, 2.5), rnd(0.8, 2.5));
@@ -573,8 +577,8 @@
       g.globalAlpha = 1; g.drawImage(doughBase, 0, 0);
       g.globalAlpha = fa; g.drawImage(flourC, 0, 0); g.globalAlpha = 1;
       const r = roughC.getContext('2d');
-      r.globalAlpha = 1; r.fillStyle = '#b8b8b8'; r.fillRect(0, 0, TS, TS);
-      r.globalAlpha = fa; r.drawImage(flourC, 0, 0); r.drawImage(flourC, 0, 0); r.globalAlpha = 1;
+      r.globalAlpha = 1; r.fillStyle = '#b8b8b8'; r.fillRect(0, 0, TR, TR);
+      r.globalAlpha = fa; r.drawImage(flourC, 0, 0, TR, TR); r.drawImage(flourC, 0, 0, TR, TR); r.globalAlpha = 1;
       doughMap.needsUpdate = true; doughRough.needsUpdate = true;
     }
     composeDough();
@@ -687,17 +691,19 @@
           .replace('#include <opaque_fragment>', '#include <opaque_fragment>\n gl_FragColor.a = furA;');
       };
       m.customProgramCacheKey = () => 'fur' + (layer > 0 ? 'S' : 'B');
+      m.userData.layer = layer;
       return m;
     }
-    const SHELLS = coarse ? 16 : 24;
+    const SHELLS = coarse ? 10 : 16;
+    const shellMeshes = [];
     function furry(geo, o, parent) {
       const base = new THREE.Mesh(geo, furMaterial(0, o));
       base.castShadow = true; base.receiveShadow = true;
       parent.add(base);
       for (let k = 1; k <= SHELLS; k++) {
         const s = new THREE.Mesh(geo, furMaterial(k / SHELLS, o));
-        s.receiveShadow = true; s.renderOrder = k;
-        parent.add(s);
+        s.renderOrder = k;
+        parent.add(s); shellMeshes.push(s);
       }
       return base;
     }
@@ -786,13 +792,25 @@
       body.chest = chest;
     }
 
+    // 頂点を場所ごとの箱に分けておき、前足の近くだけ調べる
+    const BC = 0.1, BN = 20, BOX = Array.from({ length: BN * BN }, () => []);
+    for (let v = 0; v < NV; v++) {
+      const bi = Math.min(BN - 1, Math.max(0, Math.floor((R0[v * 3] + 1) / BC))), bj = Math.min(BN - 1, Math.max(0, Math.floor((R0[v * 3 + 2] + 1) / BC)));
+      BOX[bi * BN + bj].push(v);
+    }
+    const BOXI = BOX.map(a => Int32Array.from(a));
+    function near(x, z, r, fn) {
+      const i0 = Math.max(0, Math.floor((x - r + 1) / BC)), i1 = Math.min(BN - 1, Math.floor((x + r + 1) / BC));
+      const j0 = Math.max(0, Math.floor((z - r + 1) / BC)), j1 = Math.min(BN - 1, Math.floor((z + r + 1) / BC));
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const a = BOXI[i * BN + j]; for (let k = 0; k < a.length; k++) fn(a[k]); }
+    }
     function surfaceAt(x, z) {
-      let best = -1, near = 0.045 * 0.045;
-      const pos = doughGeo.attributes.position.array;
-      for (let v = 0; v < NV; v++) {
-        const dx = pos[v * 3] - x, dz = pos[v * 3 + 2] - z;
-        if (dx * dx + dz * dz < near) { const y = REST[v * 3 + 1] + D[v * 3 + 1]; if (y > best) best = y; }
-      }
+      let best = -1;
+      const nr = 0.045 * 0.045;
+      near(x, z, 0.12, v => {
+        const dx = REST[v * 3] + D[v * 3] - x, dz = REST[v * 3 + 2] + D[v * 3 + 2] - z;
+        if (dx * dx + dz * dz < nr) { const y = REST[v * 3 + 1] + D[v * 3 + 1]; if (y > best) best = y; }
+      });
       return best < 0 ? 0.3 : best;
     }
     const paws = [makePaw(0), makePaw(1)];
@@ -814,16 +832,19 @@
       const ys = p.y - SOLE;
       const pen = p.surf - ys;
       p.pen = Math.max(0, pen);
-      if (pen < -0.03) { if (p.touching) { A.fill(0); p.touching = false; } return; }
-      A.fill(0); p.touching = true;
+      if (pen < -0.03) { if (p.touching) { A.fill(0); p.touching = false; p.lastBox = null; dirty = true; } return; }
+      // 前の範囲だけ消す
+      if (p.lastBox) near(p.lastBox[0], p.lastBox[1], 0.58, v => { A[v * 3] = A[v * 3 + 1] = A[v * 3 + 2] = 0; });
+      else A.fill(0);
+      p.lastBox = [p.x, p.z]; p.touching = true;
       const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw); // つま先の向き
       const rx = -fz, rz = fx;
       const bulge = Math.max(0, pen);
-      for (let v = 0; v < NV; v++) {
+      near(p.x, p.z, 0.56, v => {
         const i = v * 3;
         const bx = REST[i] + D[i], bz = REST[i + 2] + D[i + 2];
         const dx = bx - p.x, dz = bz - p.z;
-        if (dx > 0.5 || dx < -0.5 || dz > 0.5 || dz < -0.5) continue;
+        if (dx > 0.5 || dx < -0.5 || dz > 0.5 || dz < -0.5) return;
         const by = REST[i + 1] + D[i + 1];
         const lx = dx * rx + dz * rz, lz = -(dx * fx + dz * fz);
         const e = Math.sqrt((lx / 0.2) ** 2 + (lz / 0.255) ** 2);
@@ -835,7 +856,7 @@
             A[i + 1] = push;
             const spread = -push * 0.3 * Math.min(1, nd / 0.08);
             A[i] = dx / nd * spread; A[i + 2] = dz / nd * spread;
-            continue;
+            return;
           }
         }
         if (bulge > 0 && e > 0.8 && e < 2.4) {
@@ -843,12 +864,14 @@
           A[i + 1] += 0.22 * bulge * w;
           A[i] += dx / nd * 0.2 * bulge * w; A[i + 2] += dz / nd * 0.2 * bulge * w;
         }
-      }
+      });
+      dirty = true;
     }
     // 押し終わり：跡を残す（一部はゆっくり戻る）
     function commit(p) {
       const A = p.A;
       for (let i = 0; i < NV * 3; i++) D[i] += 0.62 * A[i];
+      lastCommit = now; dirty = true;
       presses++;
       setKnead();
       // 押したところの粉が取れる
@@ -1089,11 +1112,35 @@
     }
 
     // ---------- ループ ----------
+    const DECAY_TICK = Math.exp(-0.05 / 9);
     let lastT = performance.now(), smoothAcc = 0, camBob = new THREE.Vector3(), camRoll = 0;
     const posArr = doughGeo.attributes.position.array;
+    const nrmArr = doughGeo.attributes.normal.array;
+    // 法線は格子のとなり同士から直接求める（三角形ごとに計算するより速い）
+    function gridNormals() {
+      const S = GN + 1, P = posArr, N = nrmArr;
+      for (let i = 0; i <= GN; i++) {
+        const i0 = i > 0 ? i - 1 : i, i1 = i < GN ? i + 1 : i;
+        for (let j = 0; j <= GN; j++) {
+          const j0 = j > 0 ? j - 1 : j, j1 = j < GN ? j + 1 : j;
+          const a = (i1 * S + j) * 3, b = (i0 * S + j) * 3, c = (i * S + j1) * 3, d = (i * S + j0) * 3;
+          const ux = P[a] - P[b], uy = P[a + 1] - P[b + 1], uz = P[a + 2] - P[b + 2];
+          const vx = P[c] - P[d], vy = P[c + 1] - P[d + 1], vz = P[c + 2] - P[d + 2];
+          let nx = vy * uz - vz * uy, ny = vz * ux - vx * uz, nz = vx * uy - vy * ux;
+          const l = Math.hypot(nx, ny, nz) || 1, o = (i * S + j) * 3;
+          N[o] = nx / l; N[o + 1] = ny / l; N[o + 2] = nz / l;
+        }
+      }
+      doughGeo.attributes.normal.needsUpdate = true;
+    }
+    let dActive = false;
     function smoothD() {
-      // 跡のふちを少しずつなだらかにする（生地がなじむ）
+      // 跡のふちを少しずつなだらかにし、ゆっくり元に戻す（生地がなじむ）
+      if (now - lastCommit > 45) { if (dActive) { D.fill(0); dActive = false; dirty = true; return true; } return false; }
+      dActive = true; dirty = true;
       DT.set(D);
+      for (let i = 0; i < NV * 3; i++) DT[i] *= DECAY_TICK;
+      D.set(DT);
       const S = GN + 1, k = 0.1;
       for (let i = 1; i < GN; i++) for (let j = 1; j < GN; j++) {
         const v = i * S + j;
@@ -1102,26 +1149,51 @@
           D[v * 3 + c] = DT[v * 3 + c] + k * (a * 0.25 - DT[v * 3 + c]);
         }
       }
+      return true;
     }
     function frame(t) {
       const dt = Math.min(0.05, (t - lastT) / 1000); lastT = t;
       if (!window.__hold) update(dt);
       renderer.render(scene, camera);
+      adapt(dt);
       requestAnimationFrame(frame);
+    }
+    // 重い端末では、画面の細かさ → 毛の層の数 の順に自動で下げる
+    let qLevel = 0, qT = 0, qN = 0, qWarm = 2;
+    function adapt(dt) {
+      if (qWarm > 0) { qWarm -= dt; return; }
+      qT += dt; qN++;
+      if (qT < 2) return;
+      const avg = qT / qN; qT = 0; qN = 0;
+      if (avg < 0.024 || qLevel >= 3) return;
+      qLevel++;
+      if (qLevel === 1) renderer.setPixelRatio(Math.max(1, DPR_MAX * 0.8));
+      else if (qLevel === 2) shellMeshes.forEach(m => { if (Math.round(m.material.userData.layer * SHELLS) % 2) m.visible = false; });
+      else renderer.setPixelRatio(1);
+      renderer.shadowMap.needsUpdate = true;
+      qWarm = 1;
     }
     function update(dt) {
       now += dt;
       demo(dt);
       for (const p of paws) updatePaw(p, dt);
-      // 生地
-      const decay = Math.exp(-dt / 9);
-      for (let i = 0; i < NV * 3; i++) D[i] *= decay;
+      // 生地（動きがないときは計算しない）
       smoothAcc += dt;
-      while (smoothAcc > 0.05) { smoothAcc -= 0.05; smoothD(); }
-      for (const p of paws) collide(p);
-      for (let i = 0; i < NV * 3; i++) posArr[i] = REST[i] + D[i] + AL[i] + AR[i];
-      doughGeo.attributes.position.needsUpdate = true;
-      doughGeo.computeVertexNormals();
+      let tick = false;
+      while (smoothAcc > 0.05) { smoothAcc -= 0.05; if (smoothD()) tick = true; }
+      for (const p of paws) {
+        const moving = p.phase !== 'rest' || Math.abs(p.y - (p.lastY ?? -9)) > 1e-5;
+        if (moving || tick || !p.touching) collide(p);
+        p.lastY = p.y;
+      }
+      if (dirty) {
+        dirty = false;
+        for (let i = 0; i < NV * 3; i++) posArr[i] = REST[i] + D[i] + AL[i] + AR[i];
+        doughGeo.attributes.position.needsUpdate = true;
+        gridNormals();
+        renderer.shadowMap.needsUpdate = true;
+      }
+      if (paws.some(p => p.phase !== 'rest')) renderer.shadowMap.needsUpdate = true;
       // 体重をかける方へ少し体が沈む
       const pl = paws[0].pen / DMAX, pr = paws[1].pen / DMAX;
       const tx = (pr - pl) * 0.035, ty = -(pl + pr) * 0.03, tz = -(pl + pr) * 0.03;
