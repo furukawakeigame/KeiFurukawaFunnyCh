@@ -55,9 +55,18 @@
     #hint .trail { stroke-dasharray: 80; animation: trail 1.6s ease-in-out infinite; }
     @keyframes slide { 0% { transform: translateX(0); opacity: 0; } 15% { opacity: 1; } 70% { transform: translateX(80px); opacity: 1; } 100% { transform: translateX(80px); opacity: 0; } }
     @keyframes trail { 0% { stroke-dashoffset: 80; opacity: .8; } 70% { stroke-dashoffset: 0; opacity: .8; } 100% { stroke-dashoffset: 0; opacity: 0; } }
-    /* 判子ボタン（押すと完成）: 下の80pxはXの投稿文がかぶるので空ける */
-    #hanko { position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 3; width: 68px; height: 68px; border-radius: 16px; border: 2px solid rgba(255,240,220,.6); background: #f6efe0 center / 84% no-repeat; box-shadow: 0 4px 14px rgba(0,0,0,.35); cursor: pointer; transition: opacity .25s, transform .1s; padding: 0; }
-    #hanko:active { transform: translateX(-50%) translateY(2px) scale(.96); }
+    /* 仮想スティック: 押した所に出る */
+    #stick { position: fixed; width: 132px; height: 132px; margin: -66px 0 0 -66px; border-radius: 50%; border: 2px solid rgba(255,250,240,.55); background: rgba(30,22,14,.18); pointer-events: none; z-index: 2; opacity: 0; transition: opacity .15s; }
+    #stick.on { opacity: 1; }
+    #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255,250,240,.85); box-shadow: 0 2px 8px rgba(0,0,0,.3); }
+    /* 筆ボタン（押している間だけ筆を下ろす）: 右下。下の80pxはXの投稿文がかぶるので空ける */
+    #fude { position: fixed; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 3; width: 84px; height: 84px; border-radius: 50%; border: 3px solid rgba(255,240,220,.7); background: rgba(246,239,224,.92); box-shadow: 0 4px 14px rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; touch-action: none; transition: transform .08s, background .08s; }
+    #fude.on { transform: scale(.92); background: #1b1712; }
+    #fude.on svg path:nth-child(3), #fude.on svg path:nth-child(4) { fill: #f6efe0; stroke: #f6efe0; }
+    #fude[hidden] { display: none; }
+    /* 判子ボタン（押すと完成）: 左下 */
+    #hanko { position: fixed; left: 16px; bottom: calc(92px + env(safe-area-inset-bottom)); z-index: 3; width: 68px; height: 68px; border-radius: 16px; border: 2px solid rgba(255,240,220,.6); background: #f6efe0 center / 84% no-repeat; box-shadow: 0 4px 14px rgba(0,0,0,.35); cursor: pointer; transition: opacity .25s, transform .1s; padding: 0; }
+    #hanko:active { transform: translateY(2px) scale(.96); }
     #hanko:disabled { opacity: .35; cursor: default; }
     #hanko[hidden] { display: none; }
     /* 結果 */
@@ -81,8 +90,6 @@
     #share { background: #000; color: #fff; border: 1px solid rgba(255,255,255,.4); }
     .btn:active { transform: translateY(1px); }
     @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
-      #hanko { left: auto; right: 16px; transform: none; }
-      #hanko:active { transform: translateY(2px) scale(.96); }
       #result { left: auto; right: 12px; transform: none; top: 52px; width: 260px; }
       #resBtns { left: auto; right: 12px; justify-content: flex-end; }
     }
@@ -102,6 +109,8 @@
   <main style="display:contents">
     <canvas id="cv"></canvas>
     <svg id="hint" viewBox="0 0 120 60"><path class="trail" d="M20 30 H100" stroke="#fff" stroke-width="6" stroke-linecap="round" fill="none"/><g class="dot"><circle cx="20" cy="30" r="16" fill="none" stroke="#fff" stroke-width="3"/><circle cx="20" cy="30" r="7" fill="#fff"/></g></svg>
+    <div id="stick"><div id="knob"></div></div>
+    <button id="fude" aria-label="brush"><svg viewBox="0 0 64 64" width="46" height="46" aria-hidden="true"><path d="M44 6l6 6-14 20-6-6z" fill="#c9a86a" stroke="#6b4a2c" stroke-width="2" stroke-linejoin="round"/><path d="M30 26l8 8-4 4-8-8z" fill="#3a2a1c"/><path d="M26 30l8 8c-4 8-12 14-22 18 3-10 7-19 14-26z" fill="#141418"/><path d="M8 58c6-2 10-4 14-8" stroke="#141418" stroke-width="3" stroke-linecap="round" fill="none"/></svg></button>
     <button id="hanko" disabled aria-label="finish"></button>
     <div id="result" hidden>
       <div id="adSlot"></div>
@@ -325,7 +334,7 @@ try {
 const sim = createSim(RAPIER);
 
 // ===== 半紙・筆の寸法（メートル）=====
-const PW = 2.2, PX0 = -PW / 2, PZ0 = 1.05, PZC = PZ0 + PW / 2; // 紙: 2.2m 四方。ロボットは手前（カメラ側）から奥を向いて立ち、後ずさりしながら書く
+const PW = 1.8, PX0 = -PW / 2, PZ0 = 0.85, PZC = PZ0 + PW / 2; // 紙: 1.8m 四方。ロボットは手前（カメラ側）から奥を向いて立ち、後ずさりしながら書く
 const N = 1024, PPM = N / PW;                                // 半紙の絵（1024px 四方）
 const BR_LEN = 1.05, BR_MASS = 1.3, TIP_R = 0.05, TIP_LOCAL = -BR_LEN / 2 + TIP_R;
 const brush = sim.addBrush(BR_LEN, BR_MASS, TIP_R, (() => { const d = { x: 0.25, y: -0.55, z: 0.8 }, l = Math.hypot(d.x, d.y, d.z); return { x: d.x / l, y: d.y / l, z: d.z / l }; })());
@@ -434,10 +443,10 @@ const M = {
   stone: new THREE.MeshStandardMaterial({ color: 0x24242a, roughness: 0.55, metalness: 0.1 }),
   inkWet: new THREE.MeshStandardMaterial({ color: 0x050507, roughness: 0.08, metalness: 0.2 }),
 };
-const bun = new THREE.Mesh(new RoundedBoxGeometry(1.2, 0.04, 0.06, 2, 0.012), M.iron);
+const bun = new THREE.Mesh(new RoundedBoxGeometry(1.0, 0.04, 0.06, 2, 0.012), M.iron);
 bun.position.set(0, 0.026, PZ0 + PW - 0.02); bun.castShadow = true; scene.add(bun);
 // 硯（右の奥）と墨
-const suzuri = new THREE.Group(); suzuri.position.set(0.3, 0, 0.78); suzuri.rotation.y = 0.15; suzuri.scale.setScalar(1.6); scene.add(suzuri);
+const suzuri = new THREE.Group(); suzuri.position.set(0.35, 0, 0.6); suzuri.rotation.y = 0.15; suzuri.scale.setScalar(1.6); scene.add(suzuri);
 {
   const base = new THREE.Mesh(new RoundedBoxGeometry(0.16, 0.035, 0.28, 3, 0.01), M.stone); base.position.y = 0.0175; base.castShadow = base.receiveShadow = true; suzuri.add(base);
   const pool = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.08), M.inkWet); pool.rotation.x = -Math.PI / 2; pool.position.set(0, 0.0355, -0.09); suzuri.add(pool);
@@ -745,7 +754,7 @@ function inkSeg(a, b, speed, press) {
   const ax = (a.x - PX0) * PPM, ay = (a.z - PZ0) * PPM, bx = (b.x - PX0) * PPM, by = (b.z - PZ0) * PPM;
   const len = Math.hypot(bx - ax, by - ay);
   // 太さ: 押しつけるほど太く、速いほど細く
-  const w = PPM * 0.12 * (0.55 + 0.6 * press) * (1.1 - 0.35 * Math.min(1, speed / 1.8));
+  const w = PPM * 0.11 * (0.55 + 0.6 * press) * (1.1 - 0.35 * Math.min(1, speed / 1.8));
   const nx = len > 0.01 ? -(by - ay) / len : 0, ny = len > 0.01 ? (bx - ax) / len : 0;
   ictx.lineCap = 'round'; ictx.lineJoin = 'round';
   if (ink > 0.3) { ictx.strokeStyle = `rgba(14,13,16,${Math.min(0.95, 0.35 + ink)})`; ictx.lineWidth = w * Math.min(0.85, 0.5 + ink * 0.4); ictx.beginPath(); ictx.moveTo(ax, ay); ictx.lineTo(bx, by); ictx.stroke(); }
@@ -764,30 +773,57 @@ function inkSeg(a, b, speed, press) {
   paperDirty = true;
 }
 
-// ===== 操作: 半紙の上をなぞる（押している間だけ筆を下ろす）=====
-const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-const tgt = { x: 0, z: 0.9, down: false }; // 最初はロボットの目の前（歩き出さない位置）
-let ptrId = null, finished = false, started = false;
-function toPaper(cx, cy) {
-  ndc.set(cx / innerWidth * 2 - 1, -(cy / innerHeight) * 2 + 1);
-  ray.setFromCamera(ndc, camera);
-  const p = new THREE.Vector3();
-  if (!ray.ray.intersectPlane(groundPlane, p)) return;
-  const m = 0.02;
-  tgt.x = Math.max(PX0 - m, Math.min(PX0 + PW + m, p.x));
-  tgt.z = Math.max(PZ0 - m, Math.min(PZ0 + PW + m, p.z));
+// ===== 操作: ドラッグ（仮想スティック）で歩く・筆ボタンを押している間だけ筆を下ろす =====
+const tgt = { down: false };       // 筆を下ろしているか
+const move = { x: 0, z: 0 };       // 歩く向き（世界の xz、長さ0〜1）
+let finished = false, started = false;
+const stick = { id: null, x0: 0, y0: 0, sx: 0, sy: 0 }, keys = new Set();
+const STICK_R = 56;
+function startPlay() { if (!started) { started = true; $('hint').classList.add('off'); } }
+// 画面の右 = 世界の -x、画面の上 = 世界の +z（カメラは手前から奥を見ている）
+function updMove() {
+  let sx = stick.sx, sy = stick.sy;
+  if (stick.id === null) {
+    sx = (keys.has('right') ? 1 : 0) - (keys.has('left') ? 1 : 0); sy = (keys.has('down') ? 1 : 0) - (keys.has('up') ? 1 : 0);
+    const l = Math.hypot(sx, sy); if (l > 1) { sx /= l; sy /= l; }
+  }
+  move.x = -sx; move.z = -sy;
 }
 canvas.addEventListener('pointerdown', e => {
-  if (finished || ptrId !== null) return;
+  if (finished || stick.id !== null) return;
   canvas.setPointerCapture(e.pointerId);
-  ptrId = e.pointerId; toPaper(e.clientX, e.clientY); tgt.down = true;
-  if (!started) { started = true; $('hint').classList.add('off'); }
+  stick.id = e.pointerId; stick.x0 = e.clientX; stick.y0 = e.clientY; stick.sx = stick.sy = 0;
+  const el = $('stick'); el.style.left = e.clientX + 'px'; el.style.top = e.clientY + 'px'; el.classList.add('on');
+  $('knob').style.transform = 'translate(0px, 0px)';
+  startPlay(); updMove();
 });
-canvas.addEventListener('pointermove', e => { if (e.pointerId === ptrId) toPaper(e.clientX, e.clientY); });
-const endPtr = e => { if (e.pointerId !== ptrId) return; ptrId = null; tgt.down = false; };
+canvas.addEventListener('pointermove', e => {
+  if (e.pointerId !== stick.id) return;
+  let dx = e.clientX - stick.x0, dy = e.clientY - stick.y0; const l = Math.hypot(dx, dy);
+  if (l > STICK_R) { dx *= STICK_R / l; dy *= STICK_R / l; }
+  stick.sx = dx / STICK_R; stick.sy = dy / STICK_R;
+  $('knob').style.transform = `translate(${dx}px, ${dy}px)`;
+  updMove();
+});
+const endPtr = e => { if (e.pointerId !== stick.id) return; stick.id = null; stick.sx = stick.sy = 0; $('stick').classList.remove('on'); updMove(); };
 canvas.addEventListener('pointerup', endPtr);
 canvas.addEventListener('pointercancel', endPtr);
+// 筆ボタン（押している間だけ）
+const fude = $('fude');
+const fudeOn = v => { if (finished) v = false; tgt.down = v; fude.classList.toggle('on', v); if (v) startPlay(); };
+fude.addEventListener('pointerdown', e => { e.preventDefault(); fude.setPointerCapture(e.pointerId); fudeOn(true); });
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) fude.addEventListener(ev, () => fudeOn(false));
+const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', KeyA: 'left', KeyD: 'right', KeyW: 'up', KeyS: 'down' };
+addEventListener('keydown', e => {
+  if (e.target.closest && e.target.closest('select')) return;
+  if (KEYMAP[e.code]) { e.preventDefault(); if (!finished) { keys.add(KEYMAP[e.code]); startPlay(); updMove(); } }
+  else if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) fudeOn(true); }
+});
+addEventListener('keyup', e => {
+  if (KEYMAP[e.code]) { keys.delete(KEYMAP[e.code]); updMove(); }
+  else if (e.code === 'Space') fudeOn(false);
+});
+addEventListener('blur', () => { keys.clear(); updMove(); fudeOn(false); });
 
 // ===== 筆を引っぱる力と腕の動き（物理の1きざみごと）=====
 const qv = new THREE.Quaternion(), tv = new THREE.Vector3(), tip = new THREE.Vector3(), tipV = new THREE.Vector3(), wv = new THREE.Vector3();
@@ -798,7 +834,6 @@ function tipState() {
   const lv = b.linvel(), av = b.angvel();
   wv.set(av.x, av.y, av.z).cross(tv); tipV.set(lv.x + wv.x, lv.y + wv.y, lv.z + wv.z);
 }
-let penDown = false;
 let pull = 0; // 手を引っぱっている強さ（0〜1、顔と声に使う）
 // 筆は両手でおなかの前に構えて、ほとんど動かさない。書くのは体ごと歩いて動くことで
 const UA = 0.29, FA = 0.35, LB = BR_LEN - TIP_R;
@@ -817,12 +852,10 @@ function goals() {
   tq.set(q.x, q.y, q.z, q.w); tpos.set(tt.x, tt.y, tt.z);
   for (const k of ['R', 'L']) sh[k].copy(SHO[k]).applyQuaternion(tq).add(tpos);
   belly.copy(BELLY).applyQuaternion(tq).add(tpos);
-  // 筆を下ろすのは、筆先が行きたい所の近くまで来てから（遠くから歩いていく間は上げたまま）
-  if (!tgt.down || finished) penDown = false;
-  else if (!penDown && Math.hypot(tip.x - tgt.x, tip.z - tgt.z) < 0.22) penDown = true;
-  const down = penDown;
-  // 書き終えたら筆を硯の上へ
-  if (finished) T3.set(0.3, 0.16, 0.78); else T3.set(tgt.x, down ? TIP_R - 0.02 : 0.2, tgt.z);
+  const down = tgt.down && !finished;
+  // 筆先はいつも体の正面。書き終えたら硯の上へ
+  const yaw = sim.yaw || 0, ahead = TIP_AHEAD - BELLY.z;
+  if (finished) T3.set(0.35, 0.16, 0.6); else { const a = down ? ahead * 0.9 : ahead; T3.set(belly.x + Math.sin(yaw) * a, down ? TIP_R - 0.06 : 0.22, belly.z + Math.cos(yaw) * a); }
   // 手は「筆先の行きたい点から筆の長さだけ戻った所」へ。ただしおなかの前から FINE 以上は動かさない
   n3.copy(belly).sub(T3).normalize();
   handGoal.copy(T3).addScaledVector(n3, LB);
@@ -842,6 +875,7 @@ function spring(K, C, max, dx, dy, dz, vx, vy, vz) {
   const fl = Math.hypot(fx, fy, fz); if (fl > max) { fx *= max / fl; fy *= max / fl; fz *= max / fl; }
   return [fx, fy, fz, fl];
 }
+const VWALK = 0.5, AREA = { x0: -PW * 0.45, x1: PW * 0.45, z0: 0, z1: PZ0 + PW - 0.5 };
 const WALK_K = 130, WALK_C = 70, WALK_F = 38, VMAX = 0.38, REACT = 0.7, KH = 900, CH = 60, FHMAX = 110, KT = 260, CT = 16, TQMAX = 80;
 sim.preStep = () => {
   if (sim.state !== 'stand') { pull = 0; return; }
@@ -850,13 +884,32 @@ sim.preStep = () => {
   // ずっと正面（カメラの方）を向く
   pel.applyTorqueImpulse({ x: 0, y: (-45 * (sim.yaw || 0) - 6 * w.y) * sim.DT, z: 0 }, true);
   sim.parts.torso.body.applyTorqueImpulse({ x: 0, y: (-20 * (sim.yaw || 0)) * sim.DT, z: 0 }, true);
-  // 筆先が行きたい点に来る所へ、体ごと歩いていく（腰の位置 = 行きたい点の真後ろ TIP_AHEAD）
   const pt = pel.translation(), pv = pel.linvel();
-  const gx = finished ? 0 : Math.max(PX0 - 0.15, Math.min(PX0 + PW + 0.15, T3.x)), gz = finished ? 0 : Math.max(PZ0 - TIP_AHEAD - 0.1, Math.min(PZ0 + PW - TIP_AHEAD + 0.1, T3.z - TIP_AHEAD));
-  sim.walkGoal = { x: gx, z: gz };
   // よろけている間は歩く力を弱めて、立て直しを先にする
   const calm = 1 - Math.min(0.75, Math.max(0, (sim.tilt - 0.12) * 4) + Math.max(0, sim.stagger - 0.5) * 1.5);
-  let [hx, , hz] = spring(WALK_K, WALK_C, WALK_F * calm, gx - pt.x, 0, gz - pt.z, pv.x, 0, pv.z);
+  let hx = 0, hz = 0;
+  if (finished) {
+    // 書き終えたら最初の場所へ戻る
+    sim.walkGoal = { x: 0, z: 0 };
+    [hx, , hz] = spring(WALK_K, WALK_C, WALK_F * calm, -pt.x, 0, -pt.z, pv.x, 0, pv.z);
+  } else {
+    // スティックの向きへ歩く。紙から離れすぎる向きには進まない
+    let mx = move.x, mz = move.z;
+    if ((pt.x < AREA.x0 && mx < 0) || (pt.x > AREA.x1 && mx > 0)) mx = 0;
+    if ((pt.z < AREA.z0 && mz < 0) || (pt.z > AREA.z1 && mz > 0)) mz = 0;
+    const mag = Math.min(1, Math.hypot(mx, mz));
+    if (mag > 0.15) {
+      sim.walkGoal = { x: sim.com.x + mx / mag * 0.4, z: sim.com.z + mz / mag * 0.4 };
+      // 速さを VWALK に近づける力（押されて足を踏み出す＋自分から踏み出す）
+      [hx, , hz] = spring(0, -130, 50 * calm, 0, 0, 0, mx * VWALK - pv.x, 0, mz * VWALK - pv.z);
+    } else {
+      sim.walkGoal = null;
+      [hx, , hz] = spring(0, 110, 45, 0, 0, 0, pv.x, 0, pv.z);
+    }
+    // 範囲の外へ出たら押し戻す
+    const ox = pt.x < AREA.x0 ? AREA.x0 - pt.x : pt.x > AREA.x1 ? AREA.x1 - pt.x : 0, oz = pt.z < AREA.z0 ? AREA.z0 - pt.z : pt.z > AREA.z1 ? AREA.z1 - pt.z : 0;
+    if (ox || oz) { const m = 28 * calm; hx += Math.max(-m, Math.min(m, 200 * ox)); hz += Math.max(-m, Math.min(m, 200 * oz)); if (!sim.walkGoal) sim.walkGoal = { x: pt.x + ox * 2, z: pt.z + oz * 2 }; }
+  }
   // 歩く勢いが出すぎたらブレーキ（足より先に体が流れて転ばないように）
   const vh = Math.hypot(sim.comV.x, sim.comV.z);
   if (vh > VMAX) { const k = Math.min(160, 400 * (vh - VMAX)) / vh; hx -= sim.comV.x * k; hz -= sim.comV.z * k; }
@@ -886,6 +939,13 @@ sim.preStep = () => {
   let [tx, ty, tz] = spring(KT * ang, CT, TQMAX, ax3.x, ax3.y, ax3.z, av.x, av.y, av.z);
   b.applyTorqueImpulse({ x: tx * sim.DT, y: ty * sim.DT, z: tz * sim.DT }, true);
   sim.parts.torso.body.applyTorqueImpulse({ x: -tx * sim.DT * 0.5, y: -ty * sim.DT * 0.5, z: -tz * sim.DT * 0.5 }, true);
+  // 筆を下ろしている間は、筆先を紙に押しつける（歩く揺れで浮かないように）。反動は手へ
+  if (tgt.down && !finished) {
+    tipState();
+    const fy = -Math.min(45, Math.max(0, 900 * (tip.y - TIP_R + 0.004) + 30 * tipV.y) + 8);
+    b.applyImpulseAtPoint({ x: 0, y: fy * sim.DT, z: 0 }, { x: tip.x, y: tip.y, z: tip.z }, true);
+    sim.parts.torso.body.applyImpulse({ x: 0, y: -fy * sim.DT * 0.5, z: 0 }, true); // 胴の真ん中で受ける（片手だと体がねじれる）
+  }
 };
 // 両腕の関節の目標も、手の行きたい位置に合わせる（逆運動学）
 function armIK(J, k, goal) {
@@ -912,8 +972,8 @@ const PITCH = 1.22; // 見下ろす角度（ラジアン）
 const camT = new THREE.Vector3(0, 0.4, 0.6), camGoal = { t: new THREE.Vector3(0, 0.4, 0.6), d: 4 };
 let camDist = 4, topPad = 52, botPad = 160;
 const fitCam = new THREE.PerspectiveCamera(36, 1, 0.1, 60);
-const PLAY_PTS = [[-1.25, 0, PZ0 - 0.17], [1.25, 0, PZ0 - 0.17], [-1.25, 0, PZ0 + PW + 0.17], [1.25, 0, PZ0 + PW + 0.17], [-0.32, 1.72, 0.12], [0.32, 1.72, 0.12]];
-const RES_PTS = [[-1.17, 0, PZ0 - 0.08], [1.17, 0, PZ0 - 0.08], [-1.17, 0, PZ0 + PW + 0.08], [1.17, 0, PZ0 + PW + 0.08]];
+const PLAY_PTS = [[-1.05, 0, PZ0 - 0.17], [1.05, 0, PZ0 - 0.17], [-1.05, 0, PZ0 + PW + 0.17], [1.05, 0, PZ0 + PW + 0.17], [-0.32, 1.72, 0.12], [0.32, 1.72, 0.12], [-PW * 0.45 - 0.3, 1.3, 0.1], [PW * 0.45 + 0.3, 1.3, 0.1]];
+const RES_PTS = [[-0.97, 0, PZ0 - 0.08], [0.97, 0, PZ0 - 0.08], [-0.97, 0, PZ0 + PW + 0.08], [0.97, 0, PZ0 + PW + 0.08]];
 function fitFor(pts, w, h) {
   fitCam.aspect = w / h; fitCam.updateProjectionMatrix();
   const c = new THREE.Vector3(); for (const p of pts) c.add(tv.set(...p)); c.divideScalar(pts.length);
@@ -939,7 +999,7 @@ function layout(snap) {
   let wL = 0, wR = 0;
   const shortWide = matchMedia('(max-height: 520px) and (min-aspect-ratio: 4/3)').matches;
   if (res && shortWide) { wR = 284; botPad = 70; }
-  else if (shortWide) { wR = 96; botPad = 70; } // 判子ボタンは右下へ
+  else if (shortWide) { wL = 96; wR = 110; botPad = 70; } // 判子は左下、筆は右下
   const vw = Math.max(160, w - wL - wR), h = Math.max(160, H - topPad - botPad);
   camera.aspect = vw / h;
   camera.setViewOffset(vw, h, -wL, -topPad, w, H);
@@ -984,10 +1044,10 @@ function similarity() {
 let score = 0, phase = 'play', phaseT = 0;
 $('hanko').onclick = () => {
   if (finished || inkUsed < 0.05) return;
-  finished = true; tgt.down = false; ptrId = null;
+  finished = true; fudeOn(false); keys.clear(); stick.id = null; $('stick').classList.remove('on'); updMove();
   score = similarity();
   phase = 'stamp'; phaseT = 0;
-  $('hanko').hidden = true;
+  $('hanko').hidden = true; $('fude').hidden = true;
   setFace('focus');
 };
 function showResult() {
@@ -997,7 +1057,7 @@ function showResult() {
   updateShare();
 }
 $('again').onclick = () => {
-  $('result').hidden = true; $('resBtns').hidden = true; $('hanko').hidden = false;
+  $('result').hidden = true; $('resBtns').hidden = true; $('hanko').hidden = false; $('fude').hidden = false;
   ictx.clearRect(0, 0, N, N); sealT = -1; guideA = 0.13; inkUsed = 0; newStroke(); wet.fill(-99); for (const f of feet) f.ink = 0;
   newChar();
   finished = false; phase = 'play'; started = true;
@@ -1170,7 +1230,7 @@ compose();
 renderer.compile(scene, camera);
 renderer.render(scene, camera);
 requestAnimationFrame(t0 => { last = t0; frame(t0); });
-window.__game = { sim, tgt, toPaper, similarity, get score() { return score; }, camera, layout, tip, hand, handGoal, camGoal, get camDist() { return camDist; }, get topPad() { return topPad; }, inkCv, tplCv, setDirty() { paperDirty = true; } };
+window.__game = { sim, tgt, move, updMove, keys, similarity, get score() { return score; }, camera, layout, tip, hand, handGoal, camGoal, get camDist() { return camDist; }, get topPad() { return topPad; }, inkCv, tplCv, setDirty() { paperDirty = true; } };
 </script>
 <script src="../../ad.js" data-result="#result" data-inline="#adSlot"></script>
 </body>

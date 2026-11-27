@@ -258,7 +258,7 @@ export function createSim(R) {
           // 後ろの足を寄せるのは、体重が前の足に乗ってから
           const lead = (other.ankle.x - foot.ankle.x) * ux + (other.ankle.z - foot.ankle.z) * uz;
           const over = (sim.com.x - other.ankle.x) * ux + (sim.com.z - other.ankle.z) * uz;
-          if (lead > 0.12 && over < -0.07) foot = null;
+          if (lead > 0.12 && over < (Math.abs(dS) > 0.6 ? -0.07 : -0.11)) foot = null; // 横歩きは慎重に、前後は少し早めに
           if (foot) {
           let tx = sim.com.x + sim.comV.x * Tc + ux * L * 0.7 + side.x * foot.s * HIP_X, tz = sim.com.z + sim.comV.z * Tc + uz * L * 0.7 + side.z * foot.s * HIP_X;
           // 足が交差しないように: 相手の足より外側。一歩は0.45mまで
