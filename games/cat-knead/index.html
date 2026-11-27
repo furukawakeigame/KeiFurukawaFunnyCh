@@ -113,7 +113,7 @@
       soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn();
       if (master) master.gain.setTargetAtTime(soundOn ? 1 : 0, ac.currentTime, 0.03);
     });
-    let ac = null, master = null, noiseBuf = null, purr = null;
+    let ac = null, master = null, noiseBuf = null;
     function unmuteIOS() {
       try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch {}
       try {
@@ -136,21 +136,6 @@
         noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
         const d = noiseBuf.getChannelData(0);
         for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-        // ゴロゴロ（茶色いノイズを 25Hz ほどで脈打たせる）
-        const brown = ac.createBuffer(1, len, ac.sampleRate), bd = brown.getChannelData(0);
-        let last = 0;
-        for (let i = 0; i < len; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; bd[i] = last * 3.5; }
-        const src = ac.createBufferSource(); src.buffer = brown; src.loop = true;
-        const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; lp.Q.value = 0.7;
-        const pk = ac.createBiquadFilter(); pk.type = 'peaking'; pk.frequency.value = 120; pk.gain.value = 9; pk.Q.value = 1.2;
-        const am = ac.createGain(); am.gain.value = 0.5;
-        const lfo = ac.createOscillator(); lfo.type = 'sawtooth'; lfo.frequency.value = 25;
-        const lfoG = ac.createGain(); lfoG.gain.value = 0.5;
-        lfo.connect(lfoG).connect(am.gain);
-        const out = ac.createGain(); out.gain.value = 0;
-        src.connect(lp).connect(pk).connect(am).connect(out).connect(master);
-        src.start(); lfo.start();
-        purr = { out, lfo, lp };
         const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
         o.connect(g).connect(master); o.start(); o.stop(ac.currentTime + 0.05);
       } catch { ac = null; }
@@ -935,7 +920,7 @@
         if (u >= 1) { p.phase = 'hold'; p.t = 0; }
       } else if (p.phase === 'hold') {
         p.depth += (DMAX * 1.35 - p.depth) * (1 - Math.exp(-dt * 1.4));
-        if (p.released && p.t > 0.04) { commit(p); p.d0 = p.depth; p.phase = 'up'; p.t = 0; sUnstick(1); activity += 0.5; }
+        if (p.released && p.t > 0.04) { commit(p); p.d0 = p.depth; p.phase = 'up'; p.t = 0; sUnstick(1); }
       } else if (p.phase === 'up') {
         const u = Math.min(1, p.t / 0.17), e = ease(u);
         p.depth = p.d0 * (1 - e) + p.d0 * 0.5 * e - 0.05 * Math.sin(Math.PI * u);
@@ -1057,7 +1042,7 @@
     const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.3), hit = new THREE.Vector3();
     const ptrPaw = new Map();
-    let lastUser = -10, demoT = 0, demoSide = 0, demoHeld = null, activity = 0, now = 0;
+    let lastUser = -10, demoT = 0, demoSide = 0, demoHeld = null, now = 0;
     function targetFromScreen(cx, cy) {
       ndc.set(cx / innerWidth * 2 - 1, -(cy / innerHeight) * 2 + 1);
       ray.setFromCamera(ndc, camera);
@@ -1117,7 +1102,7 @@
 
     // ---------- ループ ----------
     const DECAY_TICK = Math.exp(-0.05 / 9);
-    let purrT = 0, purrG = 0, needRender = 3;
+    let needRender = 3;
     let lastT = performance.now(), smoothAcc = 0, camBob = new THREE.Vector3(), camRoll = 0;
     const posArr = doughGeo.attributes.position.array;
     const nrmArr = doughGeo.attributes.normal.array;
@@ -1213,23 +1198,6 @@
       camera.rotateZ(camRoll);
       for (const p of paws) placePaw(p);
       updateParts(dt);
-      // ゴロゴロ
-      activity = Math.max(0, activity - dt * 0.25);
-      activity = Math.min(1.6, activity);
-      // 音の指示は1秒に10回だけ、前の指示を消してから出す（毎コマ積み上げると指示がたまって重くなる）
-      purrT -= dt;
-      if (purr && purrT <= 0) {
-        purrT = 0.1;
-        const breath = 0.7 + 0.3 * Math.sin(now * Math.PI * 2 / 2.4);
-        const userish = now - lastUser < 20 ? 1 : 0.5;
-        const g = Math.min(1, activity) * 0.32 * breath * userish;
-        if (g > 0.002 || purrG > 0.002) {
-          const t0 = ac.currentTime;
-          purr.out.gain.cancelScheduledValues(t0); purr.out.gain.setTargetAtTime(g, t0, 0.08);
-          purr.lfo.frequency.cancelScheduledValues(t0); purr.lfo.frequency.setTargetAtTime(24 + 3 * Math.sin(now * Math.PI * 2 / 2.4), t0, 0.1);
-        }
-        purrG = g;
-      }
     }
     renderer.compile(scene, camera);
     renderer.render(scene, camera);
