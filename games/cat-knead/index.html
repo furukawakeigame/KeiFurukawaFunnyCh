@@ -113,37 +113,7 @@
       soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn();
       if (master) master.gain.setTargetAtTime(soundOn ? 1 : 0, ac.currentTime, 0.03);
     });
-    let ac = null, master = null, noiseBuf = null, brownBuf = null, voices = null;
-    // 押している間ずっと鳴る「むにゅー」（前足ごとに1つ。沈む速さで大きさと高さが変わる）
-    function makeVoice() {
-      const src = ac.createBufferSource(); src.buffer = brownBuf; src.loop = true;
-      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 480; bp.Q.value = 2.2;
-      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = 0.5;
-      const g = ac.createGain(); g.gain.value = 0;
-      src.connect(bp).connect(lp).connect(g).connect(master);
-      // しめった感じの高い成分（ごく小さく）
-      const src2 = ac.createBufferSource(); src2.buffer = noiseBuf; src2.loop = true;
-      const bp2 = ac.createBiquadFilter(); bp2.type = 'bandpass'; bp2.frequency.value = 1300; bp2.Q.value = 5;
-      const g2 = ac.createGain(); g2.gain.value = 0;
-      src2.connect(bp2).connect(g2).connect(master);
-      src.start(0, Math.random()); src2.start(0, Math.random());
-      return { bp, g, bp2, g2, level: 0, sent: -1, t: 0, wob: Math.random() * 6 };
-    }
-    function voiceUpdate(i, target, depthK, dt) {
-      if (!voices) return;
-      const v = voices[i];
-      v.level += (target - v.level) * (1 - Math.exp(-dt * (target > v.level ? 40 : 14)));
-      v.t -= dt; v.wob += dt * (7 + 4 * Math.random());
-      if (v.t > 0) return;
-      v.t = 1 / 30;
-      if (v.level < 0.003 && v.sent < 0.003) return;
-      const t0 = ac.currentTime, lv = v.level < 0.003 ? 0 : v.level;
-      const f = (500 - 230 * depthK) * (1 + 0.06 * Math.sin(v.wob));
-      for (const [prm, val] of [[v.g.gain, 0.6 * lv], [v.g2.gain, 0.03 * lv], [v.bp.frequency, f], [v.bp2.frequency, f * 2.6]]) {
-        prm.cancelScheduledValues(t0); prm.setTargetAtTime(val, t0, 0.03);
-      }
-      v.sent = lv;
-    }
+    let ac = null, master = null, noiseBuf = null, brownBuf = null;
     function unmuteIOS() {
       try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch {}
       try {
@@ -171,7 +141,6 @@
         const bd = brownBuf.getChannelData(0);
         let last = 0;
         for (let i = 0; i < len; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; bd[i] = last * 3.5; }
-        voices = [0, 1].map(() => makeVoice());
         const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
         o.connect(g).connect(master); o.start(); o.stop(ac.currentTime + 0.05);
       } catch { ac = null; }
@@ -193,18 +162,22 @@
     // 生地の中の小さな気泡がつぶれる「ぷち」
     function bubbles(n, spread, vol, delay = 0) {
       for (let k = 0; k < n; k++) {
-        noiseHit(rnd(1400, 3200), rnd(5, 9), 'bandpass', vol * rnd(0.4, 1), 0.002, rnd(0.006, 0.014), 1, delay + Math.random() * spread);
+        noiseHit(rnd(600, 2400), rnd(3, 7), 'bandpass', vol * rnd(0.5, 1), 0.003, rnd(0.012, 0.035), 1, delay + Math.random() * spread);
       }
     }
-    // 押し始めに生地の中の小さな気泡がつぶれる
+    // 生地をそっと押す「ふにゅ」（こもった柔らかい音。ゆっくり立ち上がる）
     function sSquish(str) {
       if (!ac) return;
-      bubbles(3 + Math.floor(Math.random() * 4), 0.35, 0.022 * str, 0.03);
+      const r = 0.85 + Math.random() * 0.3;
+      const f = noiseHit(380 * r, 0.8, 'lowpass', 0.32 * str, 0.045, 0.26, 1, 0, brownBuf);
+      f.frequency.setTargetAtTime(170 * r, ac.currentTime + 0.03, 0.08);
+      noiseHit(700 * r, 3, 'bandpass', 0.035 * str, 0.05, 0.18, r);
+      bubbles(7 + Math.floor(Math.random() * 6), 0.28, 0.16 * str, 0.02);
     }
     // 離すときに、くっついた生地がはがれる「ぺりっ」
     function sUnstick(str) {
       if (!ac) return;
-      bubbles(5 + Math.floor(Math.random() * 5), 0.09, 0.03 * str);
+      bubbles(8 + Math.floor(Math.random() * 6), 0.14, 0.15 * str);
       noiseHit(900, 1.2, 'lowpass', 0.05 * str, 0.01, 0.07, 1, 0.01, brownBuf);
     }
 
@@ -767,7 +740,7 @@
     const PADS = [[0, 0.075, 0.075, 0.055], [-0.045, 0.1, 0.042, 0.042], [0.045, 0.1, 0.042, 0.042]];
     const TOES = [[-0.125, -0.07], [-0.048, -0.142], [0.048, -0.142], [0.125, -0.07]];
     const SOLE = 0.072;       // 前足の中心から肉球のいちばん下まで
-    const DMAX = 0.08;       // ふつうに押したときの深さ
+    const DMAX = 0.085;       // ふつうに押したときの深さ
     const FUR = { paw: { len: 0.022, den: 190, mode: 0, comb: new THREE.Vector3(0, -0.15, -0.45) }, leg: { len: 0.04, den: 150, mode: 1, comb: new THREE.Vector3(0, -0.5, 0) }, chest: { len: 0.075, den: 55, mode: 2, comb: new THREE.Vector3(0, -0.9, 0.3) } };
     const SH = [new THREE.Vector3(-0.3, 1.1, 1.85), new THREE.Vector3(0.3, 1.1, 1.85)]; // 肩
     const body = new THREE.Vector3();
@@ -953,7 +926,7 @@
         p.depth = DMAX * easeOut(u);
         if (u >= 1) { p.phase = 'hold'; p.t = 0; }
       } else if (p.phase === 'hold') {
-        p.depth += (DMAX * 1.5 - p.depth) * (1 - Math.exp(-dt * 1.2));
+        p.depth += (DMAX * 1.35 - p.depth) * (1 - Math.exp(-dt * 1.4));
         if (p.released && p.t > 0.04) { commit(p); p.d0 = p.depth; p.phase = 'up'; p.t = 0; sUnstick(1); }
       } else if (p.phase === 'up') {
         const u = Math.min(1, p.t / 0.17), e = ease(u);
@@ -1200,13 +1173,7 @@
     function update(dt) {
       now += dt;
       demo(dt);
-      for (const p of paws) {
-        const d0 = p.depth;
-        updatePaw(p, dt);
-        const pressing = p.phase === 'down' || p.phase === 'hold';
-        const vel = pressing ? Math.max(0, (p.depth - d0) / Math.max(dt, 1e-3)) : 0;
-        voiceUpdate(p.side, pressing ? Math.min(1, Math.pow(vel / 0.04, 0.6)) : 0, Math.min(1, p.depth / (DMAX * 1.5)), dt);
-      }
+      for (const p of paws) updatePaw(p, dt);
       // 生地（動きがないときは計算しない）
       smoothAcc += dt;
       let tick = false;
