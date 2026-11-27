@@ -325,9 +325,9 @@ try {
 const sim = createSim(RAPIER);
 
 // ===== 半紙・筆の寸法（メートル）=====
-const PW = 2.2, PX0 = -PW / 2, PZ0 = 0.3, PZC = PZ0 + PW / 2; // 紙: ロボットの前に 2.2m 四方（ロボットは紙の上を歩いて書く）
+const PW = 2.2, PX0 = -PW / 2, PZ0 = 1.05, PZC = PZ0 + PW / 2; // 紙: 2.2m 四方。ロボットは手前（カメラ側）から奥を向いて立ち、後ずさりしながら書く
 const N = 1024, PPM = N / PW;                                // 半紙の絵（1024px 四方）
-const BR_LEN = 1.2, BR_MASS = 1.3, TIP_R = 0.05, TIP_LOCAL = -BR_LEN / 2 + TIP_R;
+const BR_LEN = 1.05, BR_MASS = 1.3, TIP_R = 0.05, TIP_LOCAL = -BR_LEN / 2 + TIP_R;
 const brush = sim.addBrush(BR_LEN, BR_MASS, TIP_R, (() => { const d = { x: 0.25, y: -0.55, z: 0.8 }, l = Math.hypot(d.x, d.y, d.z); return { x: d.x / l, y: d.y / l, z: d.z / l }; })());
 
 // ===== 描画の準備 =====
@@ -353,11 +353,11 @@ const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 60);
 
 scene.add(new THREE.HemisphereLight(0xd8e4ff, 0x6b5a3e, 0.85));
 const sun = new THREE.DirectionalLight(0xffe0b8, 2.4);
-sun.position.set(1.8, 4.5, 2.6);
-sun.target.position.set(0, 0, 0.5);
+sun.position.set(1.6, 4.8, -0.6);
+sun.target.position.set(0, 0, 1.6);
 sun.castShadow = true;
 sun.shadow.mapSize.set(1024, 1024);
-Object.assign(sun.shadow.camera, { left: -2, right: 2, top: 2, bottom: -2, near: 0.5, far: 12 });
+Object.assign(sun.shadow.camera, { left: -2.3, right: 2.3, top: 2.3, bottom: -2.3, near: 0.5, far: 12 });
 sun.shadow.normalBias = 0.02;
 scene.add(sun, sun.target);
 
@@ -415,12 +415,14 @@ const paperTex = new THREE.CanvasTexture(paperCv); paperTex.colorSpace = THREE.S
 const paper = new THREE.Mesh(new THREE.PlaneGeometry(PW, PW), new THREE.MeshStandardMaterial({ map: paperTex, roughness: 0.95 }));
 paper.rotation.x = -Math.PI / 2; paper.position.set(0, 0.0065, PZC); paper.receiveShadow = true; scene.add(paper);
 let guideA = 0.13, sealT = -1, paperDirty = true;
-const SEAL = { x: 0.06 * N, y: 0.82 * N, s: 0.13 * N }; // 落款の位置（左下）
+// 紙の絵の上（y=0）はロボット側 = カメラから見て手前（画面の下）。なので字と落款は180°回して描く
+const SEAL = { x: 0.81 * N, y: 0.05 * N, s: 0.13 * N }; // 落款の位置（カメラから見て左下）
+function drawSeal(x, k) { x.save(); x.translate((SEAL.x + SEAL.s / 2) * k, (SEAL.y + SEAL.s / 2) * k); x.rotate(Math.PI); x.drawImage(sealCv, -SEAL.s / 2 * k, -SEAL.s / 2 * k, SEAL.s * k, SEAL.s * k); x.restore(); }
 function compose() {
   pctx.globalAlpha = 1; pctx.drawImage(washiCv, 0, 0);
   if (guideA > 0.001) { pctx.globalAlpha = guideA; pctx.drawImage(tplCv, 0, 0); pctx.globalAlpha = 1; }
   pctx.drawImage(inkCv, 0, 0);
-  if (sealT >= 0) { pctx.globalAlpha = Math.min(1, sealT) * 0.92; pctx.drawImage(sealCv, SEAL.x, SEAL.y, SEAL.s, SEAL.s); pctx.globalAlpha = 1; }
+  if (sealT >= 0) { pctx.globalAlpha = Math.min(1, sealT) * 0.92; drawSeal(pctx, 1); pctx.globalAlpha = 1; }
   paperTex.needsUpdate = true; paperDirty = false;
 }
 // 文鎮（半紙の奥の端を押さえる）
@@ -433,9 +435,9 @@ const M = {
   inkWet: new THREE.MeshStandardMaterial({ color: 0x050507, roughness: 0.08, metalness: 0.2 }),
 };
 const bun = new THREE.Mesh(new RoundedBoxGeometry(1.2, 0.04, 0.06, 2, 0.012), M.iron);
-bun.position.set(0, 0.026, PZ0 + 0.02); bun.castShadow = true; scene.add(bun);
+bun.position.set(0, 0.026, PZ0 + PW - 0.02); bun.castShadow = true; scene.add(bun);
 // 硯（右の奥）と墨
-const suzuri = new THREE.Group(); suzuri.position.set(0.72, 0, -0.02); suzuri.rotation.y = -0.15; suzuri.scale.setScalar(1.6); scene.add(suzuri);
+const suzuri = new THREE.Group(); suzuri.position.set(0.3, 0, 0.78); suzuri.rotation.y = 0.15; suzuri.scale.setScalar(1.6); scene.add(suzuri);
 {
   const base = new THREE.Mesh(new RoundedBoxGeometry(0.16, 0.035, 0.28, 3, 0.01), M.stone); base.position.y = 0.0175; base.castShadow = base.receiveShadow = true; suzuri.add(base);
   const pool = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.08), M.inkWet); pool.rotation.x = -Math.PI / 2; pool.position.set(0, 0.0355, -0.09); suzuri.add(pool);
@@ -453,16 +455,16 @@ const shojiTex = (() => {
   x.fillRect(0, 0, 12, 512); x.fillRect(244, 0, 12, 512); x.fillRect(0, 0, 256, 12); x.fillRect(0, 440, 256, 72);
   const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; return tx;
 })();
-const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a2c, roughness: 0.7 });
+const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a2c, roughness: 0.7 }), WALL_Z = PZ0 + PW + 1.3;
 for (let i = -4; i <= 3; i++) {
   const p = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.8), new THREE.MeshStandardMaterial({ map: shojiTex, emissive: 0xffe9c0, emissiveIntensity: 0.35, emissiveMap: shojiTex, roughness: 0.9 }));
-  p.position.set(i * 0.9 + 0.45, 0.9, -1.7); scene.add(p);
+  p.position.set(i * 0.9 + 0.45, 0.9, WALL_Z); p.rotation.y = Math.PI; scene.add(p);
 }
 {
-  const kamoi = new THREE.Mesh(new THREE.BoxGeometry(8, 0.12, 0.1), wood); kamoi.position.set(0, 1.86, -1.68); scene.add(kamoi);
-  const wall = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.4), new THREE.MeshStandardMaterial({ color: 0xcdb894, roughness: 1 })); wall.position.set(0, 2.6, -1.72); scene.add(wall);
-  for (const X of [-2.7, 2.7]) { const pil = new THREE.Mesh(new THREE.BoxGeometry(0.12, 3.4, 0.12), wood); pil.position.set(X, 1.7, -1.66); pil.castShadow = true; scene.add(pil); }
-  const sill = new THREE.Mesh(new THREE.BoxGeometry(8, 0.03, 0.1), wood); sill.position.set(0, 0.015, -1.66); scene.add(sill);
+  const kamoi = new THREE.Mesh(new THREE.BoxGeometry(8, 0.12, 0.1), wood); kamoi.position.set(0, 1.86, WALL_Z - 0.02); scene.add(kamoi);
+  const wall = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.4), new THREE.MeshStandardMaterial({ color: 0xcdb894, roughness: 1 })); wall.position.set(0, 2.6, WALL_Z + 0.02); wall.rotation.y = Math.PI; scene.add(wall);
+  for (const X of [-2.7, 2.7]) { const pil = new THREE.Mesh(new THREE.BoxGeometry(0.12, 3.4, 0.12), wood); pil.position.set(X, 1.7, WALL_Z - 0.04); pil.castShadow = true; scene.add(pil); }
+  const sill = new THREE.Mesh(new THREE.BoxGeometry(8, 0.03, 0.1), wood); sill.position.set(0, 0.015, WALL_Z - 0.04); scene.add(sill);
 }
 
 // ===== ロボットの見た目（起き上がりロボと同じ）=====
@@ -542,6 +544,9 @@ addVisual(P('head'), g => {
   mesh(rbox(0.25, 0.18, 0.02, 0.03), M.glass, g, 0, -0.005, 0.125);
   const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.225, 0.162), new THREE.MeshBasicMaterial({ map: faceTex, toneMapped: false }));
   scr.position.set(0, -0.005, 0.1365); g.add(scr);
+  // 後頭部にもモニター（カメラからは背中が見えるので、いつもの猫はこちらに映る）
+  mesh(rbox(0.25, 0.18, 0.02, 0.03), M.glass, g, 0, -0.005, -0.125);
+  const scr2 = new THREE.Mesh(scr.geometry, scr.material); scr2.position.set(0, -0.005, -0.1365); scr2.rotation.y = Math.PI; g.add(scr2);
   // はちまき（頭の上の方に巻いた白い布と、後ろの結び目）
   const cloth = new THREE.MeshStandardMaterial({ color: 0xf2f0ea, roughness: 0.85 });
   mesh(rbox(0.312, 0.045, 0.272, 0.02), cloth, g, 0, 0.07, 0);
@@ -678,7 +683,9 @@ function drawTemplate() {
   // 字の外接の箱で真ん中に置く
   const m = x.measureText(char);
   const asc = m.actualBoundingBoxAscent || N * 0.4, desc = m.actualBoundingBoxDescent || N * 0.4;
+  x.save(); x.translate(N / 2, N / 2); x.rotate(Math.PI); x.translate(-N / 2, -N / 2);
   x.fillText(char, N / 2, N * 0.47 + (asc - desc) / 2);
+  x.restore();
   paperDirty = true;
 }
 function newChar() {
@@ -719,8 +726,8 @@ function updateFeet() {
     const t = f.body.translation(), down = t.y < 0.06;
     if (down && !f.down && !finished) {
       const on = t.x > PX0 && t.x < PX0 + PW && t.z > PZ0 && t.z < PZ0 + PW;
-      if (on && wetAt(t.x, t.z)) { f.ink = 1; squish(); }
-      if (on && f.ink > 0.06) { footprint(f, t, 0.85 * f.ink); markWet(t, t); f.ink *= 0.55; }
+      if (on && wetAt(t.x, t.z)) { f.ink = Math.max(f.ink, 0.8); squish(); }
+      if (on && f.ink > 0.06) { footprint(f, t, 0.6 * f.ink); f.ink *= 0.45; }
     }
     f.down = down;
   }
@@ -760,7 +767,7 @@ function inkSeg(a, b, speed, press) {
 // ===== 操作: 半紙の上をなぞる（押している間だけ筆を下ろす）=====
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-const tgt = { x: -0.18, z: 0.72, down: false }; // 最初はロボットの目の前（歩き出さない位置）
+const tgt = { x: 0, z: 0.9, down: false }; // 最初はロボットの目の前（歩き出さない位置）
 let ptrId = null, finished = false, started = false;
 function toPaper(cx, cy) {
   ndc.set(cx / innerWidth * 2 - 1, -(cy / innerHeight) * 2 + 1);
@@ -791,87 +798,113 @@ function tipState() {
   const lv = b.linvel(), av = b.angvel();
   wv.set(av.x, av.y, av.z).cross(tv); tipV.set(lv.x + wv.x, lv.y + wv.y, lv.z + wv.z);
 }
+let penDown = false;
 let pull = 0; // 手を引っぱっている強さ（0〜1、顔と声に使う）
+// 筆は両手でおなかの前に構えて、ほとんど動かさない。書くのは体ごと歩いて動くことで
 const UA = 0.29, FA = 0.35, LB = BR_LEN - TIP_R;
-const sh = new THREE.Vector3(), hand = new THREE.Vector3(), handV = new THREE.Vector3(), handGoal = new THREE.Vector3(), tq = new THREE.Quaternion(), tqi = new THREE.Quaternion();
-const T3 = new THREE.Vector3(), n3 = new THREE.Vector3(), comfy = new THREE.Vector3(), dir3 = new THREE.Vector3(), cur3 = new THREE.Vector3(), ax3 = new THREE.Vector3();
-// 筆先の「行きたい点」と、そのための手の位置
+const BELLY = new THREE.Vector3(0, -0.36, 0.3);   // 両手の位置（胴の中心から見て、おなかの前）
+const FINE = 0.13;                                // 手で合わせられるのはこの範囲（m）まで。あとは歩く
+const LGRIP = 0.16;                               // 左手は右手より筆の上へこれだけ
+const AIM_YAW = 0.3;                              // 筆を左右へ向けられる角度（ラジアン）
+const TIP_AHEAD = BELLY.z + Math.sqrt(LB * LB - (1.22 + BELLY.y - TIP_R) ** 2); // 立っている時、筆先は腰からこれだけ前（胴の中心は高さ約1.22m）
+const SHO = { R: new THREE.Vector3(-0.25, 0.16, 0), L: new THREE.Vector3(0.25, 0.16, 0) };
+const sh = { R: new THREE.Vector3(), L: new THREE.Vector3() }, hand = new THREE.Vector3(), handV = new THREE.Vector3(), handGoal = new THREE.Vector3();
+const handL = new THREE.Vector3(), handLV = new THREE.Vector3(), gripL = new THREE.Vector3(), gripLV = new THREE.Vector3();
+const tq = new THREE.Quaternion(), tqi = new THREE.Quaternion(), tpos = new THREE.Vector3(), belly = new THREE.Vector3();
+const T3 = new THREE.Vector3(), n3 = new THREE.Vector3(), dir3 = new THREE.Vector3(), cur3 = new THREE.Vector3(), ax3 = new THREE.Vector3();
 function goals() {
   const tb = sim.parts.torso.body, tt = tb.translation(), q = tb.rotation();
-  tq.set(q.x, q.y, q.z, q.w);
-  sh.set(-0.25, 0.16, 0).applyQuaternion(tq).add(cur3.set(tt.x, tt.y, tt.z));
-  const down = tgt.down && !finished;
-  // 書き終えたら筆を硯の上へ戻す
-  if (finished) T3.set(0.62, 0.15, -0.02); else T3.set(tgt.x, down ? TIP_R - 0.02 : 0.2, tgt.z);
-  // 楽な手の位置（右肩の前・下）から筆先へ向かう線の上で、筆の長さだけ離れた所に手を置く
-  comfy.set(0.08, -0.4, 0.32).applyQuaternion(tq).add(sh);
-  n3.copy(comfy).sub(T3).normalize();
+  tq.set(q.x, q.y, q.z, q.w); tpos.set(tt.x, tt.y, tt.z);
+  for (const k of ['R', 'L']) sh[k].copy(SHO[k]).applyQuaternion(tq).add(tpos);
+  belly.copy(BELLY).applyQuaternion(tq).add(tpos);
+  // 筆を下ろすのは、筆先が行きたい所の近くまで来てから（遠くから歩いていく間は上げたまま）
+  if (!tgt.down || finished) penDown = false;
+  else if (!penDown && Math.hypot(tip.x - tgt.x, tip.z - tgt.z) < 0.22) penDown = true;
+  const down = penDown;
+  // 書き終えたら筆を硯の上へ
+  if (finished) T3.set(0.3, 0.16, 0.78); else T3.set(tgt.x, down ? TIP_R - 0.02 : 0.2, tgt.z);
+  // 手は「筆先の行きたい点から筆の長さだけ戻った所」へ。ただしおなかの前から FINE 以上は動かさない
+  n3.copy(belly).sub(T3).normalize();
   handGoal.copy(T3).addScaledVector(n3, LB);
-  // 腕が届く範囲より先は追わない（少しだけ体ごと引っぱられる。あとは歩いて近づく）
-  cur3.copy(handGoal).sub(sh); const hd = cur3.length(), RMAX = UA + FA + 0.1;
-  if (hd > RMAX) handGoal.copy(sh).addScaledVector(cur3, RMAX / hd);
+  cur3.copy(handGoal).sub(belly); const hd = cur3.length();
+  if (hd > FINE) handGoal.copy(belly).addScaledVector(cur3, FINE / hd);
 }
-function handState() {
-  const b = sim.parts.foreR.body, t = b.translation(), q = b.rotation();
-  qv.set(q.x, q.y, q.z, q.w); cur3.set(0, -0.2, 0).applyQuaternion(qv);
-  hand.set(t.x + cur3.x, t.y + cur3.y, t.z + cur3.z);
-  const lv = b.linvel(), av = b.angvel();
-  wv.set(av.x, av.y, av.z).cross(cur3); handV.set(lv.x + wv.x, lv.y + wv.y, lv.z + wv.z);
+function pointState(body, local, outP, outV) {
+  const t = body.translation(), q = body.rotation();
+  qv.set(q.x, q.y, q.z, q.w); cur3.copy(local).applyQuaternion(qv);
+  outP.set(t.x + cur3.x, t.y + cur3.y, t.z + cur3.z);
+  const lv = body.linvel(), av = body.angvel();
+  wv.set(av.x, av.y, av.z).cross(cur3); outV.set(lv.x + wv.x, lv.y + wv.y, lv.z + wv.z);
 }
-const WALK_K = 120, WALK_C = 70, WALK_F = 35, VMAX = 0.45, REACT = 0.55, KH = 900, CH = 60, FHMAX = 110, KT = 220, CT = 14, TQMAX = 70;
+const HAND_LOCAL = new THREE.Vector3(0, -0.2, 0), GRIP_LOCAL = new THREE.Vector3(0, BR_LEN / 2 - LGRIP, 0);
+function spring(K, C, max, dx, dy, dz, vx, vy, vz) {
+  let fx = K * dx - C * vx, fy = K * dy - C * vy, fz = K * dz - C * vz;
+  const fl = Math.hypot(fx, fy, fz); if (fl > max) { fx *= max / fl; fy *= max / fl; fz *= max / fl; }
+  return [fx, fy, fz, fl];
+}
+const WALK_K = 130, WALK_C = 70, WALK_F = 38, VMAX = 0.38, REACT = 0.7, KH = 900, CH = 60, FHMAX = 110, KT = 260, CT = 16, TQMAX = 80;
 sim.preStep = () => {
-  if (sim.state === 'stand') {
-    // ロボットが正面（半紙の方）を向き続けるように、腰を少しだけ回して戻す
-    const pel = sim.parts.pelvis.body, w = pel.angvel();
-    pel.applyTorqueImpulse({ x: 0, y: (-14 * (sim.yaw || 0) - 3 * w.y) * sim.DT, z: 0 }, true);
-    // 筆先の行きたい所の少し奥（筆が届く所）へ歩いていく。押されて足を踏み出すしくみで、よたよた歩く
-    const pt = pel.translation(), pv = pel.linvel();
-    const gx = finished ? 0 : Math.max(PX0 - 0.1, Math.min(PX0 + PW + 0.1, tgt.x + 0.18)), gz = finished ? 0 : Math.max(-0.05, Math.min(PZ0 + PW - 0.35, tgt.z - 0.72));
-    sim.walkGoal = { x: gx, z: gz };
-    let hx = WALK_K * (gx - pt.x) - WALK_C * pv.x, hz = WALK_K * (gz - pt.z) - WALK_C * pv.z; const hl = Math.hypot(hx, hz); if (hl > WALK_F) { hx *= WALK_F / hl; hz *= WALK_F / hl; }
-    // 歩く勢いが出すぎたらブレーキ（足より先に体が流れて転ばないように）
-    const vh = Math.hypot(sim.comV.x, sim.comV.z);
-    if (vh > VMAX) { const k = Math.min(160, 400 * (vh - VMAX)) / vh; hx -= sim.comV.x * k; hz -= sim.comV.z * k; }
-    pel.applyImpulse({ x: hx * sim.DT, y: 0, z: hz * sim.DT }, true);
-  } else { pull = 0; return; }
-  goals(); handState(); tipState();
-  // 手を行きたい位置へ引く（届かなければ体ごと引っぱられて、よろけたり足を踏み出したりする）
-  let fx = KH * (handGoal.x - hand.x) - CH * handV.x, fy = KH * (handGoal.y - hand.y) - CH * handV.y, fz = KH * (handGoal.z - hand.z) - CH * handV.z;
-  const fl = Math.hypot(fx, fy, fz); if (fl > FHMAX) { fx *= FHMAX / fl; fy *= FHMAX / fl; fz *= FHMAX / fl; }
+  if (sim.state !== 'stand') { pull = 0; return; }
+  goals();
+  const pel = sim.parts.pelvis.body, w = pel.angvel();
+  // ずっと正面（カメラの方）を向く
+  pel.applyTorqueImpulse({ x: 0, y: (-45 * (sim.yaw || 0) - 6 * w.y) * sim.DT, z: 0 }, true);
+  sim.parts.torso.body.applyTorqueImpulse({ x: 0, y: (-20 * (sim.yaw || 0)) * sim.DT, z: 0 }, true);
+  // 筆先が行きたい点に来る所へ、体ごと歩いていく（腰の位置 = 行きたい点の真後ろ TIP_AHEAD）
+  const pt = pel.translation(), pv = pel.linvel();
+  const gx = finished ? 0 : Math.max(PX0 - 0.15, Math.min(PX0 + PW + 0.15, T3.x)), gz = finished ? 0 : Math.max(PZ0 - TIP_AHEAD - 0.1, Math.min(PZ0 + PW - TIP_AHEAD + 0.1, T3.z - TIP_AHEAD));
+  sim.walkGoal = { x: gx, z: gz };
+  // よろけている間は歩く力を弱めて、立て直しを先にする
+  const calm = 1 - Math.min(0.75, Math.max(0, (sim.tilt - 0.12) * 4) + Math.max(0, sim.stagger - 0.5) * 1.5);
+  let [hx, , hz] = spring(WALK_K, WALK_C, WALK_F * calm, gx - pt.x, 0, gz - pt.z, pv.x, 0, pv.z);
+  // 歩く勢いが出すぎたらブレーキ（足より先に体が流れて転ばないように）
+  const vh = Math.hypot(sim.comV.x, sim.comV.z);
+  if (vh > VMAX) { const k = Math.min(160, 400 * (vh - VMAX)) / vh; hx -= sim.comV.x * k; hz -= sim.comV.z * k; }
+  pel.applyImpulse({ x: hx * sim.DT, y: 0, z: hz * sim.DT }, true);
+  // 右手（筆の上端をにぎる）をおなかの前の行きたい位置へ。反動の多くは胴で受ける
+  pointState(sim.parts.foreR.body, HAND_LOCAL, hand, handV);
+  const [fx, fy, fz, fl] = spring(KH, CH, FHMAX, handGoal.x - hand.x, handGoal.y - hand.y, handGoal.z - hand.z, handV.x, handV.y, handV.z);
   pull += (Math.min(1, fl / FHMAX) - pull) * 0.02;
   sim.parts.foreR.body.applyImpulseAtPoint({ x: fx * sim.DT, y: fy * sim.DT, z: fz * sim.DT }, { x: hand.x, y: hand.y, z: hand.z }, true);
-  // 反動の半分は胴で受ける（全部を外から引っぱると、少し腕を動かすだけで体ごと流される）
   sim.parts.torso.body.applyImpulse({ x: -fx * sim.DT * REACT, y: -fy * sim.DT * REACT, z: -fz * sim.DT * REACT }, true);
-  // 筆を筆先の行きたい点へ向ける（手首の力。上限つき）
+  // 左手は筆の柄の少し上をにぎる（左手と筆を引き合う＝中の力なので、体全体は動かさない）
+  pointState(sim.parts.foreL.body, HAND_LOCAL, handL, handLV);
+  pointState(brush.body, GRIP_LOCAL, gripL, gripLV);
+  const [gx2, gy2, gz2] = spring(700, 30, 90, gripL.x - handL.x, gripL.y - handL.y, gripL.z - handL.z, handLV.x - gripLV.x, handLV.y - gripLV.y, handLV.z - gripLV.z);
+  sim.parts.foreL.body.applyImpulseAtPoint({ x: gx2 * sim.DT, y: gy2 * sim.DT, z: gz2 * sim.DT }, { x: handL.x, y: handL.y, z: handL.z }, true);
+  brush.body.applyImpulseAtPoint({ x: -gx2 * sim.DT, y: -gy2 * sim.DT, z: -gz2 * sim.DT }, { x: gripL.x, y: gripL.y, z: gripL.z }, true);
+  // 筆の向き: 筆先の行きたい点へ。ただし体の正面から左右 AIM_YAW までしか向けない
   const b = brush.body, q = b.rotation(), av = b.angvel();
   qv.set(q.x, q.y, q.z, q.w); cur3.set(0, -1, 0).applyQuaternion(qv);
-  dir3.copy(T3).sub(hand).normalize();
+  dir3.copy(T3).sub(hand);
+  const yaw = sim.yaw || 0, fwx = Math.sin(yaw), fwz = Math.cos(yaw);
+  let hf = dir3.x * fwx + dir3.z * fwz, hs = dir3.x * fwz - dir3.z * fwx;
+  hf = Math.max(0.15, hf); hs = Math.max(-hf * Math.tan(AIM_YAW), Math.min(hf * Math.tan(AIM_YAW), hs));
+  dir3.set(hf * fwx + hs * fwz, dir3.y, hf * fwz - hs * fwx).normalize();
   ax3.crossVectors(cur3, dir3); const sn = ax3.length(), ang = Math.atan2(sn, cur3.dot(dir3));
   if (sn > 1e-6) ax3.multiplyScalar(1 / sn);
-  let tx = KT * ang * ax3.x - CT * av.x, ty = KT * ang * ax3.y - CT * av.y, tz = KT * ang * ax3.z - CT * av.z;
-  const tl = Math.hypot(tx, ty, tz); if (tl > TQMAX) { tx *= TQMAX / tl; ty *= TQMAX / tl; tz *= TQMAX / tl; }
+  let [tx, ty, tz] = spring(KT * ang, CT, TQMAX, ax3.x, ax3.y, ax3.z, av.x, av.y, av.z);
   b.applyTorqueImpulse({ x: tx * sim.DT, y: ty * sim.DT, z: tz * sim.DT }, true);
-  // 手首の反動は前腕へ
-  sim.parts.foreR.body.applyTorqueImpulse({ x: -tx * sim.DT * 0.5, y: -ty * sim.DT * 0.5, z: -tz * sim.DT * 0.5 }, true);
+  sim.parts.torso.body.applyTorqueImpulse({ x: -tx * sim.DT * 0.5, y: -ty * sim.DT * 0.5, z: -tz * sim.DT * 0.5 }, true);
 };
-// 右腕の関節の目標も、手の行きたい位置に合わせる（逆運動学）。力は弱めにして、上の引っぱりと喧嘩しないように
-sim.armHook = (J) => {
-  if (!sh) return;
-  const v = cur3.copy(handGoal).sub(sh).applyQuaternion(tqi.copy(tq).invert());
+// 両腕の関節の目標も、手の行きたい位置に合わせる（逆運動学）
+function armIK(J, k, goal) {
+  const v = cur3.copy(goal).sub(sh[k]).applyQuaternion(tqi.copy(tq).invert());
   const D = Math.min(Math.max(v.length(), 0.12), UA + FA - 0.01);
   const e = Math.PI - Math.acos(Math.max(-1, Math.min(1, (UA * UA + FA * FA - D * D) / (2 * UA * FA))));
   const beta = Math.acos(Math.max(-1, Math.min(1, (UA * UA + D * D - FA * FA) / (2 * UA * D))));
-  const phi = Math.atan2(v.z, -v.y), roll = Math.atan2(-v.x, Math.hypot(v.y, v.z));
-  J.shPR.target = Math.max(-2.6, Math.min(0.6, -(phi - beta)));
-  J.shRR.target = -Math.max(-0.1, Math.min(1.2, roll));
-  J.elbR.target = -Math.min(2.3, e);
-  // 届かない時は腰を曲げて前へ
-  const over = hand.distanceTo(handGoal);
-  J.waistP.target += Math.max(0, Math.min(0.4, (v.length() - (UA + FA)) * 1.2));
-  // 左手は袖を押さえるように胸の前へ
-  J.shPL.target = J.shPL.target * 0.5 - 0.1; J.elbL.target = J.elbL.target * 0.5 - 0.5; J.shRL.target = J.shRL.target * 0.5 + 0.06;
+  const s = k === 'R' ? -1 : 1, phi = Math.atan2(v.z, -v.y), roll = Math.atan2(s * v.x, Math.hypot(v.y, v.z));
+  J['shP' + k].target = Math.max(-2.6, Math.min(0.6, -(phi - beta)));
+  J['shR' + k].target = s * Math.max(-0.85, Math.min(1.2, roll));
+  J['elb' + k].target = -Math.min(2.3, e);
+}
+sim.armHook = (J) => {
+  armIK(J, 'R', handGoal);
+  armIK(J, 'L', gripL);
 };
-for (const k of ['shPR', 'shRR', 'elbR']) sim.joints[k].kp *= 0.5;
+for (const k of ['shPR', 'shRR', 'elbR', 'shPL', 'shRL', 'elbL']) sim.joints[k].kp *= 0.5;
+// 両手を体の真ん中へ寄せられるよう、肩の内側への限界を広げる
+sim.joints.shRR.j.setLimits(-2.6, 0.85); sim.joints.shRL.j.setLimits(-0.85, 2.6);
 
 // ===== 画面の大きさとカメラ =====
 // 遊ぶ時は半紙とロボット、結果では半紙だけが、上下のボタン・パネルを除いた範囲に収まるようにする
@@ -879,12 +912,12 @@ const PITCH = 1.22; // 見下ろす角度（ラジアン）
 const camT = new THREE.Vector3(0, 0.4, 0.6), camGoal = { t: new THREE.Vector3(0, 0.4, 0.6), d: 4 };
 let camDist = 4, topPad = 52, botPad = 160;
 const fitCam = new THREE.PerspectiveCamera(36, 1, 0.1, 60);
-const PLAY_PTS = [[-1.25, 0, PZ0 - 0.17], [1.25, 0, PZ0 - 0.17], [-1.25, 0, PZ0 + PW + 0.17], [1.25, 0, PZ0 + PW + 0.17], [-0.36, 1.66, 0], [0.36, 1.66, 0], [-0.45, 0, -0.2], [0.45, 0, -0.2]];
+const PLAY_PTS = [[-1.25, 0, PZ0 - 0.17], [1.25, 0, PZ0 - 0.17], [-1.25, 0, PZ0 + PW + 0.17], [1.25, 0, PZ0 + PW + 0.17], [-0.32, 1.72, 0.12], [0.32, 1.72, 0.12]];
 const RES_PTS = [[-1.17, 0, PZ0 - 0.08], [1.17, 0, PZ0 - 0.08], [-1.17, 0, PZ0 + PW + 0.08], [1.17, 0, PZ0 + PW + 0.08]];
 function fitFor(pts, w, h) {
   fitCam.aspect = w / h; fitCam.updateProjectionMatrix();
   const c = new THREE.Vector3(); for (const p of pts) c.add(tv.set(...p)); c.divideScalar(pts.length);
-  const dir = new THREE.Vector3(0, Math.sin(PITCH), Math.cos(PITCH));
+  const dir = new THREE.Vector3(0, Math.sin(PITCH), -Math.cos(PITCH));
   let lo = 0.5, hi = 20;
   const tmp = new THREE.Vector3();
   for (let it = 0; it < 26; it++) {
@@ -918,7 +951,7 @@ function layout(snap) {
 addEventListener('resize', () => layout(false));
 layout(true);
 function placeCamera() {
-  camera.position.set(camT.x, camT.y + Math.sin(PITCH) * camDist, camT.z + Math.cos(PITCH) * camDist);
+  camera.position.set(camT.x, camT.y + Math.sin(PITCH) * camDist, camT.z - Math.cos(PITCH) * camDist);
   camera.lookAt(camT);
   camera.updateMatrixWorld();
 }
@@ -991,8 +1024,9 @@ window.updateShare = function updateShare() {
   // 半紙（お手本の透かしなし）
   x.save(); x.shadowColor = 'rgba(0,0,0,.45)'; x.shadowBlur = 30; x.shadowOffsetY = 10;
   x.drawImage(washiCv, 150, 40, 780, 780); x.restore();
-  x.drawImage(inkCv, 150, 40, 780, 780);
-  x.globalAlpha = 0.92; x.drawImage(sealCv, 150 + SEAL.x * 780 / N, 40 + SEAL.y * 780 / N, SEAL.s * 780 / N, SEAL.s * 780 / N); x.globalAlpha = 1;
+  // 紙の絵は180°回っているので、カメラから見た向きに戻して描く
+  const k = 780 / N; x.save(); x.translate(150 + 780, 40 + 780); x.rotate(Math.PI);
+  x.drawImage(inkCv, 0, 0, 780, 780); x.globalAlpha = 0.92; drawSeal(x, k); x.globalAlpha = 1; x.restore();
   // お手本の字（小さく）・数値・タイトル
   const F = 'system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", "Noto Sans Thai", sans-serif';
   x.fillStyle = '#f6efe0'; x.fillRect(150, 862, 150, 150);
@@ -1056,7 +1090,7 @@ function afterStep() {
     if (!wasTouch) {
       const vy = -tipV.y;
       touchSnd(Math.min(1, 0.3 + vy));
-      if (vy > 1.2) spawnDrops(tip, tipV, Math.min(10, Math.round(vy * 3)));
+      if (vy > 1.6) spawnDrops(tip, tipV, Math.min(6, Math.round(vy * 2)));
       prevTip = { x: tip.x, z: tip.z };
     }
     const press = Math.max(0, Math.min(1, (TIP_R + 0.012 - tip.y) / 0.012));
