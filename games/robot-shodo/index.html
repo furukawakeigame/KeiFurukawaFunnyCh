@@ -29,6 +29,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!-- お手本の字（毛筆の書体）。使う字だけを読み込む -->
   <link href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&display=block&text=%E5%B1%B1%E5%B7%9D%E6%9C%A8%E5%A4%A7%E4%BA%BA%E7%81%AB%E6%B0%B4%E5%8F%A3%E6%97%A5%E6%9C%88%E7%94%B0%E5%8A%9B%E7%8E%8B%E5%9C%9F%E4%B8%8A%E4%B8%8B%E4%B8%AD%E5%A4%A9" rel="stylesheet">
+  <!-- X投稿用の動画（MP4）を作る -->
+  <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.min.js"></script>
   <script type="importmap">
   { "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -93,6 +95,7 @@
     #resBtns[hidden] { display: none; }
     .btn { height: 48px; padding: 0 22px; border-radius: 999px; font-size: 17px; font-weight: 700; font-family: inherit; cursor: pointer; display: flex; align-items: center; gap: 8px; text-decoration: none; }
     #again { background: #c8102e; color: #fff; border: 2px solid #f6c9c9; }
+    #share.wait { opacity: .5; }
     #share { background: #000; color: #fff; border: 1px solid rgba(255,255,255,.4); }
     .btn:active { transform: translateY(1px); }
     @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
@@ -122,7 +125,7 @@
     <button id="hanko" disabled aria-label="finish" hidden></button>
     <div id="result" hidden>
       <div id="adSlot"></div>
-      <div id="score"><div id="model"></div><div><div class="lbl" id="scoreLbl"></div><div class="num"><span id="pct">0</span><small>%</small></div></div></div>
+      <div id="model" hidden></div>
     </div>
     <div id="resBtns" hidden>
       <button id="again" class="btn"></button>
@@ -156,7 +159,6 @@ function applyLang() {
   if ($('msg').dataset.err) $('msg').textContent = t('loadErr');
   $('shareLabel').textContent = t('share');
   $('again').textContent = t('again');
-  $('scoreLbl').textContent = t('score');
   $('hanko').setAttribute('aria-label', t('finish'));
   $('bubbleText').textContent = t('say');
   if (window.updateShare) window.updateShare();
@@ -460,7 +462,11 @@ const washiCv = document.createElement('canvas'); washiCv.width = washiCv.height
   x.fillStyle = g; x.fillRect(0, 0, N, N);
 }
 const inkCv = document.createElement('canvas'); inkCv.width = inkCv.height = N;
-const ictx = inkCv.getContext('2d');
+let ictx = inkCv.getContext('2d');
+// 墨の乱数は決まった順に出す（動画を作る時に、同じ書き順をなぞって同じ筆跡を描き直せるように）
+let irs = 1; const irnd = () => (irs = (irs * 16807) % 2147483647) / 2147483647;
+let replaying = false; // 動画用に描き直している最中
+const recOps = [], rec = { on: false, poses: [], opsN: [], next: 0, dt: 1 / 30, init: null }; // 書いている様子の記録（下の「X投稿用の動画」を参照）
 const tplCv = document.createElement('canvas'); tplCv.width = tplCv.height = N;
 const sealCv = document.createElement('canvas'); sealCv.width = sealCv.height = 256;
 const paperCv = document.createElement('canvas'); paperCv.width = paperCv.height = N;
@@ -702,6 +708,7 @@ function spawnDust(p, n, size = 1) {
     scene.add(s); particles.push({ s, v, life: 1.1 + Math.random() * 0.7, age: 0, kind: 'dust', sc: (0.2 + Math.random() * 0.2) * size, spin: (Math.random() - 0.5) * 0.8, peak: 0.3 + Math.random() * 0.25 });
   }
 }
+function drop(px, py, rr) { ictx.fillStyle = 'rgba(14,13,16,0.9)'; ictx.beginPath(); ictx.arc(px, py, rr, 0, Math.PI * 2); ictx.fill(); paperDirty = true; }
 // 墨のしぶき: 筆を勢いよく下ろした時に飛ぶ小さな粒。紙に落ちたら点になる
 function spawnDrops(p, v, n) {
   for (let i = 0; i < n; i++) {
@@ -718,7 +725,7 @@ function updateParticles(dt) {
       q.v.y -= 9.8 * dt; q.s.position.addScaledVector(q.v, dt);
       if (q.s.position.y < 0.008 || u >= 1) {
         const px = (q.s.position.x - PX0) * PPM, py = (q.s.position.z - PZ0) * PPM;
-        if (px > 0 && py > 0 && px < N && py < N && !finished) { ictx.fillStyle = 'rgba(14,13,16,0.9)'; ictx.beginPath(); ictx.arc(px, py, q.r * PPM * (1 + Math.random() * 0.4), 0, Math.PI * 2); ictx.fill(); paperDirty = true; }
+        if (px > 0 && py > 0 && px < N && py < N && !finished) { const rr = q.r * PPM * (1 + Math.random() * 0.4); recOp(['d', px, py, rr]); drop(px, py, rr); }
         scene.remove(q.s); particles.splice(i, 1);
       }
       continue;
@@ -777,7 +784,11 @@ const feet = ['L', 'R'].map(k => ({ k, body: sim.parts['foot' + k].body, down: t
 const fq = new THREE.Quaternion(), fv = new THREE.Vector3();
 function footprint(f, t, alpha) {
   const q = f.body.rotation(); fq.set(q.x, q.y, q.z, q.w); fv.set(0, 0, 1).applyQuaternion(fq);
-  const ang = Math.atan2(fv.x, fv.z), px = (t.x - PX0) * PPM, py = (t.z - PZ0) * PPM, w = 0.14 * PPM, h = 0.25 * PPM;
+  const ang = Math.atan2(fv.x, fv.z), px = (t.x - PX0) * PPM, py = (t.z - PZ0) * PPM;
+  recOp(['f', px, py, ang, alpha]); footprintAt(px, py, ang, alpha);
+}
+function footprintAt(px, py, ang, alpha) {
+  const w = 0.14 * PPM, h = 0.25 * PPM;
   ictx.save(); ictx.translate(px, py); ictx.rotate(-ang);
   ictx.fillStyle = `rgba(14,13,16,${alpha})`;
   ictx.beginPath(); ictx.roundRect ? ictx.roundRect(-w / 2, -h / 2, w, h, w * 0.3) : ictx.rect(-w / 2, -h / 2, w, h); ictx.fill();
@@ -811,10 +822,12 @@ const haloCv = document.createElement('canvas'); haloCv.width = haloCv.height = 
 { const x = haloCv.getContext('2d'), g = x.createRadialGradient(32, 32, 8, 32, 32, 32); g.addColorStop(0, 'rgba(30,27,34,1)'); g.addColorStop(0.6, 'rgba(30,27,34,0.5)'); g.addColorStop(1, 'rgba(30,27,34,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); }
 function newStroke() {
   ink = 1; strokeNo++; strokeLen = 0;
-  for (let i = 0; i < NB; i++) { bInk[i] = 0.85 + 0.3 * Math.random(); bDry[i] = 0.1 + 0.25 * Math.random() + 0.15 * BR[i].edge; }
+  for (let i = 0; i < NB; i++) { bInk[i] = 0.85 + 0.3 * irnd(); bDry[i] = 0.1 + 0.25 * irnd() + 0.15 * BR[i].edge; }
+  if (!replaying) recOp(['n']);
 }
 newStroke();
 function inkSeg(a, b, speed, press) {
+  if (!replaying) recOp(['s', a.x, a.z, b.x, b.z, speed, press]);
   const ax = (a.x - PX0) * PPM, ay = (a.z - PZ0) * PPM, bx = (b.x - PX0) * PPM, by = (b.z - PZ0) * PPM;
   const len = Math.hypot(bx - ax, by - ay);
   // 筆先の大きさ: 押しつけるほど大きく、書き始めは少し太く（入り）
@@ -830,7 +843,7 @@ function inkSeg(a, b, speed, press) {
     ictx.beginPath();
     for (let i = 0; i < NB; i++) {
       if (bInk[i] < bDry[i]) continue;
-      const B = BR[i], ju = (Math.random() - 0.5) * 0.08, jv = (Math.random() - 0.5) * 0.08;
+      const B = BR[i], ju = (irnd() - 0.5) * 0.08, jv = (irnd() - 0.5) * 0.08;
       const ox = ((B.u + ju) * BR_C - (B.v + jv) * BR_MIN * BR_S) * R, oy = ((B.u + ju) * BR_S + (B.v + jv) * BR_MIN * BR_C) * R;
       const r = R * 0.2 * B.s * (1 - 0.35 * B.edge);
       ictx.moveTo(px + ox + r, py + oy); ictx.arc(px + ox, py + oy, r, 0, Math.PI * 2);
@@ -844,8 +857,7 @@ function inkSeg(a, b, speed, press) {
   for (let i = 0; i < NB; i++) bInk[i] -= segM * BR[i].rate * (0.1 + 0.14 * press) * (1 + speed);
   strokeLen += segM;
   ink = Math.max(0.12, ink - segM * 0.28);
-  markWet(a, b);
-  inkUsed += segM;
+  if (!replaying) { markWet(a, b); inkUsed += segM; }
   paperDirty = true;
 }
 
@@ -870,6 +882,7 @@ function introStart(voiced) {
 function introDone() {
   intro.phase = 'done'; $('bubble').hidden = true;
   $('fude').hidden = false; $('hanko').hidden = false; $('hint').classList.remove('off');
+  recStart();
 }
 introStart(false);
 function introTap() {
@@ -1151,24 +1164,26 @@ function similarity() {
 }
 
 // ===== 完成（判子）→ 結果 =====
-let score = 0, phase = 'play', phaseT = 0;
+let score = 0, phase = 'play', phaseT = 0, resultNo = 0;
 $('hanko').onclick = () => {
   if (finished || inkUsed < 0.05) return;
   finished = true; fudeOn(false); keys.clear(); stick.id = null; $('stick').classList.remove('on'); updMove();
-  score = similarity();
+  recStop();
   phase = 'stamp'; phaseT = 0;
   $('hanko').hidden = true; $('fude').hidden = true;
   setFace('focus');
 };
 function showResult() {
-  $('pct').textContent = Math.round(score * 100);
+  resultKey = char + ':' + (++resultNo);
   $('result').hidden = false; $('resBtns').hidden = false;
   layout(true);
   updateShare();
+  setTimeout(() => makeVideo(shareKey).catch(() => {}), 400);
 }
 $('again').onclick = () => {
+  shareKey = ''; // 作りかけの動画はやめる
   $('result').hidden = true; $('resBtns').hidden = true; $('hanko').hidden = false; $('fude').hidden = false;
-  ictx.clearRect(0, 0, N, N); sealT = -1; guideA = 0.13; inkUsed = 0; newStroke(); wet.fill(-99); for (const f of feet) f.ink = 0;
+  ictx.clearRect(0, 0, N, N); sealT = -1; guideA = 0.13; inkUsed = 0; irs = 1; recOps.length = 0; newStroke(); recStart(); wet.fill(-99); for (const f of feet) f.ink = 0;
   newChar();
   finished = false; phase = 'play'; started = true;
   $('hanko').disabled = true;
@@ -1178,11 +1193,10 @@ $('again').onclick = () => {
 
 // ===== Xに投稿（半紙の絵に数値とタイトルを重ねた画像つき）=====
 const SHARE_URL = 'https://keifurukawafunnych.com/games/robot-shodo/', TAG = '#書道ロボゲーム';
-let shareFile = null, shareKey = '';
+let shareFile = null, shareKey = '', videoFile = null, resultKey = '';
 const snapCv = document.createElement('canvas'); snapCv.width = snapCv.height = 1080;
 window.updateShare = function updateShare() {
-  const pct = Math.round(score * 100);
-  const text = `${t('title')} 「${char}」 ${t('score')} ${pct}%\n${TAG}`;
+  const text = `${t('title')} 「${char}」\n${TAG}`;
   const a = $('share');
   a.href = 'https://x.com/intent/post?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(SHARE_URL);
   if (matchMedia('(pointer: coarse)').matches) a.removeAttribute('target'); else { a.target = '_blank'; a.rel = 'noopener'; }
@@ -1197,33 +1211,151 @@ window.updateShare = function updateShare() {
   // 紙の絵は180°回っているので、カメラから見た向きに戻して描く
   const k = 780 / N; x.save(); x.translate(150 + 780, 40 + 780); x.rotate(Math.PI);
   x.drawImage(inkCv, 0, 0, 780, 780); x.globalAlpha = 0.92; drawSeal(x, k); x.globalAlpha = 1; x.restore();
-  // お手本の字（小さく）・数値・タイトル
+  // タイトル
   const F = 'system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", "Noto Sans Thai", sans-serif';
-  x.fillStyle = '#f6efe0'; x.fillRect(150, 862, 150, 150);
-  x.fillStyle = '#1b1712'; x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.font = `120px ${fontOk ? "'Yuji Syuku'," : ''} serif`; x.fillText(char, 225, 940);
-  x.textAlign = 'left'; x.textBaseline = 'alphabetic'; x.fillStyle = '#f6efe0';
-  x.font = `600 40px ${F}`; x.globalAlpha = 0.85; x.fillText(t('score'), 340, 900); x.globalAlpha = 1;
-  x.font = `800 130px ${F}`; const pw = x.measureText(String(pct)).width; x.fillText(String(pct), 334, 1012);
-  x.font = `800 64px ${F}`; x.fillText('%', 340 + pw, 1012);
-  x.textAlign = 'right'; x.font = `700 40px ${F}`; x.globalAlpha = 0.8; x.fillText(t('title'), 930, 1012); x.globalAlpha = 1;
-  // 共有用ファイルは先に作っておく（押した時に作ると Safari で共有が止まる）
-  const key = shareKey = lang + pct + char + strokeNo;
-  snapCv.toBlob(b => { if (b && key === shareKey) shareFile = new File([b], 'robot-shodo.png', { type: 'image/png' }); }, 'image/png');
+  x.textAlign = 'center'; x.textBaseline = 'alphabetic'; x.fillStyle = '#f6efe0';
+  x.font = `700 52px ${F}`; x.globalAlpha = 0.85; x.fillText(t('title'), 540, 960); x.globalAlpha = 1;
+  // 画像は動画を作れない端末のための予備。共有用ファイルは先に作っておく（押した時に作ると Safari で共有が止まる）
+  if (shareKey !== resultKey) { shareKey = resultKey; shareFile = null; videoFile = null; }
+  const key = shareKey + lang;
+  snapCv.toBlob(b => { if (b && shareKey + lang === key) shareFile = new File([b], 'robot-shodo.png', { type: 'image/png' }); }, 'image/png');
+  $('share').classList.toggle('wait', !videoFile && canVideo());
 };
+// 投稿: 書いている様子の動画を付ける（動画を作れない端末では紙の画像）
 $('share').addEventListener('click', e => {
-  const text = $('share').dataset.text;
+  const text = $('share').dataset.text, file = videoFile || (canVideo() ? null : shareFile);
   if (matchMedia('(pointer: coarse)').matches) {
-    if (navigator.share && shareFile && navigator.canShare?.({ files: [shareFile] })) {
+    // スマホは押したら必ず共有メニュー（動画ができていれば動画つき、まだなら文とURLだけ）
+    if (navigator.share) {
       e.preventDefault();
-      navigator.share({ files: [shareFile], text: `${text}\n${SHARE_URL}` }).catch(() => {});
+      const data = file && navigator.canShare?.({ files: [file] }) ? { files: [file], text: `${text}\n${SHARE_URL}` } : { text: `${text}\n${SHARE_URL}` };
+      navigator.share(data).catch(() => {});
     }
-  } else if (shareFile) {
-    const u = URL.createObjectURL(shareFile), d = document.createElement('a');
-    d.href = u; d.download = 'robot-shodo.png'; document.body.appendChild(d); d.click(); d.remove();
-    setTimeout(() => URL.revokeObjectURL(u), 4000);
+  } else if (file) {
+    // PC は保存してから投稿画面を開く（ファイルは自分で添付する）
+    const u = URL.createObjectURL(file), d = document.createElement('a');
+    d.href = u; d.download = file.name; document.body.appendChild(d); d.click(); d.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 10000);
   }
 });
+
+// ===== 書いている様子の記録と、X投稿用の動画 =====
+// 遊んでいる間、ロボと筆の姿勢（毎秒30コマ）と、墨を置いた順番を記録する。
+// 判子を押したら、その記録を斜め前から追いかけるカメラで撮り直して MP4 にする（最後は紙を真上から映して落款）。
+// 画面と同じ renderer で、表示の合間に少しずつ描く（別の renderer を作ると固まるため）
+const REC_FPS = 30, REC_MAX = REC_FPS * 180, VFPS = 30, V_MAX_S = 25, V_END_S = 3;
+function recOp(op) { if (rec.on) recOps.push(op); }
+const inkState = () => ({ irs, bInk: bInk.slice(), bDry: bDry.slice(), strokeLen, ink });
+function recStart() { rec.on = true; rec.poses = []; rec.opsN = []; rec.next = sim.time; rec.dt = 1 / REC_FPS; recOps.length = 0; rec.init = inkState(); }
+function recStop() { rec.on = false; }
+function recFrame() {
+  if (!rec.on || sim.time < rec.next) return;
+  rec.next += rec.dt;
+  const a = new Float32Array(visuals.length * 7);
+  visuals.forEach((v, i) => { a[i * 7] = v.cp.x; a[i * 7 + 1] = v.cp.y; a[i * 7 + 2] = v.cp.z; a[i * 7 + 3] = v.cq.x; a[i * 7 + 4] = v.cq.y; a[i * 7 + 5] = v.cq.z; a[i * 7 + 6] = v.cq.w; });
+  rec.poses.push(a); rec.opsN.push(recOps.length);
+  // 長すぎたら1コマおきに間引く（動画は早回しになる）
+  if (rec.poses.length > REC_MAX) { rec.poses = rec.poses.filter((_, i) => i % 2 === 0); rec.opsN = rec.opsN.filter((_, i) => i % 2 === 0); rec.dt *= 2; }
+}
+// 記録した墨の操作を、動画用の紙へ同じ順に描き直す（墨の乱数や毛の墨の量も入れ替えて、同じ筆跡になる）
+function replayTo(job, n) {
+  if (job.opi >= n) return;
+  const keep = [ictx, inkState(), strokeNo, paperDirty];
+  ictx = job.ictx; irs = job.st.irs; bInk.set(job.st.bInk); bDry.set(job.st.bDry); strokeLen = job.st.strokeLen; ink = job.st.ink;
+  replaying = true;
+  for (; job.opi < n; job.opi++) {
+    const o = recOps[job.opi];
+    if (o[0] === 's') inkSeg({ x: o[1], z: o[2] }, { x: o[3], z: o[4] }, o[5], o[6]);
+    else if (o[0] === 'n') newStroke();
+    else if (o[0] === 'd') drop(o[1], o[2], o[3]);
+    else if (o[0] === 'f') footprintAt(o[1], o[2], o[3], o[4]);
+  }
+  replaying = false;
+  job.st = inkState();
+  const k = keep[1]; ictx = keep[0]; irs = k.irs; bInk.set(k.bInk); bDry.set(k.bDry); strokeLen = k.strokeLen; ink = k.ink; strokeNo = keep[2]; paperDirty = keep[3];
+}
+let videoJob = null;
+const canVideo = () => 'VideoEncoder' in window && !!window.Mp4Muxer;
+async function makeVideo(key) {
+  if (!canVideo() || !rec.poses.length) { $('share').classList.remove('wait'); return; }
+  // 縦長 9:16。画面の canvas の左下に描いて写すので、canvas より大きくはしない
+  const cv = renderer.domElement;
+  let vh = Math.min(1280, cv.height, Math.floor(cv.width * 16 / 9)); vh -= vh % 16;
+  let vw = Math.round(vh * 9 / 16); vw -= vw % 2;
+  let cfg = null;
+  for (const codec of ['avc1.640028', 'avc1.4d0028', 'avc1.42001f']) {
+    const c = { codec, width: vw, height: vh, bitrate: 5e6, framerate: VFPS };
+    try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; break; } } catch {}
+  }
+  if (!cfg || key !== shareKey) { if (!cfg) $('share').classList.remove('wait'); return; }
+  const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: 'avc', width: vw, height: vh, frameRate: VFPS }, fastStart: 'in-memory' });
+  const out = document.createElement('canvas'); out.width = vw; out.height = vh;
+  const icv = document.createElement('canvas'); icv.width = icv.height = N;
+  const pcv = document.createElement('canvas'); pcv.width = pcv.height = N;
+  const ptex = new THREE.CanvasTexture(pcv); ptex.colorSpace = THREE.SRGBColorSpace; ptex.anisotropy = maxAniso;
+  const n = rec.poses.length, nPlay = Math.min(n, V_MAX_S * VFPS);
+  const job = { key, vw, vh, out, octx: out.getContext('2d'), icv, ictx: icv.getContext('2d'), pcv, pctx: pcv.getContext('2d'), ptex, muxer,
+    i: 0, n, nPlay, total: nPlay + Math.round(V_END_S * VFPS), opi: 0, st: rec.init, failed: false, cam: new THREE.PerspectiveCamera(40, vw / vh, 0.05, 60), look: null };
+  job.enc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: () => { job.failed = true; } });
+  job.enc.configure(cfg);
+  videoJob = job;
+}
+// 動画のカメラ: ロボの斜め前から、ゆっくり回りながら追いかける。最後は紙の真上へ上がって、書いた字を正しい向きで見せる
+const vLook = new THREE.Vector3(), vTop = new THREE.Vector3();
+function videoCam(job, P, te) {
+  const cam = job.cam;
+  vLook.set(P[0] * 0.7, 0.72, P[2] + 0.45);
+  if (!job.look) job.look = vLook.clone(); else job.look.lerp(vLook, 0.05);
+  const a = 0.55 + 0.35 * Math.sin(job.i / VFPS * 0.3);
+  const fx = job.look.x + Math.sin(a) * 3.2, fy = 2.0, fz = job.look.z + Math.cos(a) * 3.2;
+  cam.up.set(0, 1, 0);
+  if (te < 0) { cam.position.set(fx, fy, fz); cam.lookAt(job.look); return; }
+  const k = Math.min(1, te / 1.3), e = k * k * (3 - 2 * k);
+  const hf = Math.atan(Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * cam.aspect), H = (PW / 2 + 0.15) / Math.tan(hf);
+  cam.position.set(fx * (1 - e), fy + (H - fy) * e, fz + (PZC - 0.001 - fz) * e);
+  vTop.set(0, 0, PZC).sub(job.look).multiplyScalar(e).add(job.look);
+  cam.up.set(0, 1 - e, e).normalize();
+  cam.lookAt(vTop);
+}
+function videoFrames() {
+  const job = videoJob;
+  if (job.key !== shareKey || job.failed) { try { job.enc.close(); } catch {} job.ptex.dispose(); videoJob = null; return; }
+  const t0 = performance.now(), pr = renderer.getPixelRatio(), ch = renderer.domElement.height;
+  // 今の画面の状態を退避
+  const keep = visuals.map(v => [v.group.position.clone(), v.group.quaternion.clone()]);
+  const keepMap = paper.material.map, sealVis = sealObj.visible, pvis = particles.map(q => q.s.visible);
+  particles.forEach(q => { q.s.visible = false; }); sealObj.visible = false;
+  paper.material.map = job.ptex;
+  renderer.setScissorTest(true);
+  while (job.i < job.total && performance.now() - t0 < 10) {
+    const i = job.i, end = i >= job.nPlay, j = end ? job.n - 1 : Math.min(job.n - 1, Math.floor(i * job.n / job.nPlay)), P = rec.poses[j];
+    visuals.forEach((v, k) => { v.group.position.set(P[k * 7], P[k * 7 + 1], P[k * 7 + 2]); v.group.quaternion.set(P[k * 7 + 3], P[k * 7 + 4], P[k * 7 + 5], P[k * 7 + 6]); });
+    replayTo(job, end ? recOps.length : rec.opsN[j]);
+    const te = end ? (i - job.nPlay) / VFPS : -1, x = job.pctx;
+    x.globalAlpha = 1; x.drawImage(washiCv, 0, 0); x.drawImage(job.icv, 0, 0);
+    if (te > 1.5) { x.globalAlpha = Math.min(1, (te - 1.5) * 8) * 0.92; drawSeal(x, 1); x.globalAlpha = 1; }
+    job.ptex.needsUpdate = true;
+    videoCam(job, P, te);
+    renderer.setViewport(0, 0, job.vw / pr, job.vh / pr); renderer.setScissor(0, 0, job.vw / pr, job.vh / pr);
+    renderer.render(scene, job.cam);
+    job.octx.drawImage(renderer.domElement, 0, ch - job.vh, job.vw, job.vh, 0, 0, job.vw, job.vh);
+    const frame = new VideoFrame(job.out, { timestamp: Math.round(i * 1e6 / VFPS), duration: Math.round(1e6 / VFPS) });
+    job.enc.encode(frame, { keyFrame: i % 60 === 0 }); frame.close();
+    job.i++;
+  }
+  // 元に戻す
+  renderer.setScissorTest(false); renderer.setViewport(0, 0, innerWidth, innerHeight);
+  paper.material.map = keepMap; sealObj.visible = sealVis; particles.forEach((q, k) => { q.s.visible = pvis[k]; });
+  visuals.forEach((v, k) => { v.group.position.copy(keep[k][0]); v.group.quaternion.copy(keep[k][1]); });
+  if (job.i < job.total) return;
+  videoJob = null;
+  (async () => {
+    await job.enc.flush(); job.enc.close(); job.muxer.finalize(); job.ptex.dispose();
+    if (shareKey !== job.key || job.failed) return;
+    videoFile = new File([job.muxer.target.buffer], 'robot-shodo.mp4', { type: 'video/mp4' });
+    $('share').classList.remove('wait');
+  })().catch(() => {});
+}
 
 // ===== 反応 =====
 let lastState = sim.state, crashCool = 0, effortCool = 0;
@@ -1322,6 +1454,7 @@ function frame(now) {
     handleHits();
     afterStep();
     for (const v of visuals) readPose(v);
+    recFrame();
     acc -= sim.DT;
   }
   const a = acc / sim.DT;
@@ -1355,7 +1488,7 @@ function frame(now) {
     if (phaseT >= T1 && sealT < 0) { sealT = 0; stampSnd(); }
     if (sealT >= 0 && sealT < 1) { sealT = Math.min(1, sealT + dt * 8); paperDirty = true; }
     if (phaseT > T2) { guideA = Math.max(0, guideA - dt * 0.3); paperDirty = true; }
-    if (phaseT > 1.0) { sealObj.visible = false; phase = 'result'; phaseT = 0; showResult(); judge(score); setFace(score >= 0.45 ? 'happy' : 'normal'); }
+    if (phaseT > 1.0) { sealObj.visible = false; phase = 'result'; phaseT = 0; showResult(); judge(1); setFace('happy'); }
   }
   if (phase === 'result' && guideA > 0) { guideA = Math.max(0, guideA - dt * 0.3); paperDirty = true; }
   if (paperDirty) compose();
@@ -1369,6 +1502,7 @@ function frame(now) {
     hintPos.set(0, 0, PZC).project(camera);
     $('hint').style.left = ((hintPos.x + 1) / 2 * innerWidth) + 'px'; $('hint').style.top = ((1 - hintPos.y) / 2 * innerHeight) + 'px';
   }
+  if (videoJob) videoFrames();
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
@@ -1377,7 +1511,7 @@ compose();
 renderer.compile(scene, camera);
 renderer.render(scene, camera);
 requestAnimationFrame(t0 => { last = t0; frame(t0); });
-window.__game = { get fontOk() { return fontOk; }, char: () => char, sim, tgt, move, updMove, keys, similarity, get score() { return score; }, camera, layout, tip, hand, handGoal, camGoal, get camDist() { return camDist; }, get topPad() { return topPad; }, inkCv, tplCv, setDirty() { paperDirty = true; } };
+window.__game = { get videoFile() { return videoFile; }, get videoJob() { return videoJob; }, rec, recOps, get fontOk() { return fontOk; }, char: () => char, sim, tgt, move, updMove, keys, similarity, get score() { return score; }, camera, layout, tip, hand, handGoal, camGoal, get camDist() { return camDist; }, get topPad() { return topPad; }, inkCv, tplCv, setDirty() { paperDirty = true; } };
 </script>
 <script src="../../ad.js" data-result="#result" data-inline="#adSlot"></script>
 </body>
