@@ -207,6 +207,10 @@ export function createSim(R) {
         if (sim.swing.settle) { const o = sim.swing.foot.s * 0.035; sx += side.x * o; sz += side.z * o; }
       }
       else { sx = (FL.ankle.x + FR.ankle.x) / 2; sz = (FL.ankle.z + FR.ankle.z) / 2; }
+      // 歩いている時は、支えの中心を行きたい向きへずらして、体重を先に移す
+      let wdx = 0, wdz = 0;
+      if (sim.walkGoal) { const gx = sim.walkGoal.x - sim.com.x, gz = sim.walkGoal.z - sim.com.z, gd = Math.hypot(gx, gz); if (gd > 0.14) { wdx = gx / gd; wdz = gz / gd; } }
+      if (!sim.swing && (wdx || wdz)) { sx += wdx * 0.09; sz += wdz * 0.09; }
       const ex = sim.com.x - sx, ez = sim.com.z - sz;
       const cpx = ex + sim.comV.x * Tc, cpz = ez + sim.comV.z * Tc;
       const cpF = cpx * fwd.x + cpz * fwd.z, cpS = cpx * side.x + cpz * side.z;
@@ -224,7 +228,9 @@ export function createSim(R) {
         const dx = Cx - (ax + bx * u), dz = Cz - (az + bz * u);
         oF = dx * fwd.x + dz * fwd.z; oS = dx * side.x + dz * side.z;
       }
-      if (!sim.swing && sim.stepCool <= 0 && (cpF > 0.09 || cpF < -0.07 || Math.abs(oS) > 0.1)) {
+      // 歩いている間は、重心が足の間から少しずれるのは当たり前なので、慌てて踏み出す基準をゆるめる
+      const walking = sim.walkGoal && Math.hypot(sim.walkGoal.x - sim.com.x, sim.walkGoal.z - sim.com.z) > 0.14, wk = walking ? 1.8 : 1;
+      if (!sim.swing && sim.stepCool <= 0 && (cpF > 0.09 * wk || cpF < -0.07 * wk || Math.abs(oS) > 0.1 * wk)) {
         let foot;
         if (Math.abs(cpS) > Math.abs(cpF) * 0.8) foot = cpS > 0 ? FL : FR;
         else { // 押された向きで後ろにある足を出す
@@ -237,6 +243,35 @@ export function createSim(R) {
         sim.lastStep = { k: foot.k, t: sim.time };
         sim.settleLeft = 4;
         if (sim.onStep) sim.onStep(foot.k);
+      }
+      // 歩く: 行きたい所（sim.walkGoal）が離れていれば、そちらへ自分から足を出す（向きは変えずに前後左右へ）
+      if (!sim.swing && sim.stepCool <= 0 && sim.walkGoal && sim.stun <= 0) {
+        const gx = sim.walkGoal.x - sim.com.x, gz = sim.walkGoal.z - sim.com.z, gd = Math.hypot(gx, gz);
+        if (gd > 0.14) {
+          const ux = gx / gd, uz = gz / gd, dS = ux * side.x + uz * side.z;
+          // 横へ行くならその側の足、前後なら進む向きで後ろにある足
+          let foot;
+          if (Math.abs(dS) > 0.6) foot = dS > 0 ? FL : FR;
+          else foot = (FL.ankle.x * ux + FL.ankle.z * uz) < (FR.ankle.x * ux + FR.ankle.z * uz) ? FL : FR;
+          if (sim.lastStep && sim.lastStep.k === foot.k && sim.time - sim.lastStep.t < 0.9) foot = foot === FL ? FR : FL;
+          const other = foot === FL ? FR : FL, L = Math.min(0.22, gd * 0.8);
+          // 後ろの足を寄せるのは、体重が前の足に乗ってから
+          const lead = (other.ankle.x - foot.ankle.x) * ux + (other.ankle.z - foot.ankle.z) * uz;
+          const over = (sim.com.x - other.ankle.x) * ux + (sim.com.z - other.ankle.z) * uz;
+          if (lead > 0.12 && over < -0.07) foot = null;
+          if (foot) {
+          let tx = sim.com.x + sim.comV.x * Tc + ux * L * 0.7 + side.x * foot.s * HIP_X, tz = sim.com.z + sim.comV.z * Tc + uz * L * 0.7 + side.z * foot.s * HIP_X;
+          // 足が交差しないように: 相手の足より外側。一歩は0.45mまで
+          const rel = (tx - other.ankle.x) * side.x + (tz - other.ankle.z) * side.z;
+          if (rel * foot.s < 0.15) { const d = 0.15 * foot.s - rel; tx += d * side.x; tz += d * side.z; }
+          const sdx = tx - other.ankle.x, sdz = tz - other.ankle.z, sl = Math.hypot(sdx, sdz);
+          if (sl > 0.45) { tx = other.ankle.x + sdx * 0.45 / sl; tz = other.ankle.z + sdz * 0.45 / sl; }
+          sim.swing = { foot, u: 0, start: { ...foot.ankle }, dur: 0.36, fixed: { x: tx, z: tz }, walk: true };
+          sim.lastStep = { k: foot.k, t: sim.time };
+          sim.settleLeft = 4;
+          if (sim.onStep) sim.onStep(foot.k);
+          }
+        }
       }
       // 落ち着いたら、両足を理想の位置（重心の真下で腰幅に開き、前後をそろえた所）へ戻す
       sim.calm = Math.hypot(sim.comV.x, sim.comV.z) < 0.1 && cpLen < 0.16 ? (sim.calm || 0) + DT : 0;

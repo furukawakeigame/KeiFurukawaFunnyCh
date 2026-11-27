@@ -81,6 +81,8 @@
     #share { background: #000; color: #fff; border: 1px solid rgba(255,255,255,.4); }
     .btn:active { transform: translateY(1px); }
     @media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+      #hanko { left: auto; right: 16px; transform: none; }
+      #hanko:active { transform: translateY(2px) scale(.96); }
       #result { left: auto; right: 12px; transform: none; top: 52px; width: 260px; }
       #resBtns { left: auto; right: 12px; justify-content: flex-end; }
     }
@@ -233,6 +235,15 @@ function stampSnd() {
   o.connect(og).connect(master); o.start(n); o.stop(n + 0.18); nodes.push(o, og);
   o.onended = unplug(nodes);
 }
+// 濡れた墨を踏んだ「ぺちゃ」
+function squish() {
+  if (!on() || !every('squish', 200) || !slot(0.2)) return;
+  const n = ac.currentTime, src = noiseSrc(n, 0.15), bp = ac.createBiquadFilter(), g = ac.createGain();
+  bp.type = 'bandpass'; bp.Q.value = 3; bp.frequency.setValueAtTime(1600, n); bp.frequency.exponentialRampToValueAtTime(500, n + 0.12);
+  g.gain.setValueAtTime(0.0001, n); g.gain.linearRampToValueAtTime(0.35, n + 0.01); g.gain.exponentialRampToValueAtTime(0.001, n + 0.14);
+  src.connect(bp).connect(g).connect(master);
+  src.onended = unplug([src, bp, g]);
+}
 // 筆を紙に置いた時の小さな「トン」
 function touchSnd(v) {
   if (!on() || !slot(0.15)) return;
@@ -314,9 +325,9 @@ try {
 const sim = createSim(RAPIER);
 
 // ===== 半紙・筆の寸法（メートル）=====
-const PW = 0.76, PX0 = -PW / 2, PZ0 = 0.36, PZC = PZ0 + PW / 2; // 半紙: ロボットの前、0.8m 四方
+const PW = 2.2, PX0 = -PW / 2, PZ0 = 0.3, PZC = PZ0 + PW / 2; // 紙: ロボットの前に 2.2m 四方（ロボットは紙の上を歩いて書く）
 const N = 1024, PPM = N / PW;                                // 半紙の絵（1024px 四方）
-const BR_LEN = 1.05, BR_MASS = 0.9, TIP_R = 0.03, TIP_LOCAL = -BR_LEN / 2 + TIP_R;
+const BR_LEN = 1.2, BR_MASS = 1.3, TIP_R = 0.05, TIP_LOCAL = -BR_LEN / 2 + TIP_R;
 const brush = sim.addBrush(BR_LEN, BR_MASS, TIP_R, (() => { const d = { x: 0.25, y: -0.55, z: 0.8 }, l = Math.hypot(d.x, d.y, d.z); return { x: d.x / l, y: d.y / l, z: d.z / l }; })());
 
 // ===== 描画の準備 =====
@@ -377,7 +388,7 @@ const feltTex = (() => {
   for (let i = 0; i < 3000; i++) { x.fillStyle = `rgba(${r() < 0.5 ? '0,0,0' : '120,130,160'},${r() * 0.12})`; x.fillRect(r() * 256, r() * 256, 1.5, 1.5); }
   const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; return tx;
 })();
-const felt = new THREE.Mesh(new THREE.BoxGeometry(PW + 0.24, 0.006, PW + 0.3), new THREE.MeshStandardMaterial({ map: feltTex, roughness: 1 }));
+const felt = new THREE.Mesh(new THREE.BoxGeometry(PW + 0.3, 0.006, PW + 0.34), new THREE.MeshStandardMaterial({ map: feltTex, roughness: 1 }));
 felt.position.set(0, 0.003, PZC + 0.02); felt.receiveShadow = true; scene.add(felt);
 
 // 半紙（和紙の繊維・お手本の薄い透かし・墨・落款を1枚の Canvas に重ねる）
@@ -421,10 +432,10 @@ const M = {
   stone: new THREE.MeshStandardMaterial({ color: 0x24242a, roughness: 0.55, metalness: 0.1 }),
   inkWet: new THREE.MeshStandardMaterial({ color: 0x050507, roughness: 0.08, metalness: 0.2 }),
 };
-const bun = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.025, 0.035, 2, 0.008), M.iron);
-bun.position.set(0, 0.02, PZ0 + 0.012); bun.castShadow = true; scene.add(bun);
+const bun = new THREE.Mesh(new RoundedBoxGeometry(1.2, 0.04, 0.06, 2, 0.012), M.iron);
+bun.position.set(0, 0.026, PZ0 + 0.02); bun.castShadow = true; scene.add(bun);
 // 硯（右の奥）と墨
-const suzuri = new THREE.Group(); suzuri.position.set(0.66, 0, 0.55); suzuri.rotation.y = -0.15; scene.add(suzuri);
+const suzuri = new THREE.Group(); suzuri.position.set(0.72, 0, -0.02); suzuri.rotation.y = -0.15; suzuri.scale.setScalar(1.6); scene.add(suzuri);
 {
   const base = new THREE.Mesh(new RoundedBoxGeometry(0.16, 0.035, 0.28, 3, 0.01), M.stone); base.position.y = 0.0175; base.castShadow = base.receiveShadow = true; suzuri.add(base);
   const pool = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.08), M.inkWet); pool.rotation.x = -Math.PI / 2; pool.position.set(0, 0.0355, -0.09); suzuri.add(pool);
@@ -550,17 +561,17 @@ addVisual(brush.body, g => {
   const bamboo = new THREE.MeshStandardMaterial({ color: 0xc9a86a, roughness: 0.45 });
   const node = new THREE.MeshStandardMaterial({ color: 0x9c7c45, roughness: 0.5 });
   const hl = BR_LEN - 0.26, hy = BR_LEN / 2 - hl / 2;
-  mesh(cyl(0.02, 0.022, hl), bamboo, g, 0, hy, 0);
-  for (let i = 1; i < 4; i++) mesh(cyl(0.024, 0.024, 0.012), node, g, 0, hy - hl / 2 + hl * i / 4, 0);
+  mesh(cyl(0.026, 0.028, hl), bamboo, g, 0, hy, 0);
+  for (let i = 1; i < 4; i++) mesh(cyl(0.031, 0.031, 0.014), node, g, 0, hy - hl / 2 + hl * i / 4, 0);
   mesh(cyl(0.026, 0.026, 0.02), M.dark, g, 0, BR_LEN / 2 - 0.01, 0); // 柄の端
-  mesh(cyl(0.032, 0.026, 0.06), new THREE.MeshStandardMaterial({ color: 0x3a2a1c, roughness: 0.5, metalness: 0.2 }), g, 0, -BR_LEN / 2 + 0.23, 0); // 根元の金具
+  mesh(cyl(0.05, 0.034, 0.07), new THREE.MeshStandardMaterial({ color: 0x3a2a1c, roughness: 0.5, metalness: 0.2 }), g, 0, -BR_LEN / 2 + 0.36, 0); // 根元の金具
   // 毛: 根元は白く、先は墨で黒い。上下に分けた回転体
   const prof = []; for (let i = 0; i <= 12; i++) { const u = i / 12; prof.push(new THREE.Vector2(0.05 * Math.pow(Math.sin(Math.PI * (0.08 + 0.92 * u) * 0.5 + 0.2), 1.2) * (1 - Math.pow(1 - u, 6) * 0.98), u * 0.2)); }
   const lathe = new THREE.LatheGeometry(prof.map(v => new THREE.Vector2(v.x, 0.2 - v.y)).reverse(), 20);
   const bm = new THREE.MeshStandardMaterial({ color: 0x141418, roughness: 0.35, metalness: 0.05 });
   const bmesh = new THREE.Mesh(lathe, bm); bmesh.castShadow = true; bmesh.position.y = -0.2; bristle.add(bmesh);
   const white = new THREE.Mesh(cyl(0.04, 0.046, 0.05), new THREE.MeshStandardMaterial({ color: 0xe9e2d0, roughness: 0.8 })); white.position.y = -0.025; white.castShadow = true; bristle.add(white);
-  bristle.position.y = -BR_LEN / 2 + 0.2;
+  bristle.position.y = -BR_LEN / 2 + 0.32; bristle.userData.s = 1.6; bristle.scale.setScalar(1.6);
   g.add(bristle);
 });
 function readPose(v) { const t = v.body.translation(), q = v.body.rotation(); v.cp.set(t.x, t.y, t.z); v.cq.set(q.x, q.y, q.z, q.w); }
@@ -677,6 +688,44 @@ function newChar() {
 newChar();
 document.fonts.load(`80px 'Yuji Syuku'`, CHARS).then(fs => { if (fs.length) { fontOk = true; drawTemplate(); } }).catch(() => {});
 
+// ===== 乾いていない墨（踏むと足に付く）=====
+const WG = 64, wet = new Float32Array(WG * WG).fill(-99), WET_T = 15; // 墨を置いてから15秒は乾かない
+function markWet(a, b) {
+  const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / (PW / WG)));
+  for (let i = 0; i <= n; i++) {
+    const x = a.x + (b.x - a.x) * i / n, z = a.z + (b.z - a.z) * i / n;
+    const gx = Math.floor((x - PX0) / PW * WG), gz = Math.floor((z - PZ0) / PW * WG);
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) { const X = gx + dx, Z = gz + dz; if (X >= 0 && Z >= 0 && X < WG && Z < WG) wet[Z * WG + X] = sim.time; }
+  }
+}
+function wetAt(x, z) { const gx = Math.floor((x - PX0) / PW * WG), gz = Math.floor((z - PZ0) / PW * WG); return gx >= 0 && gz >= 0 && gx < WG && gz < WG && sim.time - wet[gz * WG + gx] < WET_T; }
+// 足跡: 墨を踏んだ足は、次の何歩か紙に跡を付ける（だんだん薄く）
+const feet = ['L', 'R'].map(k => ({ k, body: sim.parts['foot' + k].body, down: true, ink: 0 }));
+const fq = new THREE.Quaternion(), fv = new THREE.Vector3();
+function footprint(f, t, alpha) {
+  const q = f.body.rotation(); fq.set(q.x, q.y, q.z, q.w); fv.set(0, 0, 1).applyQuaternion(fq);
+  const ang = Math.atan2(fv.x, fv.z), px = (t.x - PX0) * PPM, py = (t.z - PZ0) * PPM, w = 0.14 * PPM, h = 0.25 * PPM;
+  ictx.save(); ictx.translate(px, py); ictx.rotate(-ang);
+  ictx.fillStyle = `rgba(14,13,16,${alpha})`;
+  ictx.beginPath(); ictx.roundRect ? ictx.roundRect(-w / 2, -h / 2, w, h, w * 0.3) : ictx.rect(-w / 2, -h / 2, w, h); ictx.fill();
+  // 靴底の溝
+  ictx.globalCompositeOperation = 'destination-out'; ictx.fillStyle = 'rgba(0,0,0,0.75)';
+  for (let i = -3; i <= 3; i++) ictx.fillRect(-w / 2, i * h / 8 - h * 0.025, w, h * 0.04);
+  ictx.restore();
+  paperDirty = true;
+}
+function updateFeet() {
+  for (const f of feet) {
+    const t = f.body.translation(), down = t.y < 0.06;
+    if (down && !f.down && !finished) {
+      const on = t.x > PX0 && t.x < PX0 + PW && t.z > PZ0 && t.z < PZ0 + PW;
+      if (on && wetAt(t.x, t.z)) { f.ink = 1; squish(); }
+      if (on && f.ink > 0.06) { footprint(f, t, 0.85 * f.ink); markWet(t, t); f.ink *= 0.55; }
+    }
+    f.down = down;
+  }
+}
+
 // ===== 墨 =====
 let ink = 1, inkUsed = 0, strokeNo = 0, wasTouch = false, prevTip = null, bth = [];
 function newStroke() {
@@ -689,7 +738,7 @@ function inkSeg(a, b, speed, press) {
   const ax = (a.x - PX0) * PPM, ay = (a.z - PZ0) * PPM, bx = (b.x - PX0) * PPM, by = (b.z - PZ0) * PPM;
   const len = Math.hypot(bx - ax, by - ay);
   // 太さ: 押しつけるほど太く、速いほど細く
-  const w = PPM * 0.052 * (0.55 + 0.6 * press) * (1.1 - 0.35 * Math.min(1, speed / 1.8));
+  const w = PPM * 0.12 * (0.55 + 0.6 * press) * (1.1 - 0.35 * Math.min(1, speed / 1.8));
   const nx = len > 0.01 ? -(by - ay) / len : 0, ny = len > 0.01 ? (bx - ax) / len : 0;
   ictx.lineCap = 'round'; ictx.lineJoin = 'round';
   if (ink > 0.3) { ictx.strokeStyle = `rgba(14,13,16,${Math.min(0.95, 0.35 + ink)})`; ictx.lineWidth = w * Math.min(0.85, 0.5 + ink * 0.4); ictx.beginPath(); ictx.moveTo(ax, ay); ictx.lineTo(bx, by); ictx.stroke(); }
@@ -702,7 +751,8 @@ function inkSeg(a, b, speed, press) {
     ictx.beginPath(); ictx.moveTo(ax + nx * o, ay + ny * o); ictx.lineTo(bx + nx * o, by + ny * o); ictx.stroke();
   }
   const segM = len / PPM;
-  ink = Math.max(0.12, ink - segM * 0.42);
+  ink = Math.max(0.12, ink - segM * 0.28);
+  markWet(a, b);
   inkUsed += segM;
   paperDirty = true;
 }
@@ -710,7 +760,7 @@ function inkSeg(a, b, speed, press) {
 // ===== 操作: 半紙の上をなぞる（押している間だけ筆を下ろす）=====
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-const tgt = { x: 0, z: PZC, down: false };
+const tgt = { x: -0.18, z: 0.72, down: false }; // 最初はロボットの目の前（歩き出さない位置）
 let ptrId = null, finished = false, started = false;
 function toPaper(cx, cy) {
   ndc.set(cx / innerWidth * 2 - 1, -(cy / innerHeight) * 2 + 1);
@@ -752,11 +802,14 @@ function goals() {
   sh.set(-0.25, 0.16, 0).applyQuaternion(tq).add(cur3.set(tt.x, tt.y, tt.z));
   const down = tgt.down && !finished;
   // 書き終えたら筆を硯の上へ戻す
-  if (finished) T3.set(0.6, 0.12, 0.5); else T3.set(tgt.x, down ? TIP_R - 0.02 : 0.2, tgt.z);
+  if (finished) T3.set(0.62, 0.15, -0.02); else T3.set(tgt.x, down ? TIP_R - 0.02 : 0.2, tgt.z);
   // 楽な手の位置（右肩の前・下）から筆先へ向かう線の上で、筆の長さだけ離れた所に手を置く
   comfy.set(0.08, -0.4, 0.32).applyQuaternion(tq).add(sh);
   n3.copy(comfy).sub(T3).normalize();
   handGoal.copy(T3).addScaledVector(n3, LB);
+  // 腕が届く範囲より先は追わない（少しだけ体ごと引っぱられる。あとは歩いて近づく）
+  cur3.copy(handGoal).sub(sh); const hd = cur3.length(), RMAX = UA + FA + 0.1;
+  if (hd > RMAX) handGoal.copy(sh).addScaledVector(cur3, RMAX / hd);
 }
 function handState() {
   const b = sim.parts.foreR.body, t = b.translation(), q = b.rotation();
@@ -765,15 +818,20 @@ function handState() {
   const lv = b.linvel(), av = b.angvel();
   wv.set(av.x, av.y, av.z).cross(cur3); handV.set(lv.x + wv.x, lv.y + wv.y, lv.z + wv.z);
 }
-const REACT = 0.55, KH = 900, CH = 60, FHMAX = 110, KT = 220, CT = 14, TQMAX = 70;
+const WALK_K = 120, WALK_C = 70, WALK_F = 35, VMAX = 0.45, REACT = 0.55, KH = 900, CH = 60, FHMAX = 110, KT = 220, CT = 14, TQMAX = 70;
 sim.preStep = () => {
   if (sim.state === 'stand') {
     // ロボットが正面（半紙の方）を向き続けるように、腰を少しだけ回して戻す
     const pel = sim.parts.pelvis.body, w = pel.angvel();
     pel.applyTorqueImpulse({ x: 0, y: (-14 * (sim.yaw || 0) - 3 * w.y) * sim.DT, z: 0 }, true);
-    // 立ち位置（半紙の手前）へ少しずつ戻る（ここから離れすぎると筆が届かない）
-    const pt = pel.translation();
-    let hx = -200 * pt.x, hz = -200 * (pt.z + 0.02); const hl = Math.hypot(hx, hz); if (hl > 50) { hx *= 50 / hl; hz *= 50 / hl; }
+    // 筆先の行きたい所の少し奥（筆が届く所）へ歩いていく。押されて足を踏み出すしくみで、よたよた歩く
+    const pt = pel.translation(), pv = pel.linvel();
+    const gx = finished ? 0 : Math.max(PX0 - 0.1, Math.min(PX0 + PW + 0.1, tgt.x + 0.18)), gz = finished ? 0 : Math.max(-0.05, Math.min(PZ0 + PW - 0.35, tgt.z - 0.72));
+    sim.walkGoal = { x: gx, z: gz };
+    let hx = WALK_K * (gx - pt.x) - WALK_C * pv.x, hz = WALK_K * (gz - pt.z) - WALK_C * pv.z; const hl = Math.hypot(hx, hz); if (hl > WALK_F) { hx *= WALK_F / hl; hz *= WALK_F / hl; }
+    // 歩く勢いが出すぎたらブレーキ（足より先に体が流れて転ばないように）
+    const vh = Math.hypot(sim.comV.x, sim.comV.z);
+    if (vh > VMAX) { const k = Math.min(160, 400 * (vh - VMAX)) / vh; hx -= sim.comV.x * k; hz -= sim.comV.z * k; }
     pel.applyImpulse({ x: hx * sim.DT, y: 0, z: hz * sim.DT }, true);
   } else { pull = 0; return; }
   goals(); handState(); tipState();
@@ -821,8 +879,8 @@ const PITCH = 1.22; // 見下ろす角度（ラジアン）
 const camT = new THREE.Vector3(0, 0.4, 0.6), camGoal = { t: new THREE.Vector3(0, 0.4, 0.6), d: 4 };
 let camDist = 4, topPad = 52, botPad = 160;
 const fitCam = new THREE.PerspectiveCamera(36, 1, 0.1, 60);
-const PLAY_PTS = [[-0.55, 0, PZ0 - 0.15], [0.55, 0, PZ0 - 0.15], [-0.55, 0, PZ0 + PW + 0.14], [0.55, 0, PZ0 + PW + 0.14], [-0.36, 1.66, 0], [0.36, 1.66, 0], [-0.45, 0, -0.2], [0.45, 0, -0.2], [0.75, 0, 0.55]];
-const RES_PTS = [[-0.47, 0, PZ0 - 0.05], [0.47, 0, PZ0 - 0.05], [-0.47, 0, PZ0 + PW + 0.06], [0.47, 0, PZ0 + PW + 0.06]];
+const PLAY_PTS = [[-1.25, 0, PZ0 - 0.17], [1.25, 0, PZ0 - 0.17], [-1.25, 0, PZ0 + PW + 0.17], [1.25, 0, PZ0 + PW + 0.17], [-0.36, 1.66, 0], [0.36, 1.66, 0], [-0.45, 0, -0.2], [0.45, 0, -0.2]];
+const RES_PTS = [[-1.17, 0, PZ0 - 0.08], [1.17, 0, PZ0 - 0.08], [-1.17, 0, PZ0 + PW + 0.08], [1.17, 0, PZ0 + PW + 0.08]];
 function fitFor(pts, w, h) {
   fitCam.aspect = w / h; fitCam.updateProjectionMatrix();
   const c = new THREE.Vector3(); for (const p of pts) c.add(tv.set(...p)); c.divideScalar(pts.length);
@@ -846,7 +904,9 @@ function layout(snap) {
   if (res && matchMedia('(max-height: 520px) and (min-aspect-ratio: 4/3)').matches) topPad = 52;
   botPad = 80 + 64 + 16;
   let wL = 0, wR = 0;
-  if (res && matchMedia('(max-height: 520px) and (min-aspect-ratio: 4/3)').matches) { wR = 284; botPad = 70; }
+  const shortWide = matchMedia('(max-height: 520px) and (min-aspect-ratio: 4/3)').matches;
+  if (res && shortWide) { wR = 284; botPad = 70; }
+  else if (shortWide) { wR = 96; botPad = 70; } // 判子ボタンは右下へ
   const vw = Math.max(160, w - wL - wR), h = Math.max(160, H - topPad - botPad);
   camera.aspect = vw / h;
   camera.setViewOffset(vw, h, -wL, -topPad, w, H);
@@ -905,7 +965,7 @@ function showResult() {
 }
 $('again').onclick = () => {
   $('result').hidden = true; $('resBtns').hidden = true; $('hanko').hidden = false;
-  ictx.clearRect(0, 0, N, N); sealT = -1; guideA = 0.13; inkUsed = 0; newStroke();
+  ictx.clearRect(0, 0, N, N); sealT = -1; guideA = 0.13; inkUsed = 0; newStroke(); wet.fill(-99); for (const f of feet) f.ink = 0;
   newChar();
   finished = false; phase = 'play'; started = true;
   $('hanko').disabled = true;
@@ -987,6 +1047,7 @@ function handleHits() {
 // 筆先の処理（物理の1きざみごと）: 紙に付いていれば墨を引く
 let touchSpeed = 0;
 function afterStep() {
+  updateFeet();
   tipState();
   const onPaper = tip.x > PX0 - 0.02 && tip.x < PX0 + PW + 0.02 && tip.z > PZ0 - 0.02 && tip.z < PZ0 + PW + 0.02;
   const touch = tip.y < TIP_R + 0.012 && onPaper && !finished;
@@ -1027,7 +1088,7 @@ function frame(now) {
   for (const v of visuals) { v.group.position.lerpVectors(v.pp, v.cp, a); v.group.quaternion.slerpQuaternions(v.pq, v.cq, a); }
   // 毛は紙に押しつけるとつぶれて広がる
   const sq = wasTouch ? Math.min(1, (TIP_R + 0.012 - tip.y) / 0.02) : 0;
-  bristle.scale.set(1 + 0.35 * sq, 1 - 0.3 * sq, 1 + 0.35 * sq);
+  bristle.scale.set(1.6 * (1 + 0.35 * sq), 1.6 * (1 - 0.3 * sq), 1.6 * (1 + 0.35 * sq));
   // 音
   if (brushSnd) {
     const v = Math.min(1, touchSpeed / 1.5);
