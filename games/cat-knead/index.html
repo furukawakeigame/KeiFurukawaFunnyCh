@@ -113,7 +113,7 @@
       soundOn = !soundOn; store.set('sound', soundOn); drawSoundBtn();
       if (master) master.gain.setTargetAtTime(soundOn ? 1 : 0, ac.currentTime, 0.03);
     });
-    let ac = null, master = null, noiseBuf = null;
+    let ac = null, master = null, noiseBuf = null, brownBuf = null;
     function unmuteIOS() {
       try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch {}
       try {
@@ -136,16 +136,21 @@
         noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
         const d = noiseBuf.getChannelData(0);
         for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+        // こもった音用の茶色いノイズ
+        brownBuf = ac.createBuffer(1, len, ac.sampleRate);
+        const bd = brownBuf.getChannelData(0);
+        let last = 0;
+        for (let i = 0; i < len; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; bd[i] = last * 3.5; }
         const o = ac.createOscillator(), g = ac.createGain(); g.gain.value = 0;
         o.connect(g).connect(master); o.start(); o.stop(ac.currentTime + 0.05);
       } catch { ac = null; }
     }
     addEventListener('pointerdown', initAudio, { capture: true });
     addEventListener('keydown', initAudio, { capture: true });
-    function noiseHit(freq, q, type, vol, attack, decay, rate = 1, delay = 0) {
+    function noiseHit(freq, q, type, vol, attack, decay, rate = 1, delay = 0, buf = noiseBuf) {
       if (!ac) return;
       const t0 = ac.currentTime + delay;
-      const s = ac.createBufferSource(); s.buffer = noiseBuf; s.playbackRate.value = rate;
+      const s = ac.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate;
       const f = ac.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
       const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t0);
       g.gain.exponentialRampToValueAtTime(vol, t0 + attack);
@@ -154,24 +159,26 @@
       s.start(t0, Math.random() * 1.5); s.stop(t0 + attack + decay + 0.05);
       return f;
     }
-    // 生地を押す「むにっ」
+    // 生地の中の小さな気泡がつぶれる「ぷち」
+    function bubbles(n, spread, vol, delay = 0) {
+      for (let k = 0; k < n; k++) {
+        noiseHit(rnd(1400, 3200), rnd(5, 9), 'bandpass', vol * rnd(0.4, 1), 0.002, rnd(0.006, 0.014), 1, delay + Math.random() * spread);
+      }
+    }
+    // 生地をそっと押す「ふにゅ」（こもった柔らかい音。ゆっくり立ち上がる）
     function sSquish(str) {
       if (!ac) return;
       const r = 0.85 + Math.random() * 0.3;
-      const f = noiseHit(520 * r, 1.4, 'lowpass', 0.55 * str, 0.012, 0.2, r);
-      f.frequency.setTargetAtTime(220, ac.currentTime + 0.02, 0.06);
-      noiseHit(260 * r, 2.2, 'bandpass', 0.5 * str, 0.01, 0.14, r);
-      const o = ac.createOscillator(), g = ac.createGain(), t0 = ac.currentTime;
-      o.frequency.setValueAtTime(95 * r, t0); o.frequency.exponentialRampToValueAtTime(55, t0 + 0.12);
-      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.22 * str, t0 + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
-      o.connect(g).connect(master); o.start(t0); o.stop(t0 + 0.2);
+      const f = noiseHit(380 * r, 0.8, 'lowpass', 0.32 * str, 0.045, 0.26, 1, 0, brownBuf);
+      f.frequency.setTargetAtTime(170 * r, ac.currentTime + 0.03, 0.08);
+      noiseHit(700 * r, 3, 'bandpass', 0.035 * str, 0.05, 0.18, r);
+      bubbles(3 + Math.floor(Math.random() * 4), 0.18, 0.025 * str, 0.03);
     }
-    // 離すときの「ぺたっ」
+    // 離すときに、くっついた生地がはがれる「ぺりっ」
     function sUnstick(str) {
       if (!ac) return;
-      const r = 0.8 + Math.random() * 0.4;
-      noiseHit(1500 * r, 3, 'bandpass', 0.12 * str, 0.004, 0.05, r);
-      noiseHit(700 * r, 2, 'bandpass', 0.1 * str, 0.006, 0.07, r, 0.02);
+      bubbles(5 + Math.floor(Math.random() * 5), 0.09, 0.03 * str);
+      noiseHit(900, 1.2, 'lowpass', 0.05 * str, 0.01, 0.07, 1, 0.01, brownBuf);
     }
 
     // ---------- 描画の準備 ----------
