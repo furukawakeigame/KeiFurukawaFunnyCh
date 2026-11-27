@@ -254,7 +254,7 @@ export function createSim(R) {
           if (Math.abs(dS) > 0.6) foot = dS > 0 ? FL : FR;
           else foot = (FL.ankle.x * ux + FL.ankle.z * uz) < (FR.ankle.x * ux + FR.ankle.z * uz) ? FL : FR;
           if (sim.lastStep && sim.lastStep.k === foot.k && sim.time - sim.lastStep.t < 0.9) foot = foot === FL ? FR : FL;
-          const other = foot === FL ? FR : FL, L = Math.min(0.22, gd * 0.8);
+          const other = foot === FL ? FR : FL, L = Math.min(0.3, gd * 0.8);
           // 後ろの足を寄せるのは、体重が前の足に乗ってから
           const lead = (other.ankle.x - foot.ankle.x) * ux + (other.ankle.z - foot.ankle.z) * uz;
           const over = (sim.com.x - other.ankle.x) * ux + (sim.com.z - other.ankle.z) * uz;
@@ -265,8 +265,8 @@ export function createSim(R) {
           const rel = (tx - other.ankle.x) * side.x + (tz - other.ankle.z) * side.z;
           if (rel * foot.s < 0.15) { const d = 0.15 * foot.s - rel; tx += d * side.x; tz += d * side.z; }
           const sdx = tx - other.ankle.x, sdz = tz - other.ankle.z, sl = Math.hypot(sdx, sdz);
-          if (sl > 0.45) { tx = other.ankle.x + sdx * 0.45 / sl; tz = other.ankle.z + sdz * 0.45 / sl; }
-          sim.swing = { foot, u: 0, start: { ...foot.ankle }, dur: 0.36, fixed: { x: tx, z: tz }, walk: true };
+          if (sl > 0.52) { tx = other.ankle.x + sdx * 0.52 / sl; tz = other.ankle.z + sdz * 0.52 / sl; }
+          sim.swing = { foot, u: 0, start: { ...foot.ankle }, dur: 0.3, fixed: { x: tx, z: tz }, walk: true };
           sim.lastStep = { k: foot.k, t: sim.time };
           sim.settleLeft = 4;
           if (sim.onStep) sim.onStep(foot.k);

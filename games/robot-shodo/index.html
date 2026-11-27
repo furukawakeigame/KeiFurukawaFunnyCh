@@ -55,6 +55,12 @@
     #hint .trail { stroke-dasharray: 80; animation: trail 1.6s ease-in-out infinite; }
     @keyframes slide { 0% { transform: translateX(0); opacity: 0; } 15% { opacity: 1; } 70% { transform: translateX(80px); opacity: 1; } 100% { transform: translateX(80px); opacity: 0; } }
     @keyframes trail { 0% { stroke-dashoffset: 80; opacity: .8; } 70% { stroke-dashoffset: 0; opacity: .8; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+    /* 吹き出し（ロボの頭の上） */
+    #bubble { position: fixed; left: 0; top: 0; z-index: 3; pointer-events: none; }
+    #bubble[hidden] { display: none; }
+    #bubble span { display: block; transform: translate(-50%, -100%); background: #fff; color: #1b1712; font-weight: 800; font-size: clamp(22px, 5vmin, 44px); letter-spacing: .04em; padding: .4em 1em; border-radius: 1em; white-space: nowrap; box-shadow: 0 4px 16px rgba(0,0,0,.25); animation: pop .45s cubic-bezier(.2,1.6,.4,1) both; position: relative; }
+    #bubble span::after { content: ""; position: absolute; left: 50%; bottom: -13px; margin-left: -11px; border: 11px solid transparent; border-top: 15px solid #fff; border-bottom: 0; }
+    @keyframes pop { from { transform: translate(-50%, -100%) scale(.3); opacity: 0; } to { transform: translate(-50%, -100%) scale(1); opacity: 1; } }
     /* 仮想スティック: 押した所に出る */
     #stick { position: fixed; width: 132px; height: 132px; margin: -66px 0 0 -66px; border-radius: 50%; border: 2px solid rgba(255,250,240,.55); background: rgba(30,22,14,.18); pointer-events: none; z-index: 2; opacity: 0; transition: opacity .15s; }
     #stick.on { opacity: 1; }
@@ -108,10 +114,12 @@
   </header>
   <main style="display:contents">
     <canvas id="cv"></canvas>
-    <svg id="hint" viewBox="0 0 120 60"><path class="trail" d="M20 30 H100" stroke="#fff" stroke-width="6" stroke-linecap="round" fill="none"/><g class="dot"><circle cx="20" cy="30" r="16" fill="none" stroke="#fff" stroke-width="3"/><circle cx="20" cy="30" r="7" fill="#fff"/></g></svg>
+    <svg id="hint" class="off" viewBox="0 0 120 60"><path class="trail" d="M20 30 H100" stroke="#fff" stroke-width="6" stroke-linecap="round" fill="none"/><g class="dot"><circle cx="20" cy="30" r="16" fill="none" stroke="#fff" stroke-width="3"/><circle cx="20" cy="30" r="7" fill="#fff"/></g></svg>
     <div id="stick"><div id="knob"></div></div>
-    <button id="fude" aria-label="brush"><svg viewBox="0 0 64 64" width="46" height="46" aria-hidden="true"><path d="M44 6l6 6-14 20-6-6z" fill="#c9a86a" stroke="#6b4a2c" stroke-width="2" stroke-linejoin="round"/><path d="M30 26l8 8-4 4-8-8z" fill="#3a2a1c"/><path d="M26 30l8 8c-4 8-12 14-22 18 3-10 7-19 14-26z" fill="#141418"/><path d="M8 58c6-2 10-4 14-8" stroke="#141418" stroke-width="3" stroke-linecap="round" fill="none"/></svg></button>
-    <button id="hanko" disabled aria-label="finish"></button>
+    <!-- 最初のカットシーンの吹き出し -->
+    <div id="bubble" hidden><span id="bubbleText"></span></div>
+    <button id="fude" aria-label="brush" hidden><svg viewBox="0 0 64 64" width="46" height="46" aria-hidden="true"><path d="M44 6l6 6-14 20-6-6z" fill="#c9a86a" stroke="#6b4a2c" stroke-width="2" stroke-linejoin="round"/><path d="M30 26l8 8-4 4-8-8z" fill="#3a2a1c"/><path d="M26 30l8 8c-4 8-12 14-22 18 3-10 7-19 14-26z" fill="#141418"/><path d="M8 58c6-2 10-4 14-8" stroke="#141418" stroke-width="3" stroke-linecap="round" fill="none"/></svg></button>
+    <button id="hanko" disabled aria-label="finish" hidden></button>
     <div id="result" hidden>
       <div id="adSlot"></div>
       <div id="score"><div id="model"></div><div><div class="lbl" id="scoreLbl"></div><div class="num"><span id="pct">0</span><small>%</small></div></div></div>
@@ -131,10 +139,10 @@ const store = {
 
 // ===== 言語 =====
 const L = {
-  ja: { title: '書道ロボ', back: '← トップへ戻る', share: 'ポスト', again: 'もう一度', score: '似てる度', finish: '完成', loadErr: '読み込みに失敗しました。通信状況を確かめて再読み込みしてください。' },
-  ko: { title: '서예 로봇', back: '← 처음으로', share: '게시', again: '다시 하기', score: '닮은 정도', finish: '완성', loadErr: '불러오지 못했습니다. 연결을 확인하고 새로고침해 주세요.' },
-  en: { title: 'Calligraphy Robot', back: '← Top', share: 'Post', again: 'Again', score: 'Match', finish: 'Finish', loadErr: 'Failed to load. Check your connection and reload.' },
-  th: { title: 'หุ่นยนต์เขียนพู่กัน', back: '← กลับหน้าแรก', share: 'โพสต์', again: 'อีกครั้ง', score: 'ความเหมือน', finish: 'เสร็จ', loadErr: 'โหลดไม่สำเร็จ ตรวจสอบการเชื่อมต่อแล้วโหลดใหม่' },
+  ja: { say: 'ワタシ　ショドウ　スキ', sayV: ['aai', 'oou', 'ui'], title: '書道ロボ', back: '← トップへ戻る', share: 'ポスト', again: 'もう一度', score: '似てる度', finish: '完成', loadErr: '読み込みに失敗しました。通信状況を確かめて再読み込みしてください。' },
+  ko: { say: '나　서예　좋아', sayV: ['a', 'oe', 'oa'], title: '서예 로봇', back: '← 처음으로', share: '게시', again: '다시 하기', score: '닮은 정도', finish: '완성', loadErr: '불러오지 못했습니다. 연결을 확인하고 새로고침해 주세요.' },
+  en: { say: 'I　LIKE　SHODO', sayV: ['ai', 'ai', 'oo'], title: 'Calligraphy Robot', back: '← Top', share: 'Post', again: 'Again', score: 'Match', finish: 'Finish', loadErr: 'Failed to load. Check your connection and reload.' },
+  th: { say: 'ฉัน　ชอบ　เขียนพู่กัน', sayV: ['an', 'o', 'iauan'], title: 'หุ่นยนต์เขียนพู่กัน', back: '← กลับหน้าแรก', share: 'โพสต์', again: 'อีกครั้ง', score: 'ความเหมือน', finish: 'เสร็จ', loadErr: 'โหลดไม่สำเร็จ ตรวจสอบการเชื่อมต่อแล้วโหลดใหม่' },
 };
 const autoLang = () => { for (const l of navigator.languages?.length ? navigator.languages : [navigator.language || '']) { const c = l.toLowerCase().slice(0, 2); if (L[c]) return c; } return 'en'; };
 let lang = store.get('lang', null) || autoLang();
@@ -150,6 +158,7 @@ function applyLang() {
   $('again').textContent = t('again');
   $('scoreLbl').textContent = t('score');
   $('hanko').setAttribute('aria-label', t('finish'));
+  $('bubbleText').textContent = t('say');
   if (window.updateShare) window.updateShare();
 }
 $('lang').onchange = () => { lang = $('lang').value; store.set('lang', lang); applyLang(); };
@@ -305,6 +314,42 @@ function voice(vowels, dur, f0, f1, vol = 0.22, delay = 0) {
   mod.connect(env).connect(master);
   o.start(n); rm.start(n); o.stop(n + dur + 0.03); rm.stop(n + dur + 0.03);
   o.onended = unplug(nodes);
+}
+// しゃべる声（泥んこブタと同じ仕組み）: 声帯の振動（のこぎり波＋息）を、母音ごとの共鳴（フォルマント）に通す。
+// 母音を1拍ずつ切り替え、拍の間で音量を落とす。ロボットなので音程は階段状に動かす
+const VOWEL = { a: [800, 1200, 2600], i: [300, 2300, 3000], u: [350, 1250, 2500], e: [500, 1900, 2600], o: [500, 850, 2500], n: [280, 1000, 2400] };
+function speak(f0, vowels, mora = 0.13, vol = 0.45, rise = 0, delay = 0) {
+  if (!on()) return 0;
+  const seq = vowels.split(''), n = seq.length, dur = n * mora, now = ac.currentTime + delay;
+  const o = ac.createOscillator(); o.type = 'sawtooth';
+  const pitch = u => u < 0.3 ? 1.2 + 0.5 * u : u < 0.85 ? 1.35 - 0.45 * (u - 0.3) / 0.55 : 0.9 - (0.15 - rise) * (u - 0.85) / 0.15;
+  for (let i = 0; i <= n * 2; i++) o.frequency.setValueAtTime(f0 * pitch(i / (n * 2)), now + dur * i / (n * 2));
+  const vib = ac.createOscillator(); vib.frequency.value = 5 + Math.random() * 2;
+  const vg = ac.createGain(); vg.gain.value = f0 * 0.02; vib.connect(vg).connect(o.frequency);
+  const nb = ac.createBuffer(1, Math.floor(ac.sampleRate * dur), ac.sampleRate), nd = nb.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  const ns = ac.createBufferSource(); ns.buffer = nb;
+  const ng = ac.createGain(); ng.gain.value = 0.15;
+  const src = ac.createGain(); o.connect(src); ns.connect(ng).connect(src);
+  const out = ac.createGain(); out.gain.setValueAtTime(0, now);
+  for (let i = 0; i < n; i++) {
+    const t0 = now + i * mora;
+    out.gain.linearRampToValueAtTime(vol * (i === n - 1 ? 0.8 : 1), t0 + mora * 0.25);
+    out.gain.linearRampToValueAtTime(vol * 0.3, t0 + mora * 0.95);
+  }
+  out.gain.linearRampToValueAtTime(0.0001, now + dur + 0.05);
+  const nodes = [o, vib, vg, ns, ng, src, out];
+  [1, 0.6, 0.25].forEach((amp, fi) => {
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = fi === 0 ? 6 : 9;
+    seq.forEach((v, si) => bp.frequency[si ? 'linearRampToValueAtTime' : 'setValueAtTime'](VOWEL[v][fi], now + si * mora + (si ? mora * 0.3 : 0)));
+    const g = ac.createGain(); g.gain.value = amp * 3;
+    src.connect(bp).connect(g).connect(out); nodes.push(bp, g);
+  });
+  out.connect(master);
+  o.start(now); vib.start(now); ns.start(now);
+  o.stop(now + dur + 0.1); vib.stop(now + dur + 0.1); ns.stop(now + dur + 0.1);
+  o.onended = unplug(nodes);
+  return dur;
 }
 const pick = a => a[Math.floor(Math.random() * a.length)];
 function wail() { const f = 230 + Math.random() * 30; voice(pick([['a', 'a', 'o'], ['a', 'u'], ['o', 'a', 'u']]), 0.7, f * 1.4, f * 0.6, 0.25); }
@@ -464,11 +509,16 @@ const shojiTex = (() => {
   x.fillRect(0, 0, 12, 512); x.fillRect(244, 0, 12, 512); x.fillRect(0, 0, 256, 12); x.fillRect(0, 440, 256, 72);
   const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; return tx;
 })();
-const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a2c, roughness: 0.7 }), WALL_Z = PZ0 + PW + 1.3;
+const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a2c, roughness: 0.7 }), WALL_Z = PZ0 + PW + 1.3, BACK_Z = -1.6;
 for (let i = -4; i <= 3; i++) {
   const p = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.8), new THREE.MeshStandardMaterial({ map: shojiTex, emissive: 0xffe9c0, emissiveIntensity: 0.35, emissiveMap: shojiTex, roughness: 0.9 }));
   p.position.set(i * 0.9 + 0.45, 0.9, WALL_Z); p.rotation.y = Math.PI; scene.add(p);
+  // ロボの後ろにも障子（最初の顔のアップの背景）
+  const p2 = new THREE.Mesh(p.geometry, p.material); p2.position.set(i * 0.9 + 0.45, 0.9, BACK_Z); scene.add(p2);
 }
+{ const k2 = new THREE.Mesh(new THREE.BoxGeometry(8, 0.12, 0.1), wood); k2.position.set(0, 1.86, BACK_Z + 0.02); scene.add(k2);
+  const w2 = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.4), new THREE.MeshStandardMaterial({ color: 0xcdb894, roughness: 1 })); w2.position.set(0, 2.6, BACK_Z - 0.02); scene.add(w2);
+  for (const X of [-2.7, 2.7]) { const pil = new THREE.Mesh(new THREE.BoxGeometry(0.12, 3.4, 0.12), wood); pil.position.set(X, 1.7, BACK_Z + 0.04); scene.add(pil); } }
 {
   const kamoi = new THREE.Mesh(new THREE.BoxGeometry(8, 0.12, 0.1), wood); kamoi.position.set(0, 1.86, WALL_Z - 0.02); scene.add(kamoi);
   const wall = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.4), new THREE.MeshStandardMaterial({ color: 0xcdb894, roughness: 1 })); wall.position.set(0, 2.6, WALL_Z + 0.02); wall.rotation.y = Math.PI; scene.add(wall);
@@ -497,7 +547,7 @@ const faceCv = document.createElement('canvas'); faceCv.width = 256; faceCv.heig
 const fctx = faceCv.getContext('2d');
 const faceTex = new THREE.CanvasTexture(faceCv); faceTex.colorSpace = THREE.SRGBColorSpace;
 const catImg = new Image(); catImg.src = 'cat.png';
-let faceMode = 'normal', faceSpin = 0;
+let faceMode = 'normal', faceSpin = 0, mouthOpen = 0;
 function drawFace() {
   const W = 256, H = 184;
   const g = fctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#0d2633'); g.addColorStop(1, '#06131b');
@@ -522,6 +572,8 @@ function drawFace() {
     } else if (faceMode === 'happy') {
       eyes.forEach(([x, y]) => { fctx.fillStyle = '#6b5a4a'; fctx.beginPath(); fctx.arc(x, y, 15, 0, Math.PI * 2); fctx.fill(); fctx.strokeStyle = '#111'; fctx.lineWidth = 5; fctx.lineCap = 'round'; fctx.beginPath(); fctx.arc(x, y + 6, 10, Math.PI * 1.15, Math.PI * 1.85); fctx.stroke(); });
     }
+    // しゃべっている口
+    if (mouthOpen) { const mx = cx + 152 * s, my = cy + 205 * s; fctx.fillStyle = '#4a1f1f'; fctx.beginPath(); fctx.ellipse(mx, my, 13 * mouthOpen, 9 + 7 * mouthOpen, 0, 0, Math.PI * 2); fctx.fill(); fctx.fillStyle = '#c4545e'; fctx.beginPath(); fctx.ellipse(mx, my + 5 * mouthOpen, 8 * mouthOpen, 4 * mouthOpen, 0, 0, Math.PI * 2); fctx.fill(); }
   }
   const gl = fctx.createLinearGradient(0, 0, W, H); gl.addColorStop(0, 'rgba(255,255,255,0.12)'); gl.addColorStop(0.4, 'rgba(255,255,255,0)');
   fctx.fillStyle = gl; fctx.fillRect(0, 0, W, H);
@@ -806,6 +858,29 @@ let finished = false, started = false;
 const stick = { id: null, x0: 0, y0: 0, sx: 0, sy: 0 }, keys = new Set();
 const STICK_R = 56;
 function startPlay() { if (!started) { started = true; $('hint').classList.add('off'); } }
+// ===== 最初のカットシーン: ロボの顔のドアップで「ワタシ ショドウ スキ」=====
+// 開いた時は音が出せないので、声なしでしゃべって待つ。最初のタップで声つきで最初から。2回目のタップで飛ばす
+const intro = { phase: 'play', t: 0, voiced: false, words: [], end: 0 };
+const INTRO = { pre: 0.6, gap: 0.2, mora: 0.17, hold: 0.9, out: 1.4 };
+function introStart(voiced) {
+  intro.phase = 'play'; intro.t = 0; intro.voiced = voiced; intro.words = [];
+  $('bubble').hidden = true;
+  let t0 = INTRO.pre;
+  for (const v of t('sayV')) { intro.words.push({ t0, t1: t0 + v.length * INTRO.mora, v, said: false }); t0 += v.length * INTRO.mora + INTRO.gap; }
+  intro.end = t0 - INTRO.gap;
+}
+function introDone() {
+  intro.phase = 'done'; $('bubble').hidden = true; mouthOpen = 0; drawFace();
+  $('fude').hidden = false; $('hanko').hidden = false; $('hint').classList.remove('off');
+}
+introStart(false);
+function introTap() {
+  if (intro.phase === 'done' || intro.phase === 'out') return;
+  if (!intro.voiced) introStart(true);
+  else { intro.phase = 'out'; intro.t = 0; $('bubble').hidden = true; mouthOpen = 0; drawFace(); }
+}
+addEventListener('pointerdown', e => { if (!e.target.closest('header')) introTap(); });
+addEventListener('keydown', e => { if (!e.target.closest || !e.target.closest('select')) introTap(); });
 // 画面の右 = 世界の -x、画面の上 = 世界の +z（カメラは手前から奥を見ている）
 function updMove() {
   let sx = stick.sx, sy = stick.sy;
@@ -816,7 +891,7 @@ function updMove() {
   move.x = -sx; move.z = -sy;
 }
 canvas.addEventListener('pointerdown', e => {
-  if (finished || stick.id !== null) return;
+  if (finished || stick.id !== null || intro.phase !== 'done') return;
   canvas.setPointerCapture(e.pointerId);
   stick.id = e.pointerId; stick.x0 = e.clientX; stick.y0 = e.clientY; stick.sx = stick.sy = 0;
   const el = $('stick'); el.style.left = e.clientX + 'px'; el.style.top = e.clientY + 'px'; el.classList.add('on');
@@ -837,13 +912,13 @@ canvas.addEventListener('pointercancel', endPtr);
 // 筆ボタン（押している間だけ）
 const fude = $('fude');
 const fudeOn = v => { if (finished) v = false; tgt.down = v; fude.classList.toggle('on', v); if (v) startPlay(); };
-fude.addEventListener('pointerdown', e => { e.preventDefault(); fude.setPointerCapture(e.pointerId); fudeOn(true); });
+fude.addEventListener('pointerdown', e => { e.preventDefault(); if (intro.phase !== 'done') return; fude.setPointerCapture(e.pointerId); fudeOn(true); });
 for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) fude.addEventListener(ev, () => fudeOn(false));
 const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', KeyA: 'left', KeyD: 'right', KeyW: 'up', KeyS: 'down' };
 addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('select')) return;
-  if (KEYMAP[e.code]) { e.preventDefault(); if (!finished) { keys.add(KEYMAP[e.code]); startPlay(); updMove(); } }
-  else if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) fudeOn(true); }
+  if (KEYMAP[e.code]) { e.preventDefault(); if (!finished && intro.phase === 'done') { keys.add(KEYMAP[e.code]); startPlay(); updMove(); } }
+  else if (e.code === 'Space') { e.preventDefault(); if (!e.repeat && intro.phase === 'done') fudeOn(true); }
 });
 addEventListener('keyup', e => {
   if (KEYMAP[e.code]) { keys.delete(KEYMAP[e.code]); updMove(); }
@@ -905,8 +980,8 @@ function spring(K, C, max, dx, dy, dz, vx, vy, vz) {
   const fl = Math.hypot(fx, fy, fz); if (fl > max) { fx *= max / fl; fy *= max / fl; fz *= max / fl; }
   return [fx, fy, fz, fl];
 }
-const VWALK = 0.5, AREA = { x0: -PW * 0.45, x1: PW * 0.45, z0: 0, z1: PZ0 + PW - 0.5 };
-const WALK_K = 130, WALK_C = 70, WALK_F = 38, VMAX = 0.38, REACT = 0.7, KH = 900, CH = 60, FHMAX = 110, KT = 260, CT = 16, TQMAX = 80;
+const VWALK = 0.75, AREA = { x0: -PW * 0.45, x1: PW * 0.45, z0: 0, z1: PZ0 + PW - 0.5 };
+const WALK_K = 130, WALK_C = 70, WALK_F = 38, VMAX = 0.62, REACT = 0.7, KH = 900, CH = 60, FHMAX = 110, KT = 260, CT = 16, TQMAX = 80;
 sim.preStep = () => {
   if (sim.state !== 'stand') { pull = 0; return; }
   goals();
@@ -931,7 +1006,7 @@ sim.preStep = () => {
     if (mag > 0.15) {
       sim.walkGoal = { x: sim.com.x + mx / mag * 0.4, z: sim.com.z + mz / mag * 0.4 };
       // 速さを VWALK に近づける力（押されて足を踏み出す＋自分から踏み出す）
-      [hx, , hz] = spring(0, -130, 50 * calm, 0, 0, 0, mx * VWALK - pv.x, 0, mz * VWALK - pv.z);
+      [hx, , hz] = spring(0, -150, 75 * calm, 0, 0, 0, mx * VWALK - pv.x, 0, mz * VWALK - pv.z);
     } else {
       sim.walkGoal = null;
       [hx, , hz] = spring(0, 110, 45, 0, 0, 0, pv.x, 0, pv.z);
@@ -944,6 +1019,10 @@ sim.preStep = () => {
   const vh = Math.hypot(sim.comV.x, sim.comV.z);
   if (vh > VMAX) { const k = Math.min(160, 400 * (vh - VMAX)) / vh; hx -= sim.comV.x * k; hz -= sim.comV.z * k; }
   pel.applyImpulse({ x: hx * sim.DT, y: 0, z: hz * sim.DT }, true);
+  // ヨタヨタ: 体をゆっくり不規則に揺らす（歩いている間は大きく）
+  { const t = sim.time, walking = Math.hypot(move.x, move.z) > 0.15 && !finished, A = walking ? 26 : 7;
+    const wx = (Math.sin(t * 2.1) + Math.sin(t * 3.7 + 1.3) * 0.7 + Math.sin(t * 5.9 + 0.4) * 0.4) / 2.1, wz = (Math.sin(t * 1.7 + 2) + Math.sin(t * 4.3 + 0.7) * 0.6) / 1.6;
+    sim.parts.torso.body.applyImpulse({ x: wx * A * sim.DT, y: 0, z: wz * A * 0.6 * sim.DT }, true); }
   // 右手（筆の上端をにぎる）をおなかの前の行きたい位置へ。反動の多くは胴で受ける
   pointState(sim.parts.foreR.body, HAND_LOCAL, hand, handV);
   const [fx, fy, fz, fl] = spring(KH, CH, FHMAX, handGoal.x - hand.x, handGoal.y - hand.y, handGoal.z - hand.z, handV.x, handV.y, handV.z);
@@ -1199,6 +1278,43 @@ function afterStep() {
   wasTouch = touch;
 }
 
+// カットシーンのカメラと吹き出し・口
+const hv = new THREE.Vector3(), hf = new THREE.Vector3(), cpos = new THREE.Vector3(), ctgt = new THREE.Vector3(), hq = new THREE.Quaternion();
+function introFrame(dt) {
+  intro.t += dt;
+  const hb = sim.parts.head.body, ht = hb.translation(), q = hb.rotation();
+  hq.set(q.x, q.y, q.z, q.w); hv.set(ht.x, ht.y, ht.z);
+  hf.set(0, 0, 1).applyQuaternion(hq); hf.y = 0; hf.normalize();
+  // 顔が画面に収まる距離
+  const vf = THREE.MathUtils.degToRad(camera.fov) / 2, hfov = Math.atan(Math.tan(vf) * camera.aspect);
+  const d = Math.max(0.3 / Math.tan(vf), 0.24 / Math.tan(hfov));
+  cpos.copy(hv).addScaledVector(hf, d); cpos.y += 0.03; ctgt.copy(hv); ctgt.y += 0.04;
+  if (intro.phase === 'play') {
+    // しゃべる
+    let open = 0;
+    for (const w of intro.words) {
+      if (!w.said && intro.t >= w.t0) { w.said = true; if (intro.voiced) speak(185, w.v, INTRO.mora, 0.5, 0.1); $('bubble').hidden = false; }
+      if (intro.t >= w.t0 && intro.t < w.t1) { const u = (intro.t - w.t0) / INTRO.mora; open = Math.sin(Math.PI * (u % 1)) * (w.v[Math.floor(u)] === 'n' ? 0.3 : 1); }
+    }
+    const o = Math.round(open * 3) / 3; if (o !== mouthOpen) { mouthOpen = o; drawFace(); }
+    if (intro.t > intro.end + INTRO.hold && intro.voiced) { intro.phase = 'out'; intro.t = 0; $('bubble').hidden = true; mouthOpen = 0; drawFace(); }
+    camera.position.copy(cpos); camera.lookAt(ctgt);
+  } else if (intro.phase === 'out') {
+    // 頭の上を回って、いつもの見下ろしへ
+    const u = Math.min(1, intro.t / INTRO.out), k = u * u * (3 - 2 * u);
+    const px = camera.position.x, py = camera.position.y, pz = camera.position.z; // placeCamera() が置いた遊ぶ時の位置
+    camera.position.set(cpos.x + (px - cpos.x) * k, cpos.y + (py - cpos.y) * k + Math.sin(Math.PI * k) * 0.9, cpos.z + (pz - cpos.z) * k);
+    camera.lookAt(ctgt.x + (camT.x - ctgt.x) * k, ctgt.y + (camT.y - ctgt.y) * k, ctgt.z + (camT.z - ctgt.z) * k);
+    if (u >= 1) { introDone(); placeCamera(); }
+  }
+  camera.updateMatrixWorld();
+  if (!$('bubble').hidden) {
+    hv.y += 0.2; hv.project(camera);
+    const x = Math.max(130, Math.min(innerWidth - 130, (hv.x + 1) / 2 * innerWidth)), y = Math.max(110, (1 - hv.y) / 2 * innerHeight);
+    $('bubble').style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+  }
+}
+
 // ===== ループ（物理は 1/120 秒きざみ・描画は補間）=====
 let acc = 0, last = performance.now(), faceTimer = 0;
 const hintPos = new THREE.Vector3();
@@ -1252,6 +1368,7 @@ function frame(now) {
   const kf = 1 - Math.exp(-dt * 3);
   camT.lerp(camGoal.t, kf); camDist += (camGoal.d - camDist) * kf;
   placeCamera();
+  if (intro.phase !== 'done') introFrame(dt);
   updateParticles(dt);
   if (!$('hint').classList.contains('off')) {
     hintPos.set(0, 0, PZC).project(camera);
