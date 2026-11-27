@@ -547,7 +547,7 @@ const faceCv = document.createElement('canvas'); faceCv.width = 256; faceCv.heig
 const fctx = faceCv.getContext('2d');
 const faceTex = new THREE.CanvasTexture(faceCv); faceTex.colorSpace = THREE.SRGBColorSpace;
 const catImg = new Image(); catImg.src = 'cat.png';
-let faceMode = 'normal', faceSpin = 0, mouthOpen = 0;
+let faceMode = 'normal', faceSpin = 0;
 function drawFace() {
   const W = 256, H = 184;
   const g = fctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#0d2633'); g.addColorStop(1, '#06131b');
@@ -572,8 +572,6 @@ function drawFace() {
     } else if (faceMode === 'happy') {
       eyes.forEach(([x, y]) => { fctx.fillStyle = '#6b5a4a'; fctx.beginPath(); fctx.arc(x, y, 15, 0, Math.PI * 2); fctx.fill(); fctx.strokeStyle = '#111'; fctx.lineWidth = 5; fctx.lineCap = 'round'; fctx.beginPath(); fctx.arc(x, y + 6, 10, Math.PI * 1.15, Math.PI * 1.85); fctx.stroke(); });
     }
-    // しゃべっている口
-    if (mouthOpen) { const mx = cx + 152 * s, my = cy + 205 * s; fctx.fillStyle = '#4a1f1f'; fctx.beginPath(); fctx.ellipse(mx, my, 13 * mouthOpen, 9 + 7 * mouthOpen, 0, 0, Math.PI * 2); fctx.fill(); fctx.fillStyle = '#c4545e'; fctx.beginPath(); fctx.ellipse(mx, my + 5 * mouthOpen, 8 * mouthOpen, 4 * mouthOpen, 0, 0, Math.PI * 2); fctx.fill(); }
   }
   const gl = fctx.createLinearGradient(0, 0, W, H); gl.addColorStop(0, 'rgba(255,255,255,0.12)'); gl.addColorStop(0.4, 'rgba(255,255,255,0)');
   fctx.fillStyle = gl; fctx.fillRect(0, 0, W, H);
@@ -870,14 +868,14 @@ function introStart(voiced) {
   intro.end = t0 - INTRO.gap;
 }
 function introDone() {
-  intro.phase = 'done'; $('bubble').hidden = true; mouthOpen = 0; drawFace();
+  intro.phase = 'done'; $('bubble').hidden = true;
   $('fude').hidden = false; $('hanko').hidden = false; $('hint').classList.remove('off');
 }
 introStart(false);
 function introTap() {
   if (intro.phase === 'done' || intro.phase === 'out') return;
   if (!intro.voiced) introStart(true);
-  else { intro.phase = 'out'; intro.t = 0; $('bubble').hidden = true; mouthOpen = 0; drawFace(); }
+  else { intro.phase = 'out'; intro.t = 0; $('bubble').hidden = true; }
 }
 addEventListener('pointerdown', e => { if (!e.target.closest('header')) introTap(); });
 addEventListener('keydown', e => { if (!e.target.closest || !e.target.closest('select')) introTap(); });
@@ -1291,13 +1289,8 @@ function introFrame(dt) {
   cpos.copy(hv).addScaledVector(hf, d); cpos.y += 0.03; ctgt.copy(hv); ctgt.y += 0.04;
   if (intro.phase === 'play') {
     // しゃべる
-    let open = 0;
-    for (const w of intro.words) {
-      if (!w.said && intro.t >= w.t0) { w.said = true; if (intro.voiced) speak(185, w.v, INTRO.mora, 0.5, 0.1); $('bubble').hidden = false; }
-      if (intro.t >= w.t0 && intro.t < w.t1) { const u = (intro.t - w.t0) / INTRO.mora; open = Math.sin(Math.PI * (u % 1)) * (w.v[Math.floor(u)] === 'n' ? 0.3 : 1); }
-    }
-    const o = Math.round(open * 3) / 3; if (o !== mouthOpen) { mouthOpen = o; drawFace(); }
-    if (intro.t > intro.end + INTRO.hold && intro.voiced) { intro.phase = 'out'; intro.t = 0; $('bubble').hidden = true; mouthOpen = 0; drawFace(); }
+    for (const w of intro.words) if (!w.said && intro.t >= w.t0) { w.said = true; if (intro.voiced) speak(185, w.v, INTRO.mora, 0.5, 0.1); $('bubble').hidden = false; }
+    if (intro.t > intro.end + INTRO.hold && intro.voiced) { intro.phase = 'out'; intro.t = 0; $('bubble').hidden = true; }
     camera.position.copy(cpos); camera.lookAt(ctgt);
   } else if (intro.phase === 'out') {
     // 頭の上を回って、いつもの見下ろしへ
