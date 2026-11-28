@@ -742,7 +742,7 @@
     function soleRel(lx, lz) {
       const e = Math.sqrt((lx / 0.2) ** 2 + (lz / 0.255) ** 2);
       const rise = Math.max(0, e - 0.62);
-      return 0.048 * (1 - padMask(lx, lz)) + 0.6 * rise * rise;
+      return 0.056 * (1 - padMask(lx, lz)) + 0.6 * rise * rise;
     }
     function collide(p) {
       const A = p.A;
@@ -788,7 +788,10 @@
     function commit(p) {
       if (state !== 'dough') return;
       const A = p.A;
-      for (let i = 0; i < NV * 3; i++) D[i] += 0.5 * A[i];
+      for (let i = 0; i < NV * 3; i++) D[i] += 0.8 * A[i];
+      // 同じ所を何度押しても、へこみ・盛り上がりは一定まで
+      for (let i = 1; i < NV * 3; i += 3) { if (D[i] < -0.075) D[i] = -0.075; else if (D[i] > 0.045) D[i] = 0.045; }
+      for (let i = 0; i < NV * 3; i += 3) { D[i] = Math.max(-0.06, Math.min(0.06, D[i])); D[i + 2] = Math.max(-0.06, Math.min(0.06, D[i + 2])); }
       lastCommit = now; dirty = true;
       presses++;
       setKnead();
@@ -801,14 +804,14 @@
       g.globalCompositeOperation = 'destination-out';
       g.fillStyle = 'rgba(0,0,0,0.3)';
       g.beginPath(); g.ellipse(0, 0, 0.17, 0.22, 0, 0, Math.PI * 2); g.fill();
-      g.fillStyle = 'rgba(0,0,0,0.6)';
+      g.fillStyle = 'rgba(0,0,0,0.8)';
       for (const [x, z, sx, sz] of PADS) { g.beginPath(); g.ellipse(x, z, sx * 0.85, sz * 0.85, 0, 0, Math.PI * 2); g.fill(); }
       for (const [x, z] of TOES) { g.beginPath(); g.ellipse(x, z, 0.03, 0.028, 0, 0, Math.PI * 2); g.fill(); }
       g.restore();
       // 押した所はしっとりして少し色が濃くなる（こねるほど全体がなじむ）
       const b = doughBase.getContext('2d');
       b.save(); b.setTransform(rx * k, -rz * k, -fx * k, fz * k, px, py);
-      b.fillStyle = 'rgba(178,138,88,0.1)';
+      b.fillStyle = 'rgba(170,128,78,0.16)';
       for (const [x, z, sx, sz] of PADS) { b.beginPath(); b.ellipse(x, z, sx * 0.9, sz * 0.9, 0, 0, Math.PI * 2); b.fill(); }
       for (const [x, z] of TOES) { b.beginPath(); b.ellipse(x, z, 0.032, 0.03, 0, 0, Math.PI * 2); b.fill(); }
       b.restore();
@@ -1212,7 +1215,7 @@
     }
 
     // ---------- ループ ----------
-    const DECAY_TICK = Math.exp(-0.05 / 9);
+    const DECAY_TICK = Math.exp(-0.05 / 120);
     let needRender = 3;
     let lastT = performance.now(), smoothAcc = 0, camBob = new THREE.Vector3(), camRoll = 0;
     const nrmArr = doughGeo.attributes.normal.array;
@@ -1236,12 +1239,13 @@
     let dActive = false;
     function smoothD() {
       // 跡のふちを少しずつなだらかにし、ゆっくり元に戻す（生地がなじむ）
-      if (now - lastCommit > 45) { if (dActive) { D.fill(0); dActive = false; dirty = true; return true; } return false; }
+      // しばらく触らなければ、跡はそのまま残す（計算を止める）
+      if (now - lastCommit > 45) return false;
       dActive = true; dirty = true;
       DT.set(D);
       for (let i = 0; i < NV * 3; i++) DT[i] *= DECAY_TICK;
       D.set(DT);
-      const S = GN + 1, k = 0.1;
+      const S = GN + 1, k = 0.025;
       for (let i = 1; i < GN; i++) for (let j = 1; j < GN; j++) {
         const v = i * S + j;
         for (let c = 0; c < 3; c++) {
@@ -1317,7 +1321,7 @@
     renderer.compile(scene, camera);
     renderer.render(scene, camera);
     requestAnimationFrame(t => { lastT = t; frame(t); });
-    window.__knead = { paws, press, release, scene, camera, renderer, update, nr: () => needRender, shareImg: () => resultImage()?.toDataURL('image/jpeg', 0.8), step(sec) { for (let s = 0; s < sec; s += 1 / 60) { needRender = 0; update(1 / 60); } } };
+    window.__knead = { poke: () => userInput(), paws, press, release, scene, camera, renderer, update, nr: () => needRender, shareImg: () => resultImage()?.toDataURL('image/jpeg', 0.8), step(sec) { for (let s = 0; s < sec; s += 1 / 60) { needRender = 0; update(1 / 60); } } };
   </script>
   <script src="../../ad.js" data-result="#result" data-inline="#adSlot"></script>
 </body>
