@@ -18,6 +18,8 @@
 // ・広告は1回の訪問につき1回だけ読み込む（結果が出るたびに入れ替えると AdSense の規約違反になる）
 // ・adsbygoogle.js は最初の結果が出た時に読み込む（プレイ中を重くしないため）
 // ・背の低い画面（横向きスマホなど）では出さない
+// ・結果が出てから WAIT ミリ秒、かつ最後に画面に触れてから QUIET ミリ秒たつまで出さない
+//   （連打中の指の下に広告が出て、うっかりクリックになるのを防ぐ。無効なクリックは配信制限の原因になる）
 (() => {
   const CLIENT = 'ca-pub-6939356439579496';
   const SLOT = '1935432497'; // AdSense の広告ユニット「結果画面」の data-ad-slot（10桁）。空なら広告は出さない
@@ -39,6 +41,8 @@
   const MIN_H = 600; // これより背の低い画面では出さない
   const GAP = 150;    // 広告とボタンの間に空ける距離（AdSense の推奨）
   const MIN_SCALE = 0.55; // これより縮めないと離せないときは、広告を出さない
+  const WAIT = 1200;  // 結果が出てから広告を出すまでの待ち時間（ms）
+  const QUIET = 800;  // 最後に画面に触れてから広告を出すまでの待ち時間（ms）
   const SKIP = new Set(['SCRIPT', 'STYLE', 'LINK', 'NOSCRIPT', 'TEMPLATE', 'HEADER']);
 
   const style = document.createElement('style');
@@ -54,6 +58,8 @@
   document.head.append(style);
 
   let box = null, filled = false, on = false, shown = false, blocked = false, scale = 1;
+  let onAt = 0, touchAt = 0; // 結果が出た時刻 / 最後に画面に触れた（離した）時刻
+  for (const t of ['pointerdown', 'pointerup', 'keydown']) addEventListener(t, () => { touchAt = Date.now(); }, true);
   const shrunk = new Map(); // 縮めた要素 → 元の style.scale / style.translate
 
   function build() {
@@ -156,11 +162,14 @@
     if (show === on) return;
     on = show;
     if (!show) { hideAd(); blocked = false; return; }
+    onAt = Date.now();
     tryShow();
   };
 
   function tryShow() {
     if (innerHeight < MIN_H || blocked) return;
+    const now = Date.now();
+    if (now - onAt < WAIT || now - touchAt < QUIET) return; // 0.4 秒ごとに試し直す
     if (!box) build();
     box.querySelector('.label').textContent = label();
     if (box.classList.contains('inline')) {
