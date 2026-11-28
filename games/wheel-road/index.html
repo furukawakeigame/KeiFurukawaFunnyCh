@@ -2187,10 +2187,18 @@ const RANK_URL = 'https://script.google.com/macros/s/AKfycbyAE0TZe6QHNZHmRVlMaf2
 const GAME_SOLO = 'wheel-road', GAME_DUO = 'wheel-road-2p';
 let devId = store.get('dev', '');
 if (!devId) { devId = Math.random().toString(36).slice(2) + Date.now().toString(36); store.set('dev', devId); }
-async function rpost(body, tries = 1) {
+// patient: 走っている間の知らせ（go / cp）用。電波が少し途切れたり、サーバーが混んで「待って」と返しても、
+// 間をあけて何度か送り直す（サーバーは同じ知らせが2回届いても大丈夫）
+async function rpost(body, tries = 1, patient = false) {
   for (let i = 0; i < tries; i++) {
-    try { const r = await fetch(RANK_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }); return await r.json(); }
-    catch (e) { if (i === tries - 1) throw e; await new Promise(ok => setTimeout(ok, 600)); }
+    const last = i === tries - 1, gap = patient ? 1000 * (i + 1) : 600;
+    try {
+      const sig = typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(25000) : undefined;
+      const r = await fetch(RANK_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), signal: sig });
+      const j = await r.json();
+      if (patient && !last && j && !j.ok && j.error === 'wait') { await new Promise(ok => setTimeout(ok, gap)); continue; }
+      return j;
+    } catch (e) { if (last) throw e; await new Promise(ok => setTimeout(ok, gap)); }
   }
 }
 const cleanNm = v => String(v || '').replace(/[\u0000-\u001f<>&]/g, '').replace(/\s+/g, ' ').trim().slice(0, 8);
@@ -2201,7 +2209,7 @@ const rank2 = { me: '', mate: '', mateDev: '', wait: false };
 const tokPool = {};
 function fetchTok(game) {
   const t = { game, at: Date.now(), tok: null, seed: null, ok: true };
-  t.p = rpost({ act: 'start', game, dev: devId }, 3).then(j => { if (j && j.ok) { t.tok = j.tok; t.seed = j.seed; } else t.ok = false; }).catch(() => { t.ok = false; });
+  t.p = rpost({ act: 'start', game, dev: devId }, 5, true).then(j => { if (j && j.ok) { t.tok = j.tok; t.seed = j.seed; } else t.ok = false; }).catch(() => { t.ok = false; });
   return t;
 }
 function takeTok(game) {
@@ -2225,14 +2233,14 @@ function rkPrefetch() {
     beginNow();
   });
 }
-// 最初の操作: 整理券がまだなら最大3秒だけ待つ（間に合わなければ、登録なしで走り出す）
+// 最初の操作: 整理券がまだなら最大6秒だけ待つ（間に合わなければ、登録なしで走り出す）
 let startWait = false, startTimer = 0;
 function requestStart() {
   if (state !== 'ready') return;
   if (rk && rk.ok && !rk.ready) {
     if (startWait) return;
-    startWait = true; toast(t('prepRank'), 3000);
-    startTimer = setTimeout(() => { if (startWait) { if (rk) rk.ok = false; beginNow(); } }, 3000);
+    startWait = true; toast(t('prepRank'), 6000);
+    startTimer = setTimeout(() => { if (startWait) { if (rk) rk.ok = false; beginNow(); } }, 6000);
     return;
   }
   startPlay();
@@ -2246,7 +2254,7 @@ function rkGo() {
   const me = rk; if (!me || !me.ok) return;
   me.chain = me.chain.then(() => {
     if (!me.ok || !me.tok || me.seed !== seed) { me.ok = false; return; }
-    return rpost({ act: 'go', tok: me.tok }, 3).then(j => { if (j.ok) me.goAt = performance.now(); else me.ok = false; });
+    return rpost({ act: 'go', tok: me.tok }, 7, true).then(j => { if (j.ok) me.goAt = performance.now(); else me.ok = false; });
   }).catch(() => { me.ok = false; });
 }
 function rkCheckpoint() {
@@ -2256,7 +2264,9 @@ function rkCheckpoint() {
     const k = ++me.cp, crossT = performance.now();
     me.chain = me.chain.then(() => {
       if (!me.ok || !me.goAt) { me.ok = false; return; }
-      return rpost({ act: 'cp', tok: me.tok, n: k, sec: Math.max(0, (crossT - me.goAt) / 1000) }, 3).then(j => { if (!j.ok) me.ok = false; });
+      // go の返事より先に 100m を越えていたら、そこを0秒とみなす（0 に切り捨てると次の 100m が「速すぎ」に見えてしまう）
+      if (crossT < me.goAt) me.goAt = crossT;
+      return rpost({ act: 'cp', tok: me.tok, n: k, sec: Math.max(0, (crossT - me.goAt) / 1000) }, 7, true).then(j => { if (!j.ok) me.ok = false; });
     }).catch(() => { me.ok = false; });
   }
 }
